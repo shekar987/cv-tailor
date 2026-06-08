@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callClaude } from "@/lib/claude";
+import {
+  SUMMARY_PROMPT,
+  SKILLS_PROMPT,
+  EXPERIENCE_PROMPT,
+  PROJECTS_PROMPT,
+} from "@/prompts/steps";
 
-const JD_ANALYZER_PROMPT = `You are a JD analyzer for a CV tailoring system. Extract structured data from the job description the user provides.
+const JD_ANALYZER_PROMPT = `You are a JD analyzer for a CV tailoring system. Extract structured data from the job description.
 
 Output ONLY a JSON object (no prose, no markdown fences) with these fields:
 {
@@ -26,15 +32,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No job description provided" }, { status: 400 });
     }
 
-    const result = await callClaude({
+    // Step 1 — Analyze the JD (returns parsed JSON)
+    const analysis = await callClaude({
       system: JD_ANALYZER_PROMPT,
       userInput: jobDescription,
       expectJson: true,
     });
 
-    return NextResponse.json({ result });
+    const analysisStr = JSON.stringify(analysis);
+
+    // Steps 3-6 — run the tailoring steps, each fed the JD analysis
+    const [summary, skills, experience, projects] = await Promise.all([
+      callClaude({ system: SUMMARY_PROMPT, userInput: analysisStr }),
+      callClaude({ system: SKILLS_PROMPT, userInput: analysisStr }),
+      callClaude({ system: EXPERIENCE_PROMPT, userInput: analysisStr }),
+      callClaude({ system: PROJECTS_PROMPT, userInput: analysisStr }),
+    ]);
+
+    return NextResponse.json({
+      analysis,
+      summary,
+      skills,
+      experience,
+      projects,
+    });
   } catch (error) {
-    console.error("API error:", error);
-    return NextResponse.json({ error: "Failed to analyze JD" }, { status: 500 });
+    console.error("Tailor API error:", error);
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: "Tailoring failed", detail: msg }, { status: 500 });
   }
 }
