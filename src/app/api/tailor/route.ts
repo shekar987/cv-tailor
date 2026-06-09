@@ -5,6 +5,9 @@ import {
   SKILLS_PROMPT,
   EXPERIENCE_PROMPT,
   PROJECTS_PROMPT,
+  COMPANY_RESEARCH_PROMPT,
+  COVER_LETTER_PROMPT,
+  ATS_SCORING_PROMPT,
 } from "@/prompts/steps";
 
 const JD_ANALYZER_PROMPT = `You are a JD analyzer for a CV tailoring system. Extract structured data from the job description.
@@ -42,19 +45,33 @@ export async function POST(req: NextRequest) {
     const analysisStr = JSON.stringify(analysis);
 
     // Steps 3-6 — run the tailoring steps, each fed the JD analysis
-    const [summary, skills, experience, projects] = await Promise.all([
+    // Wave 1: company research runs alongside the 4 tailoring steps (all depend only on analysis)
+    const [research, summary, skills, experience, projects] = await Promise.all([
+      callClaude({ system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true }),
       callClaude({ system: SUMMARY_PROMPT, userInput: analysisStr }),
       callClaude({ system: SKILLS_PROMPT, userInput: analysisStr }),
       callClaude({ system: EXPERIENCE_PROMPT, userInput: analysisStr }),
       callClaude({ system: PROJECTS_PROMPT, userInput: analysisStr }),
     ]);
 
+    // Wave 2: cover letter needs analysis + research; ATS scoring needs analysis + tailored sections
+    const coverLetterInput = JSON.stringify({ analysis, research });
+    const atsInput = JSON.stringify({ analysis, summary, skills, experience, projects });
+
+    const [coverLetter, atsScore] = await Promise.all([
+      callClaude({ system: COVER_LETTER_PROMPT, userInput: coverLetterInput, maxTokens: 1200 }),
+      callClaude({ system: ATS_SCORING_PROMPT, userInput: atsInput, expectJson: true }),
+    ]);
+
     return NextResponse.json({
       analysis,
+      research,
       summary,
       skills,
       experience,
       projects,
+      coverLetter,
+      atsScore,
     });
   } catch (error) {
     console.error("Tailor API error:", error);

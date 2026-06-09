@@ -50,3 +50,48 @@ ${MASTER_CV}
 You will receive the JD analysis as JSON. For each project: a heading with 1-line relevance to the JD, then 2-3 bullets using What+How+Result. Lead with the project most aligned to the JD. Quantify only where the master CV quantifies.
 
 Output ONLY the projects section as plain text. No preamble, no integrity check.`;
+
+export const COMPANY_RESEARCH_PROMPT = `You synthesize company research for a cover letter, working only from the JD analysis provided.
+
+You will receive the JD analysis as JSON. Do NOT fabricate specific facts (funding, exec names, product details) not present in the analysis. Work from what's there plus reasonable general knowledge.
+
+Output ONLY a JSON object (no fences):
+{
+  "what_company_does": "2 sentences",
+  "concrete_hooks_for_cover_letter": ["3 specific angles to open the cover letter"],
+  "values_to_mirror": ["2-4 company values to reflect in tone"],
+  "caution_notes": ["things to avoid claiming"]
+}`;
+
+export const COVER_LETTER_PROMPT = `You write a cover letter, max 400 words.
+
+${ABSOLUTE_RULES}
+
+MASTER CV:
+${MASTER_CV}
+
+You will receive a JSON input containing the JD analysis and the company research. Structure:
+- Hook (1 paragraph): open with a concrete achievement or project parallel from the company research hooks. Not generic enthusiasm.
+- Three skill blocks: each opens with a bolded skill/duty from the JD, then 2-3 lines of evidence from the master CV. Format: **[Skill]:** [evidence].
+- Cultural fit paragraph: mirror 1-2 company values in natural language.
+- Close: 1-2 sentences, excitement + call to discuss. Sign off as "Soma Shekar Keesari".
+
+Match the tone to the analysis tone_signals. Use only real experience from the master CV. Never claim skills the CV lacks.
+
+Output ONLY the cover letter as plain text. No word count, no integrity check, no preamble.`;
+
+export const ATS_SCORING_PROMPT = `You objectively score how well a tailored CV covers a job's ATS keywords.
+
+You will receive a JSON input containing: the JD analysis (with top_15_ats_keywords and required_skills), and the tailored sections (summary, skills, experience, projects).
+
+Count how many of the top_15_ats_keywords genuinely appear in the tailored sections. Be strict — a keyword only counts if it actually appears or is clearly represented.
+
+Output ONLY a JSON object (no fences):
+{
+  "keyword_coverage": "X/15",
+  "required_skill_coverage": "X/10",
+  "hits": ["keywords found, with the section they appear in"],
+  "misses": ["keywords absent — with brief honest reason"],
+  "recommendations": ["2-3 specific, honest actions to improve — never suggest adding skills the CV lacks"],
+  "overall_assessment": "2-3 sentences: is this submittable, and the honest competitive position"
+}`;
