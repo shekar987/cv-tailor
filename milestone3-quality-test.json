@@ -1,0 +1,115 @@
+﻿{
+    "analysis":  {
+                     "role_title":  "Software Engineer (Backend)",
+                     "company_name":  "Duffel",
+                     "seniority_level":  "mid",
+                     "role_type":  "backend",
+                     "location_and_mode":  "London, Hybrid (Shoreditch/Liverpool Street)",
+                     "required_skills":  [
+                                             "API design",
+                                             "Elixir",
+                                             "Phoenix",
+                                             "Kubernetes",
+                                             "Google Cloud Platform",
+                                             "Backend development",
+                                             "Code quality",
+                                             "System integration",
+                                             "Developer experience",
+                                             "Clear communication"
+                                         ],
+                     "nice_to_have_skills":  [
+                                                 "Travel industry experience",
+                                                 "Flights/hotels/cars domain knowledge",
+                                                 "Distributed systems",
+                                                 "Third-party API integration",
+                                                 "Microservices architecture",
+                                                 "DevOps practices"
+                                             ],
+                     "top_15_ats_keywords":  [
+                                                 "Elixir",
+                                                 "Phoenix",
+                                                 "Kubernetes",
+                                                 "Google Cloud Platform",
+                                                 "API design",
+                                                 "Backend development",
+                                                 "Developer experience",
+                                                 "System integration",
+                                                 "Travel technology",
+                                                 "Code quality",
+                                                 "Engineering standards",
+                                                 "Distributed systems",
+                                                 "Full-time",
+                                                 "Hybrid",
+                                                 "Y Combinator"
+                                             ],
+                     "company_values_and_culture":  [
+                                                        "Passionate about beautiful API design and developer experience",
+                                                        "High bar for code quality and engineering standards",
+                                                        "Collaborative and open to feedback",
+                                                        "Big-picture thinking balancing technical work with business impact",
+                                                        "Clear communication and structured articulation",
+                                                        "Early-stage culture with outsized impact"
+                                                    ],
+                     "domain_context":  "Duffel is rebuilding travel infrastructure by building APIs that simplify airline booking and travel distribution across hundreds of providers.",
+                     "tone_signals":  "semi-formal"
+                 },
+    "research":  {
+                     "what_company_does":  "Duffel rebuilds travel infrastructure by providing APIs that simplify airline booking and travel distribution across hundreds of providers. They enable developers and travel platforms to integrate complex flight, hotel, and car booking seamlessly.",
+                     "concrete_hooks_for_cover_letter":  [
+                                                             "Reference their focus on beautiful API design and developer experienceâshow how you\u0027ve prioritized clarity and usability in past backend work, not just functionality",
+                                                             "Mention the scale and complexity of integrating hundreds of travel providers, positioning yourself as someone who thrives solving distributed system challenges",
+                                                             "Acknowledge their Y Combinator backing and early-stage impact modelâdemonstrate you\u0027re energized by rapid iteration and measurable business outcomes, not just technical depth"
+                                                         ],
+                     "values_to_mirror":  [
+                                              "Meticulous about code quality and engineering standards (not cutting corners)",
+                                              "Developer-centric thinking (building for the next engineer, not just the machine)",
+                                              "Clear communication and structured articulation (over assumed knowledge)",
+                                              "Balance between technical excellence and pragmatic business impact"
+                                          ],
+                     "caution_notes":  [
+                                           "Don\u0027t overclaim travel domain expertise if you lack itânice-to-have, not required; focus on transferable API integration patterns instead",
+                                           "Avoid vague statements like \u0027I love building things\u0027âbe specific about API design decisions or code quality wins",
+                                           "Don\u0027t position yourself as a lone wolfâemphasize collaboration and feedback loops, as the role signals structured communication is core",
+                                           "Don\u0027t imply you need extensive mentoring or stable processesâearly-stage Y Combinator culture values independence and adaptability"
+                                       ]
+                 },
+    "summary":  "Full-stack backend engineer with 2 years of production Spring Boot microservices experience designing REST APIs and optimising system performanceâcut API response time by 25%, query execution time by 30%, and system downtime by 15% through structured debugging and root-cause analysis. Shipped RideX, a live full-stack ride-hailing platform integrating three production third-party APIs (Stripe, Mapbox, Firebase) with role-based access control, persistent cloud data, and real-time synchronisation across distributed components. Currently studying distributed systems, Kubernetes, and cloud infrastructure through an AWS-accredited MSc at University of East London, with hands-on DevOps and CI/CD pipeline experience in Jenkins and GitHub Actions.",
+    "skills":  "SKILLS\n\nFunctional Competencies\nREST API design and optimization | Distributed microservices architecture and system integration | Production backend development on high-volume transaction systems | Performance diagnostics and root-cause analysis in live environments | CI/CD pipeline design and deployment automation | Cross-functional collaboration and code quality leadership\n\nTechnical Tools\nLanguages: Java (2 years production), JavaScript, SQL, Python\nBackend \u0026 APIs: Spring Boot, microservices, REST API design, OAuth 2.0, JWT, webhooks\nDatabases: PostgreSQL, MySQL â schema design, query optimisation, indexing\nCloud \u0026 DevOps: Git/GitHub, Docker, Jenkins, GitHub Actions, CI/CD, AWS (EC2, S3, IAM), Linux\nTesting: JUnit, Mockito, Jest, React Testing Library, Postman\nPractices: Agile/Scrum, code review, production debugging, monitoring, root-cause analysis, third-party API integration",
+    "experience":  "Brane Group Â· India | Backend Developer (Full-Time, 2 years) | Jul 2022 â Sep 2024\n\n- Built and maintained CI/CD pipelines in Jenkins and GitHub Actions, cutting deployment time by 40% and improving rollback reliability â demonstrating DevOps discipline and operational excellence aligned with production-grade system integration.\n- Improved REST API response time by **25%** on a high-volume Spring Boot transaction service through targeted refactoring, query optimisation, and caching â owned end-to-end from diagnosis to production release, prioritising API performance and developer experience.\n- Optimised PostgreSQL and MySQL queries and indexing strategies, reducing query execution time by **30%** and unblocking downstream consumers â evidence of systematic attention to code quality and backend performance.\n- Diagnosed and resolved production performance bottlenecks on live Spring Boot microservices, cutting system downtime by **15%** through structured monitoring, log analysis, and root-cause investigation â hands-on experience with distributed systems reliability.\n- Mentored 3 junior developers through structured code review, reducing recurring defects by **20%** and raising overall code quality, while collaborating in Agile sprints with cross-functional teams of 8+ engineers â commitment to clear communication and engineering standards.",
+    "projects":  "PROJECTS\n\nAI-Powered Financial Analysis System â Demonstrates API integration, data pipeline design, and third-party service orchestration | 2025 | Python, Anthropic Claude API, pandas\nCode: github.com/shekar987/finsight-financial-chatbot\n- Built a Python ETL pipeline that parses SEC 10-K filings into structured, analysis-ready datasets, architecting a clean separation between data ingestion and transformation layers â comparable to the systematic data integration Duffel performs across travel provider APIs.\n- Integrated the Anthropic Claude API with custom prompt engineering, iteratively tuning prompts to improve factual accuracy and reduce hallucination on numerical financial data â validating third-party API responses and handling edge cases in real-time service composition.\n- Delivered a natural-language interface that answers analytical questions over multi-year filings, surfacing actionable insights directly from source data â prioritizing developer experience and clear API contracts for downstream consumers.\n\nRideX â Full-Stack Ride-Hailing Platform | Demonstrates third-party API integration, webhook handling, and production deployment at scale | 2025 | React 19, Firebase, Stripe, Mapbox, Vercel\nLive: uber-demo-omega.vercel.app | Code: github.com/shekar987/RideX-app\n- Architected a cloud-native backend integrating three production third-party APIs (Stripe, Mapbox, Firebase), designing role-based access control and persistent state management â implementing the kind of multi-provider orchestration required for travel booking infrastructure.\n- Debugged real third-party integration edge cases around auth tokens, webhooks, and real-time sync, building resilient API contracts and error-handling patterns for live payment and location-tracking systems.\n- Shipped to production via continuous deployment from GitHub to Vercel, taking the full project from ideation to live deployment as the sole engineer â demonstrating end-to-end ownership and clear communication of system design trade-offs.",
+    "coverLetter":  "Dear Duffel Team,\n\nI\u0027m drawn to your mission of rebuilding travel infrastructure through elegant APIs because I\u0027ve seen firsthand how thoughtful backend design unlocks value downstream. At Brane Group, I cut API response time by 25% on a high-volume Spring Boot transaction serviceânot through brute-force optimization, but by diagnosing the root cause, refactoring the query path, and shipping a solution that made the entire system faster and more predictable for consumers. That same discipline around clarity, measurement, and developer experience is what I\u0027d bring to scaling Duffel\u0027s distributed booking infrastructure across hundreds of providers.\n\n**API Design and Backend Development:** I\u0027ve designed and shipped REST APIs in production, owned end-to-end optimization from diagnosis through deployment, and debugged real third-party integration edge cases (Stripe, Mapbox, Firebase webhooks, auth token lifecycles). I understand that great API design is inseparable from great observabilityâI built monitoring and logging practices that caught bottlenecks before they hit users.\n\n**System Integration and Distributed Systems Thinking:** My RideX project required orchestrating three production third-party APIs with real-time synchronization, role-based access control, and persistent state across Firebase Firestore and Realtime Database. I\u0027ve also optimized PostgreSQL and MySQL schemas and indexing strategies at scale, reducing query execution time by 30%âthe kind of systems thinking that translates directly to coordinating hundreds of travel providers.\n\n**Code Quality and Engineering Standards:** I mentored 3 junior developers through structured code review, reducing recurring defects by 20%, and built CI/CD pipelines (Jenkins, GitHub Actions) that cut deployment time by 40%. I don\u0027t treat code quality as overhead; it\u0027s how teams move fast without breaking things. I\u0027m currently studying Kubernetes and distributed systems as part of my MSc, so I\u0027m actively building the foundations to grow into more complex infrastructure work.\n\nYour Y Combinator backed approach to rapid iteration and measurable impact resonates with me. I thrive in environments where technical rigour serves clear business outcomesâwhere a 25% latency win or a 30% query optimization is valued because it compounds into user trust and platform reliability.\n\nI\u0027d welcome the chance to discuss how my backend experience and API-first thinking can help Duffel move faster while maintaining the engineering standards that make your platform a joy to integrate against.\n\nBest regards,  \nSoma Shekar Keesari  \n+44 7553 449836  \nsomashekarkeesari18@gmail.com",
+    "atsScore":  {
+                     "keyword_coverage":  "11/15",
+                     "required_skill_coverage":  "6/10",
+                     "hits":  [
+                                  "Elixir â MISSING (not mentioned)",
+                                  "Phoenix â MISSING (not mentioned)",
+                                  "Kubernetes â mentioned in summary (\u0027studying Kubernetes\u0027)",
+                                  "Google Cloud Platform â MISSING (AWS mentioned instead)",
+                                  "API design â summary, skills, experience, projects (strong coverage)",
+                                  "Backend development â summary, skills, experience (strong coverage)",
+                                  "Developer experience â summary, skills, experience, projects (explicit mention)",
+                                  "System integration â summary, skills, experience, projects (strong coverage)",
+                                  "Travel technology â projects mention \u0027travel booking infrastructure\u0027 (weak but present)",
+                                  "Code quality â summary, skills, experience (strong coverage)",
+                                  "Engineering standards â summary, experience (mentioned)",
+                                  "Distributed systems â summary (\u0027studying distributed systems\u0027), experience (production bottlenecks)",
+                                  "Full-time â experience section (\u0027Full-Time, 2 years\u0027)",
+                                  "Hybrid â MISSING (not mentioned)",
+                                  "Y Combinator â MISSING (not mentioned)"
+                              ],
+                     "misses":  [
+                                    "Elixir â CV shows Java/Spring Boot expertise; no Elixir experience present",
+                                    "Phoenix â no Elixir means no Phoenix framework experience",
+                                    "Google Cloud Platform â CV focuses on AWS (EC2, S3, IAM); GCP absent",
+                                    "Hybrid â location/work mode not mentioned anywhere",
+                                    "Y Combinator â no mention of startup ecosystem or Y Combinator familiarity"
+                                ],
+                     "recommendations":  [
+                                             "Add a single line to the summary acknowledging the tech stack mismatch honestly: \u0027Currently learning Elixir and Phoenix through [specific resource/project]\u0027 â or remove it if not true. Duffel will respect honesty over false claims.",
+                                             "Explicitly name \u0027Google Cloud Platform\u0027 once in the skills section under Cloud \u0026 DevOps alongside AWS, even if experience is minimal â search algorithms will match the keyword without overstating depth.",
+                                             "Strengthen the \u0027travel technology\u0027 hit by reframing one sentence in projects: change \u0027comparable to the systematic data integration Duffel performs across travel provider APIs\u0027 to explicitly state \u0027travel industry context\u0027 or add a line about interest in travel/booking domain."
+                                         ],
+                     "overall_assessment":  "This CV is **borderline submittable but at a disadvantage**. You have solid coverage of API design, backend development, and system integration â Duffel\u0027s core needs â but the missing Elixir/Phoenix and GCP stack are red flags for a role explicitly built around those technologies. The CV reads strong on Java/AWS and demonstrates real shipping discipline, but Duffel\u0027s tech stack is non-negotiable. **Competitive position: Pass screening on general backend strength, but lose to candidates with Elixir/Phoenix experience in the technical interview phase.** Only submit if you can credibly claim active Elixir learning or if the role description signals flexibility on stack."
+                 }
+}

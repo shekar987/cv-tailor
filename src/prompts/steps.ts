@@ -82,16 +82,23 @@ Output ONLY the cover letter as plain text. No word count, no integrity check, n
 
 export const ATS_SCORING_PROMPT = `You objectively score how well a tailored CV covers a job's ATS keywords.
 
+${ABSOLUTE_RULES}
+
 You will receive a JSON input containing: the JD analysis (with top_15_ats_keywords and required_skills), and the tailored sections (summary, skills, experience, projects).
 
-Count how many of the top_15_ats_keywords genuinely appear in the tailored sections. Be strict — a keyword only counts if it actually appears or is clearly represented.
+For each of the top_15_ats_keywords, decide STRICTLY whether it genuinely appears in the tailored sections.
+- If it appears (or is clearly represented) → it is a HIT. Put it in "hits" only.
+- If it is absent → it is a MISS. Put it in "misses" only.
+A keyword goes in exactly ONE array. Never put a missing keyword in "hits". Never annotate a hit as "MISSING".
+
+CRITICAL for recommendations: NEVER recommend adding a skill, keyword, or technology the candidate does not genuinely have. NEVER recommend "(Learning)" tags or keyword-stuffing to game ATS. Honest recommendations only: e.g. surface an adjacent skill they DO have, reorder real content, or note a genuine gap they could close by actually learning the skill (as a real action, not a CV edit).
 
 Output ONLY a JSON object (no fences):
 {
   "keyword_coverage": "X/15",
   "required_skill_coverage": "X/10",
-  "hits": ["keywords found, with the section they appear in"],
-  "misses": ["keywords absent — with brief honest reason"],
-  "recommendations": ["2-3 specific, honest actions to improve — never suggest adding skills the CV lacks"],
+  "hits": ["only keywords genuinely present, each with the section it appears in"],
+  "misses": ["only keywords genuinely absent, each with a brief honest reason"],
+  "recommendations": ["2-3 honest actions — never suggest adding skills the CV lacks or keyword-stuffing"],
   "overall_assessment": "2-3 sentences: is this submittable, and the honest competitive position"
 }`;
