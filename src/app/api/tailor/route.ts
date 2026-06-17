@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callClaude } from "@/lib/claude";
 import {
-  SUMMARY_PROMPT,
-  SKILLS_PROMPT,
-  EXPERIENCE_PROMPT,
-  PROJECTS_PROMPT,
+  summaryPrompt,
+  skillsPrompt,
+  experiencePrompt,
+  projectsPrompt,
   COMPANY_RESEARCH_PROMPT,
-  COVER_LETTER_PROMPT,
+  coverLetterPrompt,
   ATS_SCORING_PROMPT,
 } from "@/prompts/steps";
 
@@ -29,11 +29,14 @@ Output ONLY a JSON object (no prose, no markdown fences) with these fields:
 
 export async function POST(req: NextRequest) {
   try {
-    const { jobDescription } = await req.json();
+    const { jobDescription, cvText } = await req.json();
 
     if (!jobDescription) {
       return NextResponse.json({ error: "No job description provided" }, { status: 400 });
     }
+
+    // Use pasted CV if provided, otherwise the prompt functions fall back to the hardcoded master CV
+    const cv = cvText && cvText.trim() ? cvText : undefined;
 
     // Step 1 — Analyze the JD (returns parsed JSON)
     const analysis = await callClaude({
@@ -48,10 +51,10 @@ export async function POST(req: NextRequest) {
     // Wave 1: company research runs alongside the 4 tailoring steps (all depend only on analysis)
     const [research, summary, skills, experience, projects] = await Promise.all([
       callClaude({ system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true }),
-      callClaude({ system: SUMMARY_PROMPT, userInput: analysisStr }),
-      callClaude({ system: SKILLS_PROMPT, userInput: analysisStr }),
-      callClaude({ system: EXPERIENCE_PROMPT, userInput: analysisStr }),
-      callClaude({ system: PROJECTS_PROMPT, userInput: analysisStr }),
+      callClaude({ system: summaryPrompt(cv), userInput: analysisStr }),
+      callClaude({ system: skillsPrompt(cv), userInput: analysisStr }),
+      callClaude({ system: experiencePrompt(cv), userInput: analysisStr }),
+      callClaude({ system: projectsPrompt(cv), userInput: analysisStr }),
     ]);
 
     // Wave 2: cover letter needs analysis + research; ATS scoring needs analysis + tailored sections
@@ -59,7 +62,7 @@ export async function POST(req: NextRequest) {
     const atsInput = JSON.stringify({ analysis, summary, skills, experience, projects });
 
     const [coverLetter, atsScore] = await Promise.all([
-      callClaude({ system: COVER_LETTER_PROMPT, userInput: coverLetterInput, maxTokens: 1200 }),
+      callClaude({ system: coverLetterPrompt(cv), userInput: coverLetterInput, maxTokens: 1200 }),
       callClaude({ system: ATS_SCORING_PROMPT, userInput: atsInput, expectJson: true }),
     ]);
 

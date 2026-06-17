@@ -16,6 +16,7 @@ type Result = {
 
 export default function Home() {
   const [jobDescription, setJobDescription] = useState("");
+  const [cvText, setCvText] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
@@ -32,7 +33,7 @@ export default function Home() {
       const res = await fetch("/api/tailor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobDescription }),
+        body: JSON.stringify({ jobDescription, cvText }),
       });
       const data = await res.json();
       if (!res.ok) setError(data.error || "Something went wrong. Try again.");
@@ -57,13 +58,22 @@ export default function Home() {
         </header>
 
         <section className="inputCard">
-          <label className="label" htmlFor="jd">Job description</label>
+          <label className="label" htmlFor="cv">Your CV</label>
+          <textarea
+            id="cv"
+            value={cvText}
+            onChange={(e) => setCvText(e.target.value)}
+            placeholder="Paste your current CV here… (leave blank to use the demo CV)"
+            rows={8}
+          />
+
+          <label className="label" htmlFor="jd" style={{ marginTop: 16 }}>Job description</label>
           <textarea
             id="jd"
             value={jobDescription}
             onChange={(e) => setJobDescription(e.target.value)}
             placeholder="Paste the full job description here…"
-            rows={9}
+            rows={8}
           />
           <div className="actions">
             <button onClick={handleTailor} disabled={loading} className="cta">
