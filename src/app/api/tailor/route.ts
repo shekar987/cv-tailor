@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
       callClaude({ system: summaryPrompt(cv), userInput: analysisStr }),
       callClaude({ system: skillsPrompt(cv), userInput: analysisStr }),
       callClaude({ system: experiencePrompt(cv), userInput: analysisStr }),
-      callClaude({ system: projectsPrompt(cv), userInput: analysisStr }),
+      callClaude({ system: projectsPrompt(cv), userInput: analysisStr, expectJson: true }),
     ]);
 
     // Wave 2: cover letter needs analysis + research; ATS scoring needs analysis + tailored sections

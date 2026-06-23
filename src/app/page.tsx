@@ -1,16 +1,20 @@
 "use client";
-
+import CvPreview from "./CvPreview";
 import { useState } from "react";
 
 type Result = {
   summary?: string;
   skills?: string;
   experience?: string;
-  projects?: string;
+  projects?: any;
   coverLetter?: string;
   atsScore?: {
     keyword_coverage?: string;
+    required_skill_coverage?: string;
     overall_assessment?: string;
+    hits?: string[];
+    misses?: string[];
+    recommendations?: string[];
   };
 };
 
@@ -22,8 +26,10 @@ export default function Home() {
   const [error, setError] = useState("");
 
   async function handleTailor() {
+
     if (!jobDescription.trim()) {
       setError("Paste a job description to get started.");
+    
       return;
     }
     setError("");
@@ -44,7 +50,35 @@ export default function Home() {
       setLoading(false);
     }
   }
-
+async function handleDownload() {
+    if (!result) return;
+    try {
+      const res = await fetch("/api/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          summary: result.summary,
+          skills: result.skills,
+          experience: result.experience,
+          projects: result.projects,
+          companyName: (result as any).analysis?.company_name || "",
+          roleTitle: (result as any).analysis?.role_title || "",
+        }),
+      });
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+     const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+      const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+      a.download = ["Soma_Shekar", cn, rt, "CV"].filter(Boolean).join("_") + ".docx";
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setError("Couldn't generate the document. Try again.");
+    }
+  }
   return (
     <main className="page">
       <div className="container">
@@ -102,17 +136,59 @@ export default function Home() {
               <div className="scoreCard">
                 <div className="scoreLabel">ATS keyword match</div>
                 <div className="scoreValue">{result.atsScore.keyword_coverage}</div>
+                {result.atsScore.required_skill_coverage && (
+                  <div className="scoreSub">
+                    Required skills covered: {result.atsScore.required_skill_coverage}
+                  </div>
+                )}
                 {result.atsScore.overall_assessment && (
                   <p className="scoreNote">{result.atsScore.overall_assessment}</p>
                 )}
+
+                {Array.isArray((result.atsScore as any).hits) && (result.atsScore as any).hits.length > 0 && (
+                  <div className="atsGroup">
+                    <div className="atsGroupLabel hits">Matched ({(result.atsScore as any).hits.length})</div>
+                    <ul className="atsList">
+                      {(result.atsScore as any).hits.map((h: string, i: number) => (
+                        <li key={i}><span className="dot hit">✓</span>{h}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {Array.isArray((result.atsScore as any).misses) && (result.atsScore as any).misses.length > 0 && (
+                  <div className="atsGroup">
+                    <div className="atsGroupLabel misses">Missing ({(result.atsScore as any).misses.length})</div>
+                    <ul className="atsList">
+                      {(result.atsScore as any).misses.map((m: string, i: number) => (
+                        <li key={i}><span className="dot miss">✕</span>{m}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {Array.isArray((result.atsScore as any).recommendations) && (result.atsScore as any).recommendations.length > 0 && (
+                  <div className="atsGroup">
+                    <div className="atsGroupLabel recs">Recommendations</div>
+                    <ul className="atsList">
+                      {(result.atsScore as any).recommendations.map((r: string, i: number) => (
+                        <li key={i}><span className="dot rec">→</span>{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
-
-            <Block title="Professional summary" content={result.summary} />
-            <Block title="Skills" content={result.skills} />
-            <Block title="Work experience" content={result.experience} />
-            <Block title="Projects" content={result.projects} />
-            <Block title="Cover letter" content={result.coverLetter} />
+          
+            
+            <CvPreview
+  data={{ summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects as any }}
+  fileBaseName={(() => {
+    const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+    const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+    return ["Soma_Shekar", cn, rt, "CV"].filter(Boolean).join("_");
+  })()}
+/>
           </section>
         )}
       </div>

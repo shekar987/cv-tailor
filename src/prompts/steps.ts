@@ -22,14 +22,14 @@ ${ABSOLUTE_RULES}
 MASTER CV:
 ${cv}
 
-You will receive the JD analysis as JSON. Produce two subsections:
+You will receive the JD analysis as JSON. Produce exactly two lines:
+
 Functional Competencies: 6-8 role-level capabilities, separated by " | "
-Technical Tools: grouped by category (Languages, Frontend, Backend & APIs, Databases, AI/LLM, Cloud & DevOps, Testing)
+Technical Tools: all relevant tools/languages/frameworks from the master CV as ONE flat list separated by " | " — do NOT group them into categories like Languages/Backend/Databases, just one continuous pipe-separated list.
 
 Only include skills genuinely present in the master CV. For required skills not in the CV, surface adjacent skills the CV does have. Never list a skill the CV lacks.
 
-Output ONLY the skills section as plain text. No preamble, no integrity check.`;
-
+Output ONLY those two lines as plain text. No category sub-headings, no preamble, no integrity check.`;
 export const experiencePrompt = (cv: string = MASTER_CV) => `You rewrite the CV work experience section, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
@@ -40,18 +40,31 @@ ${cv}
 You will receive the JD analysis as JSON. Keep the same employer, title, and dates exactly as in the master CV. Reorder bullets so the most JD-relevant come first. Inject JD-aligned language only where honest. Bold quantified wins with **. Do not invent bullets — use only what's in the master CV.
 
 Output ONLY the work experience section as plain text. No preamble, no integrity check.`;
-
-export const projectsPrompt = (cv: string = MASTER_CV) => `You rewrite the CV projects section, tailored to a specific job.
+export const projectsPrompt = (cv: string = MASTER_CV) => `You write tailored CV project bullets. You do NOT write project names, tech stacks, or links — only the bullet points.
 
 ${ABSOLUTE_RULES}
 
 MASTER CV:
 ${cv}
 
-You will receive the JD analysis as JSON. For each project: a heading with 1-line relevance to the JD, then 2-3 bullets using What+How+Result. Lead with the project most aligned to the JD. Quantify only where the master CV quantifies.
+CRITICAL ANTI-EMBELLISHMENT RULES:
+- Describe each project using ONLY technologies, actions, and outcomes explicitly in the master CV.
+- FORBIDDEN additions unless they appear verbatim in the master CV: "payment reconciliation", "idempotent payment flows", "at scale", "multi-tenant", "high-scale", "enterprise-grade", "fintech expertise".
+- Every phrase must be defensible if an interviewer asks "show me exactly where you did this."
 
-Output ONLY the projects section as plain text. No preamble, no integrity check.`;
+The master CV has exactly two projects:
+1. RideX — Full-Stack Ride-Hailing Platform
+2. AI-Powered Financial Analysis System
 
+You will receive the JD analysis as JSON. For EACH project, write 2-3 tailored bullets (What + How + Result) emphasizing the aspects most relevant to this JD. Quantify only where the master CV quantifies.
+
+Output ONLY valid JSON in this EXACT shape (no fences, no preamble):
+{
+  "ridex": ["bullet 1", "bullet 2", "bullet 3"],
+  "financial": ["bullet 1", "bullet 2", "bullet 3"]
+}
+
+Each bullet is a plain string with no leading dash or bullet character.`;
 export const COMPANY_RESEARCH_PROMPT = `You synthesize company research for a cover letter, working only from the JD analysis provided.
 
 You will receive the JD analysis as JSON. Do NOT fabricate specific facts (funding, exec names, product details) not present in the analysis. Work from what's there plus reasonable general knowledge.

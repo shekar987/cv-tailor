@@ -140,3 +140,70 @@ textarea:focus { outline: none; border-color: var(--amber); }
 @media (prefers-reduced-motion: reduce) {
   .pulse { animation: none; }
 }
+
+.scoreSub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.atsGroup { margin-top: 18px; }
+.atsGroupLabel {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.atsGroupLabel.hits { color: #5FB783; }
+.atsGroupLabel.misses { color: #E5896B; }
+.atsGroupLabel.recs { color: var(--amber-bright); }
+
+.atsList { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.atsList li {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.dot { flex-shrink: 0; font-weight: 700; }
+.dot.hit { color: #5FB783; }
+.dot.miss { color: #E5896B; }
+.dot.rec { color: var(--amber-bright); }
+.cvDocWrap { margin-top: 24px; }
+.editHint { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+
+.cvDoc {
+  background: #ffffff;
+  color: #1a1a1a;
+  border-radius: 10px;
+  padding: 48px 56px;
+  font-family: Calibri, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  outline: none;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  padding: 32px 40px;
+}
+.cvDoc:focus-within { box-shadow: 0 0 0 2px var(--amber), 0 4px 24px rgba(0,0,0,0.3); }
+
+.cvName { font-size: 26px; font-weight: 700; color: #1F3864; text-align: center; margin: 0 0 6px; }
+.cvTagline { text-align: center; color: #595959; font-size: 12.5px; margin: 0 0 4px; }
+.cvContact { text-align: center; color: #333; font-size: 12.5px; margin: 0 0 2px; }
+
+.cvHead {
+  font-size: 14px; font-weight: 700; color: #1F3864;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  border-bottom: 1.5px solid #1F3864;
+  margin: 20px 0 8px; padding-bottom: 3px;
+}
+.cvText { margin: 0 0 5px; text-align: justify; }
+.cvSubhead { font-weight: 700; margin: 8px 0 3px; }
+.cvProjTitle { font-weight: 700; font-size: 15px; margin: 12px 0 3px; }
+.cvBullet { margin: 0 0 5px 22px; text-align: justify; }
+.cvActions { display: flex; gap: 10px; margin-bottom: 12px; }
+.cta.secondary { background: transparent; color: var(--amber-bright); border: 1px solid var(--amber); }
+.cta.secondary:hover:not(:disabled) { background: rgba(224,160,77,0.12); }
+.cvLink { color: #0563C1; text-decoration: underline; }
