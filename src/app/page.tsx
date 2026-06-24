@@ -182,12 +182,12 @@ async function handleDownload() {
           
             
             <CvPreview
-  data={{ summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects as any }}
-  fileBaseName={(() => {
-    const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-    const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-    return ["Soma_Shekar", cn, rt, "CV"].filter(Boolean).join("_");
-  })()}
+         data={{ summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects as any }}
+         fileBaseName={(() => {
+          const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+          const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+          return ["Soma_Shekar", cn, rt, "CV"].filter(Boolean).join("_");
+              })()}
 />
           </section>
         )}

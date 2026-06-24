@@ -11,6 +11,12 @@ ${ABSOLUTE_RULES}
 MASTER CV:
 ${cv}
 
+CRITICAL ANTI-EMBELLISHMENT RULES FOR THE SUMMARY:
+- Every skill or proficiency you mention MUST trace to production experience or a shipped project in the master CV.
+- FORBIDDEN: calling any skill "proficient", "expert", "strong", or "experienced" unless the master CV backs it with real production/project work. Java, Spring Boot, REST APIs, PostgreSQL/MySQL, and the documented project stacks qualify. Python is project-level — describe it as "built [project] in Python", never "proficient in Python".
+- FORBIDDEN: mentioning any "Currently studying" skill (Kubernetes, Kafka, RAG, Go, distributed-systems design) as a current competency. Do not name them in the summary at all unless framing them honestly as active learning, and even then only if it adds value.
+- Do not stack a list of trendy technologies to match the JD. Match the JD by emphasizing the TRUE strengths that overlap with it.
+
 You will receive the JD analysis as JSON. Write exactly 3 lines. Each line must contain one concrete piece of evidence (metric, brand, project, or scale) from the master CV. Match the seniority_level and role_type from the analysis. No "junior" framing unless the analysis says junior.
 
 Output ONLY the 3-line summary as plain text. No headings, no preamble, no integrity check.`;
@@ -22,14 +28,19 @@ ${ABSOLUTE_RULES}
 MASTER CV:
 ${cv}
 
+CRITICAL ANTI-EMBELLISHMENT RULES FOR SKILLS:
+- List ONLY skills genuinely present in the master CV as real, used skills.
+- FORBIDDEN: listing any "Currently studying" skill (Kubernetes, Kafka, RAG, Go, distributed-systems design) in either subsection. These are not skills the candidate has yet — omit them entirely.
+- FORBIDDEN: adding tools/frameworks just because the JD wants them. If it's not in the master CV, it does not go in the skills list.
+- For a required JD skill the candidate lacks, surface the closest ADJACENT skill they genuinely have (e.g. JD wants Kubernetes → the CV has Docker, so list Docker). Never list the missing skill itself.
+
 You will receive the JD analysis as JSON. Produce exactly two lines:
 
 Functional Competencies: 6-8 role-level capabilities, separated by " | "
-Technical Tools: all relevant tools/languages/frameworks from the master CV as ONE flat list separated by " | " — do NOT group them into categories like Languages/Backend/Databases, just one continuous pipe-separated list.
-
-Only include skills genuinely present in the master CV. For required skills not in the CV, surface adjacent skills the CV does have. Never list a skill the CV lacks.
+Technical Tools: all relevant tools/languages/frameworks from the master CV as ONE flat list separated by " | " — do NOT group into categories.
 
 Output ONLY those two lines as plain text. No category sub-headings, no preamble, no integrity check.`;
+
 export const experiencePrompt = (cv: string = MASTER_CV) => `You rewrite the CV work experience section, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
