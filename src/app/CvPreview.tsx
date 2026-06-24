@@ -42,8 +42,7 @@ export default function CvPreview({
     (text || "")
       .split("\n")
       .map((l) => l.trim())
-      .filter((l) => l !== "" && !/^(SKILLS|PROJECTS|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE)\s*$/i.test(l));
-
+      .filter((l) => l !== "" && !/^(SKILLS|PROJECTS|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE|EDUCATION|CERTIFICATIONS)\s*:?\s*$/i.test(l));
   // Renders mixed subheads and bullet groups, grouping consecutive bullets into <ul>
   const renderMixed = (text: string | undefined, prefix: string): React.ReactNode[] => {
     const ls = lines(text);
@@ -78,7 +77,7 @@ export default function CvPreview({
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true },
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-      pagebreak: { mode: ["css", "legacy"] },
+      pagebreak: { mode: ["avoid-all", "css", "legacy"] },
     };
     html2pdf().set(opt).from(ref.current).save();
   }

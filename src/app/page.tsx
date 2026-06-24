@@ -1,5 +1,6 @@
 "use client";
 import CvPreview from "./CvPreview";
+import CoverLetterPreview from "./CoverLetterPreview";
 import { useState } from "react";
 
 type Result = {
@@ -189,6 +190,19 @@ async function handleDownload() {
           return ["Soma_Shekar", cn, rt, "CV"].filter(Boolean).join("_");
               })()}
 />
+{result.coverLetter && (
+              <>
+                <h2 className="clHeading">Cover Letter</h2>
+                <CoverLetterPreview
+                  coverLetter={result.coverLetter}
+                  fileBaseName={(() => {
+                    const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+                    const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+                    return ["Soma_Shekar", cn, rt, "CoverLetter"].filter(Boolean).join("_");
+                  })()}
+                />
+              </>
+            )}
           </section>
         )}
       </div>

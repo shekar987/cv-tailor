@@ -179,13 +179,12 @@ textarea:focus { outline: none; border-color: var(--amber); }
   background: #ffffff;
   color: #1a1a1a;
   border-radius: 10px;
-  padding: 48px 56px;
+  padding: 28px 36px;          /* was 32px 40px — tighter */
   font-family: Calibri, "Segoe UI", system-ui, sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 13px;             /* was 14px — slightly smaller, still very readable */
+  line-height: 1.4;            /* was 1.5 — tighter */
   outline: none;
   box-shadow: 0 4px 24px rgba(0,0,0,0.3);
-  padding: 32px 40px;
 }
 .cvDoc:focus-within { box-shadow: 0 0 0 2px var(--amber), 0 4px 24px rgba(0,0,0,0.3); }
 
@@ -194,16 +193,44 @@ textarea:focus { outline: none; border-color: var(--amber); }
 .cvContact { text-align: center; color: #333; font-size: 12.5px; margin: 0 0 2px; }
 
 .cvHead {
-  font-size: 14px; font-weight: 700; color: #1F3864;
+  font-size: 13.5px; font-weight: 700; color: #1F3864;
   text-transform: uppercase; letter-spacing: 0.04em;
   border-bottom: 1.5px solid #1F3864;
-  margin: 20px 0 8px; padding-bottom: 3px;
+  margin: 13px 0 5px;          /* was 20px 0 8px — tighter */
+  padding-bottom: 2px;
 }
-.cvText { margin: 0 0 5px; text-align: justify; }
-.cvSubhead { font-weight: 700; margin: 8px 0 3px; }
-.cvProjTitle { font-weight: 700; font-size: 15px; margin: 12px 0 3px; }
-.cvBullet { margin: 0 0 5px 22px; text-align: justify; }
+.cvText { margin: 0 0 3px; text-align: justify; }     /* was 5px */
+.cvSubhead { font-weight: 700; margin: 6px 0 2px; }   /* was 8px 0 3px */
+.cvProjTitle { font-weight: 700; font-size: 14px; margin: 9px 0 2px; }  /* was 12px 0 3px */
+.cvBullet { margin: 0 0 3px 22px; text-align: justify; }  /* was 5px */
 .cvActions { display: flex; gap: 10px; margin-bottom: 12px; }
 .cta.secondary { background: transparent; color: var(--amber-bright); border: 1px solid var(--amber); }
 .cta.secondary:hover:not(:disabled) { background: rgba(224,160,77,0.12); }
 .cvLink { color: #0563C1; text-decoration: underline; }
+
+.clHeading { font-size: 15px; color: var(--amber-bright); margin: 32px 0 12px; font-weight: 600; }
+.clWrap { margin-top: 4px; }
+.clDoc {
+  background: #ffffff;
+  color: #1a1a1a;
+  border-radius: 10px;
+  padding: 36px 44px;
+  font-family: Calibri, "Segoe UI", system-ui, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.4;
+  outline: none;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+}
+.clDoc:focus-within { box-shadow: 0 0 0 2px var(--amber), 0 4px 24px rgba(0,0,0,0.3); }
+.clLine { margin: 0 0 8px; text-align: justify; }
+/* Prevent html2pdf from slicing through text at page breaks */
+.cvDoc p,
+.cvDoc li,
+.cvDoc h2,
+.clDoc p {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.cvDoc h2 {
+  page-break-after: avoid;
+}
