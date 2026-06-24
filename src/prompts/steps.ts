@@ -29,11 +29,12 @@ MASTER CV:
 ${cv}
 
 CRITICAL ANTI-EMBELLISHMENT RULES FOR SKILLS:
-- List ONLY skills genuinely present in the master CV as real, used skills.
-- FORBIDDEN: listing any "Currently studying" skill (Kubernetes, Kafka, RAG, Go, distributed-systems design) in either subsection. These are not skills the candidate has yet — omit them entirely.
-- FORBIDDEN: adding tools/frameworks just because the JD wants them. If it's not in the master CV, it does not go in the skills list.
-- For a required JD skill the candidate lacks, surface the closest ADJACENT skill they genuinely have (e.g. JD wants Kubernetes → the CV has Docker, so list Docker). Never list the missing skill itself.
-
+- List a tool/language/framework ONLY if it appears VERBATIM in the master CV — either in its Skills section or explicitly named in a project's tech stack or an experience bullet.
+- A skill being "easy to learn", "commonly paired with", or "a subpart of" something on the CV does NOT qualify it. Libraries like pandas, matplotlib, scikit-learn are SEPARATE skills — include one ONLY if that exact library is named in the master CV.
+- FORBIDDEN to infer specific technologies from general descriptions. "Auth tokens" in a project does NOT license listing "OAuth 2.0" or "JWT". "Styling" does NOT license "Tailwind CSS". Only list the protocol/tool if the master CV names it.
+- FORBIDDEN: "Currently studying" skills (Kubernetes, Kafka, RAG, Go, distributed-systems design).
+- For a required JD skill the candidate lacks, surface the closest ADJACENT skill they genuinely have. Never list the missing skill itself.
+- Final check before output: for EVERY item in your skills list, confirm it appears verbatim in the master CV. If you cannot point to where, remove it.
 You will receive the JD analysis as JSON. Produce exactly two lines:
 
 Functional Competencies: 6-8 role-level capabilities, separated by " | "
