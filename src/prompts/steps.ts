@@ -13,10 +13,11 @@ ${cv}
 
 CRITICAL ANTI-EMBELLISHMENT RULES FOR THE SUMMARY:
 - Every skill or proficiency you mention MUST trace to production experience or a shipped project in the master CV.
-- FORBIDDEN: calling any skill "proficient", "expert", "strong", or "experienced" unless the master CV backs it with real production/project work. Java, Spring Boot, REST APIs, PostgreSQL/MySQL, and the documented project stacks qualify. Python is project-level — describe it as "built [project] in Python", never "proficient in Python".
-- FORBIDDEN: mentioning any "Currently studying" skill (Kubernetes, Kafka, RAG, Go, distributed-systems design) as a current competency. Do not name them in the summary at all unless framing them honestly as active learning, and even then only if it adds value.
-- Do not stack a list of trendy technologies to match the JD. Match the JD by emphasizing the TRUE strengths that overlap with it.
+- FORBIDDEN: calling any skill "proficient", "expert", "strong", or "experienced" unless the master CV backs it with real production/project work. Python is project-level — say "built [project] in Python", never "proficient in Python".
+- FORBIDDEN: mentioning any "Currently studying" skill (Kubernetes, Kafka, RAG, Go, distributed-systems design) as a current competency.
+- Do not stack trendy technologies to match the JD. Match by emphasizing true strengths that overlap.
 
+NATURAL WRITING RULES: Write the 3 lines in varied structure — do not make all three the same shape. Avoid filler ("at scale", "production-grade", "end-to-end", "hands-on", "leveraging"). But KEEP the exact JD-relevant keywords and real metrics — weave them into natural sentences. Human-readable AND keyword-rich.
 You will receive the JD analysis as JSON. Write exactly 3 lines. Each line must contain one concrete piece of evidence (metric, brand, project, or scale) from the master CV. Match the seniority_level and role_type from the analysis. No "junior" framing unless the analysis says junior.
 
 Output ONLY the 3-line summary as plain text. No headings, no preamble, no integrity check.`;
@@ -49,7 +50,16 @@ ${ABSOLUTE_RULES}
 MASTER CV:
 ${cv}
 
-You will receive the JD analysis as JSON. Keep the same employer, title, and dates exactly as in the master CV. Reorder bullets so the most JD-relevant come first. Inject JD-aligned language only where honest. Bold quantified wins with **. Do not invent bullets — use only what's in the master CV.
+NATURAL WRITING RULES (write like a human, not an AI):
+- VARY bullet structure. Do NOT end every bullet with an em-dash followed by a "-ing" phrase (e.g. "— demonstrating X", "— enabling Y"). At most ONE bullet may use that pattern. The rest must end differently: end on the result, the metric, or a plain period.
+- VARY bullet length. Some bullets should be one punchy line; others can be two. Not all the same.
+- BAN these overused phrases (use at most once total across all bullets, ideally zero): "at scale", "production-grade", "mission-critical", "end-to-end", "hands-on", "leveraging", "robust", "seamless".
+- Lead with the action and the concrete result. Don't tack on an explanatory clause justifying why the bullet matters — the achievement should speak for itself.
+- Write the way a strong engineer describes their own work plainly: direct, specific, no filler.
+- ATS BALANCE: While varying your phrasing, you MUST still include the exact technical keywords and skills from the JD analysis that the candidate genuinely has (e.g. "REST API", "Spring Boot", "PostgreSQL", "CI/CD"). Natural phrasing does not mean dropping keywords — weave them into plain sentences. The scanner needs the exact terms; the recruiter needs readable prose. Deliver both.
+- Keep each bullet's core keyword density intact: name the real technology, the real metric, the real action verb. Just vary the SENTENCE STRUCTURE around them, not the keywords themselves.
+
+You will receive the JD analysis as JSON. Keep the same employer, title, and dates exactly as in the master CV. Reorder bullets so the most JD-relevant come first. Bold quantified wins with **. Do not invent bullets — use only what's in the master CV.
 
 Output ONLY the work experience section as plain text. No preamble, no integrity check.`;
 export const projectsPrompt = (cv: string = MASTER_CV) => `You write tailored CV project bullets. You do NOT write project names, tech stacks, or links — only the bullet points.
@@ -61,14 +71,20 @@ ${cv}
 
 CRITICAL ANTI-EMBELLISHMENT RULES:
 - Describe each project using ONLY technologies, actions, and outcomes explicitly in the master CV.
-- FORBIDDEN additions unless they appear verbatim in the master CV: "payment reconciliation", "idempotent payment flows", "at scale", "multi-tenant", "high-scale", "enterprise-grade", "fintech expertise".
+- FORBIDDEN additions unless verbatim in the master CV: "payment reconciliation", "idempotent payment flows", "at scale", "multi-tenant", "high-scale", "enterprise-grade", "fintech expertise".
 - Every phrase must be defensible if an interviewer asks "show me exactly where you did this."
+
+NATURAL WRITING RULES (human, not AI — but stay ATS-friendly):
+- VARY bullet structure. Do NOT end every bullet with "— demonstrating X" / "— showing Y". At most one bullet may use that pattern.
+- BAN overused filler (max once total): "at scale", "production-grade", "end-to-end", "hands-on", "leveraging", "robust", "seamless".
+- Vary bullet length — mix punchy and detailed.
+- KEEP the real keywords: name the actual technologies (Stripe, Firebase, Mapbox, Python, Anthropic Claude API, etc.) and metrics. Vary the sentence around them, not the keywords.
 
 The master CV has exactly two projects:
 1. RideX — Full-Stack Ride-Hailing Platform
 2. AI-Powered Financial Analysis System
 
-You will receive the JD analysis as JSON. For EACH project, write 2-3 tailored bullets (What + How + Result) emphasizing the aspects most relevant to this JD. Quantify only where the master CV quantifies.
+You will receive the JD analysis as JSON. For EACH project, write 2-3 tailored bullets emphasizing the aspects most relevant to this JD. Quantify only where the master CV quantifies.
 
 Output ONLY valid JSON in this EXACT shape (no fences, no preamble):
 {
@@ -96,13 +112,14 @@ ${ABSOLUTE_RULES}
 MASTER CV:
 ${cv}
 
-You will receive a JSON input containing the JD analysis and the company research. Structure:
-- Hook (1 paragraph): open with a concrete achievement or project parallel from the company research hooks. Not generic enthusiasm.
-- Three skill blocks: each opens with a bolded skill/duty from the JD, then 2-3 lines of evidence from the master CV. Format: **[Skill]:** [evidence].
-- Cultural fit paragraph: mirror 1-2 company values in natural language.
-- Close: 1-2 sentences, excitement + call to discuss.
-
-Match the tone to the analysis tone_signals. Use only real experience from the master CV. Never claim skills the CV lacks. Sign off with the candidate's name as it appears in the master CV.
+NATURAL WRITING RULES (CRITICAL — write like a real person, not AI):
+- HARD LIMIT: maximum ONE em-dash (—) in the entire letter. Count them. If you have more than one, rewrite those sentences with periods or commas.
+- NO sentence may contain more than one comma-separated list of achievements. Do NOT write "doing X, cutting Y, reducing Z, improving W" — split into separate sentences.
+- Vary sentence length deliberately: include at least two SHORT sentences (under 10 words) somewhere in the letter.
+- BAN entirely: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "operational chaos", "cuts through", "that same [X]".
+- Do NOT open with a dramatic scene ("When a project runs billions over budget..."). Open with something direct and specific about you or a genuine connection to the company.
+- Read it back: if it sounds like a marketing brochure or a LinkedIn thought-leadership post, rewrite it plainer.
+Match the tone to the analysis tone_signals. Use only real experience from the master CV. Never claim skills the CV lacks. Sign off with the candidate's name from the master CV.
 
 Output ONLY the cover letter as plain text. No word count, no integrity check, no preamble.`;
 
