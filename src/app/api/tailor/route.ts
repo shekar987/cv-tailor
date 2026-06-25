@@ -1,3 +1,4 @@
+import { checkRateLimit } from "@/lib/rateLimit";
 import { NextRequest, NextResponse } from "next/server";
 import { callClaude } from "@/lib/claude";
 import {
@@ -29,6 +30,16 @@ Output ONLY a JSON object (no prose, no markdown fences) with these fields:
 
 export async function POST(req: NextRequest) {
   try {
+    // Rate limit by IP
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const limit = checkRateLimit(ip);
+    if (!limit.allowed) {
+      const mins = Math.ceil((limit.resetAt - Date.now()) / 60000);
+      return NextResponse.json(
+        { error: `Rate limit reached. Try again in about ${mins} minute(s).` },
+        { status: 429 }
+      );
+    }
     const { jobDescription, cvText } = await req.json();
 
     if (!jobDescription) {

@@ -234,3 +234,61 @@ textarea:focus { outline: none; border-color: var(--amber); }
 .cvDoc h2 {
   page-break-after: avoid;
 }
+
+/* ---- Landing page ---- */
+.lp { max-width: 920px; margin: 0 auto; padding: 0 24px 80px; }
+.lpNav { display: flex; justify-content: space-between; align-items: center; padding: 28px 0; }
+.lpWordmark { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.lpDot { color: var(--amber); }
+.lpNavCta { color: var(--amber-bright); text-decoration: none; font-size: 14px; font-weight: 600; }
+.lpNavCta:hover { text-decoration: underline; }
+
+.lpHero { padding: 72px 0 56px; max-width: 680px; }
+.lpEyebrow { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 18px; }
+.lpТitle, .lpHero h1 { font-size: 52px; line-height: 1.05; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 22px; }
+.lpAmber { color: var(--amber-bright); }
+.lpSub { font-size: 18px; line-height: 1.55; color: #C8C8CC; margin-bottom: 32px; }
+.lpCta {
+  display: inline-block; background: var(--amber); color: #1A1206;
+  padding: 13px 26px; border-radius: 10px; font-weight: 600; font-size: 16px;
+  text-decoration: none; transition: background 0.15s ease;
+}
+.lpCta:hover { background: var(--amber-bright); }
+
+.lpContrast { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 40px 0 80px; }
+.lpCard { border-radius: 14px; padding: 26px; border: 1px solid var(--border); }
+.lpBad { background: #18120F; border-color: #3A2A24; }
+.lpGood { background: #0F1813; border-color: #234034; }
+.lpCardLabel { font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 16px; font-weight: 600; }
+.lpBad .lpCardLabel { color: #E5896B; }
+.lpGood .lpCardLabel { color: #5FB783; }
+.lpCardLine { font-size: 14.5px; line-height: 1.5; color: #C8C8CC; margin-bottom: 12px; }
+.lpCardLine strong { color: var(--text); }
+
+.lpHow { margin-bottom: 80px; }
+.lpH2 { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 28px; }
+.lpSteps { display: flex; flex-direction: column; gap: 20px; }
+.lpStep { display: flex; gap: 16px; align-items: flex-start; }
+.lpStepNum {
+  flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(224,160,77,0.14); color: var(--amber-bright);
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px;
+}
+.lpStep p { font-size: 16px; line-height: 1.55; color: #C8C8CC; padding-top: 3px; }
+
+.lpClose { text-align: center; padding: 40px 0 64px; border-top: 1px solid var(--border); }
+.lpCloseSub { font-size: 17px; color: #C8C8CC; max-width: 520px; margin: 0 auto 28px; line-height: 1.55; }
+
+.lpFooter { text-align: center; color: var(--muted); font-size: 13px; padding-top: 32px; border-top: 1px solid var(--border); }
+
+@media (max-width: 640px) {
+  .lpТitle, .lpHero h1 { font-size: 36px; }
+  .lpContrast { grid-template-columns: 1fr; }
+}
+.cvHelp { font-size: 13px; color: var(--muted); margin-bottom: 12px; line-height: 1.5; }
+.cvSavedRow { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.cvSavedLabel { font-size: 15px; font-weight: 600; color: #5FB783; }
+.cvSavedMeta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.cvSavedActions { display: flex; gap: 8px; }
+.cta.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.cta.ghost:hover { color: var(--text); border-color: var(--muted); }
