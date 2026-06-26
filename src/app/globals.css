@@ -292,3 +292,12 @@ textarea:focus { outline: none; border-color: var(--amber); }
 .cvSavedActions { display: flex; gap: 8px; }
 .cta.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
 .cta.ghost:hover { color: var(--text); border-color: var(--muted); }
+
+.profileGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+.profileGrid label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 4px; }
+.profileGrid input {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); padding: 8px 10px; font-size: 14px; font-family: inherit;
+}
+.profileGrid input:focus { outline: none; border-color: var(--amber); }
+@media (max-width: 640px) { .profileGrid { grid-template-columns: 1fr; } }

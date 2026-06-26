@@ -29,13 +29,24 @@ const PROJECTS_META: Record<string, { name: string; tech: string; links: { label
   },
 };
 
+import type { Profile } from "@/lib/cvStore";
+
 export default function CvPreview({
   data,
-  fileBaseName = "Soma_Shekar_CV",
+  profile,
+  fileBaseName = "CV",
 }: {
   data: CvData;
+  profile?: Profile | null;
   fileBaseName?: string;
 }) {
+  // Fallbacks keep it working if profile is missing
+  const p = profile || null;
+  const name = p?.name || "YOUR NAME";
+  const tagline = p?.tagline || "";
+  const contactLine = [p?.location, p?.phone, p?.email].filter(Boolean).join(" | ");
+  const linkedin = p?.linkedin || "";
+  const github = p?.github || "";
   const ref = useRef<HTMLDivElement>(null);
 
   const lines = (text?: string) =>
@@ -130,13 +141,12 @@ export default function CvPreview({
       return result;
     };
 
-    const payload = {
+   const payload = {
       summary: getSectionText("Professional Summary"),
       skills: getSectionText("Skills"),
       experience: getSectionText("Experience"),
       projects: readProjects(),
-      companyName: "",
-      roleTitle: "",
+      profile: p,
       fileBaseName,
     };
 
@@ -163,15 +173,16 @@ export default function CvPreview({
       </div>
       <p className="editHint">Click any text to edit it. Your changes are included when you download.</p>
       <div className="cvDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false}>
-        <h1 className="cvName">SOMA SHEKAR KEESARI</h1>
-        <p className="cvTagline">MSc Computer Science, University of East London | 2+ YoE | Java &amp; Spring Boot | Full Stack Engineer</p>
-        <p className="cvContact">London, UK | +44 7553 449836 | somashekarkeesari18@gmail.com</p>
-        {/* contentEditable={false} so clicks navigate the links rather than entering edit mode */}
-        <p className="cvContact" contentEditable={false}>
-          <a href="https://www.linkedin.com/in/shekar-keesari-4bbaa6234/" className="cvLink">linkedin.com/in/shekar-keesari-4bbaa6234</a>
-          {" | "}
-          <a href="https://github.com/shekar987" className="cvLink">github.com/shekar987</a>
-        </p>
+        <h1 className="cvName">{name}</h1>
+        {tagline && <p className="cvTagline">{tagline}</p>}
+        {contactLine && <p className="cvContact">{contactLine}</p>}
+        {(linkedin || github) && (
+          <p className="cvContact" contentEditable={false}>
+            {linkedin && <a href={linkedin.startsWith("http") ? linkedin : "https://" + linkedin} className="cvLink">{linkedin.replace(/^https?:\/\//, "")}</a>}
+            {linkedin && github && " | "}
+            {github && <a href={github.startsWith("http") ? github : "https://" + github} className="cvLink">{github.replace(/^https?:\/\//, "")}</a>}
+          </p>
+        )}
 
         {data.summary && (
           <>
@@ -223,29 +234,44 @@ export default function CvPreview({
           </>
         )}
 
-        <h2 className="cvHead">Education</h2>
-        <p className="cvSubhead">MSc Computer Science (Industrial Placement) — Jan 2025 – Jan 2027</p>
-        <p className="cvText">University of East London</p>
-        <ul>
-          <li className="cvBullet">AWS-accredited programme focused on Software Engineering, Cloud Computing, and AI applications.</li>
-        </ul>
-        <p className="cvSubhead">BSc Computer Science, Distinction — Jul 2019 – Jul 2023</p>
-        <p className="cvText">Keshav Memorial Institute of Technology, India</p>
-        <ul>
-          <li className="cvBullet">Graduated with Distinction; coursework in Data Structures, OOP, Databases, and Software Engineering.</li>
-        </ul>
+        {p?.education && p.education.length > 0 && (
+          <>
+            <h2 className="cvHead">Education</h2>
+            {p.education.map((e, i) => (
+              <div key={`edu-${i}`}>
+                <p className="cvSubhead">{e.degree}{e.dates ? ` — ${e.dates}` : ""}</p>
+                {e.institution && <p className="cvText">{e.institution}</p>}
+                {e.note && (
+                  <ul>
+                    <li className="cvBullet">{e.note}</li>
+                  </ul>
+                )}
+              </div>
+            ))}
+          </>
+        )}
 
-        <h2 className="cvHead">Certifications</h2>
-        <ul>
-          <li className="cvBullet">AWS Certified Cloud Practitioner — Amazon Web Services</li>
-          <li className="cvBullet">Java Developer Certificate — CodSoft</li>
-        </ul>
+        {p?.certifications && p.certifications.length > 0 && (
+          <>
+            <h2 className="cvHead">Certifications</h2>
+            <ul>
+              {p.certifications.map((c, i) => (
+                <li className="cvBullet" key={`cert-${i}`}>{c}</li>
+              ))}
+            </ul>
+          </>
+        )}
 
-        <h2 className="cvHead">Right to Work</h2>
-        <ul>
-          <li className="cvBullet">Full-time work authorised during MSc Industrial Placement.</li>
-          <li className="cvBullet">Eligible for the UK Graduate Route visa upon MSc completion in January 2027.</li>
-        </ul>
+        {p?.rightToWork && p.rightToWork.length > 0 && (
+          <>
+            <h2 className="cvHead">Right to Work</h2>
+            <ul>
+              {p.rightToWork.map((r, i) => (
+                <li className="cvBullet" key={`rtw-${i}`}>{r}</li>
+              ))}
+            </ul>
+          </>
+        )}
       </div>
     </div>
   );

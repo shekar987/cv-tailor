@@ -119,6 +119,7 @@ NATURAL WRITING RULES (CRITICAL — write like a real person, not AI):
 - BAN entirely: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "operational chaos", "cuts through", "that same [X]".
 - Do NOT open with a dramatic scene ("When a project runs billions over budget..."). Open with something direct and specific about you or a genuine connection to the company.
 - Read it back: if it sounds like a marketing brochure or a LinkedIn thought-leadership post, rewrite it plainer.
+
 Match the tone to the analysis tone_signals. Use only real experience from the master CV. Never claim skills the CV lacks. Sign off with the candidate's name from the master CV.
 
 Output ONLY the cover letter as plain text. No word count, no integrity check, no preamble.`;
@@ -145,3 +146,26 @@ Output ONLY a JSON object (no fences):
   "recommendations": ["2-3 honest actions — never suggest adding skills the CV lacks or keyword-stuffing"],
   "overall_assessment": "2-3 sentences: is this submittable, and the honest competitive position"
 }`;
+
+export const PROFILE_EXTRACTION_PROMPT = `You extract factual profile details from a CV. Extract ONLY what is explicitly present — never invent or guess. If a field isn't in the CV, use an empty string or empty array.
+
+Output ONLY this JSON (no fences, no preamble):
+{
+  "name": "full name as written, e.g. SOMA SHEKAR KEESARI",
+  "tagline": "the headline/title line under the name if present, else empty string",
+  "location": "city/country if present, else empty",
+  "phone": "phone number if present, else empty",
+  "email": "email if present, else empty",
+  "linkedin": "LinkedIn URL or handle if present, else empty",
+  "github": "GitHub URL or handle if present, else empty",
+  "education": [
+    { "degree": "degree + any modifier", "dates": "date range", "institution": "school name", "note": "one-line note if present, else empty" }
+  ],
+  "certifications": ["each certification as one string"],
+  "projects": [
+    { "name": "project name exactly as written", "tech": "the tech stack line if present, else empty", "links": [ { "label": "Live: or Code: etc", "url": "the URL", "text": "the display text" } ], "originalBullets": ["each existing bullet describing this project, verbatim"] }
+  ],
+  "rightToWork": ["each right-to-work / visa line as one string, empty array if none"]
+}
+
+Extract verbatim where possible. Do not reformat dates or names. Do not add anything not in the CV.`;

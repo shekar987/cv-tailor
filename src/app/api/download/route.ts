@@ -192,7 +192,23 @@ const raw = projectsData?.[meta.key];
 
 export async function POST(req: NextRequest) {
   try {
-    const { summary, skills, experience, projects, companyName, roleTitle } = await req.json();
+    const { summary, skills, experience, projects, companyName, roleTitle, profile } = await req.json();
+
+// Use the user's profile if provided; fall back to hardcoded for safety
+const contactName = profile?.name || CONTACT.name;
+const contactTagline = profile?.tagline || CONTACT.tagline;
+const contactLine = [profile?.location, profile?.phone, profile?.email].filter(Boolean).join(" | ") || CONTACT.line1;
+const contactLinkedin = profile?.linkedin
+  ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin)
+  : CONTACT.linkedin;
+const contactGithub = profile?.github
+  ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github)
+  : CONTACT.github;
+const education = (profile?.education && profile.education.length > 0)
+  ? profile.education.map((e: any) => ({ head: e.degree, date: e.dates, school: e.institution, note: e.note }))
+  : EDUCATION;
+const certs = (profile?.certifications && profile.certifications.length > 0) ? profile.certifications : CERTS;
+const rightToWork = (profile?.rightToWork && profile.rightToWork.length > 0) ? profile.rightToWork : RIGHT_TO_WORK;
 
     // Build a safe filename: FirstName_CompanyName_RoleName_CV.docx
     const firstName = "Soma_Shekar"; // first name (already underscore-joined) // from your master CV
@@ -207,16 +223,16 @@ export async function POST(req: NextRequest) {
 
     // Contact header
     children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 },
-      children: [new TextRun({ text: CONTACT.name, bold: true, size: 40, color: NAVY, font: "Calibri" })] }));
+      children: [new TextRun({ text: contactName, bold: true, size: 40, color: NAVY, font: "Calibri" })] }));
     children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 },
-      children: [new TextRun({ text: CONTACT.tagline, size: 20, color: GREY, font: "Calibri" })] }));
+      children: [new TextRun({ text: contactTagline, size: 20, color: GREY, font: "Calibri" })] }));
     children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 },
-      children: [new TextRun({ text: CONTACT.line1, size: 20, font: "Calibri" })] }));
+      children: [new TextRun({ text: contactLine, size: 20, font: "Calibri" })] }));
     children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 },
       children: [
-        new ExternalHyperlink({ link: CONTACT.linkedin, children: [new TextRun({ text: "LinkedIn", size: 20, color: LINK, underline: {}, font: "Calibri" })] }),
+        new ExternalHyperlink({ link: contactLinkedin, children: [new TextRun({ text: "LinkedIn", size: 20, color: LINK, underline: {}, font: "Calibri" })] }),
         new TextRun({ text: "  |  ", size: 20, font: "Calibri" }),
-        new ExternalHyperlink({ link: CONTACT.github, children: [new TextRun({ text: "GitHub", size: 20, color: LINK, underline: {}, font: "Calibri" })] }),
+        new ExternalHyperlink({ link: contactGithub, children: [new TextRun({ text: "GitHub", size: 20, color: LINK, underline: {}, font: "Calibri" })] }),
       ] }));
 
     // Tailored sections
@@ -225,26 +241,32 @@ export async function POST(req: NextRequest) {
     if (experience) { children.push(sectionHeading("Experience")); children.push(...textToParagraphs(experience, "plain")); }
     if (projects) { children.push(sectionHeading("Projects")); children.push(...buildProjects(projects)); }
 
-    // Education (fixed)
+    // Education 
+    if (education.length > 0) {
     children.push(sectionHeading("Education"));
-    for (const e of EDUCATION) {
+     for (const e of education){
       children.push(new Paragraph({ spacing: { before: 60, after: 20 }, tabStops: [{ type: "right" as any, position: 9026 }],
         children: [ new TextRun({ text: e.head, bold: true, size: 22, font: "Calibri" }), new TextRun({ text: "\t" + e.date, size: 20, color: GREY, font: "Calibri" }) ] }));
       children.push(new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: e.school, size: 21, font: "Calibri" })] }));
       children.push(new Paragraph({ spacing: { after: 60 }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text: e.note, size: 20, font: "Calibri" })] }));
     }
+  }
 
-    // Certifications (fixed)
+    // Certifications 
+    if (certs.length > 0) {
     children.push(sectionHeading("Certifications"));
-    for (const c of CERTS) {
+    for (const c of certs) {
       children.push(new Paragraph({ spacing: { after: 40 }, numbering: { reference: "default-bullet", level: 0 }, children: [new TextRun({ text: c, size: 21, font: "Calibri" })] }));
     }
+  }
 
-    // Right to Work (fixed)
+    // Right to Work 
+    if (rightToWork.length > 0) {
     children.push(sectionHeading("Right to Work"));
-    for (const r of RIGHT_TO_WORK) {
+    for (const r of rightToWork) {
       children.push(new Paragraph({ spacing: { after: 40 }, numbering: { reference: "default-bullet", level: 0 }, children: [new TextRun({ text: r, size: 21, font: "Calibri" })] }));
     }
+  }
 
     const doc = new Document({
       styles: { default: { document: { run: { font: "Calibri", size: 21 } } } },

@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { getMasterCV, saveMasterCV, clearMasterCV } from "@/lib/cvStore";
+import { getMasterCV, saveMasterCV, clearMasterCV, getProfile, saveProfile, clearProfile, type Profile } from "@/lib/cvStore";
 import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 
@@ -32,18 +32,21 @@ export default function Home() {
   const [editingCv, setEditingCv] = useState(false);         // is the CV editor open?
   const [cvSavedAt, setCvSavedAt] = useState<number | null>(null);
 
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [extracting, setExtracting] = useState(false);
   // On load, read any stored master CV
   useEffect(() => {
     const stored = getMasterCV();
     if (stored) {
       setMasterCvText(stored.text);
       setCvSavedAt(stored.updatedAt);
+      setProfile(getProfile());
     } else {
       setEditingCv(true); // no CV yet — open the editor so they set one
     }
   }, []);
 
-  function handleSaveCv() {
+  async function handleSaveCv() {
     if (!cvDraft.trim()) {
       setError("Paste your CV before saving.");
       return;
@@ -51,8 +54,27 @@ export default function Home() {
     const rec = saveMasterCV(cvDraft);
     setMasterCvText(rec.text);
     setCvSavedAt(rec.updatedAt);
-    setEditingCv(false);
     setError("");
+
+    // Extract the profile (name/contact/education) from the new CV
+    setExtracting(true);
+    try {
+      const res = await fetch("/api/extract-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cvText: rec.text }),
+      });
+      const data = await res.json();
+      if (res.ok && data.profile) {
+        setProfile(data.profile);
+        saveProfile(data.profile);
+      }
+    } catch {
+      // extraction failed — user can still proceed; we'll fall back
+    } finally {
+      setExtracting(false);
+      setEditingCv(false);
+    }
   }
 
   function handleEditCv() {
@@ -62,12 +84,20 @@ export default function Home() {
 
   function handleClearCv() {
     clearMasterCV();
+    clearProfile();
+    setProfile(null);
     setMasterCvText("");
     setCvSavedAt(null);
     setCvDraft("");
     setEditingCv(true);
   }
 
+  function updateProfileField(field: keyof Profile, value: any) {
+    if (!profile) return;
+    const updated = { ...profile, [field]: value };
+    setProfile(updated);
+    saveProfile(updated);
+  }
   async function handleTailor() {
 
     if (!masterCvText.trim()) {
@@ -173,6 +203,24 @@ async function handleDownload() {
             </div>
           )}
         </section>
+        {/* Profile confirm card — shows extracted details for the user to verify */}
+        {masterCvText && !editingCv && (
+          <section className="inputCard">
+            <div className="label">Your details {extracting && <span className="cvSavedMeta">— extracting…</span>}</div>
+            <p className="cvHelp">Pulled from your CV. Check these are right — they appear in your tailored CV's header and sections.</p>
+            {profile && (
+              <div className="profileGrid">
+                <label>Name<input value={profile.name} onChange={(e) => updateProfileField("name", e.target.value)} /></label>
+                <label>Tagline<input value={profile.tagline} onChange={(e) => updateProfileField("tagline", e.target.value)} /></label>
+                <label>Location<input value={profile.location} onChange={(e) => updateProfileField("location", e.target.value)} /></label>
+                <label>Phone<input value={profile.phone} onChange={(e) => updateProfileField("phone", e.target.value)} /></label>
+                <label>Email<input value={profile.email} onChange={(e) => updateProfileField("email", e.target.value)} /></label>
+                <label>LinkedIn<input value={profile.linkedin} onChange={(e) => updateProfileField("linkedin", e.target.value)} /></label>
+                <label>GitHub<input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} /></label>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* JD card — only show once a master CV exists */}
         {masterCvText && (
@@ -259,13 +307,15 @@ async function handleDownload() {
           
             
             <CvPreview
-         data={{ summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects as any }}
-         fileBaseName={(() => {
-          const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-          const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-          return ["Soma_Shekar", cn, rt, "CV"].filter(Boolean).join("_");
+              data={{ summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects as any }}
+              profile={profile}
+              fileBaseName={(() => {
+                const first = (profile?.name || "Soma_Shekar").trim().split(/\s+/).slice(0, 2).join("_");
+                const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+                const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+                return [first, cn, rt, "CV"].filter(Boolean).join("_");
               })()}
-/>
+            />
 {result.coverLetter && (
               <>
                 <h2 className="clHeading">Cover Letter</h2>
