@@ -37,25 +37,6 @@ const RIGHT_TO_WORK = [
   "Eligible for the UK Graduate Route visa upon MSc completion in January 2027.",
 ];
 
-const PROJECTS_META = [
-  {
-    key: "ridex",
-    name: "RideX — Full-Stack Ride-Hailing Platform",
-    tech: "React 19, Firebase, Stripe, Mapbox, Vercel",
-    links: [
-      { label: "Live: ", url: "https://uber-demo-omega.vercel.app", text: "uber-demo-omega.vercel.app" },
-      { label: "Code: ", url: "https://github.com/shekar987/RideX-app", text: "github.com/shekar987/RideX-app" },
-    ],
-  },
-  {
-    key: "financial",
-    name: "AI-Powered Financial Analysis System",
-    tech: "Python, Anthropic Claude API, pandas",
-    links: [
-      { label: "Code: ", url: "https://github.com/shekar987/finsight-financial-chatbot", text: "github.com/shekar987/finsight-financial-chatbot" },
-    ],
-  },
-];
 
 function sectionHeading(text: string): Paragraph {
   return new Paragraph({
@@ -117,6 +98,21 @@ function textToParagraphs(text: string, mode: "plain" | "skills" = "plain"): Par
     .filter((line) => !/^(SKILLS|PROJECTS|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE)\s*$/i.test(line.trim()))
     .map((line) => {
       const trimmed = line.trim();
+      // Job header line: "@@JOB@@role@@date" → bold role left, bold date right
+      if (trimmed.startsWith("@@JOB@@")) {
+        const parts = trimmed.replace("@@JOB@@", "").split("@@");
+        const role = parts[0] || "";
+        const date = parts[1] || "";
+        return new Paragraph({
+          spacing: { before: 140, after: 40 },
+          tabStops: [{ type: "right" as any, position: 9026 }],
+          children: [
+            new TextRun({ text: role, bold: true, size: 21, font: "Calibri" }),
+            new TextRun({ text: "\t" + date, bold: true, size: 21, font: "Calibri" }),
+          ],
+        });
+      }
+      
       const isBullet = trimmed.startsWith("•") || trimmed.startsWith("-");
       const clean = isBullet ? trimmed.replace(/^[•\-]\s*/, "") : trimmed;
 
@@ -147,37 +143,46 @@ function textToParagraphs(text: string, mode: "plain" | "skills" = "plain"): Par
 // Projects: fixed name/tech/links from PROJECTS_META + tailored bullets from the chain (object form).
 type ProjectsPayload = Record<string, unknown>;
 
-function buildProjects(projectsData: ProjectsPayload): Paragraph[] {
+// Build projects from the user's project metadata + tailored bullets (keyed by index).
+function buildProjects(projectsMeta: any[], tailoredBullets: any): Paragraph[] {
   const out: Paragraph[] = [];
-  for (const meta of PROJECTS_META) {
-const raw = projectsData?.[meta.key];
-    const bullets: string[] = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
-    if (bullets.length === 0) continue;
+  if (!Array.isArray(projectsMeta) || projectsMeta.length === 0) return out;
 
-    // Title (bold, fixed)
+  projectsMeta.forEach((meta, idx) => {
+    const tailored = tailoredBullets?.[String(idx)];
+    const bullets: string[] = (Array.isArray(tailored) && tailored.length > 0)
+      ? tailored
+      : (Array.isArray(meta.originalBullets) ? meta.originalBullets : []);
+
+    if (!meta.name && bullets.length === 0) return;
+
+    // Title (bold)
     out.push(new Paragraph({
       spacing: { before: 160, after: 20 },
-      children: [new TextRun({ text: meta.name, bold: true, size: 22, font: "Calibri" })],
+      children: [new TextRun({ text: meta.name || "", bold: true, size: 22, font: "Calibri" })],
     }));
-    // Tech stack (same style as body)
-    out.push(new Paragraph({
-      spacing: { after: 20 },
-      children: [new TextRun({ text: meta.tech, size: 21, font: "Calibri" })],
-    }));
-    // Links (fixed, clickable)
-    const linkRuns: (TextRun | ExternalHyperlink)[] = [];
-    meta.links.forEach((l, i) => {
-      if (i > 0) linkRuns.push(new TextRun({ text: "   |   ", size: 21, font: "Calibri" }));
-      linkRuns.push(new TextRun({ text: l.label, size: 21, font: "Calibri" }));
-      linkRuns.push(
-        new ExternalHyperlink({
-          link: l.url,
-          children: [new TextRun({ text: l.text, size: 21, color: LINK, underline: {}, font: "Calibri" })],
-        })
-      );
-    });
-    out.push(new Paragraph({ spacing: { after: 60 }, children: linkRuns }));
-    // Bullets (tailored, from chain)
+    // Tech (same style as body)
+    if (meta.tech) {
+      out.push(new Paragraph({
+        spacing: { after: 20 },
+        children: [new TextRun({ text: meta.tech, size: 21, font: "Calibri" })],
+      }));
+    }
+    // Links (clickable)
+    if (Array.isArray(meta.links) && meta.links.length > 0) {
+      const linkRuns: (TextRun | ExternalHyperlink)[] = [];
+      meta.links.forEach((l: any, i: number) => {
+        if (i > 0) linkRuns.push(new TextRun({ text: "   |   ", size: 21, font: "Calibri" }));
+        if (l.label) linkRuns.push(new TextRun({ text: l.label, size: 21, font: "Calibri" }));
+        const url = l.url && l.url.startsWith("http") ? l.url : "https://" + (l.url || "");
+        linkRuns.push(new ExternalHyperlink({
+          link: url,
+          children: [new TextRun({ text: l.text || l.url || "", size: 21, color: LINK, underline: {}, font: "Calibri" })],
+        }));
+      });
+      out.push(new Paragraph({ spacing: { after: 60 }, children: linkRuns }));
+    }
+    // Bullets
     for (const b of bullets) {
       out.push(new Paragraph({
         spacing: { after: 80 },
@@ -186,14 +191,12 @@ const raw = projectsData?.[meta.key];
         children: buildRuns(b.replace(/^[-•]\s*/, ""), { size: 21 }),
       }));
     }
-  }
+  });
   return out;
 }
-
 export async function POST(req: NextRequest) {
   try {
-    const { summary, skills, experience, projects, companyName, roleTitle, profile } = await req.json();
-
+const { summary, skills, experience, projects, projectsMeta, companyName, roleTitle, profile } = await req.json();
 // Use the user's profile if provided; fall back to hardcoded for safety
 const contactName = profile?.name || CONTACT.name;
 const contactTagline = profile?.tagline || CONTACT.tagline;
@@ -239,8 +242,11 @@ const rightToWork = (profile?.rightToWork && profile.rightToWork.length > 0) ? p
     if (summary) { children.push(sectionHeading("Professional Summary")); children.push(...textToParagraphs(summary, "plain")); }
     if (skills) { children.push(sectionHeading("Skills")); children.push(...textToParagraphs(skills, "skills")); }
     if (experience) { children.push(sectionHeading("Experience")); children.push(...textToParagraphs(experience, "plain")); }
-    if (projects) { children.push(sectionHeading("Projects")); children.push(...buildProjects(projects)); }
-
+    const projectParas = buildProjects(projectsMeta || [], projects || {});
+    if (projectParas.length > 0) {
+      children.push(sectionHeading("Projects"));
+      children.push(...projectParas);
+    }
     // Education 
     if (education.length > 0) {
     children.push(sectionHeading("Education"));

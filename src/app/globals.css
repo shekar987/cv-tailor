@@ -301,3 +301,20 @@ textarea:focus { outline: none; border-color: var(--amber); }
 }
 .profileGrid input:focus { outline: none; border-color: var(--amber); }
 @media (max-width: 640px) { .profileGrid { grid-template-columns: 1fr; } }
+.cvJobHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-weight: 700;
+  margin: 10px 0 4px;
+  gap: 12px;
+}
+.cvJobRole { font-weight: 700; }
+.cvJobDate { font-weight: 700; white-space: nowrap; }
+/* Ensure bullets are NOT bold even if a parent is */
+.cvDoc ul,
+.cvDoc ul li,
+.cvDoc li.cvBullet,
+.cvDoc .cvBullet * {
+  font-weight: 400 !important;
+}

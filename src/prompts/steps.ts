@@ -62,7 +62,11 @@ NATURAL WRITING RULES (write like a human, not an AI):
 You will receive the JD analysis as JSON. Keep the same employer, title, and dates exactly as in the master CV. Reorder bullets so the most JD-relevant come first. Bold quantified wins with **. Do not invent bullets — use only what's in the master CV.
 
 Output ONLY the work experience section as plain text. No preamble, no integrity check.`;
-export const projectsPrompt = (cv: string = MASTER_CV) => `You write tailored CV project bullets. You do NOT write project names, tech stacks, or links — only the bullet points.
+export const projectsPrompt = (cv: string = MASTER_CV, projectNames: string[] = []) => {
+  const projectList = projectNames.length > 0
+    ? projectNames.map((n, i) => `${i}: ${n}`).join("\n")
+    : "(none)";
+  return `You write tailored CV project bullets. You do NOT write project names, tech stacks, or links — only the bullet points.
 
 ${ABSOLUTE_RULES}
 
@@ -70,29 +74,28 @@ MASTER CV:
 ${cv}
 
 CRITICAL ANTI-EMBELLISHMENT RULES:
-- Describe each project using ONLY technologies, actions, and outcomes explicitly in the master CV.
-- FORBIDDEN additions unless verbatim in the master CV: "payment reconciliation", "idempotent payment flows", "at scale", "multi-tenant", "high-scale", "enterprise-grade", "fintech expertise".
+- Describe each project using ONLY technologies, actions, and outcomes explicitly in the master CV for THAT project.
+- FORBIDDEN: inventing capabilities, tools, or metrics not in the CV for that project.
 - Every phrase must be defensible if an interviewer asks "show me exactly where you did this."
 
-NATURAL WRITING RULES (human, not AI — but stay ATS-friendly):
-- VARY bullet structure. Do NOT end every bullet with "— demonstrating X" / "— showing Y". At most one bullet may use that pattern.
-- BAN overused filler (max once total): "at scale", "production-grade", "end-to-end", "hands-on", "leveraging", "robust", "seamless".
-- Vary bullet length — mix punchy and detailed.
-- KEEP the real keywords: name the actual technologies (Stripe, Firebase, Mapbox, Python, Anthropic Claude API, etc.) and metrics. Vary the sentence around them, not the keywords.
+NATURAL WRITING RULES:
+- Vary bullet structure; do not end every bullet with an em-dash + "-ing" phrase.
+- Vary bullet length. Ban: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "showcasing".
 
-The master CV has exactly two projects:
-1. RideX — Full-Stack Ride-Hailing Platform
-2. AI-Powered Financial Analysis System
+The candidate's CV contains these projects (by index):
+${projectList}
 
-You will receive the JD analysis as JSON. For EACH project, write 2-3 tailored bullets emphasizing the aspects most relevant to this JD. Quantify only where the master CV quantifies.
+You will receive the JD analysis as JSON. For EACH project by index, write 2-3 tailored bullets (What + How + Result) emphasizing what's most relevant to this JD. Quantify only where the master CV quantifies for that project.
 
-Output ONLY valid JSON in this EXACT shape (no fences, no preamble):
+Output ONLY valid JSON — an OBJECT mapping each project index (as a string) to its array of bullet strings. Example shape for 2 projects:
 {
-  "ridex": ["bullet 1", "bullet 2", "bullet 3"],
-  "financial": ["bullet 1", "bullet 2", "bullet 3"]
+  "0": ["bullet 1", "bullet 2"],
+  "1": ["bullet 1", "bullet 2"]
 }
 
-Each bullet is a plain string with no leading dash or bullet character.`;
+If there are no projects, output {}.
+Each bullet is a plain string with no leading dash.`;
+};
 export const COMPANY_RESEARCH_PROMPT = `You synthesize company research for a cover letter, working only from the JD analysis provided.
 
 You will receive the JD analysis as JSON. Do NOT fabricate specific facts (funding, exec names, product details) not present in the analysis. Work from what's there plus reasonable general knowledge.
@@ -163,9 +166,17 @@ Output ONLY this JSON (no fences, no preamble):
   ],
   "certifications": ["each certification as one string"],
   "projects": [
-    { "name": "project name exactly as written", "tech": "the tech stack line if present, else empty", "links": [ { "label": "Live: or Code: etc", "url": "the URL", "text": "the display text" } ], "originalBullets": ["each existing bullet describing this project, verbatim"] }
+    {
+      "name": "project name as written",
+      "tech": "tech stack line if present, else empty",
+      "links": [
+        { "label": "Live: or Code: etc", "url": "the full URL", "text": "the display text e.g. github.com/user/repo" }
+      ],
+      "originalBullets": ["each bullet under this project, verbatim"]
+    }
   ],
   "rightToWork": ["each right-to-work / visa line as one string, empty array if none"]
 }
+For projects: extract each project listed in a Projects/Portfolio section. If the CV has NO projects section, use an empty array []. Do not invent projects. Extract names, tech, and URLs verbatim.
 
 Extract verbatim where possible. Do not reformat dates or names. Do not add anything not in the CV.`;

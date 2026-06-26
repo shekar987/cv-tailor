@@ -4,6 +4,9 @@ import React, { useRef } from "react";
 
 type ProjectsData = { ridex?: string[]; financial?: string[] };
 
+// projects now arrives keyed by index: { "0": [...bullets], "1": [...bullets] }
+type ProjectsData = Record<string, string[]>;
+
 type CvData = {
   summary?: string;
   skills?: string;
@@ -11,23 +14,6 @@ type CvData = {
   projects?: ProjectsData;
 };
 
-const PROJECTS_META: Record<string, { name: string; tech: string; links: { label: string; url: string; text: string }[] }> = {
-  ridex: {
-    name: "RideX — Full-Stack Ride-Hailing Platform",
-    tech: "React 19, Firebase, Stripe, Mapbox, Vercel",
-    links: [
-      { label: "Live: ", url: "https://uber-demo-omega.vercel.app", text: "uber-demo-omega.vercel.app" },
-      { label: "Code: ", url: "https://github.com/shekar987/RideX-app", text: "github.com/shekar987/RideX-app" },
-    ],
-  },
-  financial: {
-    name: "AI-Powered Financial Analysis System",
-    tech: "Python, Anthropic Claude API, pandas",
-    links: [
-      { label: "Code: ", url: "https://github.com/shekar987/finsight-financial-chatbot", text: "github.com/shekar987/finsight-financial-chatbot" },
-    ],
-  },
-};
 
 import type { Profile } from "@/lib/cvStore";
 
@@ -55,6 +41,11 @@ export default function CvPreview({
       .map((l) => l.trim())
       .filter((l) => l !== "" && !/^(SKILLS|PROJECTS|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE|EDUCATION|CERTIFICATIONS)\s*:?\s*$/i.test(l));
   // Renders mixed subheads and bullet groups, grouping consecutive bullets into <ul>
+  // Detects job-header lines (role | company) followed by a date line, and renders
+  // them on one bold line (role left, date right). Groups bullets into <ul>.
+  const isDateLine = (s: string) =>
+    /\b(19|20)\d{2}\b/.test(s) && (s.includes("–") || s.includes("-") || /present/i.test(s)) && s.length < 40;
+
   const renderMixed = (text: string | undefined, prefix: string): React.ReactNode[] => {
     const ls = lines(text);
     const nodes: React.ReactNode[] = [];
@@ -62,17 +53,35 @@ export default function CvPreview({
     while (i < ls.length) {
       const l = ls[i];
       const isBullet = l.startsWith("•") || l.startsWith("-");
+
       if (isBullet) {
         const bullets: React.ReactNode[] = [];
         while (i < ls.length && (ls[i].startsWith("•") || ls[i].startsWith("-"))) {
-          const clean = ls[i].replace(/^[•\-]\s*/, "");
-          bullets.push(<li className="cvBullet" key={`${prefix}-${i}`}>{clean}</li>);
+          // strip the bullet marker AND the ** bold markers; force normal weight
+          const clean = ls[i].replace(/^[•\-]\s*/, "").replace(/\*\*/g, "");
+          bullets.push(
+            <li className="cvBullet" key={`${prefix}-${i}`} style={{ fontWeight: 400 }}>
+              {clean}
+            </li>
+          );
           i++;
         }
-        nodes.push(<ul key={`${prefix}-ul-${i}`}>{bullets}</ul>);
+        nodes.push(<ul key={`${prefix}-ul-${i}`} style={{ fontWeight: 400 }}>{bullets}</ul>);
       } else {
-        nodes.push(<p className="cvSubhead" key={`${prefix}-${i}`}>{l}</p>);
-        i++;
+        // Is the NEXT line a date? Then this is a job header — merge them.
+        const next = ls[i + 1];
+        if (next && isDateLine(next)) {
+          nodes.push(
+            <p className="cvJobHeader" key={`${prefix}-jh-${i}`}>
+              <span className="cvJobRole">{l}</span>
+              <span className="cvJobDate">{next}</span>
+            </p>
+          );
+          i += 2; // consumed both the role line and the date line
+        } else {
+          nodes.push(<p className="cvSubhead" key={`${prefix}-${i}`}>{l}</p>);
+          i++;
+        }
       }
     }
     return nodes;
@@ -109,6 +118,11 @@ export default function CvPreview({
             const txt = (li.textContent || "").trim();
             if (txt) out.push(`- ${txt}`);
           });
+        } else if (node.classList.contains("cvJobHeader")) {
+          // role and date are separate spans — join with a tab marker so the Word route can split
+          const role = (node.querySelector(".cvJobRole")?.textContent || "").trim();
+          const date = (node.querySelector(".cvJobDate")?.textContent || "").trim();
+          out.push(`@@JOB@@${role}@@${date}`);
         } else {
           const txt = (node.textContent || "").trim();
           if (txt) out.push(node.classList.contains("cvBullet") ? `- ${txt}` : txt);
@@ -118,37 +132,18 @@ export default function CvPreview({
       return out.join("\n");
     };
 
-    const readProjects = () => {
-      const heads = Array.from(root.querySelectorAll(".cvHead"));
-      const projHead = heads.find((h) => (h.textContent || "").trim().toLowerCase() === "projects");
-      const result: { ridex: string[]; financial: string[] } = { ridex: [], financial: [] };
-      if (!projHead) return result;
-      let node = projHead.nextElementSibling as HTMLElement | null;
-      let currentKey: "ridex" | "financial" | null = null;
-      while (node && !node.classList.contains("cvHead")) {
-        const titleEl = node.querySelector?.(".cvProjTitle") || (node.classList.contains("cvProjTitle") ? node : null);
-        if (titleEl) {
-          const t = (titleEl.textContent || "").toLowerCase();
-          currentKey = t.includes("ridex") ? "ridex" : t.includes("financial") ? "financial" : currentKey;
-        }
-        const bulletEls = node.querySelectorAll?.(".cvBullet") || [];
-        bulletEls.forEach((b: Element) => {
-          const txt = (b.textContent || "").trim();
-          if (txt && currentKey) result[currentKey].push(txt);
-        });
-        node = node.nextElementSibling as HTMLElement | null;
-      }
-      return result;
-    };
+  
 
    const payload = {
       summary: getSectionText("Professional Summary"),
       skills: getSectionText("Skills"),
       experience: getSectionText("Experience"),
-      projects: readProjects(),
+      projects: data.projects || {},
+      projectsMeta: p?.projects || [],
       profile: p,
       fileBaseName,
     };
+    console.log("EXPERIENCE TEXT:", payload.experience);
 
     const res = await fetch("/api/download", {
       method: "POST",
@@ -205,28 +200,33 @@ export default function CvPreview({
           </>
         )}
 
-        {data.projects && (
+        {p?.projects && p.projects.length > 0 && (
           <>
             <h2 className="cvHead">Projects</h2>
-            {(["ridex", "financial"] as const).map((key) => {
-              const bullets = data.projects?.[key];
-              if (!Array.isArray(bullets) || bullets.length === 0) return null;
-              const meta = PROJECTS_META[key];
+            {p.projects.map((proj, idx) => {
+              // tailored bullets for this project come keyed by index; fall back to original bullets
+              const tailored = data.projects?.[String(idx)];
+              const bullets = (Array.isArray(tailored) && tailored.length > 0)
+                ? tailored
+                : (proj.originalBullets || []);
+              if (bullets.length === 0 && !proj.name) return null;
               return (
-                <div key={key}>
-                  <p className="cvProjTitle">{meta.name}</p>
-                  <p className="cvText">{meta.tech}</p>
-                  <p className="cvText">
-                    {meta.links.map((l, li) => (
-                      <span key={li}>
-                        {li > 0 ? "  |  " : ""}
-                        {l.label}
-                        <a href={l.url} className="cvLink">{l.text}</a>
-                      </span>
-                    ))}
-                  </p>
+                <div key={`proj-${idx}`}>
+                  <p className="cvProjTitle">{proj.name}</p>
+                  {proj.tech && <p className="cvText">{proj.tech}</p>}
+                  {proj.links && proj.links.length > 0 && (
+                    <p className="cvText">
+                      {proj.links.map((l, li) => (
+                        <span key={li}>
+                          {li > 0 ? "  |  " : ""}
+                          {l.label}
+                          <a href={l.url} className="cvLink">{l.text}</a>
+                        </span>
+                      ))}
+                    </p>
+                  )}
                   <ul>
-                    {bullets.map((b, i) => (<li className="cvBullet" key={`${key}-${i}`}>{b.replace(/^[-•]\s*/, "")}</li>))}
+                    {bullets.map((b, i) => (<li className="cvBullet" key={`${idx}-${i}`}>{b.replace(/^[-•]\s*/, "")}</li>))}
                   </ul>
                 </div>
               );

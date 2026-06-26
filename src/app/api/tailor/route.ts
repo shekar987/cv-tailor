@@ -40,8 +40,7 @@ export async function POST(req: NextRequest) {
         { status: 429 }
       );
     }
-    const { jobDescription, cvText } = await req.json();
-
+const { jobDescription, cvText, projectNames = [] } = await req.json();
     if (!jobDescription) {
       return NextResponse.json({ error: "No job description provided" }, { status: 400 });
     }
@@ -65,7 +64,9 @@ export async function POST(req: NextRequest) {
       callClaude({ system: summaryPrompt(cv), userInput: analysisStr }),
       callClaude({ system: skillsPrompt(cv), userInput: analysisStr }),
       callClaude({ system: experiencePrompt(cv), userInput: analysisStr }),
-      callClaude({ system: projectsPrompt(cv), userInput: analysisStr, expectJson: true }),
+      projectNames.length > 0
+        ? callClaude({ system: projectsPrompt(cv, projectNames), userInput: analysisStr, expectJson: true })
+        : Promise.resolve({}),
     ]);
 
     // Wave 2: cover letter needs analysis + research; ATS scoring needs analysis + tailored sections

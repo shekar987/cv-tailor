@@ -116,7 +116,11 @@ export default function Home() {
       const res = await fetch("/api/tailor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobDescription, cvText: masterCvText }),
+        body: JSON.stringify({
+          jobDescription,
+          cvText: masterCvText,
+          projectNames: (profile?.projects || []).map((p) => p.name),
+        }),
       });
       const data = await res.json();
       if (!res.ok) setError(data.error || "Something went wrong. Try again.");
