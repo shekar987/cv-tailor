@@ -311,10 +311,9 @@ textarea:focus { outline: none; border-color: var(--amber); }
 }
 .cvJobRole { font-weight: 700; }
 .cvJobDate { font-weight: 700; white-space: nowrap; }
+
 /* Ensure bullets are NOT bold even if a parent is */
-.cvDoc ul,
 .cvDoc ul li,
-.cvDoc li.cvBullet,
-.cvDoc .cvBullet * {
+.cvDoc li.cvBullet {
   font-weight: 400 !important;
 }

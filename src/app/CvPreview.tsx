@@ -1,9 +1,6 @@
 "use client";
 
 import React, { useRef } from "react";
-
-type ProjectsData = { ridex?: string[]; financial?: string[] };
-
 // projects now arrives keyed by index: { "0": [...bullets], "1": [...bullets] }
 type ProjectsData = Record<string, string[]>;
 
@@ -60,7 +57,7 @@ export default function CvPreview({
           // strip the bullet marker AND the ** bold markers; force normal weight
           const clean = ls[i].replace(/^[•\-]\s*/, "").replace(/\*\*/g, "");
           bullets.push(
-            <li className="cvBullet" key={`${prefix}-${i}`} style={{ fontWeight: 400 }}>
+            <li className="cvBullet" key={`${prefix}-${i}`} style={{ fontWeight: 400, backgroundColor: "yellow" }}>
               {clean}
             </li>
           );
@@ -77,9 +74,17 @@ export default function CvPreview({
               <span className="cvJobDate">{next}</span>
             </p>
           );
-          i += 2; // consumed both the role line and the date line
+          i += 2;
+        } else if (isDateLine(l)) {
+          // a stray date line on its own — skip (already consumed with its header normally)
+          i++;
         } else {
-          nodes.push(<p className="cvSubhead" key={`${prefix}-${i}`}>{l}</p>);
+          // not a header, not a date → it's a body bullet (chain doesn't always prefix with •)
+          nodes.push(
+            <ul key={`${prefix}-ul-${i}`} style={{ fontWeight: 400 }}>
+              <li className="cvBullet" style={{ fontWeight: 400 }}>{l.replace(/\*\*/g, "")}</li>
+            </ul>
+          );
           i++;
         }
       }
