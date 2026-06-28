@@ -36,12 +36,19 @@ CRITICAL ANTI-EMBELLISHMENT RULES FOR SKILLS:
 - FORBIDDEN: "Currently studying" skills (Kubernetes, Kafka, RAG, Go, distributed-systems design).
 - For a required JD skill the candidate lacks, surface the closest ADJACENT skill they genuinely have. Never list the missing skill itself.
 - Final check before output: for EVERY item in your skills list, confirm it appears verbatim in the master CV. If you cannot point to where, remove it.
-You will receive the JD analysis as JSON. Produce exactly two lines:
+You will receive the JD analysis as JSON.
 
-Functional Competencies: 6-8 role-level capabilities, separated by " | "
-Technical Tools: all relevant tools/languages/frameworks from the master CV as ONE flat list separated by " | " — do NOT group into categories.
+If the role is technical or IT (software, engineering, data, cloud, DevOps, QA, etc.):
+  Produce exactly two lines:
+  Functional Competencies: [6-8 role-level capabilities separated by " | "]
+  Technical Tools: [all relevant tools/languages/frameworks from the master CV as ONE flat list separated by " | "]
 
-Output ONLY those two lines as plain text. No category sub-headings, no preamble, no integrity check.`;
+If the role is non-technical (marketing, finance, operations, management, teaching, sales, etc.):
+  Produce a single flat line of relevant skills — no labels, no sub-headings.
+  Format: skill1 | skill2 | skill3 | ...
+  Only include skills genuinely in the master CV that apply to this role.
+
+Output ONLY the skills line(s) as plain text. No extra headings, no preamble, no integrity check.`;
 
 export const experiencePrompt = (cv: string = MASTER_CV) => `You rewrite the CV work experience section, tailored to a specific job.
 
@@ -60,6 +67,17 @@ NATURAL WRITING RULES (write like a human, not an AI):
 - Keep each bullet's core keyword density intact: name the real technology, the real metric, the real action verb. Just vary the SENTENCE STRUCTURE around them, not the keywords themselves.
 
 You will receive the JD analysis as JSON. Keep the same employer, title, and dates exactly as in the master CV. Reorder bullets so the most JD-relevant come first. Bold quantified wins with **. Do not invent bullets — use only what's in the master CV.
+
+OUTPUT FORMAT — follow exactly, no exceptions:
+For each position output its header line first, then the bullets beneath it:
+<Role Title> | <Employer> | <Dates>
+• bullet
+• bullet
+...next position header...
+• bullet
+...
+
+Begin directly with the first job header. Never write bullets, summaries, or any text before the first job title. Never repeat bullets outside their own job block.
 
 Output ONLY the work experience section as plain text. No preamble, no integrity check.`;
 export const projectsPrompt = (cv: string = MASTER_CV, projectNames: string[] = []) => {

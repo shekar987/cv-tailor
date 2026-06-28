@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { getMasterCV, saveMasterCV, clearMasterCV, getProfile, saveProfile, clearProfile, type Profile } from "@/lib/cvStore";
 import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
@@ -160,6 +160,15 @@ async function handleDownload() {
       setError("Couldn't generate the document. Try again.");
     }
   }
+  // Stable reference so React.memo on CvPreview can skip re-renders when only the JD
+  // textarea or other unrelated state changes. Only rebuilds when result changes.
+  const cvData = useMemo(() => ({
+    summary: result?.summary,
+    skills: result?.skills,
+    experience: result?.experience,
+    projects: result?.projects as any,
+  }), [result]);
+
   return (
     <main className="page">
       <div className="container">
@@ -311,7 +320,7 @@ async function handleDownload() {
           
             
             <CvPreview
-              data={{ summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects as any }}
+              data={cvData}
               profile={profile}
               fileBaseName={(() => {
                 const first = (profile?.name || "Soma_Shekar").trim().split(/\s+/).slice(0, 2).join("_");
@@ -326,9 +335,10 @@ async function handleDownload() {
                 <CoverLetterPreview
                   coverLetter={result.coverLetter}
                   fileBaseName={(() => {
+                    const first = (profile?.name || "User").trim().split(/\s+/).slice(0, 2).join("_");
                     const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
                     const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-                    return ["Soma_Shekar", cn, rt, "CoverLetter"].filter(Boolean).join("_");
+                    return [first, cn, rt, "CoverLetter"].filter(Boolean).join("_");
                   })()}
                 />
               </>
