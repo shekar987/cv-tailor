@@ -131,35 +131,6 @@ export default function Home() {
       setLoading(false);
     }
   }
-async function handleDownload() {
-    if (!result) return;
-    try {
-      const res = await fetch("/api/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          summary: result.summary,
-          skills: result.skills,
-          experience: result.experience,
-          projects: result.projects,
-          companyName: (result as any).analysis?.company_name || "",
-          roleTitle: (result as any).analysis?.role_title || "",
-        }),
-      });
-      if (!res.ok) throw new Error();
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-     const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-      const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-      a.download = ["Soma_Shekar", cn, rt, "CV"].filter(Boolean).join("_") + ".docx";
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch {
-      setError("Couldn't generate the document. Try again.");
-    }
-  }
   // Stable reference so React.memo on CvPreview can skip re-renders when only the JD
   // textarea or other unrelated state changes. Only rebuilds when result changes.
   const cvData = useMemo(() => ({
@@ -323,7 +294,7 @@ async function handleDownload() {
               data={cvData}
               profile={profile}
               fileBaseName={(() => {
-                const first = (profile?.name || "Soma_Shekar").trim().split(/\s+/).slice(0, 2).join("_");
+                const first = (profile?.name || "User").trim().split(/\s+/).slice(0, 2).join("_");
                 const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
                 const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
                 return [first, cn, rt, "CV"].filter(Boolean).join("_");

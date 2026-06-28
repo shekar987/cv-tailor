@@ -14,29 +14,6 @@ const NAVY = "1F3864";
 const GREY = "595959";
 const LINK = "0563C1";
 
-const CONTACT = {
-  name: "SOMA SHEKAR KEESARI",
-  tagline: "MSc Computer Science, University of East London | 2+ YoE | Java & Spring Boot | Full Stack Engineer",
-  line1: "London, UK | +44 7553 449836 | somashekarkeesari18@gmail.com",
-  linkedin: "https://www.linkedin.com/in/shekar-keesari-4bbaa6234/",
-  github: "https://github.com/shekar987",
-};
-
-const EDUCATION = [
-  { head: "MSc Computer Science (Industrial Placement)", date: "Jan 2025 – Jan 2027", school: "University of East London", note: "AWS-accredited programme focused on Software Engineering, Cloud Computing, and AI applications." },
-  { head: "BSc Computer Science, Distinction", date: "Jul 2019 – Jul 2023", school: "Keshav Memorial Institute of Technology, India", note: "Graduated with Distinction; coursework in Data Structures, OOP, Databases, and Software Engineering." },
-];
-
-const CERTS = [
-  "AWS Certified Cloud Practitioner — Amazon Web Services",
-  "Java Developer Certificate — CodSoft",
-];
-
-const RIGHT_TO_WORK = [
-  "Full-time work authorised during MSc Industrial Placement.",
-  "Eligible for the UK Graduate Route visa upon MSc completion in January 2027.",
-];
-
 
 function sectionHeading(text: string): Paragraph {
   return new Paragraph({
@@ -197,30 +174,27 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any): Paragraph[] {
 export async function POST(req: NextRequest) {
   try {
 const { summary, skills, experience, projects, projectsMeta, companyName, roleTitle, profile } = await req.json();
-// When a user profile exists, use it exclusively — never mix in hardcoded owner data.
-// Only fall back to hardcoded constants when no profile was sent at all (owner's own use).
-const hasProfile = !!profile;
-const contactName = profile?.name || (hasProfile ? "" : CONTACT.name);
-const contactTagline = profile?.tagline ?? (hasProfile ? "" : CONTACT.tagline);
-const contactLine = hasProfile
-  ? [profile?.location, profile?.phone, profile?.email].filter(Boolean).join(" | ")
-  : CONTACT.line1;
-const contactLinkedin = hasProfile
-  ? (profile?.linkedin ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin) : "")
-  : CONTACT.linkedin;
-const contactGithub = hasProfile
-  ? (profile?.github ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github) : "")
-  : CONTACT.github;
-const education = hasProfile
-  ? (profile?.education || []).map((e: any) => ({ head: e.degree, date: e.dates, school: e.institution, note: e.note }))
-  : EDUCATION;
-const certs = hasProfile ? (profile?.certifications || []) : CERTS;
-const rightToWork = hasProfile ? (profile?.rightToWork || []) : RIGHT_TO_WORK;
+// Always use profile data exclusively. Missing fields render blank — never fall back to owner data.
+const contactName = profile?.name || "";
+const contactTagline = profile?.tagline ?? "";
+const contactLine = [profile?.location, profile?.phone, profile?.email].filter(Boolean).join(" | ");
+const contactLinkedin = profile?.linkedin
+  ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin)
+  : "";
+const contactGithub = profile?.github
+  ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github)
+  : "";
+const education = (profile?.education || []).map((e: any) => ({
+  head: e.degree || "",
+  date: e.dates || "",
+  school: e.institution || "",
+  note: e.note,
+}));
+const certs = profile?.certifications || [];
+const rightToWork = profile?.rightToWork || [];
 
     // Build a safe filename: FirstName_CompanyName_RoleName_CV.docx
-    const firstName = hasProfile
-      ? ((profile?.name || "").trim().split(/\s+/).slice(0, 2).join("_") || "User")
-      : "Soma_Shekar";
+    const firstName = (profile?.name || "").trim().split(/\s+/).slice(0, 2).join("_") || "User";
     const clean = (s: string) =>
       (s || "")
         .replace(/[^a-zA-Z0-9]+/g, "_") // non-alphanumeric → underscore
