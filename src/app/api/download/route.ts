@@ -197,24 +197,30 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any): Paragraph[] {
 export async function POST(req: NextRequest) {
   try {
 const { summary, skills, experience, projects, projectsMeta, companyName, roleTitle, profile } = await req.json();
-// Use the user's profile if provided; fall back to hardcoded for safety
-const contactName = profile?.name || CONTACT.name;
-const contactTagline = profile?.tagline || CONTACT.tagline;
-const contactLine = [profile?.location, profile?.phone, profile?.email].filter(Boolean).join(" | ") || CONTACT.line1;
-const contactLinkedin = profile?.linkedin
-  ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin)
+// When a user profile exists, use it exclusively — never mix in hardcoded owner data.
+// Only fall back to hardcoded constants when no profile was sent at all (owner's own use).
+const hasProfile = !!profile;
+const contactName = profile?.name || (hasProfile ? "" : CONTACT.name);
+const contactTagline = profile?.tagline ?? (hasProfile ? "" : CONTACT.tagline);
+const contactLine = hasProfile
+  ? [profile?.location, profile?.phone, profile?.email].filter(Boolean).join(" | ")
+  : CONTACT.line1;
+const contactLinkedin = hasProfile
+  ? (profile?.linkedin ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin) : "")
   : CONTACT.linkedin;
-const contactGithub = profile?.github
-  ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github)
+const contactGithub = hasProfile
+  ? (profile?.github ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github) : "")
   : CONTACT.github;
-const education = (profile?.education && profile.education.length > 0)
-  ? profile.education.map((e: any) => ({ head: e.degree, date: e.dates, school: e.institution, note: e.note }))
+const education = hasProfile
+  ? (profile?.education || []).map((e: any) => ({ head: e.degree, date: e.dates, school: e.institution, note: e.note }))
   : EDUCATION;
-const certs = (profile?.certifications && profile.certifications.length > 0) ? profile.certifications : CERTS;
-const rightToWork = (profile?.rightToWork && profile.rightToWork.length > 0) ? profile.rightToWork : RIGHT_TO_WORK;
+const certs = hasProfile ? (profile?.certifications || []) : CERTS;
+const rightToWork = hasProfile ? (profile?.rightToWork || []) : RIGHT_TO_WORK;
 
     // Build a safe filename: FirstName_CompanyName_RoleName_CV.docx
-    const firstName = "Soma_Shekar"; // first name (already underscore-joined) // from your master CV
+    const firstName = hasProfile
+      ? ((profile?.name || "").trim().split(/\s+/).slice(0, 2).join("_") || "User")
+      : "Soma_Shekar";
     const clean = (s: string) =>
       (s || "")
         .replace(/[^a-zA-Z0-9]+/g, "_") // non-alphanumeric → underscore
@@ -252,9 +258,11 @@ const rightToWork = (profile?.rightToWork && profile.rightToWork.length > 0) ? p
     children.push(sectionHeading("Education"));
      for (const e of education){
       children.push(new Paragraph({ spacing: { before: 60, after: 20 }, tabStops: [{ type: "right" as any, position: 9026 }],
-        children: [ new TextRun({ text: e.head, bold: true, size: 22, font: "Calibri" }), new TextRun({ text: "\t" + e.date, size: 20, color: GREY, font: "Calibri" }) ] }));
+        children: [ new TextRun({ text: e.head, bold: true, size: 22, font: "Calibri" }), new TextRun({ text: e.date ? "\t" + e.date : "", size: 20, color: GREY, font: "Calibri" }) ] }));
       children.push(new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: e.school, size: 21, font: "Calibri" })] }));
-      children.push(new Paragraph({ spacing: { after: 60 }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text: e.note, size: 20, font: "Calibri" })] }));
+      if (e.note?.trim()) {
+        children.push(new Paragraph({ spacing: { after: 60 }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text: e.note, size: 20, font: "Calibri" })] }));
+      }
     }
   }
 
