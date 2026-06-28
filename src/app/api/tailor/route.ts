@@ -40,13 +40,16 @@ export async function POST(req: NextRequest) {
         { status: 429 }
       );
     }
-const { jobDescription, cvText, projectNames = [] } = await req.json();
+const { jobDescription, cvText, projectNames } = await req.json();
     if (!jobDescription) {
       return NextResponse.json({ error: "No job description provided" }, { status: 400 });
     }
+    if (!cvText || !cvText.trim()) {
+      return NextResponse.json({ error: "No CV text provided" }, { status: 400 });
+    }
 
-    // Use pasted CV if provided, otherwise the prompt functions fall back to the hardcoded master CV
-    const cv = cvText && cvText.trim() ? cvText : undefined;
+    const cv: string = cvText.trim();
+    const safeProjectNames: string[] = Array.isArray(projectNames) ? projectNames : [];
 
     // Step 1 — Analyze the JD (returns parsed JSON)
     const analysis = await callClaude({
@@ -57,25 +60,33 @@ const { jobDescription, cvText, projectNames = [] } = await req.json();
 
     const analysisStr = JSON.stringify(analysis);
 
-    // Steps 3-6 — run the tailoring steps, each fed the JD analysis
-    // Wave 1: company research runs alongside the 4 tailoring steps (all depend only on analysis)
+    // Wave 1: company research + all 4 tailoring steps. Each is caught independently so a single
+    // step failure (e.g. projects returning prose instead of JSON) doesn't kill the whole response.
     const [research, summary, skills, experience, projects] = await Promise.all([
-      callClaude({ system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true }),
-      callClaude({ system: summaryPrompt(cv), userInput: analysisStr }),
-      callClaude({ system: skillsPrompt(cv), userInput: analysisStr }),
-      callClaude({ system: experiencePrompt(cv), userInput: analysisStr }),
-      projectNames.length > 0
-        ? callClaude({ system: projectsPrompt(cv, projectNames), userInput: analysisStr, expectJson: true })
+      callClaude({ system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
+        .catch(() => ({})),
+      callClaude({ system: summaryPrompt(cv), userInput: analysisStr })
+        .catch(() => ""),
+      callClaude({ system: skillsPrompt(cv), userInput: analysisStr })
+        .catch(() => ""),
+      callClaude({ system: experiencePrompt(cv), userInput: analysisStr })
+        .catch(() => ""),
+      safeProjectNames.length > 0
+        ? callClaude({ system: projectsPrompt(cv, safeProjectNames), userInput: analysisStr, expectJson: true })
+          .catch(() => ({}))
         : Promise.resolve({}),
     ]);
 
-    // Wave 2: cover letter needs analysis + research; ATS scoring needs analysis + tailored sections
+    // Wave 2: cover letter needs analysis + research; ATS scoring needs analysis + tailored sections.
+    // Each caught independently so atsScore failure doesn't lose the cover letter.
     const coverLetterInput = JSON.stringify({ analysis, research });
     const atsInput = JSON.stringify({ analysis, summary, skills, experience, projects });
 
     const [coverLetter, atsScore] = await Promise.all([
-      callClaude({ system: coverLetterPrompt(cv), userInput: coverLetterInput, maxTokens: 1200 }),
-      callClaude({ system: ATS_SCORING_PROMPT, userInput: atsInput, expectJson: true }),
+      callClaude({ system: coverLetterPrompt(cv), userInput: coverLetterInput, maxTokens: 1200 })
+        .catch(() => ""),
+      callClaude({ system: ATS_SCORING_PROMPT, userInput: atsInput, expectJson: true })
+        .catch(() => null),
     ]);
 
     return NextResponse.json({
