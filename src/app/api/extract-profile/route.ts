@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { callClaude } from "@/lib/claude";
 import { PROFILE_EXTRACTION_PROMPT } from "@/prompts/steps";
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.getClaims();
+    if (error || !data?.claims?.sub) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { cvText } = await req.json();
     if (!cvText || !cvText.trim()) {
       return NextResponse.json({ error: "No CV text provided" }, { status: 400 });
