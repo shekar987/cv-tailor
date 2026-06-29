@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { callClaude } from "@/lib/claude";
 
 const JD_ANALYZER_PROMPT = `You are a JD analyzer for a CV tailoring system. Extract structured data from the job description the user provides.
@@ -20,6 +21,12 @@ Output ONLY a JSON object (no prose, no markdown fences) with these fields:
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.getClaims();
+    if (error || !data?.claims?.sub) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { jobDescription } = await req.json();
 
     if (!jobDescription) {
