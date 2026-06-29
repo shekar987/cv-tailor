@@ -1,5 +1,5 @@
-import { checkRateLimit } from "@/lib/rateLimit";
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { callClaude } from "@/lib/claude";
 import {
   summaryPrompt,
@@ -10,6 +10,10 @@ import {
   coverLetterPrompt,
   ATS_SCORING_PROMPT,
 } from "@/prompts/steps";
+
+// Adjust this constant to change the per-user daily tailoring cap
+const DAILY_TAILOR_LIMIT = 3;
+const WINDOW_MS = 24 * 60 * 60 * 1000; // 24-hour rolling window
 
 const JD_ANALYZER_PROMPT = `You are a JD analyzer for a CV tailoring system. Extract structured data from the job description.
 
@@ -30,17 +34,62 @@ Output ONLY a JSON object (no prose, no markdown fences) with these fields:
 
 export async function POST(req: NextRequest) {
   try {
-    // Rate limit by IP
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const limit = checkRateLimit(ip);
-    if (!limit.allowed) {
-      const mins = Math.ceil((limit.resetAt - Date.now()) / 60000);
-      return NextResponse.json(
-        { error: `Rate limit reached. Try again in about ${mins} minute(s).` },
-        { status: 429 }
-      );
+    // Identify the user via locally-verified JWT claims (no network call)
+    const supabase = await createClient();
+    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+
+    if (claimsError || !claimsData?.claims?.sub) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-const { jobDescription, cvText, projectNames } = await req.json();
+
+    const userId = claimsData.claims.sub as string;
+
+    // Per-user rate limiting via the profiles table
+    const { data: profileRow, error: profileError } = await supabase
+      .from("profiles")
+      .select("tailor_count, tailor_count_reset_at, is_unlimited")
+      .eq("id", userId)
+      .single();
+
+    if (profileError || !profileRow) {
+      // Trigger should have created this row on signup — log and allow
+      console.error("Rate limit: missing profiles row for user", userId, profileError);
+    } else if (!profileRow.is_unlimited) {
+      // Only apply the cap to non-unlimited accounts
+      const now = Date.now();
+      const resetAt = profileRow.tailor_count_reset_at
+        ? new Date(profileRow.tailor_count_reset_at).getTime()
+        : 0;
+
+      if (resetAt > now) {
+        // Inside the current window — enforce the limit
+        if (profileRow.tailor_count >= DAILY_TAILOR_LIMIT) {
+          const hoursLeft = Math.ceil((resetAt - now) / (60 * 60 * 1000));
+          return NextResponse.json(
+            {
+              error: `Daily limit reached (${DAILY_TAILOR_LIMIT} tailors per 24 hours). Try again in about ${hoursLeft} hour(s).`,
+            },
+            { status: 429 }
+          );
+        }
+        // Under the limit — increment
+        await supabase
+          .from("profiles")
+          .update({ tailor_count: profileRow.tailor_count + 1 })
+          .eq("id", userId);
+      } else {
+        // Window expired — start a fresh window
+        await supabase
+          .from("profiles")
+          .update({
+            tailor_count: 1,
+            tailor_count_reset_at: new Date(now + WINDOW_MS).toISOString(),
+          })
+          .eq("id", userId);
+      }
+    }
+
+    const { jobDescription, cvText, projectNames } = await req.json();
     if (!jobDescription) {
       return NextResponse.json({ error: "No job description provided" }, { status: 400 });
     }
