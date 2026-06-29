@@ -35,6 +35,7 @@ export default function LoginPage() {
   const [email, setEmail]             = useState('')
   const [password, setPassword]       = useState('')
   const [loading, setLoading]         = useState(false)
+  const [socialLoading, setSocialLoading] = useState<'google' | 'github' | null>(null)
   const [error, setError]             = useState<string | null>(null)
   const [checkInbox, setCheckInbox]   = useState(false)
 
@@ -89,6 +90,27 @@ export default function LoginPage() {
     // Email confirmation is ON — session is null until the user clicks the link
     setCheckInbox(true)
     setLoading(false)
+  }
+
+  async function handleOAuth(provider: 'google' | 'github') {
+    setSocialLoading(provider)
+    setError(null)
+    const supabase = createClient()
+    const { error: err } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        // Supabase redirects here after exchanging the OAuth code.
+        // This URL must be in: Supabase Dashboard → Auth → URL Configuration → Redirect URLs
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+    // If we reach this point the browser redirect didn't fire — provider not
+    // configured in Supabase, or some other immediate error.
+    if (err) {
+      setError(`Could not sign in with ${provider === 'google' ? 'Google' : 'GitHub'}. Please try email instead.`)
+      setSocialLoading(null)
+    }
+    // On success the browser navigates away — no cleanup needed.
   }
 
   // ─── "Check your inbox" screen ──────────────────────────────────────────────
@@ -188,11 +210,33 @@ export default function LoginPage() {
         </div>
 
         <div style={styles.socialRow}>
-          {/* Google and GitHub buttons added in Step 6 */}
-          <button disabled style={styles.socialBtn}>Google</button>
-          <button disabled style={styles.socialBtn}>GitHub</button>
+          <button
+            type="button"
+            onClick={() => handleOAuth('google')}
+            disabled={loading || socialLoading !== null}
+            style={{
+              ...styles.socialBtn,
+              opacity: loading || socialLoading !== null ? 0.6 : 1,
+              cursor: loading || socialLoading !== null ? 'wait' : 'pointer',
+              color: 'var(--text)',
+            }}
+          >
+            {socialLoading === 'google' ? 'Redirecting…' : 'Google'}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleOAuth('github')}
+            disabled={loading || socialLoading !== null}
+            style={{
+              ...styles.socialBtn,
+              opacity: loading || socialLoading !== null ? 0.6 : 1,
+              cursor: loading || socialLoading !== null ? 'wait' : 'pointer',
+              color: 'var(--text)',
+            }}
+          >
+            {socialLoading === 'github' ? 'Redirecting…' : 'GitHub'}
+          </button>
         </div>
-        {/* ────────────────────────────────────────────────────────────────────── */}
 
       </div>
     </main>
@@ -366,10 +410,9 @@ const styles = {
     background: 'transparent',
     border: '1px solid var(--border)',
     borderRadius: 9,
-    color: 'var(--muted)',
-    cursor: 'not-allowed',
-    opacity: 0.45,
+    color: 'var(--text)',
     fontFamily: 'inherit',
+    transition: 'border-color 0.15s',
   } as React.CSSProperties,
 
   muted: {
