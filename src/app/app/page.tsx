@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import { getMasterCV, saveMasterCV, clearMasterCV, getProfile, saveProfile, clearProfile, type Profile } from "@/lib/cvStore";
+import { useRouter } from "next/navigation";
+import { getMasterCV, saveMasterCV, clearMasterCV, getProfile, saveProfile, clearProfile, importFromLocalStorageIfNeeded, type Profile } from "@/lib/cvStore";
+import { createClient } from "@/lib/supabase/client";
 import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 
@@ -21,10 +23,12 @@ type Result = {
 };
 
 export default function Home() {
- const [jobDescription, setJobDescription] = useState("");
+  const router = useRouter();
+  const [jobDescription, setJobDescription] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
   // Master CV state
   const [masterCvText, setMasterCvText] = useState("");      // the stored CV text
@@ -34,16 +38,40 @@ export default function Home() {
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [extracting, setExtracting] = useState(false);
-  // On load, read any stored master CV
+  const [cvLoading, setCvLoading] = useState(true);  // true while initial DB fetch is in-flight
+
+  // On load: fetch CV + profile from Supabase.
+  // If the DB has nothing but localStorage does, import it once then clear localStorage.
   useEffect(() => {
-    const stored = getMasterCV();
-    if (stored) {
-      setMasterCvText(stored.text);
-      setCvSavedAt(stored.updatedAt);
-      setProfile(getProfile());
-    } else {
-      setEditingCv(true); // no CV yet — open the editor so they set one
+    async function loadCv() {
+      // Get user email from local session (no network call)
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      setUserEmail(session?.user?.email ?? null);
+
+      let stored = await getMasterCV();
+
+      if (!stored) {
+        // First login, or user hasn't saved a CV yet.
+        // Check localStorage for a one-time migration of any pre-auth CV.
+        const imported = await importFromLocalStorageIfNeeded();
+        if (imported) {
+          stored = imported;
+          // Profile was also imported inside importFromLocalStorageIfNeeded.
+        }
+      }
+
+      if (stored) {
+        setMasterCvText(stored.text);
+        setCvSavedAt(stored.updatedAt);
+        const p = await getProfile();
+        setProfile(p);
+      } else {
+        setEditingCv(true); // no CV yet — open the editor so they set one
+      }
+      setCvLoading(false);
     }
+    loadCv();
   }, []);
 
   async function handleSaveCv() {
@@ -51,7 +79,7 @@ export default function Home() {
       setError("Paste your CV before saving.");
       return;
     }
-    const rec = saveMasterCV(cvDraft);
+    const rec = await saveMasterCV(cvDraft);
     setMasterCvText(rec.text);
     setCvSavedAt(rec.updatedAt);
     setError("");
@@ -67,7 +95,7 @@ export default function Home() {
       const data = await res.json();
       if (res.ok && data.profile) {
         setProfile(data.profile);
-        saveProfile(data.profile);
+        await saveProfile(data.profile);
       }
     } catch {
       // extraction failed — user can still proceed; we'll fall back
@@ -82,22 +110,32 @@ export default function Home() {
     setEditingCv(true);
   }
 
-  function handleClearCv() {
-    clearMasterCV();
-    clearProfile();
+  async function handleClearCv() {
+    // Reset UI immediately so the user doesn't wait for the DB delete
     setProfile(null);
     setMasterCvText("");
     setCvSavedAt(null);
     setCvDraft("");
     setEditingCv(true);
+    // Delete from DB in the background
+    await clearMasterCV();
+    await clearProfile();
   }
 
   function updateProfileField(field: keyof Profile, value: any) {
     if (!profile) return;
     const updated = { ...profile, [field]: value };
     setProfile(updated);
-    saveProfile(updated);
+    saveProfile(updated); // fire-and-forget: UI state is already correct, DB catches up
   }
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut({ scope: 'local' });
+    router.refresh();
+    router.push('/auth/login');
+  }
+
   async function handleTailor() {
 
     if (!masterCvText.trim()) {
@@ -144,8 +182,30 @@ export default function Home() {
     <main className="page">
       <div className="container">
         <header className="header">
-          <div className="wordmark">
-            CV<span className="dot">.</span>Tailor
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div className="wordmark">
+              CV<span className="dot">.</span>Tailor
+            </div>
+            {userEmail && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 13, color: 'var(--muted)' }}>{userEmail}</span>
+                <button
+                  onClick={handleSignOut}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    color: 'var(--muted)',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    padding: '5px 12px',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Sign out
+                </button>
+              </div>
+            )}
           </div>
           <p className="tagline">
             Honest, ATS-ready tailoring. Every claim traces back to your real CV — nothing invented.
@@ -154,10 +214,12 @@ export default function Home() {
 
         {/* Master CV card */}
         <section className="inputCard">
-          {editingCv ? (
+          {cvLoading ? (
+            <p className="cvHelp" style={{ color: 'var(--muted)' }}>Loading your CV…</p>
+          ) : editingCv ? (
             <>
               <label className="label" htmlFor="cv">Your master CV</label>
-              <p className="cvHelp">Paste your full CV once. It's saved in your browser and reused for every job — you'll only need to paste the job description each time.</p>
+              <p className="cvHelp">Paste your full CV once. It's saved to your account and reused for every job — you'll only need to paste the job description each time.</p>
               <textarea
                 id="cv"
                 value={cvDraft}
