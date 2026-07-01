@@ -1,7 +1,7 @@
 export const MASTER_CV = `
 SOMA SHEKAR KEESARI
 Full Stack & AI Engineer | Java · Python · React · LLM Integration · AWS
-London, UK | +44 7553 449836 | somashekarkeesari18@gmail.com
+London, UK | +44 7XXX XXXXXX | your.email@example.com
 LinkedIn: linkedin.com/in/shekar-keesari-4bbaa6234 | GitHub: github.com/shekar987
 
 PROFILE

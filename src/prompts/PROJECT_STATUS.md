@@ -67,11 +67,12 @@ cv_profiles
 | B2 | Authenticated users could self-set `is_unlimited=true` via direct Supabase client | ✅ Fixed (REVOKE + SECURITY DEFINER) |
 | S2 | No input size caps — cost-attack via oversized CV/JD | ✅ Fixed |
 | S1 | `/api/download` + `/api/download-cover` have no auth guard; URLs in ExternalHyperlink unsanitised | ✅ Fixed |
-| S3 | Real PII (phone, email) hardcoded in `src/prompts/masterCV.ts`, committed to git | ⏳ Pending — only matters if repo goes public |
-| N1 | `cvText` logged in tailor route error path | ⏳ Cleanup batch |
-| N2 | Rate-limit RPC errors logged with userId | ⏳ Cleanup batch |
-| N3 | Profile JSON logged on extraction error | ⏳ Cleanup batch |
-| N4 | JD analysis logged at step level | ⏳ Cleanup batch |
+| S3 | Real PII (phone, email) hardcoded in `src/prompts/masterCV.ts`, committed to git | ✅ Fixed — replaced with placeholders |
+| N1 | `console.error("Tailor API error:", error)` could log full error object containing CV text | ✅ Fixed — logs message only |
+| N2 | Rate-limit log included `userId` directly | ✅ Fixed — userId removed from log |
+| N3 | `console.error("Profile extraction error:", error)` — same full-object risk | ✅ Fixed — logs message only |
+| N4 | `console.log("[CVWord] ...")` debug lines in `CvPreview.tsx` printed CV content to browser console | ✅ Fixed — removed |
+| RK | React duplicate-key warning in `CvPreview` `renderMixed` | ✅ Fixed — `nodeKey` counter already in place |
 
 ---
 
@@ -79,11 +80,11 @@ cv_profiles
 
 **OneDrive .next corruption** — The project lives on OneDrive. Sync corrupts `.next/`. Symptom: impossible errors, stale routes, build output that doesn't match source. Always delete `.next/` and rebuild before investigating.
 
-**Supabase key format** — New projects issue `sb_publishable_...` (was "anon key") and `sb_secret_...` (was "service role key"). Env var name stays `NEXT_PUBLIC_SUPABASE_ANON_KEY` but value starts `sb_publishable_`.
+**Supabase key format** — New projects issue `sb_publishable_...` (was "anon key") and `sb_secret_...` (was "service role key"). This project uses `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (not the legacy `ANON_KEY` name) — get the value from Supabase → Project Settings → API → Project API keys.
 
 **PostgREST ≠ SQL editor for permission testing** — `SET LOCAL ROLE authenticated` in the Supabase SQL editor does NOT replicate how PostgREST enforces roles. Column-level REVOKE tests there give wrong results. Test real permissions via DevTools console using the app's browser client and live session.
 
-**`middleware.ts` doesn't exist in this project** — Next.js 16 uses `proxy.ts` for the session-refresh middleware. Don't create `middleware.ts`.
+**`middleware.ts` doesn't exist — it's `proxy.ts`, Node.js runtime** — Next.js 16 uses `proxy.ts` for session-refresh middleware (not `middleware.ts`). It must run in the Node.js runtime; `@supabase/ssr` cookie handling is not compatible with the Edge runtime default. If middleware errors appear, ensure `src/proxy.ts` exports `export const runtime = 'nodejs'`.
 
 **`getClaims()` not `getSession()` in route handlers** — `getClaims()` verifies the JWT locally (no network call). `getSession()` hits the network and can return stale data. All auth checks in Route Handlers use `getClaims()`.
 

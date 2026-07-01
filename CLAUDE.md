@@ -99,6 +99,7 @@ proxy.ts                      ← Session-refresh middleware (Next.js 16: named 
 |---|---|---|
 | Client Components | `createBrowserClient()` from `@/lib/supabase/client.ts` | Runs in browser, reads cookies directly |
 | Server Components / Route Handlers | `createServerClient()` from `@/lib/supabase/server.ts` | Requires `await cookies()`; reads from request headers |
+| Session-refresh middleware | `updateSession()` from `@/lib/supabase/proxy.ts` | Called by `src/proxy.ts`; refreshes session cookie on every request |
 
 **Auth verification in Route Handlers: always use `getClaims()`.** It verifies the JWT locally (no network call) and returns `claims.sub` as the user ID. Never use `getSession()` in server contexts — it makes a network round-trip and can return stale data.
 
@@ -243,10 +244,10 @@ npm run lint      # ESLint
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
-The Supabase anon key now uses the `sb_publishable_...` format (previously called "anon key"). The service role key (`sb_secret_...`) is not used by the app — the only server-side privilege escalation goes through SECURITY DEFINER functions.
+The env var is `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (not the legacy `ANON_KEY` name). Its value starts `sb_publishable_...` — the new Supabase key format. The service role key (`sb_secret_...`) is not used by the app — the only server-side privilege escalation goes through SECURITY DEFINER functions.
 
 ---
 
@@ -301,7 +302,11 @@ The project lives on OneDrive. OneDrive's sync process corrupts `.next/` — sym
 
 ### Supabase key format changed
 
-Supabase projects now issue `sb_publishable_...` (formerly "anon key") and `sb_secret_...` (formerly "service role key"). The env var name stays `NEXT_PUBLIC_SUPABASE_ANON_KEY` but the value now starts with `sb_publishable_`. If you see auth failures after a project reset or key rotation, check this first.
+Supabase projects now issue `sb_publishable_...` (formerly "anon key") and `sb_secret_...` (formerly "service role key"). The env var in this project is `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — note it is NOT the legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` name. If you see auth failures after a project reset or key rotation, check the env var name and value both.
+
+### proxy.ts runs in Node.js runtime, not Edge
+
+Next.js middleware defaults to the Edge runtime. This project's `src/proxy.ts` must run in the **Node.js runtime** because `@supabase/ssr`'s cookie handling relies on Node.js APIs. If you see Edge-runtime-related errors from the middleware (e.g. `crypto` or cookie APIs missing), verify `src/proxy.ts` exports `export const runtime = 'nodejs'` and that `next.config.ts` does not force Edge globally.
 
 ### Test Postgres permissions via PostgREST, not the SQL editor
 

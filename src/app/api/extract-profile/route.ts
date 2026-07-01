@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ profile });
   } catch (error) {
-    console.error("Profile extraction error:", error);
+    console.error("Profile extraction error:", error instanceof Error ? error.message : "Unknown error");
     return NextResponse.json({ error: "Failed to extract profile" }, { status: 500 });
   }
 }
