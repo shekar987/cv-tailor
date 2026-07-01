@@ -15,6 +15,9 @@ export async function POST(req: NextRequest) {
     if (!cvText || !cvText.trim()) {
       return NextResponse.json({ error: "No CV text provided" }, { status: 400 });
     }
+    if (cvText.length > 20_000) {
+      return NextResponse.json({ error: "CV is too long (max ~5 pages / 20,000 characters)." }, { status: 400 });
+    }
     const profile = await callClaude({
       system: PROFILE_EXTRACTION_PROMPT,
       userInput: cvText,

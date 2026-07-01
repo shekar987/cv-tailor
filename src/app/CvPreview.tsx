@@ -77,6 +77,7 @@ function CvPreview({
     }
 
     let i = 0;
+    let nodeKey = 0; // always-incrementing; prevents key collisions between ul/p nodes
     while (i < ls.length) {
       const l = ls[i];
       const isBullet = l.startsWith("•") || l.startsWith("-");
@@ -88,11 +89,11 @@ function CvPreview({
           if (isInlineJobHeader(line)) {
             // Flush any pending bullets before rendering the job header
             if (bullets.length > 0) {
-              nodes.push(<ul key={`${prefix}-ul-flush-${i}`} style={{ fontWeight: 400 }}>{bullets.splice(0)}</ul>);
+              nodes.push(<ul key={`${prefix}-${nodeKey++}`} style={{ fontWeight: 400 }}>{bullets.splice(0)}</ul>);
             }
             const { role, date } = splitInlineJobHeader(line);
             nodes.push(
-              <p className="cvJobHeader" key={`${prefix}-jh-${i}`}>
+              <p className="cvJobHeader" key={`${prefix}-${nodeKey++}`}>
                 <span className="cvJobRole">{role}</span>
                 <span className="cvJobDate">{date}</span>
               </p>
@@ -109,7 +110,7 @@ function CvPreview({
           i++;
         }
         if (bullets.length > 0) {
-          nodes.push(<ul key={`${prefix}-ul-${i}`} style={{ fontWeight: 400 }}>{bullets}</ul>);
+          nodes.push(<ul key={`${prefix}-${nodeKey++}`} style={{ fontWeight: 400 }}>{bullets}</ul>);
         }
       } else {
         const next = ls[i + 1];
@@ -117,7 +118,7 @@ function CvPreview({
           // Inline job header without bullet prefix
           const { role, date } = splitInlineJobHeader(l);
           nodes.push(
-            <p className="cvJobHeader" key={`${prefix}-jh-${i}`}>
+            <p className="cvJobHeader" key={`${prefix}-${nodeKey++}`}>
               <span className="cvJobRole">{role}</span>
               <span className="cvJobDate">{date}</span>
             </p>
@@ -126,7 +127,7 @@ function CvPreview({
         } else if (next && isDateLine(next)) {
           // Two-line format: role on this line, date on next (e.g. Soma's CV format)
           nodes.push(
-            <p className="cvJobHeader" key={`${prefix}-jh-${i}`}>
+            <p className="cvJobHeader" key={`${prefix}-${nodeKey++}`}>
               <span className="cvJobRole">{l}</span>
               <span className="cvJobDate">{next}</span>
             </p>
@@ -141,7 +142,7 @@ function CvPreview({
         } else {
           // Plain body line without bullet prefix
           nodes.push(
-            <ul key={`${prefix}-ul-${i}`} style={{ fontWeight: 400 }}>
+            <ul key={`${prefix}-${nodeKey++}`} style={{ fontWeight: 400 }}>
               <li className="cvBullet" style={{ fontWeight: 400 }}>{l.replace(/\*\*/g, "")}</li>
             </ul>
           );

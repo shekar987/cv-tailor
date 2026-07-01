@@ -32,6 +32,9 @@ export async function POST(req: NextRequest) {
     if (!jobDescription) {
       return NextResponse.json({ error: "No job description provided" }, { status: 400 });
     }
+    if (jobDescription.length > 15_000) {
+      return NextResponse.json({ error: "Job description is too long (max ~15,000 characters)." }, { status: 400 });
+    }
 
     const result = await callClaude({
       system: JD_ANALYZER_PROMPT,
