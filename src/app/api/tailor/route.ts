@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
         );
       }
       // profile_not_found — trigger should have created the row on signup; log and allow
-      console.error("Rate limit: profile not found for user", userId);
+      console.error("Rate limit: profile not found for user");
     }
 
     const MAX_CV_CHARS = 20_000;
@@ -145,8 +145,8 @@ export async function POST(req: NextRequest) {
       atsScore,
     });
   } catch (error) {
-    console.error("Tailor API error:", error);
     const msg = error instanceof Error ? error.message : "Unknown error";
+    console.error("Tailor API error:", msg);
     return NextResponse.json({ error: "Tailoring failed", detail: msg }, { status: 500 });
   }
 }

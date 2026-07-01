@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ result });
   } catch (error) {
-    console.error("API error:", error);
+    console.error("Analyze API error:", error instanceof Error ? error.message : "Unknown error");
     return NextResponse.json({ error: "Failed to analyze JD" }, { status: 500 });
   }
 }

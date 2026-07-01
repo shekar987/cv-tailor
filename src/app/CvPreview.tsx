@@ -263,11 +263,6 @@ function CvPreview({
     const skills = readText("skills") || data.skills || "";
     const experience = readExperience() || data.experience || "";
 
-    console.log("[CVWord] headings found:", kids.filter(k => k.tagName === "H2").map(k => k.textContent?.trim()));
-    console.log("[CVWord] summary (first 100):", summary.slice(0, 100));
-    console.log("[CVWord] skills (first 100):", skills.slice(0, 100));
-    console.log("[CVWord] experience (first 150):", experience.slice(0, 150));
-
     const profileForDownload = p
       ? {
           ...p,
