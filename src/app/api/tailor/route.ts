@@ -44,50 +44,40 @@ export async function POST(req: NextRequest) {
 
     const userId = claimsData.claims.sub as string;
 
-    // Per-user rate limiting via the profiles table
-    const { data: profileRow, error: profileError } = await supabase
-      .from("profiles")
-      .select("tailor_count, tailor_count_reset_at, is_unlimited")
-      .eq("id", userId)
-      .single();
-
-    if (profileError || !profileRow) {
-      // Trigger should have created this row on signup — log and allow
-      console.error("Rate limit: missing profiles row for user", userId, profileError);
-    } else if (!profileRow.is_unlimited) {
-      // Only apply the cap to non-unlimited accounts
-      const now = Date.now();
-      const resetAt = profileRow.tailor_count_reset_at
-        ? new Date(profileRow.tailor_count_reset_at).getTime()
-        : 0;
-
-      if (resetAt > now) {
-        // Inside the current window — enforce the limit
-        if (profileRow.tailor_count >= DAILY_TAILOR_LIMIT) {
-          const hoursLeft = Math.ceil((resetAt - now) / (60 * 60 * 1000));
-          return NextResponse.json(
-            {
-              error: `Daily limit reached (${DAILY_TAILOR_LIMIT} tailors per 24 hours). Try again in about ${hoursLeft} hour(s).`,
-            },
-            { status: 429 }
-          );
-        }
-        // Under the limit — increment
-        await supabase
-          .from("profiles")
-          .update({ tailor_count: profileRow.tailor_count + 1 })
-          .eq("id", userId);
-      } else {
-        // Window expired — start a fresh window
-        await supabase
-          .from("profiles")
-          .update({
-            tailor_count: 1,
-            tailor_count_reset_at: new Date(now + WINDOW_MS).toISOString(),
-          })
-          .eq("id", userId);
+    // Per-user rate limiting — atomically checked and incremented server-side.
+    // Users cannot write tailor_count/tailor_count_reset_at/is_unlimited directly
+    // (REVOKE UPDATE on those columns from authenticated); only this SECURITY DEFINER
+    // function can touch them.
+    const { data: rpcResult, error: rpcError } = await supabase.rpc(
+      "check_and_increment_tailor_count",
+      {
+        uid:            userId,
+        daily_limit:    DAILY_TAILOR_LIMIT,
+        window_seconds: Math.floor(WINDOW_MS / 1000),
       }
+    );
+
+    if (rpcError) {
+      // Unexpected DB error — log and fail open rather than blocking the user
+      console.error("Rate limit RPC error:", rpcError.message);
+    } else if (rpcResult && !rpcResult.allowed) {
+      if (rpcResult.reason === "limit_reached") {
+        const hoursLeft = Math.ceil(
+          (new Date(rpcResult.reset_at as string).getTime() - Date.now()) / (60 * 60 * 1000)
+        );
+        return NextResponse.json(
+          {
+            error: `Daily limit reached (${DAILY_TAILOR_LIMIT} tailors per 24 hours). Try again in about ${hoursLeft} hour(s).`,
+          },
+          { status: 429 }
+        );
+      }
+      // profile_not_found — trigger should have created the row on signup; log and allow
+      console.error("Rate limit: profile not found for user", userId);
     }
+
+    const MAX_CV_CHARS = 20_000;
+    const MAX_JD_CHARS = 15_000;
 
     const { jobDescription, cvText, projectNames } = await req.json();
     if (!jobDescription) {
@@ -95,6 +85,12 @@ export async function POST(req: NextRequest) {
     }
     if (!cvText || !cvText.trim()) {
       return NextResponse.json({ error: "No CV text provided" }, { status: 400 });
+    }
+    if (cvText.length > MAX_CV_CHARS) {
+      return NextResponse.json({ error: "CV is too long (max ~5 pages / 20,000 characters)." }, { status: 400 });
+    }
+    if (jobDescription.length > MAX_JD_CHARS) {
+      return NextResponse.json({ error: "Job description is too long (max ~15,000 characters)." }, { status: 400 });
     }
 
     const cv: string = cvText.trim();

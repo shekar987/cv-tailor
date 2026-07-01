@@ -79,6 +79,8 @@ For each position output its header line first, then the bullets beneath it:
 
 Begin directly with the first job header. Never write bullets, summaries, or any text before the first job title. Never repeat bullets outside their own job block.
 
+CRITICAL SCOPE: Output entries from the EXPERIENCE section only. Do NOT include personal projects, side projects, or portfolio entries — they appear later in the master CV under a separate PROJECTS section and are rendered separately by the application. Stop output at the end of the last employment entry.
+
 Output ONLY the work experience section as plain text. No preamble, no integrity check.`;
 export const projectsPrompt = (cv: string = MASTER_CV, projectNames: string[] = []) => {
   const projectList = projectNames.length > 0
