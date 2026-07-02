@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { callClaude } from "@/lib/claude";
+import { callLLM, Provider } from "@/lib/claude";
 import {
   summaryPrompt,
   skillsPrompt,
@@ -31,6 +31,21 @@ Output ONLY a JSON object (no prose, no markdown fences) with these fields:
   "domain_context": "1 sentence on what the product does",
   "tone_signals": "formal | semi-formal | founder-casual | technical-dense"
 }`;
+
+// Global, all-or-nothing switch for the whole tailoring chain: a single run
+// uses one provider for all 8 calls, never a mix. Resolution order:
+// request body "provider" (unused by the UI today, wired for a future
+// per-tailor toggle) -> LLM_PROVIDER env var -> "anthropic" default.
+function resolveProvider(bodyProvider: unknown): Provider {
+  if (bodyProvider === "anthropic" || bodyProvider === "openrouter") {
+    return bodyProvider;
+  }
+  const envProvider = process.env.LLM_PROVIDER;
+  if (envProvider === "anthropic" || envProvider === "openrouter") {
+    return envProvider;
+  }
+  return "anthropic";
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -79,7 +94,8 @@ export async function POST(req: NextRequest) {
     const MAX_CV_CHARS = 20_000;
     const MAX_JD_CHARS = 15_000;
 
-    const { jobDescription, cvText, projectNames } = await req.json();
+    const { jobDescription, cvText, projectNames, provider: bodyProvider } = await req.json();
+    const provider = resolveProvider(bodyProvider);
     if (!jobDescription) {
       return NextResponse.json({ error: "No job description provided" }, { status: 400 });
     }
@@ -97,7 +113,8 @@ export async function POST(req: NextRequest) {
     const safeProjectNames: string[] = Array.isArray(projectNames) ? projectNames : [];
 
     // Step 1 — Analyze the JD (returns parsed JSON)
-    const analysis = await callClaude({
+    const analysis = await callLLM({
+      provider,
       system: JD_ANALYZER_PROMPT,
       userInput: jobDescription,
       expectJson: true,
@@ -108,16 +125,16 @@ export async function POST(req: NextRequest) {
     // Wave 1: company research + all 4 tailoring steps. Each is caught independently so a single
     // step failure (e.g. projects returning prose instead of JSON) doesn't kill the whole response.
     const [research, summary, skills, experience, projects] = await Promise.all([
-      callClaude({ system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
+      callLLM({ provider, system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
         .catch(() => ({})),
-      callClaude({ system: summaryPrompt(cv), userInput: analysisStr })
+      callLLM({ provider, system: summaryPrompt(cv), userInput: analysisStr })
         .catch(() => ""),
-      callClaude({ system: skillsPrompt(cv), userInput: analysisStr })
+      callLLM({ provider, system: skillsPrompt(cv), userInput: analysisStr })
         .catch(() => ""),
-      callClaude({ system: experiencePrompt(cv), userInput: analysisStr })
+      callLLM({ provider, system: experiencePrompt(cv), userInput: analysisStr })
         .catch(() => ""),
       safeProjectNames.length > 0
-        ? callClaude({ system: projectsPrompt(cv, safeProjectNames), userInput: analysisStr, expectJson: true })
+        ? callLLM({ provider, system: projectsPrompt(cv, safeProjectNames), userInput: analysisStr, expectJson: true })
           .catch(() => ({}))
         : Promise.resolve({}),
     ]);
@@ -128,13 +145,14 @@ export async function POST(req: NextRequest) {
     const atsInput = JSON.stringify({ analysis, summary, skills, experience, projects });
 
     const [coverLetter, atsScore] = await Promise.all([
-      callClaude({ system: coverLetterPrompt(cv), userInput: coverLetterInput, maxTokens: 1200 })
+      callLLM({ provider, system: coverLetterPrompt(cv), userInput: coverLetterInput, maxTokens: 1200 })
         .catch(() => ""),
-      callClaude({ system: ATS_SCORING_PROMPT, userInput: atsInput, expectJson: true })
+      callLLM({ provider, system: ATS_SCORING_PROMPT, userInput: atsInput, expectJson: true })
         .catch(() => null),
     ]);
 
     return NextResponse.json({
+      provider,
       analysis,
       research,
       summary,
