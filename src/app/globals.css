@@ -81,6 +81,18 @@ textarea:focus { outline: none; border-color: var(--amber); }
 .cta:disabled { opacity: 0.55; cursor: not-allowed; }
 .error { color: #E5736B; font-size: 14px; }
 
+.limitNotice {
+  margin-top: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--amber);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
 .loading {
   margin-top: 28px;
   display: flex;
