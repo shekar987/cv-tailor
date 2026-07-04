@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { callLLM, Provider } from "@/lib/claude";
+import { callLLM, Provider, ProviderRateLimitError } from "@/lib/claude";
 import {
   summaryPrompt,
   skillsPrompt,
@@ -14,6 +14,11 @@ import {
 // Adjust this constant to change the per-user daily tailoring cap
 const DAILY_TAILOR_LIMIT = 3;
 const WINDOW_MS = 24 * 60 * 60 * 1000; // 24-hour rolling window
+
+// Lifetime (not daily) cap on Claude tailors per user. After this many, Claude is
+// permanently blocked for that user (is_unlimited accounts exempt). Future steps
+// will route capped users to their own Gemini/OpenRouter keys.
+const CLAUDE_LIFETIME_LIMIT = 3;
 
 const JD_ANALYZER_PROMPT = `You are a JD analyzer for a CV tailoring system. Extract structured data from the job description.
 
@@ -37,14 +42,26 @@ Output ONLY a JSON object (no prose, no markdown fences) with these fields:
 // request body "provider" (unused by the UI today, wired for a future
 // per-tailor toggle) -> LLM_PROVIDER env var -> "anthropic" default.
 function resolveProvider(bodyProvider: unknown): Provider {
-  if (bodyProvider === "anthropic" || bodyProvider === "openrouter") {
+  if (bodyProvider === "anthropic" || bodyProvider === "openrouter" || bodyProvider === "gemini") {
     return bodyProvider;
   }
   const envProvider = process.env.LLM_PROVIDER;
-  if (envProvider === "anthropic" || envProvider === "openrouter") {
+  if (envProvider === "anthropic" || envProvider === "openrouter" || envProvider === "gemini") {
     return envProvider;
   }
   return "anthropic";
+}
+
+// Renders a millisecond duration as "X hour(s) Y minute(s)" for user-facing
+// messages — never a raw timestamp.
+function formatDuration(ms: number): string {
+  if (ms <= 0) return "shortly";
+  const totalMinutes = Math.ceil(ms / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  if (minutes === 0) return `${hours} hour${hours === 1 ? "" : "s"}`;
+  return `${hours} hour${hours === 1 ? "" : "s"} ${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -77,12 +94,13 @@ export async function POST(req: NextRequest) {
       console.error("Rate limit RPC error:", rpcError.message);
     } else if (rpcResult && !rpcResult.allowed) {
       if (rpcResult.reason === "limit_reached") {
-        const hoursLeft = Math.ceil(
-          (new Date(rpcResult.reset_at as string).getTime() - Date.now()) / (60 * 60 * 1000)
-        );
+        const resetAt = rpcResult.reset_at as string;
+        const remaining = formatDuration(new Date(resetAt).getTime() - Date.now());
         return NextResponse.json(
           {
-            error: `Daily limit reached (${DAILY_TAILOR_LIMIT} tailors per 24 hours). Try again in about ${hoursLeft} hour(s).`,
+            error: `You've reached your daily tailoring limit (${DAILY_TAILOR_LIMIT} per 24 hours). Resets in ${remaining}.`,
+            errorType: "user_limit",
+            resetAt,
           },
           { status: 429 }
         );
@@ -111,6 +129,38 @@ export async function POST(req: NextRequest) {
 
     const cv: string = cvText.trim();
     const safeProjectNames: string[] = Array.isArray(projectNames) ? projectNames : [];
+
+    // Lifetime Claude cap — checked only when this run will actually use Claude,
+    // and only after input validation so a 400 never burns one of the 3 lifetime
+    // credits. Atomic check-and-increment via SECURITY DEFINER RPC; the
+    // claude_tailors_used column is not writable by the authenticated role.
+    // is_unlimited accounts bypass inside the function and are never incremented.
+    if (provider === "anthropic") {
+      const { data: lifetimeResult, error: lifetimeError } = await supabase.rpc(
+        "check_and_increment_claude_lifetime",
+        {
+          uid:            userId,
+          lifetime_limit: CLAUDE_LIFETIME_LIMIT,
+        }
+      );
+
+      if (lifetimeError) {
+        // Unexpected DB error — log and fail open, same policy as the daily limiter
+        console.error("Claude lifetime RPC error:", lifetimeError.message);
+      } else if (lifetimeResult && !lifetimeResult.allowed) {
+        if (lifetimeResult.reason === "claude_limit_reached") {
+          return NextResponse.json(
+            {
+              error: `You've used all ${CLAUDE_LIFETIME_LIMIT} free Claude tailors. Claude is no longer available on this account.`,
+              errorType: "claude_limit_reached",
+            },
+            { status: 403 }
+          );
+        }
+        // profile_not_found — trigger should have created the row on signup; log and allow
+        console.error("Claude lifetime: profile not found for user");
+      }
+    }
 
     // Step 1 — Analyze the JD (returns parsed JSON)
     const analysis = await callLLM({
@@ -163,6 +213,24 @@ export async function POST(req: NextRequest) {
       atsScore,
     });
   } catch (error) {
+    if (error instanceof ProviderRateLimitError) {
+      const retryMsg = error.retryAfterSeconds
+        ? `Resets in ~${formatDuration(error.retryAfterSeconds * 1000)}.`
+        : "Try again shortly.";
+      const message = error.provider === "anthropic"
+        ? `Claude's rate limit has been reached. ${retryMsg}`
+        : `The free AI provider's daily limit has been reached. Try switching to Claude, or wait — ${retryMsg}`;
+      console.error("Provider rate limit:", error.provider, error.message);
+      return NextResponse.json(
+        {
+          error: message,
+          errorType: "provider_limit",
+          provider: error.provider,
+          retryAfter: error.retryAfterSeconds ?? null,
+        },
+        { status: 429 }
+      );
+    }
     const msg = error instanceof Error ? error.message : "Unknown error";
     console.error("Tailor API error:", msg);
     return NextResponse.json({ error: "Tailoring failed", detail: msg }, { status: 500 });

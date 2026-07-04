@@ -28,6 +28,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
+  const [errorType, setErrorType] = useState<string | null>(null); // "user_limit" | "provider_limit" | null
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
   // Master CV state
@@ -140,14 +141,17 @@ export default function Home() {
 
     if (!masterCvText.trim()) {
       setError("Set your master CV first (the box above).");
+      setErrorType(null);
       setEditingCv(true);
       return;
     }
     if (!jobDescription.trim()) {
       setError("Paste a job description to get started.");
+      setErrorType(null);
       return;
     }
     setError("");
+    setErrorType(null);
     setLoading(true);
     setResult(null);
     try {
@@ -161,10 +165,15 @@ export default function Home() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) setError(data.error || "Something went wrong. Try again.");
-      else setResult(data);
+      if (!res.ok) {
+        setError(data.error || "Something went wrong. Try again.");
+        setErrorType(data.errorType || null);
+      } else {
+        setResult(data);
+      }
     } catch {
       setError("Couldn't reach the server. Check it's running and try again.");
+      setErrorType(null);
     } finally {
       setLoading(false);
     }
@@ -283,8 +292,13 @@ export default function Home() {
               <button onClick={handleTailor} disabled={loading} className="cta">
                 {loading ? "Tailoring…" : "Tailor my CV"}
               </button>
-              {error && <span className="error">{error}</span>}
+              {error && errorType !== "user_limit" && errorType !== "provider_limit" && errorType !== "claude_limit_reached" && (
+                <span className="error">{error}</span>
+              )}
             </div>
+            {error && (errorType === "user_limit" || errorType === "provider_limit" || errorType === "claude_limit_reached") && (
+              <div className="limitNotice">{error}</div>
+            )}
           </section>
         )}
 

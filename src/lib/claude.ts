@@ -18,6 +18,44 @@ export const MODELS = {
 // (Price -> Free) for what's currently live.
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "openrouter/free";
 
+// Pinned, not the "-latest" alias — Gemini's "-latest" aliases have a documented
+// history of silently resolving to a since-deprecated model and 404ing with no
+// actionable error. gemini-2.5-flash is confirmed free-tier eligible; switch to
+// gemini-3.5-flash (also free-tier eligible as of this writing) via this env var
+// if you prefer the newer model — check ai.google.dev/gemini-api/docs/pricing
+// first, since Google has changed free-tier model availability before.
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
+// Thrown by any provider adapter when the provider itself returns a 429 (its own
+// quota/rate-limit, not this app's per-user limit). Kept distinct from a plain
+// Error so route.ts can show a specific "provider's limit reached" message
+// instead of a generic failure.
+export class ProviderRateLimitError extends Error {
+  provider: Provider;
+  retryAfterSeconds?: number;
+
+  constructor(provider: Provider, message: string, retryAfterSeconds?: number) {
+    super(message);
+    this.name = "ProviderRateLimitError";
+    this.provider = provider;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+// Best-effort retry-time extraction: the standard Retry-After header (seconds;
+// OpenRouter and others use this), falling back to Gemini's own RetryInfo shape
+// embedded in the JSON error body (e.g. "retryDelay": "11s"). Returns undefined
+// if neither is present — callers show a generic "try again later" in that case.
+function extractRetryAfterSeconds(res: Response, bodyText: string): number | undefined {
+  const header = res.headers.get("retry-after");
+  if (header && !Number.isNaN(Number(header))) return Number(header);
+
+  const match = bodyText.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+  if (match) return Math.ceil(Number(match[1]));
+
+  return undefined;
+}
+
 function cleanText(raw: string): string {
   return raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
 }
@@ -108,6 +146,13 @@ async function callOpenRouter(options: BaseCallOptions) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    if (res.status === 429) {
+      throw new ProviderRateLimitError(
+        "openrouter",
+        "OpenRouter rate limit exceeded",
+        extractRetryAfterSeconds(res, body)
+      );
+    }
     throw new Error(`OpenRouter request failed (${res.status}): ${body.slice(0, 300)}`);
   }
 
@@ -117,7 +162,74 @@ async function callOpenRouter(options: BaseCallOptions) {
   return parseIfJson(text, expectJson);
 }
 
-export type Provider = "anthropic" | "openrouter";
+// PRIVACY (manual pre-flight — not enforced by this code): Gemini's free tier
+// trains on inputs with NO opt-out — that's only available on the paid tier.
+// Real CV data goes through a train-on-inputs third-party model when this
+// provider is active. Confirm you're OK with that before using "gemini".
+async function callGemini(options: BaseCallOptions) {
+  const {
+    system,
+    userInput,
+    model = GEMINI_MODEL,
+    maxTokens = 2000,
+    expectJson = false,
+  } = options;
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not set");
+  }
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts: [{ text: userInput }] }],
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          // gemini-2.5-flash has "thinking" on by default, and thinking tokens count
+          // against maxOutputTokens. With this app's long rule-laden system prompts,
+          // thinking alone consumed nearly the full budget (confirmed via
+          // usageMetadata.thoughtsTokenCount ~1900/2000), leaving almost nothing for
+          // the actual answer and truncating every step (finishReason: MAX_TOKENS).
+          // These are straightforward extraction/rewriting tasks, not multi-step
+          // reasoning, so thinking is disabled outright rather than just widening
+          // the token budget and hoping the (variable) thinking allocation fits.
+          thinkingConfig: { thinkingBudget: 0 },
+          // Decoding-time constraint (the model can only emit valid JSON tokens),
+          // stronger than OpenRouter's best-effort json_object mode. Malformed
+          // output past this still fails loudly via parseIfJson below.
+          ...(expectJson ? { responseMimeType: "application/json" } : {}),
+        },
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    if (res.status === 429) {
+      throw new ProviderRateLimitError(
+        "gemini",
+        "Gemini rate limit exceeded",
+        extractRetryAfterSeconds(res, body)
+      );
+    }
+    throw new Error(`Gemini request failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+
+  const data = await res.json();
+  const text = cleanText(data.candidates?.[0]?.content?.parts?.[0]?.text ?? "");
+
+  return parseIfJson(text, expectJson);
+}
+
+export type Provider = "anthropic" | "openrouter" | "gemini";
 
 type CallLLMOptions = BaseCallOptions & {
   provider: Provider; // resolved once per tailor run — never mixed mid-run
@@ -126,18 +238,34 @@ type CallLLMOptions = BaseCallOptions & {
 /**
  * Provider-generalized version of callClaude(). Used by the tailoring chain,
  * where the provider is picked once per run and passed through to every step.
- * The two providers are fully separate: no fallback from openrouter to
- * anthropic on failure — a failed OpenRouter call throws, it does not retry
- * on Claude.
+ * The providers are fully separate: no fallback from one to another on
+ * failure — a failed call throws, it does not retry on a different provider.
  */
 export async function callLLM(options: CallLLMOptions) {
   const { provider, ...rest } = options;
-  return provider === "anthropic" ? callAnthropic(rest) : callOpenRouter(rest);
+  if (provider === "anthropic") return callAnthropic(rest);
+  if (provider === "openrouter") return callOpenRouter(rest);
+  return callGemini(rest);
 }
 
 // Anthropic call logic factored out so both callClaude() (used by /api/analyze
 // and /api/extract-profile, untouched) and callLLM() (used by /api/tailor) share
-// one implementation.
+// one implementation. The try/catch here is additive — callClaude()'s own
+// behavior is unchanged, this just re-throws Anthropic's 429s as the same
+// ProviderRateLimitError the other two providers use, so route.ts can handle
+// all three providers' rate limits identically.
 async function callAnthropic(options: BaseCallOptions) {
-  return callClaude(options);
+  try {
+    return await callClaude(options);
+  } catch (err) {
+    if (err instanceof Anthropic.RateLimitError) {
+      const retryAfter = err.headers?.get("retry-after");
+      throw new ProviderRateLimitError(
+        "anthropic",
+        "Claude rate limit exceeded",
+        retryAfter ? Number(retryAfter) : undefined
+      );
+    }
+    throw err;
+  }
 }
