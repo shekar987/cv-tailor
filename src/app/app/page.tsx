@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { getMasterCV, saveMasterCV, clearMasterCV, getProfile, saveProfile, clearProfile, importFromLocalStorageIfNeeded, type Profile } from "@/lib/cvStore";
 import { createClient } from "@/lib/supabase/client";
+import Link from "next/link";
 import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 
@@ -198,6 +199,21 @@ export default function Home() {
             {userEmail && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ fontSize: 13, color: 'var(--muted)' }}>{userEmail}</span>
+                <Link
+                  href="/settings"
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    color: 'var(--muted)',
+                    fontSize: 13,
+                    padding: '5px 12px',
+                    textDecoration: 'none',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Settings
+                </Link>
                 <button
                   onClick={handleSignOut}
                   style={{
