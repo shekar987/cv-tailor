@@ -1,4 +1,5 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import {
   Document,
   Packer,
@@ -173,7 +174,13 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any): Paragraph[] {
 }
 export async function POST(req: NextRequest) {
   try {
-const { summary, skills, experience, projects, projectsMeta, companyName, roleTitle, profile } = await req.json();
+    const supabase = await createClient();
+    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+    if (claimsError || !claimsData?.claims?.sub) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { summary, skills, experience, projects, projectsMeta, companyName, roleTitle, profile } = await req.json();
 // Always use profile data exclusively. Missing fields render blank — never fall back to owner data.
 const contactName = profile?.name || "";
 const contactTagline = profile?.tagline ?? "";

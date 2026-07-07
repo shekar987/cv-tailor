@@ -129,6 +129,29 @@ export async function POST(req: NextRequest) {
     }
     const userId = claimsData.claims.sub as string;
 
+    // ── Input validation ──────────────────────────────────────────────────────
+    const MAX_CV_CHARS = 20_000;
+    const MAX_JD_CHARS = 15_000;
+
+    const { jobDescription, cvText, projectNames, provider: bodyProvider } = await req.json();
+
+    if (!jobDescription) {
+      return NextResponse.json({ error: "No job description provided" }, { status: 400 });
+    }
+    if (!cvText || !cvText.trim()) {
+      return NextResponse.json({ error: "No CV text provided" }, { status: 400 });
+    }
+    if (cvText.length > MAX_CV_CHARS) {
+      return NextResponse.json({ error: "CV is too long (max ~5 pages / 20,000 characters)." }, { status: 400 });
+    }
+    if (jobDescription.length > MAX_JD_CHARS) {
+      return NextResponse.json({ error: "Job description is too long (max ~15,000 characters)." }, { status: 400 });
+    }
+
+    const jd              = jobDescription as string;
+    const cv              = (cvText as string).trim();
+    const safeProjectNames: string[] = Array.isArray(projectNames) ? projectNames : [];
+
     // ── Daily rate limit (all users, all providers) ───────────────────────────
     const { data: rpcResult, error: rpcError } = await supabase.rpc(
       "check_and_increment_tailor_count",
@@ -156,29 +179,6 @@ export async function POST(req: NextRequest) {
       console.error("Rate limit: profile not found for user");
     }
 
-    // ── Input validation ──────────────────────────────────────────────────────
-    const MAX_CV_CHARS = 20_000;
-    const MAX_JD_CHARS = 15_000;
-
-    const { jobDescription, cvText, projectNames, provider: bodyProvider } = await req.json();
-
-    if (!jobDescription) {
-      return NextResponse.json({ error: "No job description provided" }, { status: 400 });
-    }
-    if (!cvText || !cvText.trim()) {
-      return NextResponse.json({ error: "No CV text provided" }, { status: 400 });
-    }
-    if (cvText.length > MAX_CV_CHARS) {
-      return NextResponse.json({ error: "CV is too long (max ~5 pages / 20,000 characters)." }, { status: 400 });
-    }
-    if (jobDescription.length > MAX_JD_CHARS) {
-      return NextResponse.json({ error: "Job description is too long (max ~15,000 characters)." }, { status: 400 });
-    }
-
-    const jd              = jobDescription as string;
-    const cv              = (cvText as string).trim();
-    const safeProjectNames: string[] = Array.isArray(projectNames) ? projectNames : [];
-
     // ── Routing brain ─────────────────────────────────────────────────────────
     // Call check_and_increment_claude_lifetime once. Its return tells us everything:
     //   reason = 'unlimited'           → my account; honor the dropdown; use env keys
@@ -193,10 +193,14 @@ export async function POST(req: NextRequest) {
 
     if (lifetimeError) {
       console.error("Claude lifetime RPC error:", lifetimeError.message);
+      return NextResponse.json(
+        { error: "Service temporarily unavailable. Please try again in a moment." },
+        { status: 503 }
+      );
     }
 
     const lifetimeReason = lifetimeResult?.reason as string | undefined;
-    const isUnlimited    = !lifetimeResult || lifetimeReason === "unlimited" || lifetimeReason === "profile_not_found" || !!lifetimeError;
+    const isUnlimited    = !lifetimeResult || lifetimeReason === "unlimited" || lifetimeReason === "profile_not_found";
 
     // ── Path A: unlimited account — existing dropdown behaviour ───────────────
     if (isUnlimited) {
@@ -223,10 +227,26 @@ export async function POST(req: NextRequest) {
       // Decrypt server-side only — keys live only in this request scope, never logged
       let geminiKey:     string | null = null;
       let openrouterKey: string | null = null;
-      try { if (geminiEnc)  geminiKey     = decrypt(geminiEnc);  } catch { /* bad ciphertext — treat as missing */ }
-      try { if (orEnc)      openrouterKey = decrypt(orEnc);      } catch { /* bad ciphertext — treat as missing */ }
+      let decryptFailed = false;
+      try { if (geminiEnc)  geminiKey     = decrypt(geminiEnc);  } catch (e) {
+        console.error("Gemini key decryption failed (KEY_ENCRYPTION_SECRET rotation?):", e instanceof Error ? e.message : String(e));
+        decryptFailed = true;
+      }
+      try { if (orEnc)      openrouterKey = decrypt(orEnc);      } catch (e) {
+        console.error("OpenRouter key decryption failed (KEY_ENCRYPTION_SECRET rotation?):", e instanceof Error ? e.message : String(e));
+        decryptFailed = true;
+      }
 
       if (!geminiKey && !openrouterKey) {
+        if (decryptFailed) {
+          return NextResponse.json(
+            {
+              error: "Your saved API key couldn't be read — it may need to be re-entered. Go to Settings and replace it.",
+              errorType: "key_decrypt_failed",
+            },
+            { status: 422 }
+          );
+        }
         // User is capped but hasn't saved any keys yet — prompt the Settings page
         return NextResponse.json(
           {
@@ -292,9 +312,7 @@ export async function POST(req: NextRequest) {
       const retryMsg = error.retryAfterSeconds
         ? `Resets in ~${formatDuration(error.retryAfterSeconds * 1000)}.`
         : "Try again shortly.";
-      const message = error.provider === "anthropic"
-        ? `Claude's rate limit has been reached. ${retryMsg}`
-        : `The AI provider's limit has been reached. ${retryMsg}`;
+      const message = `The service is busy right now. ${retryMsg}`;
       console.error("Provider rate limit:", error.provider, error.message);
       return NextResponse.json(
         {
@@ -307,6 +325,6 @@ export async function POST(req: NextRequest) {
     }
     const msg = error instanceof Error ? error.message : "Unknown error";
     console.error("Tailor API error:", msg);
-    return NextResponse.json({ error: "Tailoring failed", detail: msg }, { status: 500 });
+    return NextResponse.json({ error: "Tailoring failed" }, { status: 500 });
   }
 }

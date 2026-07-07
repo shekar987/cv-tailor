@@ -1,10 +1,6 @@
 import { ABSOLUTE_RULES } from "./rules";
-import { MASTER_CV } from "./masterCV";
 
-// Each prompt is now a function that takes the CV text.
-// Falls back to the hardcoded MASTER_CV if none provided (for your own testing).
-
-export const summaryPrompt = (cv: string = MASTER_CV) => `You write a 3-line achievement-oriented professional summary for a CV, tailored to a specific job.
+export const summaryPrompt = (cv: string) => `You write a 3-line achievement-oriented professional summary for a CV, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
 
@@ -22,7 +18,7 @@ You will receive the JD analysis as JSON. Write exactly 3 lines. Each line must 
 
 Output ONLY the 3-line summary as plain text. No headings, no preamble, no integrity check.`;
 
-export const skillsPrompt = (cv: string = MASTER_CV) => `You write a tailored CV Skills section.
+export const skillsPrompt = (cv: string) => `You write a tailored CV Skills section.
 
 ${ABSOLUTE_RULES}
 
@@ -50,7 +46,7 @@ If the role is non-technical (marketing, finance, operations, management, teachi
 
 Output ONLY the skills line(s) as plain text. No extra headings, no preamble, no integrity check.`;
 
-export const experiencePrompt = (cv: string = MASTER_CV) => `You rewrite the CV work experience section, tailored to a specific job.
+export const experiencePrompt = (cv: string) => `You rewrite the CV work experience section, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
 
@@ -82,7 +78,7 @@ Begin directly with the first job header. Never write bullets, summaries, or any
 CRITICAL SCOPE: Output entries from the EXPERIENCE section only. Do NOT include personal projects, side projects, or portfolio entries — they appear later in the master CV under a separate PROJECTS section and are rendered separately by the application. Stop output at the end of the last employment entry.
 
 Output ONLY the work experience section as plain text. No preamble, no integrity check.`;
-export const projectsPrompt = (cv: string = MASTER_CV, projectNames: string[] = []) => {
+export const projectsPrompt = (cv: string, projectNames: string[] = []) => {
   const projectList = projectNames.length > 0
     ? projectNames.map((n, i) => `${i}: ${n}`).join("\n")
     : "(none)";
@@ -128,7 +124,7 @@ Output ONLY a JSON object (no fences):
   "caution_notes": ["things to avoid claiming"]
 }`;
 
-export const coverLetterPrompt = (cv: string = MASTER_CV) => `You write a cover letter, max 400 words.
+export const coverLetterPrompt = (cv: string) => `You write a cover letter, max 400 words.
 
 ${ABSOLUTE_RULES}
 

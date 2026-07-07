@@ -105,43 +105,53 @@ export default function SettingsPage() {
     setStatus(s => ({ ...s, [provider]: "saving" }));
     setSlotErrors(e => ({ ...e, [provider]: "" }));
 
-    const res = await fetch("/api/keys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      // key value goes in the request body; never logged or displayed
-      body: JSON.stringify({ provider, key }),
-    });
-    const data = await res.json();
+    try {
+      const res = await fetch("/api/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // key value goes in the request body; never logged or displayed
+        body: JSON.stringify({ provider, key }),
+      });
+      const data = await res.json();
 
-    if (!res.ok) {
+      if (!res.ok) {
+        setStatus(s => ({ ...s, [provider]: "error" }));
+        setSlotErrors(e => ({ ...e, [provider]: data.error || "Failed to save key." }));
+        return;
+      }
+
+      setSavedKeys(s => ({ ...s, [provider]: { hint: data.key_hint, updatedAt: data.updated_at } }));
+      setInputValues(v => ({ ...v, [provider]: "" }));
+      setShowInput(si => ({ ...si, [provider]: false }));
+      setStatus(s => ({ ...s, [provider]: "idle" }));
+    } catch {
       setStatus(s => ({ ...s, [provider]: "error" }));
-      setSlotErrors(e => ({ ...e, [provider]: data.error || "Failed to save key." }));
-      return;
+      setSlotErrors(e => ({ ...e, [provider]: "Connection error. Please try again." }));
     }
-
-    setSavedKeys(s => ({ ...s, [provider]: { hint: data.key_hint, updatedAt: data.updated_at } }));
-    setInputValues(v => ({ ...v, [provider]: "" }));
-    setShowInput(si => ({ ...si, [provider]: false }));
-    setStatus(s => ({ ...s, [provider]: "idle" }));
   }
 
   async function handleRemove(provider: Provider) {
     setStatus(s => ({ ...s, [provider]: "saving" }));
     setSlotErrors(e => ({ ...e, [provider]: "" }));
 
-    const res = await fetch(`/api/keys?provider=${provider}`, { method: "DELETE" });
+    try {
+      const res = await fetch(`/api/keys?provider=${provider}`, { method: "DELETE" });
 
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setStatus(s => ({ ...s, [provider]: "error" }));
+        setSlotErrors(e => ({ ...e, [provider]: data.error || "Failed to remove key." }));
+        return;
+      }
+
+      setSavedKeys(s => ({ ...s, [provider]: null }));
+      setShowInput(si => ({ ...si, [provider]: false }));
+      setInputValues(v => ({ ...v, [provider]: "" }));
+      setStatus(s => ({ ...s, [provider]: "idle" }));
+    } catch {
       setStatus(s => ({ ...s, [provider]: "error" }));
-      setSlotErrors(e => ({ ...e, [provider]: data.error || "Failed to remove key." }));
-      return;
+      setSlotErrors(e => ({ ...e, [provider]: "Connection error. Please try again." }));
     }
-
-    setSavedKeys(s => ({ ...s, [provider]: null }));
-    setShowInput(si => ({ ...si, [provider]: false }));
-    setInputValues(v => ({ ...v, [provider]: "" }));
-    setStatus(s => ({ ...s, [provider]: "idle" }));
   }
 
   function cancelReplace(provider: Provider) {
