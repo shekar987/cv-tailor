@@ -1,8 +1,15 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { Document, Packer, Paragraph, TextRun, AlignmentType } from "docx";
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+    if (claimsError || !claimsData?.claims?.sub) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { coverLetter } = await req.json();
     const text: string = coverLetter || "";
 

@@ -308,10 +308,27 @@ export default function Home() {
               <button onClick={handleTailor} disabled={loading} className="cta">
                 {loading ? "Tailoring…" : "Tailor my CV"}
               </button>
-              {error && errorType !== "user_limit" && errorType !== "provider_limit" && errorType !== "claude_limit_reached" && errorType !== "needs_keys" && errorType !== "user_key_limit" && (
+              {error && errorType !== "user_limit" && errorType !== "provider_limit" && errorType !== "claude_limit_reached" && errorType !== "needs_keys" && errorType !== "user_key_limit" && errorType !== "key_decrypt_failed" && (
                 <span className="error">{error}</span>
               )}
             </div>
+
+            {/* ── Saved key unreadable — re-entry needed (e.g. after KEY_ENCRYPTION_SECRET rotation) ── */}
+            {errorType === "key_decrypt_failed" && (
+              <div className="limitNotice">
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Your API key needs to be re-entered.</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 14 }}>
+                  Your saved key can no longer be read. Please go to Settings and replace it.
+                </div>
+                <Link
+                  href="/settings"
+                  className="cta"
+                  style={{ display: 'inline-block', padding: '8px 18px', fontSize: 14, borderRadius: 9, textDecoration: 'none' }}
+                >
+                  Go to Settings →
+                </Link>
+              </div>
+            )}
 
             {/* ── Free tailors used up — no keys saved yet ── */}
             {errorType === "needs_keys" && (
