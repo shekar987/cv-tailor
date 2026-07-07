@@ -109,7 +109,7 @@ export async function callClaude(options: BaseCallOptions) {
 // data policy in your OpenRouter account settings to exclude providers that
 // train, and keep prompt logging OFF (enabling it grants OpenRouter an
 // irrevocable commercial-use license on the logged content).
-async function callOpenRouter(options: BaseCallOptions) {
+async function callOpenRouter(options: BaseCallOptions, apiKeyOverride?: string) {
   const {
     system,
     userInput,
@@ -118,7 +118,7 @@ async function callOpenRouter(options: BaseCallOptions) {
     expectJson = false,
   } = options;
 
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  const apiKey = apiKeyOverride ?? process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     throw new Error("OPENROUTER_API_KEY is not set");
   }
@@ -166,7 +166,7 @@ async function callOpenRouter(options: BaseCallOptions) {
 // trains on inputs with NO opt-out — that's only available on the paid tier.
 // Real CV data goes through a train-on-inputs third-party model when this
 // provider is active. Confirm you're OK with that before using "gemini".
-async function callGemini(options: BaseCallOptions) {
+async function callGemini(options: BaseCallOptions, apiKeyOverride?: string) {
   const {
     system,
     userInput,
@@ -175,7 +175,7 @@ async function callGemini(options: BaseCallOptions) {
     expectJson = false,
   } = options;
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = apiKeyOverride ?? process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not set");
   }
@@ -232,20 +232,21 @@ async function callGemini(options: BaseCallOptions) {
 export type Provider = "anthropic" | "openrouter" | "gemini";
 
 type CallLLMOptions = BaseCallOptions & {
-  provider: Provider; // resolved once per tailor run — never mixed mid-run
+  provider: Provider;       // resolved once per tailor run — never mixed mid-run
+  apiKeyOverride?: string;  // user-supplied decrypted key; never logged or returned to client
 };
 
 /**
  * Provider-generalized version of callClaude(). Used by the tailoring chain,
  * where the provider is picked once per run and passed through to every step.
- * The providers are fully separate: no fallback from one to another on
- * failure — a failed call throws, it does not retry on a different provider.
+ * When apiKeyOverride is set the user's own decrypted key is used instead of
+ * the app's env key — only possible for gemini and openrouter.
  */
 export async function callLLM(options: CallLLMOptions) {
-  const { provider, ...rest } = options;
+  const { provider, apiKeyOverride, ...rest } = options;
   if (provider === "anthropic") return callAnthropic(rest);
-  if (provider === "openrouter") return callOpenRouter(rest);
-  return callGemini(rest);
+  if (provider === "openrouter") return callOpenRouter(rest, apiKeyOverride);
+  return callGemini(rest, apiKeyOverride);
 }
 
 // Anthropic call logic factored out so both callClaude() (used by /api/analyze

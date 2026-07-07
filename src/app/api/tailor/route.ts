@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callLLM, Provider, ProviderRateLimitError } from "@/lib/claude";
+import { decrypt } from "@/lib/keyEncryption";
 import {
   summaryPrompt,
   skillsPrompt,
@@ -11,13 +12,8 @@ import {
   ATS_SCORING_PROMPT,
 } from "@/prompts/steps";
 
-// Adjust this constant to change the per-user daily tailoring cap
-const DAILY_TAILOR_LIMIT = 3;
-const WINDOW_MS = 24 * 60 * 60 * 1000; // 24-hour rolling window
-
-// Lifetime (not daily) cap on Claude tailors per user. After this many, Claude is
-// permanently blocked for that user (is_unlimited accounts exempt). Future steps
-// will route capped users to their own Gemini/OpenRouter keys.
+const DAILY_TAILOR_LIMIT  = 3;
+const WINDOW_MS            = 24 * 60 * 60 * 1000;
 const CLAUDE_LIFETIME_LIMIT = 3;
 
 const JD_ANALYZER_PROMPT = `You are a JD analyzer for a CV tailoring system. Extract structured data from the job description.
@@ -37,10 +33,7 @@ Output ONLY a JSON object (no prose, no markdown fences) with these fields:
   "tone_signals": "formal | semi-formal | founder-casual | technical-dense"
 }`;
 
-// Global, all-or-nothing switch for the whole tailoring chain: a single run
-// uses one provider for all 8 calls, never a mix. Resolution order:
-// request body "provider" (unused by the UI today, wired for a future
-// per-tailor toggle) -> LLM_PROVIDER env var -> "anthropic" default.
+// For unlimited users only — reads provider from the request body, then env, then defaults.
 function resolveProvider(bodyProvider: unknown): Provider {
   if (bodyProvider === "anthropic" || bodyProvider === "openrouter" || bodyProvider === "gemini") {
     return bodyProvider;
@@ -52,34 +45,91 @@ function resolveProvider(bodyProvider: unknown): Provider {
   return "anthropic";
 }
 
-// Renders a millisecond duration as "X hour(s) Y minute(s)" for user-facing
-// messages — never a raw timestamp.
 function formatDuration(ms: number): string {
   if (ms <= 0) return "shortly";
   const totalMinutes = Math.ceil(ms / 60_000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours    = Math.floor(totalMinutes / 60);
+  const minutes  = totalMinutes % 60;
+  if (hours   === 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
   if (minutes === 0) return `${hours} hour${hours === 1 ? "" : "s"}`;
   return `${hours} hour${hours === 1 ? "" : "s"} ${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
+// Re-throws ProviderRateLimitError so fallback logic above can catch it;
+// swallows everything else and returns the given empty value.
+// This keeps the existing "one bad step doesn't kill the whole response"
+// behaviour while letting provider quota errors propagate for retry/fallback.
+function swallowStep<T>(fallback: T) {
+  return (err: unknown): T => {
+    if (err instanceof ProviderRateLimitError) throw err;
+    return fallback;
+  };
+}
+
+// Runs the complete 9-call tailoring pipeline (JD analysis + wave 1 + wave 2)
+// for one provider + optional key override. Throws ProviderRateLimitError if
+// any step hits a quota, so the caller can catch and retry on another provider.
+async function runPipeline(opts: {
+  provider: Provider;
+  apiKeyOverride: string | undefined;
+  jd: string;
+  cv: string;
+  projectNames: string[];
+}) {
+  const { provider, apiKeyOverride, jd, cv, projectNames } = opts;
+
+  // Step 0 — JD analysis (no catch: if this fails the whole run fails)
+  const analysis = await callLLM({
+    provider,
+    apiKeyOverride,
+    system: JD_ANALYZER_PROMPT,
+    userInput: jd,
+    expectJson: true,
+  });
+  const analysisStr = JSON.stringify(analysis);
+
+  // Wave 1 — parallel; individual step failures produce empty values,
+  // but ProviderRateLimitError propagates so the caller can retry.
+  const [research, summary, skills, experience, projects] = await Promise.all([
+    callLLM({ provider, apiKeyOverride, system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
+      .catch(swallowStep({})),
+    callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv), userInput: analysisStr })
+      .catch(swallowStep("")),
+    callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv), userInput: analysisStr })
+      .catch(swallowStep("")),
+    callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv), userInput: analysisStr })
+      .catch(swallowStep("")),
+    projectNames.length > 0
+      ? callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames), userInput: analysisStr, expectJson: true })
+          .catch(swallowStep({}))
+      : Promise.resolve({}),
+  ]);
+
+  // Wave 2 — cover letter + ATS score
+  const coverLetterInput = JSON.stringify({ analysis, research });
+  const atsInput         = JSON.stringify({ analysis, summary, skills, experience, projects });
+
+  const [coverLetter, atsScore] = await Promise.all([
+    callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv), userInput: coverLetterInput, maxTokens: 1200 })
+      .catch(swallowStep("")),
+    callLLM({ provider, apiKeyOverride, system: ATS_SCORING_PROMPT, userInput: atsInput, expectJson: true })
+      .catch(swallowStep(null)),
+  ]);
+
+  return { analysis, research, summary, skills, experience, projects, coverLetter, atsScore };
+}
+
 export async function POST(req: NextRequest) {
   try {
-    // Identify the user via locally-verified JWT claims (no network call)
+    // ── Auth ──────────────────────────────────────────────────────────────────
     const supabase = await createClient();
     const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-
     if (claimsError || !claimsData?.claims?.sub) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
     const userId = claimsData.claims.sub as string;
 
-    // Per-user rate limiting — atomically checked and incremented server-side.
-    // Users cannot write tailor_count/tailor_count_reset_at/is_unlimited directly
-    // (REVOKE UPDATE on those columns from authenticated); only this SECURITY DEFINER
-    // function can touch them.
+    // ── Daily rate limit (all users, all providers) ───────────────────────────
     const { data: rpcResult, error: rpcError } = await supabase.rpc(
       "check_and_increment_tailor_count",
       {
@@ -88,13 +138,11 @@ export async function POST(req: NextRequest) {
         window_seconds: Math.floor(WINDOW_MS / 1000),
       }
     );
-
     if (rpcError) {
-      // Unexpected DB error — log and fail open rather than blocking the user
       console.error("Rate limit RPC error:", rpcError.message);
     } else if (rpcResult && !rpcResult.allowed) {
       if (rpcResult.reason === "limit_reached") {
-        const resetAt = rpcResult.reset_at as string;
+        const resetAt   = rpcResult.reset_at as string;
         const remaining = formatDuration(new Date(resetAt).getTime() - Date.now());
         return NextResponse.json(
           {
@@ -105,15 +153,15 @@ export async function POST(req: NextRequest) {
           { status: 429 }
         );
       }
-      // profile_not_found — trigger should have created the row on signup; log and allow
       console.error("Rate limit: profile not found for user");
     }
 
+    // ── Input validation ──────────────────────────────────────────────────────
     const MAX_CV_CHARS = 20_000;
     const MAX_JD_CHARS = 15_000;
 
     const { jobDescription, cvText, projectNames, provider: bodyProvider } = await req.json();
-    const provider = resolveProvider(bodyProvider);
+
     if (!jobDescription) {
       return NextResponse.json({ error: "No job description provided" }, { status: 400 });
     }
@@ -127,91 +175,118 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Job description is too long (max ~15,000 characters)." }, { status: 400 });
     }
 
-    const cv: string = cvText.trim();
+    const jd              = jobDescription as string;
+    const cv              = (cvText as string).trim();
     const safeProjectNames: string[] = Array.isArray(projectNames) ? projectNames : [];
 
-    // Lifetime Claude cap — checked only when this run will actually use Claude,
-    // and only after input validation so a 400 never burns one of the 3 lifetime
-    // credits. Atomic check-and-increment via SECURITY DEFINER RPC; the
-    // claude_tailors_used column is not writable by the authenticated role.
-    // is_unlimited accounts bypass inside the function and are never incremented.
-    if (provider === "anthropic") {
-      const { data: lifetimeResult, error: lifetimeError } = await supabase.rpc(
-        "check_and_increment_claude_lifetime",
-        {
-          uid:            userId,
-          lifetime_limit: CLAUDE_LIFETIME_LIMIT,
-        }
-      );
+    // ── Routing brain ─────────────────────────────────────────────────────────
+    // Call check_and_increment_claude_lifetime once. Its return tells us everything:
+    //   reason = 'unlimited'           → my account; honor the dropdown; use env keys
+    //   reason = 'ok'                  → user has free Claude credits; just incremented
+    //   reason = 'claude_limit_reached'→ capped; route to their own saved keys
+    //   reason = 'profile_not_found'   → treat as unlimited (fail open)
+    // DB error                         → treat as unlimited (fail open, same policy)
+    const { data: lifetimeResult, error: lifetimeError } = await supabase.rpc(
+      "check_and_increment_claude_lifetime",
+      { uid: userId, lifetime_limit: CLAUDE_LIFETIME_LIMIT }
+    );
 
-      if (lifetimeError) {
-        // Unexpected DB error — log and fail open, same policy as the daily limiter
-        console.error("Claude lifetime RPC error:", lifetimeError.message);
-      } else if (lifetimeResult && !lifetimeResult.allowed) {
-        if (lifetimeResult.reason === "claude_limit_reached") {
-          return NextResponse.json(
-            {
-              error: `You've used all ${CLAUDE_LIFETIME_LIMIT} free Claude tailors. Claude is no longer available on this account.`,
-              errorType: "claude_limit_reached",
-            },
-            { status: 403 }
-          );
+    if (lifetimeError) {
+      console.error("Claude lifetime RPC error:", lifetimeError.message);
+    }
+
+    const lifetimeReason = lifetimeResult?.reason as string | undefined;
+    const isUnlimited    = !lifetimeResult || lifetimeReason === "unlimited" || lifetimeReason === "profile_not_found" || !!lifetimeError;
+
+    // ── Path A: unlimited account — existing dropdown behaviour ───────────────
+    if (isUnlimited) {
+      const provider = resolveProvider(bodyProvider);
+      const result   = await runPipeline({ provider, apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames });
+      return NextResponse.json({ provider, ...result });
+    }
+
+    // ── Path B: user has free Claude credits (counter just incremented) ───────
+    if (lifetimeReason === "ok") {
+      const result = await runPipeline({ provider: "anthropic", apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames });
+      return NextResponse.json(result);
+    }
+
+    // ── Path C: Claude credits exhausted — route to user's own keys ───────────
+    if (lifetimeReason === "claude_limit_reached") {
+      // Fetch both encrypted keys via the SECURITY DEFINER function.
+      // key_enc is column-revoked from authenticated; this RPC is the only read path.
+      const [{ data: geminiEnc }, { data: orEnc }] = await Promise.all([
+        supabase.rpc("get_encrypted_key", { p_user_id: userId, p_provider: "gemini" }),
+        supabase.rpc("get_encrypted_key", { p_user_id: userId, p_provider: "openrouter" }),
+      ]);
+
+      // Decrypt server-side only — keys live only in this request scope, never logged
+      let geminiKey:     string | null = null;
+      let openrouterKey: string | null = null;
+      try { if (geminiEnc)  geminiKey     = decrypt(geminiEnc);  } catch { /* bad ciphertext — treat as missing */ }
+      try { if (orEnc)      openrouterKey = decrypt(orEnc);      } catch { /* bad ciphertext — treat as missing */ }
+
+      if (!geminiKey && !openrouterKey) {
+        // User is capped but hasn't saved any keys yet — prompt the Settings page
+        return NextResponse.json(
+          {
+            needsKeys: true,
+            error: "You've used all free tailors. Add your own API key in Settings to continue.",
+            errorType: "needs_keys",
+          },
+          { status: 402 }
+        );
+      }
+
+      // Try Gemini first; auto-fallback to OpenRouter on quota error.
+      // Both retries are invisible — no provider name leaks to the browser.
+      if (geminiKey) {
+        try {
+          const result = await runPipeline({ provider: "gemini", apiKeyOverride: geminiKey, jd, cv, projectNames: safeProjectNames });
+          return NextResponse.json(result);
+        } catch (err) {
+          if (err instanceof ProviderRateLimitError) {
+            if (!openrouterKey) {
+              return NextResponse.json(
+                {
+                  limitReached: true,
+                  error: "Your API key has hit its usage limit. Try again later or add a second key in Settings.",
+                  errorType: "user_key_limit",
+                },
+                { status: 429 }
+              );
+            }
+            // Fallthrough to OpenRouter below
+          } else {
+            throw err; // non-quota error — let outer catch handle
+          }
         }
-        // profile_not_found — trigger should have created the row on signup; log and allow
-        console.error("Claude lifetime: profile not found for user");
+      }
+
+      // OpenRouter: either as the primary key (no Gemini saved) or as the fallback
+      if (openrouterKey) {
+        try {
+          const result = await runPipeline({ provider: "openrouter", apiKeyOverride: openrouterKey, jd, cv, projectNames: safeProjectNames });
+          return NextResponse.json(result);
+        } catch (err) {
+          if (err instanceof ProviderRateLimitError) {
+            return NextResponse.json(
+              {
+                limitReached: true,
+                error: "Both your API keys have hit their usage limits. Try again later.",
+                errorType: "user_key_limit",
+              },
+              { status: 429 }
+            );
+          }
+          throw err;
+        }
       }
     }
 
-    // Step 1 — Analyze the JD (returns parsed JSON)
-    const analysis = await callLLM({
-      provider,
-      system: JD_ANALYZER_PROMPT,
-      userInput: jobDescription,
-      expectJson: true,
-    });
+    // Should not reach here — all reasons are handled above
+    return NextResponse.json({ error: "Unexpected routing state" }, { status: 500 });
 
-    const analysisStr = JSON.stringify(analysis);
-
-    // Wave 1: company research + all 4 tailoring steps. Each is caught independently so a single
-    // step failure (e.g. projects returning prose instead of JSON) doesn't kill the whole response.
-    const [research, summary, skills, experience, projects] = await Promise.all([
-      callLLM({ provider, system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
-        .catch(() => ({})),
-      callLLM({ provider, system: summaryPrompt(cv), userInput: analysisStr })
-        .catch(() => ""),
-      callLLM({ provider, system: skillsPrompt(cv), userInput: analysisStr })
-        .catch(() => ""),
-      callLLM({ provider, system: experiencePrompt(cv), userInput: analysisStr })
-        .catch(() => ""),
-      safeProjectNames.length > 0
-        ? callLLM({ provider, system: projectsPrompt(cv, safeProjectNames), userInput: analysisStr, expectJson: true })
-          .catch(() => ({}))
-        : Promise.resolve({}),
-    ]);
-
-    // Wave 2: cover letter needs analysis + research; ATS scoring needs analysis + tailored sections.
-    // Each caught independently so atsScore failure doesn't lose the cover letter.
-    const coverLetterInput = JSON.stringify({ analysis, research });
-    const atsInput = JSON.stringify({ analysis, summary, skills, experience, projects });
-
-    const [coverLetter, atsScore] = await Promise.all([
-      callLLM({ provider, system: coverLetterPrompt(cv), userInput: coverLetterInput, maxTokens: 1200 })
-        .catch(() => ""),
-      callLLM({ provider, system: ATS_SCORING_PROMPT, userInput: atsInput, expectJson: true })
-        .catch(() => null),
-    ]);
-
-    return NextResponse.json({
-      provider,
-      analysis,
-      research,
-      summary,
-      skills,
-      experience,
-      projects,
-      coverLetter,
-      atsScore,
-    });
   } catch (error) {
     if (error instanceof ProviderRateLimitError) {
       const retryMsg = error.retryAfterSeconds
@@ -219,13 +294,12 @@ export async function POST(req: NextRequest) {
         : "Try again shortly.";
       const message = error.provider === "anthropic"
         ? `Claude's rate limit has been reached. ${retryMsg}`
-        : `The free AI provider's daily limit has been reached. Try switching to Claude, or wait — ${retryMsg}`;
+        : `The AI provider's limit has been reached. ${retryMsg}`;
       console.error("Provider rate limit:", error.provider, error.message);
       return NextResponse.json(
         {
           error: message,
           errorType: "provider_limit",
-          provider: error.provider,
           retryAfter: error.retryAfterSeconds ?? null,
         },
         { status: 429 }
