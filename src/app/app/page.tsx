@@ -308,10 +308,42 @@ export default function Home() {
               <button onClick={handleTailor} disabled={loading} className="cta">
                 {loading ? "Tailoring…" : "Tailor my CV"}
               </button>
-              {error && errorType !== "user_limit" && errorType !== "provider_limit" && errorType !== "claude_limit_reached" && (
+              {error && errorType !== "user_limit" && errorType !== "provider_limit" && errorType !== "claude_limit_reached" && errorType !== "needs_keys" && errorType !== "user_key_limit" && (
                 <span className="error">{error}</span>
               )}
             </div>
+
+            {/* ── Free tailors used up — no keys saved yet ── */}
+            {errorType === "needs_keys" && (
+              <div className="limitNotice">
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Your 3 free tailors are used up.</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 14 }}>
+                  Add your own key to keep going — it takes 2 minutes and the tool stays free.
+                </div>
+                <Link
+                  href="/settings"
+                  className="cta"
+                  style={{ display: 'inline-block', padding: '8px 18px', fontSize: 14, borderRadius: 9, textDecoration: 'none' }}
+                >
+                  Add your key in Settings →
+                </Link>
+              </div>
+            )}
+
+            {/* ── User's own key quota exhausted ── */}
+            {errorType === "user_key_limit" && (
+              <div className="limitNotice">
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Today's tailoring limit is reached.</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 4 }}>
+                  Your key's free quota resets daily — come back tomorrow to continue.
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55 }}>
+                  A subscription plan with higher limits is on the way.
+                </div>
+              </div>
+            )}
+
+            {/* ── Other limit states (daily cap, provider quota) ── */}
             {error && (errorType === "user_limit" || errorType === "provider_limit" || errorType === "claude_limit_reached") && (
               <div className="limitNotice">{error}</div>
             )}
