@@ -60,12 +60,31 @@ function cleanText(raw: string): string {
   return raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
 }
 
-function parseIfJson(text: string, expectJson: boolean) {
-  if (!expectJson) return text;
+// One-shot JSON self-repair. LLMs occasionally emit *almost*-valid JSON (a
+// trailing comma, an unescaped quote, a stray prose sentence). Rather than
+// hard-fail the step, feed the broken output back to the SAME provider with a
+// terse "fix it" instruction and parse the retry. Bounded to a single extra
+// call: if the repair is still invalid we throw, and the pipeline's per-step
+// .catch() degrades that section to empty as before. `regenerate` re-runs the
+// provider so any 429 surfaces as ProviderRateLimitError, preserving fallback.
+async function parseJsonWithRepair(
+  rawText: string,
+  regenerate: (repairInstruction: string) => Promise<string>
+): Promise<unknown> {
   try {
-    return JSON.parse(text);
+    return JSON.parse(rawText);
   } catch {
-    throw new Error("Model returned invalid JSON: " + text.slice(0, 200));
+    const repairInstruction =
+      "Your previous response was NOT valid JSON and could not be parsed. " +
+      "Output ONLY the corrected value as strictly-valid JSON — no prose, no explanation, no markdown fences. " +
+      "Here is the invalid output to fix:\n\n" +
+      rawText.slice(0, 6000);
+    const retryText = await regenerate(repairInstruction);
+    try {
+      return JSON.parse(retryText);
+    } catch {
+      throw new Error("Model returned invalid JSON after repair retry: " + retryText.slice(0, 200));
+    }
   }
 }
 
@@ -77,17 +96,14 @@ type BaseCallOptions = {
   expectJson?: boolean; // if true, strip fences + validate JSON
 };
 
-/**
- * Calls Claude with a system prompt and user input.
- * Returns clean text, or parsed JSON if expectJson is true.
- */
-export async function callClaude(options: BaseCallOptions) {
+// Raw Anthropic call — returns cleaned text, no JSON parsing. Shared by
+// callClaude() and its repair retry so both go through one code path.
+async function anthropicRaw(options: BaseCallOptions): Promise<string> {
   const {
     system,
     userInput,
     model = MODELS.fast,
     maxTokens = 2000,
-    expectJson = false,
   } = options;
 
   const message = await anthropic.messages.create({
@@ -98,9 +114,20 @@ export async function callClaude(options: BaseCallOptions) {
   });
 
   const textBlock = message.content.find((b) => b.type === "text");
-  const text = cleanText(textBlock && "text" in textBlock ? textBlock.text : "");
+  return cleanText(textBlock && "text" in textBlock ? textBlock.text : "");
+}
 
-  return parseIfJson(text, expectJson);
+/**
+ * Calls Claude with a system prompt and user input.
+ * Returns clean text, or parsed JSON if expectJson is true.
+ * On a JSON step, an invalid response triggers one automatic repair retry.
+ */
+export async function callClaude(options: BaseCallOptions) {
+  const text = await anthropicRaw(options);
+  if (!options.expectJson) return text;
+  return parseJsonWithRepair(text, (repair) =>
+    anthropicRaw({ ...options, userInput: `${options.userInput}\n\n${repair}` })
+  );
 }
 
 // PRIVACY (manual pre-flight — not enforced by this code): OpenRouter's free
@@ -109,7 +136,8 @@ export async function callClaude(options: BaseCallOptions) {
 // data policy in your OpenRouter account settings to exclude providers that
 // train, and keep prompt logging OFF (enabling it grants OpenRouter an
 // irrevocable commercial-use license on the logged content).
-async function callOpenRouter(options: BaseCallOptions, apiKeyOverride?: string) {
+// Raw OpenRouter call — returns cleaned text, no JSON parsing.
+async function openRouterRaw(options: BaseCallOptions, apiKeyOverride?: string): Promise<string> {
   const {
     system,
     userInput,
@@ -157,16 +185,23 @@ async function callOpenRouter(options: BaseCallOptions, apiKeyOverride?: string)
   }
 
   const data = await res.json();
-  const text = cleanText(data.choices?.[0]?.message?.content ?? "");
+  return cleanText(data.choices?.[0]?.message?.content ?? "");
+}
 
-  return parseIfJson(text, expectJson);
+async function callOpenRouter(options: BaseCallOptions, apiKeyOverride?: string) {
+  const text = await openRouterRaw(options, apiKeyOverride);
+  if (!options.expectJson) return text;
+  return parseJsonWithRepair(text, (repair) =>
+    openRouterRaw({ ...options, userInput: `${options.userInput}\n\n${repair}` }, apiKeyOverride)
+  );
 }
 
 // PRIVACY (manual pre-flight — not enforced by this code): Gemini's free tier
 // trains on inputs with NO opt-out — that's only available on the paid tier.
 // Real CV data goes through a train-on-inputs third-party model when this
 // provider is active. Confirm you're OK with that before using "gemini".
-async function callGemini(options: BaseCallOptions, apiKeyOverride?: string) {
+// Raw Gemini call — returns cleaned text, no JSON parsing.
+async function geminiRaw(options: BaseCallOptions, apiKeyOverride?: string): Promise<string> {
   const {
     system,
     userInput,
@@ -204,7 +239,7 @@ async function callGemini(options: BaseCallOptions, apiKeyOverride?: string) {
           thinkingConfig: { thinkingBudget: 0 },
           // Decoding-time constraint (the model can only emit valid JSON tokens),
           // stronger than OpenRouter's best-effort json_object mode. Malformed
-          // output past this still fails loudly via parseIfJson below.
+          // output past this still fails loudly via parseJsonWithRepair below.
           ...(expectJson ? { responseMimeType: "application/json" } : {}),
         },
       }),
@@ -230,9 +265,15 @@ async function callGemini(options: BaseCallOptions, apiKeyOverride?: string) {
   }
 
   const data = await res.json();
-  const text = cleanText(data.candidates?.[0]?.content?.parts?.[0]?.text ?? "");
+  return cleanText(data.candidates?.[0]?.content?.parts?.[0]?.text ?? "");
+}
 
-  return parseIfJson(text, expectJson);
+async function callGemini(options: BaseCallOptions, apiKeyOverride?: string) {
+  const text = await geminiRaw(options, apiKeyOverride);
+  if (!options.expectJson) return text;
+  return parseJsonWithRepair(text, (repair) =>
+    geminiRaw({ ...options, userInput: `${options.userInput}\n\n${repair}` }, apiKeyOverride)
+  );
 }
 
 export type Provider = "anthropic" | "openrouter" | "gemini";

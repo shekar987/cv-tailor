@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callClaude } from "@/lib/claude";
+import { checkBurstLimit } from "@/lib/apiRateLimit";
 
 const JD_ANALYZER_PROMPT = `You are a JD analyzer for a CV tailoring system. Extract structured data from the job description the user provides.
 
@@ -25,6 +26,15 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabase.auth.getClaims();
     if (error || !data?.claims?.sub) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Burst limit: unmetered Claude call on the owner's key — gate floods.
+    const burst = await checkBurstLimit(data.claims.sub as string, "analyze");
+    if (!burst.ok) {
+      return NextResponse.json(
+        { error: `Too many requests. Please wait ${burst.retryAfterSeconds}s and try again.` },
+        { status: 429, headers: { "Retry-After": String(burst.retryAfterSeconds) } }
+      );
     }
 
     const { jobDescription } = await req.json();

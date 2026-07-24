@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callClaude } from "@/lib/claude";
+import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { PROFILE_EXTRACTION_PROMPT } from "@/prompts/steps";
 
 export async function POST(req: NextRequest) {
@@ -9,6 +10,16 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabase.auth.getClaims();
     if (error || !data?.claims?.sub) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Burst limit: this endpoint calls Claude on the owner's key with no DB
+    // quota, so an unmetered loop here would drain the wallet. Gate it.
+    const burst = await checkBurstLimit(data.claims.sub as string, "extract-profile");
+    if (!burst.ok) {
+      return NextResponse.json(
+        { error: `Too many requests. Please wait ${burst.retryAfterSeconds}s and try again.` },
+        { status: 429, headers: { "Retry-After": String(burst.retryAfterSeconds) } }
+      );
     }
 
     const { cvText } = await req.json();
