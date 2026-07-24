@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callLLM, Provider, ProviderRateLimitError } from "@/lib/claude";
+import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { decrypt } from "@/lib/keyEncryption";
 import {
   summaryPrompt,
@@ -128,6 +129,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const userId = claimsData.claims.sub as string;
+
+    // ── Burst rate limit (cheap first gate, before DB + LLM work) ──────────────
+    const burst = await checkBurstLimit(userId, "tailor");
+    if (!burst.ok) {
+      return NextResponse.json(
+        {
+          error: `Too many requests. Please wait ${burst.retryAfterSeconds}s and try again.`,
+          errorType: "provider_limit",
+          retryAfter: burst.retryAfterSeconds,
+        },
+        { status: 429, headers: { "Retry-After": String(burst.retryAfterSeconds) } }
+      );
+    }
 
     // ── Input validation ──────────────────────────────────────────────────────
     const MAX_CV_CHARS = 20_000;

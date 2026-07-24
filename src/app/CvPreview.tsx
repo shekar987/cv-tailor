@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 // projects now arrives keyed by index: { "0": [...bullets], "1": [...bullets] }
 type ProjectsData = Record<string, string[]>;
 
@@ -31,6 +31,9 @@ function CvPreview({
   const linkedin = p?.linkedin || "";
   const github = p?.github || "";
   const ref = useRef<HTMLDivElement>(null);
+  // Download UX state — surfaces failures instead of a silent dead button
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [docErr, setDocErr] = useState<string | null>(null);
 
   const lines = (text?: string) =>
     (text || "")
@@ -155,18 +158,29 @@ function CvPreview({
 
 
   async function downloadPdf() {
-    if (!ref.current) return;
+    if (!ref.current || pdfBusy) return;
     (document.activeElement as HTMLElement)?.blur();
-    const html2pdf = (await import("html2pdf.js")).default;
-     const opt = {
-      margin: [10, 10, 10, 10] as [number, number, number, number],
-      filename: `${fileBaseName}.pdf`,
-      image: { type: "jpeg" as const, quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" as const },
-      pagebreak: { mode: ["avoid-all", "css", "legacy"] },
-    };
-    html2pdf().set(opt).from(ref.current).save();
+    setDocErr(null);
+    setPdfBusy(true);
+    try {
+      const html2pdf = (await import("html2pdf.js")).default;
+      const opt = {
+        margin: [10, 10, 10, 10] as [number, number, number, number],
+        filename: `${fileBaseName}.pdf`,
+        image: { type: "jpeg" as const, quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" as const },
+        pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+      };
+      // .save() returns a promise once the worker chain resolves — await it so
+      // any render/canvas failure is caught here instead of vanishing silently.
+      await html2pdf().set(opt).from(ref.current).save();
+    } catch (e) {
+      console.error("PDF generation failed:", e);
+      setDocErr("PDF generation failed. Try the Word download, or retry.");
+    } finally {
+      setPdfBusy(false);
+    }
   }
 
   async function downloadWord() {
@@ -312,27 +326,39 @@ function CvPreview({
       fileBaseName,
     };
 
-    const res = await fetch("/api/download", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${fileBaseName}.docx`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+    setDocErr(null);
+    try {
+      const res = await fetch("/api/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        setDocErr("Word download failed. Please retry.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${fileBaseName}.docx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Word generation failed:", e);
+      setDocErr("Word download failed. Check your connection and retry.");
+    }
   }
 
   return (
     <div className="cvDocWrap">
       <div className="cvActions">
-        <button className="cta" onClick={downloadPdf}>Download PDF</button>
+        <button className="cta" onClick={downloadPdf} disabled={pdfBusy}>
+          {pdfBusy ? "Generating…" : "Download PDF"}
+        </button>
         <button className="cta secondary" onClick={downloadWord}>Download Word</button>
       </div>
+      {docErr && <p className="error" role="alert">{docErr}</p>}
       <p className="editHint">Click any text to edit it. Your changes are included when you download.</p>
       <div className="cvDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false}>
         <h1 className="cvName">{name}</h1>
