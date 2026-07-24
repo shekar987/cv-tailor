@@ -199,6 +199,9 @@ const education = (profile?.education || []).map((e: any) => ({
 }));
 const certs = profile?.certifications || [];
 const rightToWork = profile?.rightToWork || [];
+const extraSections = (profile?.extraSections || []).filter(
+  (s: { title?: string; bullets?: string[] }) => s?.title && Array.isArray(s.bullets) && s.bullets.length > 0
+);
 
     // Build a safe filename: FirstName_CompanyName_RoleName_CV.docx
     const firstName = (profile?.name || "").trim().split(/\s+/).slice(0, 2).join("_") || "User";
@@ -255,13 +258,21 @@ const rightToWork = profile?.rightToWork || [];
     }
   }
 
-    // Right to Work 
+    // Right to Work
     if (rightToWork.length > 0) {
     children.push(sectionHeading("Right to Work"));
     for (const r of rightToWork) {
       children.push(new Paragraph({ spacing: { after: 40 }, numbering: { reference: "default-bullet", level: 0 }, children: [new TextRun({ text: r, size: 21, font: "Calibri" })] }));
     }
   }
+
+    // Pass-through sections (e.g. Recognitions, Awards) — verbatim, never tailored
+    for (const sec of extraSections) {
+      children.push(sectionHeading(sec.title));
+      for (const b of sec.bullets) {
+        children.push(new Paragraph({ spacing: { after: 40 }, numbering: { reference: "default-bullet", level: 0 }, children: [new TextRun({ text: b, size: 21, font: "Calibri" })] }));
+      }
+    }
 
     const doc = new Document({
       styles: { default: { document: { run: { font: "Calibri", size: 21 } } } },

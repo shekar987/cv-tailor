@@ -213,6 +213,12 @@ async function callGemini(options: BaseCallOptions, apiKeyOverride?: string) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    // Log the FULL error body: for 429s the quota diagnosis (quotaMetric /
+    // quotaId / quotaValue / retryDelay — per-minute vs per-day vs zero-quota)
+    // exists only in the body, which the thrown error deliberately omits.
+    console.error(
+      `Gemini request failed: status=${res.status} model=${model} keySource=${apiKeyOverride ? "user" : "env"} body=${body}`
+    );
     if (res.status === 429) {
       throw new ProviderRateLimitError(
         "gemini",
