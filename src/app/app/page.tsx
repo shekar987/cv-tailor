@@ -7,7 +7,16 @@ import Link from "next/link";
 import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 
+// Server strings for the unlimited-account provider override (tailor route Path A)
+type TailorProvider = "anthropic" | "gemini" | "openrouter";
+const PROVIDER_LABELS: Record<TailorProvider, string> = {
+  anthropic: "Claude",
+  gemini: "Gemini",
+  openrouter: "OpenRouter",
+};
+
 type Result = {
+  provider?: string; // echoed back for unlimited accounts only
   summary?: string;
   skills?: string;
   experience?: string;
@@ -42,6 +51,12 @@ export default function Home() {
   const [extracting, setExtracting] = useState(false);
   const [cvLoading, setCvLoading] = useState(true);  // true while initial DB fetch is in-flight
 
+  // Provider selector — owner accounts only (profiles.is_unlimited).
+  // Fails closed: unless the flag reads back true, normal users see nothing.
+  const [isUnlimited, setIsUnlimited] = useState(false);
+  const [provider, setProvider] = useState<TailorProvider>("anthropic");
+  const [ranProvider, setRanProvider] = useState<string | null>(null);
+
   // On load: fetch CV + profile from Supabase.
   // If the DB has nothing but localStorage does, import it once then clear localStorage.
   useEffect(() => {
@@ -50,6 +65,20 @@ export default function Home() {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
       setUserEmail(session?.user?.email ?? null);
+
+      // Gate the provider selector: RLS scopes this SELECT to the user's own
+      // profiles row. On any error, warn (for diagnosis) and keep the selector hidden.
+      supabase
+        .from("profiles")
+        .select("is_unlimited")
+        .maybeSingle()
+        .then(({ data: profRow, error: profErr }) => {
+          if (profErr) {
+            console.warn("Provider selector: couldn't read profiles.is_unlimited —", profErr.message);
+          } else if (profRow?.is_unlimited === true) {
+            setIsUnlimited(true);
+          }
+        });
 
       let stored = await getMasterCV();
 
@@ -163,6 +192,8 @@ export default function Home() {
           jobDescription,
           cvText: masterCvText,
           projectNames: (profile?.projects || []).map((p) => p.name),
+          // Only meaningful for unlimited accounts; the server ignores it otherwise
+          ...(isUnlimited ? { provider } : {}),
         }),
       });
       const data = await res.json();
@@ -171,6 +202,7 @@ export default function Home() {
         setErrorType(data.errorType || null);
       } else {
         setResult(data);
+        setRanProvider(typeof data.provider === "string" ? data.provider : null);
       }
     } catch {
       setError("Couldn't reach the server. Check it's running and try again.");
@@ -310,6 +342,24 @@ export default function Home() {
               </button>
               {error && errorType !== "user_limit" && errorType !== "provider_limit" && errorType !== "claude_limit_reached" && errorType !== "needs_keys" && errorType !== "user_key_limit" && errorType !== "key_decrypt_failed" && (
                 <span className="error">{error}</span>
+              )}
+              {isUnlimited && (
+                <span className="providerPick">
+                  <label htmlFor="providerSelect">Provider</label>
+                  <select
+                    id="providerSelect"
+                    value={provider}
+                    onChange={(e) => setProvider(e.target.value as TailorProvider)}
+                    disabled={loading}
+                  >
+                    <option value="anthropic">Claude</option>
+                    <option value="gemini">Gemini</option>
+                    <option value="openrouter">OpenRouter</option>
+                  </select>
+                  {ranProvider && ranProvider in PROVIDER_LABELS && (
+                    <span className="providerRan">ran on {PROVIDER_LABELS[ranProvider as TailorProvider]}</span>
+                  )}
+                </span>
               )}
             </div>
 

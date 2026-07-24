@@ -256,6 +256,33 @@ function CvPreview({
       .flatMap(el => Array.from(el.querySelectorAll("li")).map(li => (li.textContent || "").trim()))
       .filter(Boolean);
 
+    // Pass-through sections: any h2 that isn't one of the known headings.
+    // Captured from the DOM so inline edits (including edited titles) are kept.
+    const knownHeadings = new Set([
+      "professional summary", "skills", "experience", "projects",
+      "education", "certifications", "right to work",
+    ]);
+    const domExtras: { title: string; bullets: string[] }[] = [];
+    kids.forEach((el, i) => {
+      if (el.tagName !== "H2") return;
+      const title = (el.textContent || "").trim();
+      if (!title || knownHeadings.has(title.toLowerCase())) return;
+      const bullets: string[] = [];
+      for (let j = i + 1; j < kids.length && kids[j].tagName !== "H2"; j++) {
+        const k = kids[j];
+        if (k.tagName === "UL") {
+          Array.from(k.querySelectorAll("li")).forEach(li => {
+            const txt = (li.textContent || "").trim();
+            if (txt) bullets.push(txt);
+          });
+        } else {
+          const txt = (k.textContent || "").trim();
+          if (txt) bullets.push(txt);
+        }
+      }
+      if (bullets.length > 0) domExtras.push({ title, bullets });
+    });
+
     const domName = (div.querySelector("h1.cvName")?.textContent || "").trim();
     const domTagline = (div.querySelector("p.cvTagline")?.textContent || "").trim();
 
@@ -271,6 +298,7 @@ function CvPreview({
           education: domEducation.length > 0 ? domEducation : p.education,
           certifications: domCerts.length > 0 ? domCerts : p.certifications,
           rightToWork: domRtw.length > 0 ? domRtw : p.rightToWork,
+          extraSections: domExtras.length > 0 ? domExtras : p.extraSections,
         }
       : p;
 
@@ -328,7 +356,19 @@ function CvPreview({
         {data.skills && (
           <>
             <h2 className="cvHead">Skills</h2>
-            {lines(data.skills).map((l, i) => (<p className="cvText" key={`sk-${i}`}>{l}</p>))}
+            {lines(data.skills).map((l, i) => {
+              // Bold the label before the first colon ("Functional Competencies:",
+              // "Technical Tools:") — mirrors textToParagraphs skills mode in /api/download
+              const ci = l.indexOf(":");
+              return ci > 0 ? (
+                <p className="cvText" key={`sk-${i}`}>
+                  <strong>{l.slice(0, ci + 1)}</strong>
+                  {l.slice(ci + 1)}
+                </p>
+              ) : (
+                <p className="cvText" key={`sk-${i}`}>{l}</p>
+              );
+            })}
           </>
         )}
 
@@ -410,6 +450,19 @@ function CvPreview({
               ))}
             </ul>
           </>
+        )}
+
+        {(p?.extraSections || []).map((sec, si) =>
+          sec.title && sec.bullets && sec.bullets.length > 0 ? (
+            <React.Fragment key={`extra-${si}`}>
+              <h2 className="cvHead">{sec.title}</h2>
+              <ul>
+                {sec.bullets.map((b, i) => (
+                  <li className="cvBullet" key={`extra-${si}-${i}`}>{b.replace(/^[-•]\s*/, "")}</li>
+                ))}
+              </ul>
+            </React.Fragment>
+          ) : null
         )}
       </div>
     </div>

@@ -11,10 +11,20 @@ export default function CoverLetterPreview({
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
-  // split into paragraphs on blank lines
+  // Today's date, inserted by the app — the LLM is told never to write a date
+  // line because it can't know the real date. Format: "10 July 2026".
+  const todayLine = new Date().toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  // split into paragraphs on blank lines; drop any placeholder-only lines
+  // (e.g. a stray "[Date]") the LLM emits despite the prompt rule
   const paragraphs = (coverLetter || "")
     .split("\n")
-    .map((l) => l.trim());
+    .map((l) => l.trim())
+    .filter((l) => !/^\[[^\]]*\]$/.test(l));
 
   async function downloadPdf() {
     if (!ref.current) return;
@@ -64,6 +74,7 @@ export default function CoverLetterPreview({
       </div>
       <p className="editHint">Click any text to edit your cover letter. Changes are included when you download.</p>
       <div className="clDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false}>
+        <p className="clLine">{todayLine}</p>
         {paragraphs.filter((line) => line !== "").map((line, i) => (
           <p key={i} className="clLine">{line.replace(/\*\*/g, "")}</p>
         ))}

@@ -138,10 +138,11 @@ NATURAL WRITING RULES (CRITICAL — write like a real person, not AI):
 - BAN entirely: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "operational chaos", "cuts through", "that same [X]".
 - Do NOT open with a dramatic scene ("When a project runs billions over budget..."). Open with something direct and specific about you or a genuine connection to the company.
 - Read it back: if it sounds like a marketing brochure or a LinkedIn thought-leadership post, rewrite it plainer.
+- Do NOT include a date line. Do NOT write bracketed placeholders of any kind — no [Date], [Address], [Hiring Manager], etc. The app inserts today's date itself. Anything you can't fill with real information from the master CV or the analysis, omit entirely.
 
 Match the tone to the analysis tone_signals. Use only real experience from the master CV. Never claim skills the CV lacks. Sign off with the candidate's name from the master CV.
 
-Output ONLY the cover letter as plain text. No word count, no integrity check, no preamble.`;
+Output ONLY the cover letter as plain text. No date line, no word count, no integrity check, no preamble.`;
 
 export const ATS_SCORING_PROMPT = `You objectively score how well a tailored CV covers a job's ATS keywords.
 
@@ -191,8 +192,13 @@ Output ONLY this JSON (no fences, no preamble):
       "originalBullets": ["each bullet under this project, verbatim"]
     }
   ],
-  "rightToWork": ["each right-to-work / visa line as one string, empty array if none"]
+  "rightToWork": ["each right-to-work / visa line as one string, empty array if none"],
+  "extraSections": [
+    { "title": "section heading as written, e.g. RECOGNITIONS", "bullets": ["each line or bullet under this heading, verbatim"] }
+  ]
 }
 For projects: extract each project listed in a Projects/Portfolio section. If the CV has NO projects section, use an empty array []. Do not invent projects. Extract names, tech, and URLs verbatim.
+
+For extraSections: capture every CV section whose content is NOT already captured by the fields above and is NOT a summary/profile, skills, experience/work history, projects, education, certifications, or right-to-work/visa section. Examples: recognitions, awards, publications, languages, volunteering, interests. Keep the heading exactly as written and each line verbatim, in original order. Empty array if none.
 
 Extract verbatim where possible. Do not reformat dates or names. Do not add anything not in the CV.`;

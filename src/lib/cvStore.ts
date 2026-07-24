@@ -14,11 +14,16 @@ export type MasterCV = {
 export type Education    = { degree: string; dates: string; institution: string; note: string }
 export type ProjectLink  = { label: string; url: string; text: string }
 export type CvProject    = { name: string; tech: string; links: ProjectLink[]; originalBullets: string[] }
+export type ExtraSection = { title: string; bullets: string[] }
 export type Profile = {
   name: string; tagline: string; location: string; phone: string
   email: string; linkedin: string; github: string
   education: Education[]; certifications: string[]
   projects: CvProject[]; rightToWork: string[]
+  // Pass-through sections not covered by the named fields (e.g. RECOGNITIONS,
+  // AWARDS, PUBLICATIONS). Never tailored — rendered verbatim after Right to Work.
+  // Optional: profiles extracted before this field existed won't have it.
+  extraSections?: ExtraSection[]
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
