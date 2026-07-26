@@ -13,6 +13,9 @@ type CvData = {
 
 
 import type { Profile } from "@/lib/cvStore";
+import DownloadButton from "./DownloadButton";
+import { filterExtraSections, isReservedSectionTitle } from "@/lib/sections";
+import { saveBlob } from "@/lib/saveBlob";
 
 function CvPreview({
   data,
@@ -26,7 +29,16 @@ function CvPreview({
   // Fallbacks keep it working if profile is missing
   const p = profile || null;
   const name = p?.name || "YOUR NAME";
-  const tagline = p?.tagline || "";
+  // Mirror the download route's tagline cleanup so the on-screen preview matches
+  // the PDF/Word: a headline never carries contact/social URLs (would duplicate
+  // the GitHub/LinkedIn shown below). Bare words like "GitHub Actions" are kept.
+  const tagline = (p?.tagline || "")
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/\b(?:www\.)?(?:linkedin|github)\.com\/?\S*/gi, " ")
+    .replace(/\b(?:LinkedIn|GitHub)\s*:/gi, " ")
+    .replace(/^\s*[|•·,\-–—]+\s*|\s*[|•·,\-–—]+\s*$/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
   const contactLine = [p?.location, p?.phone, p?.email].filter(Boolean).join(" | ");
   const linkedin = p?.linkedin || "";
   const github = p?.github || "";
@@ -158,23 +170,16 @@ function CvPreview({
 
 
   async function downloadPdf() {
-    if (!ref.current || pdfBusy) return;
-    (document.activeElement as HTMLElement)?.blur();
+    if (pdfBusy) return;
     setDocErr(null);
     setPdfBusy(true);
     try {
-      const html2pdf = (await import("html2pdf.js")).default;
-      const opt = {
-        margin: [10, 10, 10, 10] as [number, number, number, number],
-        filename: `${fileBaseName}.pdf`,
-        image: { type: "jpeg" as const, quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" as const },
-        pagebreak: { mode: ["avoid-all", "css", "legacy"] },
-      };
-      // .save() returns a promise once the worker chain resolves — await it so
-      // any render/canvas failure is caught here instead of vanishing silently.
-      await html2pdf().set(opt).from(ref.current).save();
+      // PDF renders from the SAME server-built .docx as the Word download, so
+      // the two match by construction. Entirely in-browser — nothing leaves the page.
+      const blob = await fetchDocx();
+      if (!blob) throw new Error("Could not build the document");
+      const { docxBlobToPdf } = await import("@/lib/docxToPdf");
+      await docxBlobToPdf(blob, fileBaseName);
     } catch (e) {
       console.error("PDF generation failed:", e);
       setDocErr("PDF generation failed. Try the Word download, or retry.");
@@ -183,8 +188,10 @@ function CvPreview({
     }
   }
 
-  async function downloadWord() {
-    if (!ref.current) return;
+  // Walk the live preview DOM into the /api/download payload (captures inline
+  // edits). Shared by both downloads. Returns null if the preview isn't mounted.
+  function collectPayload() {
+    if (!ref.current) return null;
     (document.activeElement as HTMLElement)?.blur();
 
     const div = ref.current;
@@ -270,17 +277,13 @@ function CvPreview({
       .flatMap(el => Array.from(el.querySelectorAll("li")).map(li => (li.textContent || "").trim()))
       .filter(Boolean);
 
-    // Pass-through sections: any h2 that isn't one of the known headings.
+    // Pass-through sections: any h2 that isn't one of the known/reserved headings.
     // Captured from the DOM so inline edits (including edited titles) are kept.
-    const knownHeadings = new Set([
-      "professional summary", "skills", "experience", "projects",
-      "education", "certifications", "right to work",
-    ]);
     const domExtras: { title: string; bullets: string[] }[] = [];
     kids.forEach((el, i) => {
       if (el.tagName !== "H2") return;
       const title = (el.textContent || "").trim();
-      if (!title || knownHeadings.has(title.toLowerCase())) return;
+      if (!title || isReservedSectionTitle(title)) return;
       const bullets: string[] = [];
       for (let j = i + 1; j < kids.length && kids[j].tagName !== "H2"; j++) {
         const k = kids[j];
@@ -316,7 +319,7 @@ function CvPreview({
         }
       : p;
 
-    const payload = {
+    return {
       summary,
       skills,
       experience,
@@ -325,25 +328,28 @@ function CvPreview({
       profile: profileForDownload,
       fileBaseName,
     };
+  }
 
+  // Single source of truth for both downloads: the server-built .docx for the
+  // current preview state. PDF is a client-side render of this same file.
+  async function fetchDocx(): Promise<Blob | null> {
+    const payload = collectPayload();
+    if (!payload) return null;
+    const res = await fetch("/api/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) return null;
+    return res.blob();
+  }
+
+  async function downloadWord() {
     setDocErr(null);
     try {
-      const res = await fetch("/api/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        setDocErr("Word download failed. Please retry.");
-        return;
-      }
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${fileBaseName}.docx`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      const blob = await fetchDocx();
+      if (!blob) { setDocErr("Word download failed. Please retry."); return; }
+      saveBlob(blob, `${fileBaseName}.docx`);
     } catch (e) {
       console.error("Word generation failed:", e);
       setDocErr("Word download failed. Check your connection and retry.");
@@ -353,10 +359,7 @@ function CvPreview({
   return (
     <div className="cvDocWrap">
       <div className="cvActions">
-        <button className="cta" onClick={downloadPdf} disabled={pdfBusy}>
-          {pdfBusy ? "Generating…" : "Download PDF"}
-        </button>
-        <button className="cta secondary" onClick={downloadWord}>Download Word</button>
+        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={pdfBusy} />
       </div>
       {docErr && <p className="error" role="alert">{docErr}</p>}
       <p className="editHint">Click any text to edit it. Your changes are included when you download.</p>
@@ -366,9 +369,9 @@ function CvPreview({
         {contactLine && <p className="cvContact">{contactLine}</p>}
         {(linkedin || github) && (
           <p className="cvContact" contentEditable={false}>
-            {linkedin && <a href={linkedin.startsWith("http") ? linkedin : "https://" + linkedin} className="cvLink">{linkedin.replace(/^https?:\/\//, "")}</a>}
+            {linkedin && <a href={linkedin.startsWith("http") ? linkedin : "https://" + linkedin} className="cvLink">LinkedIn</a>}
             {linkedin && github && " | "}
-            {github && <a href={github.startsWith("http") ? github : "https://" + github} className="cvLink">{github.replace(/^https?:\/\//, "")}</a>}
+            {github && <a href={github.startsWith("http") ? github : "https://" + github} className="cvLink">GitHub</a>}
           </p>
         )}
 
@@ -421,13 +424,23 @@ function CvPreview({
                   {proj.tech && <p className="cvText">{proj.tech}</p>}
                   {proj.links && proj.links.length > 0 && (
                     <p className="cvText">
-                      {proj.links.map((l, li) => (
-                        <span key={li}>
-                          {li > 0 ? "  |  " : ""}
-                          {l.label}
-                          <a href={l.url} className="cvLink">{l.text}</a>
-                        </span>
-                      ))}
+                      {proj.links.map((l, li) => {
+                        // Match the download route: show the label only when it
+                        // isn't a duplicate of the link text (avoids "GitHubGitHub"),
+                        // separate with ": ", and strip the protocol for display.
+                        const label = (l.label || "").trim().replace(/:\s*$/, "");
+                        const rawText = (l.text || l.url || "").trim();
+                        const display = rawText.replace(/^https?:\/\//i, "");
+                        const href = l.url?.startsWith("http") ? l.url : "https://" + (l.url || rawText);
+                        const showLabel = !!label && label.toLowerCase() !== display.toLowerCase() && label.toLowerCase() !== rawText.toLowerCase();
+                        return (
+                          <span key={li}>
+                            {li > 0 ? "  |  " : ""}
+                            {showLabel ? `${label}: ` : ""}
+                            <a href={href} className="cvLink">{display}</a>
+                          </span>
+                        );
+                      })}
                     </p>
                   )}
                   <ul>
@@ -478,18 +491,16 @@ function CvPreview({
           </>
         )}
 
-        {(p?.extraSections || []).map((sec, si) =>
-          sec.title && sec.bullets && sec.bullets.length > 0 ? (
-            <React.Fragment key={`extra-${si}`}>
-              <h2 className="cvHead">{sec.title}</h2>
-              <ul>
-                {sec.bullets.map((b, i) => (
-                  <li className="cvBullet" key={`extra-${si}-${i}`}>{b.replace(/^[-•]\s*/, "")}</li>
-                ))}
-              </ul>
-            </React.Fragment>
-          ) : null
-        )}
+        {filterExtraSections(p?.extraSections).map((sec, si) => (
+          <React.Fragment key={`extra-${si}`}>
+            <h2 className="cvHead">{sec.title}</h2>
+            <ul>
+              {sec.bullets.map((b, i) => (
+                <li className="cvBullet" key={`extra-${si}-${i}`}>{b.replace(/^[-•]\s*/, "")}</li>
+              ))}
+            </ul>
+          </React.Fragment>
+        ))}
       </div>
     </div>
   );

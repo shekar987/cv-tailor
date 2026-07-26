@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
+import DownloadButton from "./DownloadButton";
+import { saveBlob } from "@/lib/saveBlob";
 
 export default function CoverLetterPreview({
   coverLetter,
@@ -28,22 +30,39 @@ export default function CoverLetterPreview({
     .map((l) => l.trim())
     .filter((l) => !/^\[[^\]]*\]$/.test(l));
 
-  async function downloadPdf() {
-    if (!ref.current || pdfBusy) return;
+  // Read the (possibly edited) cover letter text back from the live DOM.
+  function collectText(): string | null {
+    if (!ref.current) return null;
     (document.activeElement as HTMLElement)?.blur();
+    return Array.from(ref.current.querySelectorAll("p"))
+      .map((p) => (p.textContent || "").trim())
+      .join("\n");
+  }
+
+  // Server-built .docx for the current letter — shared source for both downloads.
+  async function fetchDocx(): Promise<Blob | null> {
+    const edited = collectText();
+    if (edited === null) return null;
+    const res = await fetch("/api/download-cover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ coverLetter: edited }),
+    });
+    if (!res.ok) return null;
+    return res.blob();
+  }
+
+  async function downloadPdf() {
+    if (pdfBusy) return;
     setDocErr(null);
     setPdfBusy(true);
     try {
-      const html2pdf = (await import("html2pdf.js")).default;
-      const opt = {
-        margin: [16, 16, 16, 16] as [number, number, number, number],
-        filename: `${fileBaseName}.pdf`,
-        image: { type: "jpeg" as const, quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" as const },
-        pagebreak: { mode: ["avoid-all", "css", "legacy"] },
-      };
-      await html2pdf().set(opt).from(ref.current).save();
+      // PDF renders from the SAME server-built .docx as Word — identical layout,
+      // all in-browser, no data leaves the page.
+      const blob = await fetchDocx();
+      if (!blob) throw new Error("Could not build the document");
+      const { docxBlobToPdf } = await import("@/lib/docxToPdf");
+      await docxBlobToPdf(blob, fileBaseName);
     } catch (e) {
       console.error("Cover letter PDF generation failed:", e);
       setDocErr("PDF generation failed. Try the Word download, or retry.");
@@ -53,31 +72,11 @@ export default function CoverLetterPreview({
   }
 
   async function downloadWord() {
-    if (!ref.current) return;
-    (document.activeElement as HTMLElement)?.blur();
-    // read edited text back from the live DOM
-    const edited = Array.from(ref.current.querySelectorAll("p"))
-      .map((p) => (p.textContent || "").trim())
-      .join("\n");
-
     setDocErr(null);
     try {
-      const res = await fetch("/api/download-cover", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ coverLetter: edited }),
-      });
-      if (!res.ok) {
-        setDocErr("Word download failed. Please retry.");
-        return;
-      }
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${fileBaseName}.docx`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      const blob = await fetchDocx();
+      if (!blob) { setDocErr("Word download failed. Please retry."); return; }
+      saveBlob(blob, `${fileBaseName}.docx`);
     } catch (e) {
       console.error("Cover letter Word generation failed:", e);
       setDocErr("Word download failed. Check your connection and retry.");
@@ -89,10 +88,7 @@ export default function CoverLetterPreview({
   return (
     <div className="clWrap">
       <div className="cvActions">
-        <button className="cta" onClick={downloadPdf} disabled={pdfBusy}>
-          {pdfBusy ? "Generating…" : "Download PDF"}
-        </button>
-        <button className="cta secondary" onClick={downloadWord}>Download Word</button>
+        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={pdfBusy} />
       </div>
       {docErr && <p className="error" role="alert">{docErr}</p>}
       <p className="editHint">Click any text to edit your cover letter. Changes are included when you download.</p>

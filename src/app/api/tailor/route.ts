@@ -11,28 +11,26 @@ import {
   COMPANY_RESEARCH_PROMPT,
   coverLetterPrompt,
   ATS_SCORING_PROMPT,
+  JD_ANALYZER_PROMPT,
 } from "@/prompts/steps";
 
 const DAILY_TAILOR_LIMIT  = 3;
 const WINDOW_MS            = 24 * 60 * 60 * 1000;
 const CLAUDE_LIFETIME_LIMIT = 3;
 
-const JD_ANALYZER_PROMPT = `You are a JD analyzer for a CV tailoring system. Extract structured data from the job description.
-
-Output ONLY a JSON object (no prose, no markdown fences) with these fields:
-{
-  "role_title": "exact job title",
-  "company_name": "company name",
-  "seniority_level": "junior | mid | senior | staff | unspecified",
-  "role_type": "backend | frontend | fullstack | ai_engineering | data_engineering | ml_engineering | devops | other",
-  "location_and_mode": "e.g. London, Hybrid",
-  "required_skills": ["top 10 mandatory skills, priority order"],
-  "nice_to_have_skills": ["up to 8 preferred skills"],
-  "top_15_ats_keywords": ["top 15 ATS keywords, priority ordered"],
-  "company_values_and_culture": ["3-6 cultural signals"],
-  "domain_context": "1 sentence on what the product does",
-  "tone_signals": "formal | semi-formal | founder-casual | technical-dense"
-}`;
+// Minimal shape check for a client-supplied analysis object (from the
+// pre-tailoring ATS gate — see runPipeline's precomputedAnalysis param). Not a
+// security boundary: the JD itself is already fully user-controlled input, so
+// a hand-crafted analysis grants nothing an attacker couldn't already get by
+// writing an unusual job description. This only guards against wasting the
+// user's own quota on a silently broken run (e.g. a stale/malformed payload).
+function looksLikeJdAnalysis(value: unknown): value is Record<string, unknown> {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Array.isArray((value as Record<string, unknown>).top_15_ats_keywords)
+  );
+}
 
 // For unlimited users only — reads provider from the request body, then env, then defaults.
 function resolveProvider(bodyProvider: unknown): Provider {
@@ -76,17 +74,30 @@ async function runPipeline(opts: {
   jd: string;
   cv: string;
   projectNames: string[];
+  // Result of the pre-tailoring ATS gate's Step 1 call (/api/analyze with
+  // cvText). When present and well-formed, Step 0 below is SKIPPED — this is
+  // the whole point of the gate: the user already paid for this exact call
+  // when they saw the "X/15 keywords" preview, so it must not run twice.
+  precomputedAnalysis?: unknown;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis } = opts;
 
-  // Step 0 — JD analysis (no catch: if this fails the whole run fails)
-  const analysis = await callLLM({
-    provider,
-    apiKeyOverride,
-    system: JD_ANALYZER_PROMPT,
-    userInput: jd,
-    expectJson: true,
-  });
+  // Step 0 — JD analysis. Reused from the pre-tailoring gate when available and
+  // well-formed; otherwise run fresh (this is also the fallback for a caller
+  // that never ran the gate, or a JD edited after the gate ran).
+  const reusedAnalysis = looksLikeJdAnalysis(precomputedAnalysis);
+  // Decision only, never content — confirms in server logs whether the
+  // pre-tailoring gate's Step 1 call is actually being reused, not re-paid-for.
+  console.log(reusedAnalysis ? "[tailor] Step 0: reused analysis from pre-check gate" : "[tailor] Step 0: ran JD analyzer fresh");
+  const analysis = reusedAnalysis
+    ? precomputedAnalysis
+    : await callLLM({
+        provider,
+        apiKeyOverride,
+        system: JD_ANALYZER_PROMPT,
+        userInput: jd,
+        expectJson: true,
+      });
   const analysisStr = JSON.stringify(analysis);
 
   // Wave 1 — parallel; individual step failures produce empty values,
@@ -147,7 +158,7 @@ export async function POST(req: NextRequest) {
     const MAX_CV_CHARS = 20_000;
     const MAX_JD_CHARS = 15_000;
 
-    const { jobDescription, cvText, projectNames, provider: bodyProvider } = await req.json();
+    const { jobDescription, cvText, projectNames, provider: bodyProvider, analysis: bodyAnalysis } = await req.json();
 
     if (!jobDescription) {
       return NextResponse.json({ error: "No job description provided" }, { status: 400 });
@@ -219,13 +230,13 @@ export async function POST(req: NextRequest) {
     // ── Path A: unlimited account — existing dropdown behaviour ───────────────
     if (isUnlimited) {
       const provider = resolveProvider(bodyProvider);
-      const result   = await runPipeline({ provider, apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames });
+      const result   = await runPipeline({ provider, apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
       return NextResponse.json({ provider, ...result });
     }
 
     // ── Path B: user has free Claude credits (counter just incremented) ───────
     if (lifetimeReason === "ok") {
-      const result = await runPipeline({ provider: "anthropic", apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames });
+      const result = await runPipeline({ provider: "anthropic", apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
       return NextResponse.json(result);
     }
 
@@ -276,7 +287,7 @@ export async function POST(req: NextRequest) {
       // Both retries are invisible — no provider name leaks to the browser.
       if (geminiKey) {
         try {
-          const result = await runPipeline({ provider: "gemini", apiKeyOverride: geminiKey, jd, cv, projectNames: safeProjectNames });
+          const result = await runPipeline({ provider: "gemini", apiKeyOverride: geminiKey, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
           return NextResponse.json(result);
         } catch (err) {
           if (err instanceof ProviderRateLimitError) {
@@ -300,7 +311,7 @@ export async function POST(req: NextRequest) {
       // OpenRouter: either as the primary key (no Gemini saved) or as the fallback
       if (openrouterKey) {
         try {
-          const result = await runPipeline({ provider: "openrouter", apiKeyOverride: openrouterKey, jd, cv, projectNames: safeProjectNames });
+          const result = await runPipeline({ provider: "openrouter", apiKeyOverride: openrouterKey, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
           return NextResponse.json(result);
         } catch (err) {
           if (err instanceof ProviderRateLimitError) {
@@ -318,7 +329,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Should not reach here — all reasons are handled above
+    // Should not reach here — all reasons are handled above. Log which reason
+    // fell through: 'forbidden' means the rate-limit RPCs did not see the
+    // caller's JWT (auth.uid() was null), which would break every tailor call.
+    console.error("Unexpected routing state; lifetime reason:", lifetimeReason ?? "undefined");
     return NextResponse.json({ error: "Unexpected routing state" }, { status: 500 });
 
   } catch (error) {

@@ -23,7 +23,7 @@ The core product promise: **nothing is invented**. Every claim in the output mus
 | Styling | Tailwind CSS 4 |
 | AI | Anthropic SDK (`@anthropic-ai/sdk`) via Claude |
 | Word output | `docx` v9 |
-| PDF output | `html2pdf.js` (DOM capture, client-side) |
+| PDF output | `docx-preview` + `html2canvas` + `jspdf` — renders the server-built .docx, client-side (see `src/lib/docxToPdf.ts`) |
 | Auth & storage | Supabase (`@supabase/ssr@0.12.0` + `@supabase/supabase-js@2.108.2`) |
 
 > **This is Next.js 16, not 13/14.** APIs, conventions, and file structure differ from training data. Read `node_modules/next/dist/docs/` before writing any Next.js code. Heed deprecation notices.
@@ -69,10 +69,12 @@ proxy.ts                      ← Session-refresh middleware (Next.js 16: named 
 
 - `/` — landing page
 - `/app` — the tool itself (requires auth — redirected to login if unauthenticated)
-- `/auth/login` — email/password login + OAuth
-- `/auth/signup` — email/password registration
+- `/settings` — API-key management (requires auth)
+- `/auth/login` — email/password login **and** signup, plus OAuth. One page with a `mode` toggle; there is no separate `/auth/signup` route.
 - `/auth/callback` — OAuth PKCE exchange (must match Supabase redirect allowlist)
 - `/auth/error` — auth error display
+
+Auth-gated pages are listed in `PROTECTED_PREFIXES` in `src/lib/supabase/proxy.ts`. Add new signed-in-only routes there so they redirect before render, rather than mounting and bouncing from the client.
 
 ---
 
@@ -116,9 +118,10 @@ const userId = data.claims.sub as string;
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `profiles` | `id` (FK → `auth.users`), `tailor_count`, `tailor_count_reset_at`, `is_unlimited`, `anthropic_api_key` | Auto-created by trigger on signup. `authenticated` role has table-level UPDATE revoked; only `anthropic_api_key` column is re-granted. |
-| `master_cvs` | `user_id`, `cv_text`, `updated_at` | One row per user, upserted on save. |
-| `cv_profiles` | `user_id`, `profile_json`, `updated_at` | Extracted `Profile` JSON (name/contact/edu/projects). |
+| `profiles` | `id` (FK → `auth.users`), `tailor_count`, `tailor_count_reset_at`, `is_unlimited`, `claude_tailors_used`, `anthropic_api_key` | Auto-created by trigger on signup. `authenticated` role has table-level UPDATE revoked; only `anthropic_api_key` column is re-granted. |
+| `master_cvs` | `user_id`, `text`, `updated_at` | One row per user, upserted on save. The CV column is `text` — **not** `cv_text`. |
+| `cv_profiles` | `user_id`, `data`, `updated_at` | Extracted `Profile` JSON (name/contact/edu/projects). The JSON column is `data` — **not** `profile_json`. |
+| `user_api_keys` | `user_id` + `provider` (PK), `key_enc`, `key_hint`, `updated_at` | Users' own encrypted Gemini/OpenRouter keys. `provider` is CHECK-constrained to `gemini`/`openrouter`. Read server-side via the `get_encrypted_key` RPC, which returns NULL unless `auth.uid()` matches the requested user. |
 
 **Trigger:** `handle_new_user()` — SECURITY DEFINER function, inserts a `profiles` row on every `auth.users` INSERT. Ensures the rate-limit row always exists.
 
@@ -276,6 +279,26 @@ const contactName = profile?.name || OWNER_NAME_FALLBACK;
 ```
 
 `src/prompts/masterCV.ts` contains the owner's real CV. It must never be imported in any download or tailor route. It exists only for prompt development/testing.
+
+### docx-preview does not paginate — we do
+
+`src/lib/docxToPdf.ts` renders the server-built `.docx` and snapshots it, so the
+PDF and the Word file come from identical bytes. The trap: **docx-preview does
+not reflow text into pages.** It only starts a new `<section>` at an *explicit*
+page break, and a `.docx` built by the `docx` library has none — Word writes
+those itself when it lays the document out and saves. So a 3-page CV renders as
+a **single section that is 3 pages tall**, not three sections.
+
+Consequences for anyone touching that file:
+
+- Never assume "one `section.docx` = one PDF page". That assumption squashes an
+  entire CV onto one sheet (verified: a 2.3-page fixture came out as one
+  illegible page).
+- `docxToPdf` measures each section and cuts it into A4-height slices itself,
+  placing cuts at the bottom edge of a rendered block (`p`, `li`, `h2`, `tr`) so
+  a page never breaks mid-line.
+- If you change the slicing, re-verify with a **multi-page** document. A
+  one-page CV passes every version of this code, including the broken ones.
 
 ### The @@JOB@@ marker system
 

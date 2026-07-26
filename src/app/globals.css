@@ -94,6 +94,136 @@ textarea:focus { outline: none; border-color: var(--amber); }
 .cta:disabled { opacity: 0.55; cursor: not-allowed; }
 .error { color: #E5736B; font-size: 14px; }
 
+/* ---- CV file upload ---- */
+.uploadBlock { margin-bottom: 4px; }
+
+.dropZone {
+  position: relative;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  padding: 22px 18px;
+  text-align: center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.dropZone:hover { border-color: var(--amber); }
+.dropZone.dragging {
+  border-color: var(--amber);
+  border-style: solid;
+  background: rgba(224, 160, 77, 0.08);
+}
+.dropZone.busy { border-style: solid; border-color: var(--amber); }
+
+/* The native input covers the zone so a drop anywhere lands on it, but the
+   visible affordance is the styled button underneath. */
+.dropInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.dropInput:disabled { cursor: not-allowed; }
+
+.dropInner {
+  position: relative;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.dropTitle { font-size: 14.5px; color: var(--text); }
+.dropHint { font-size: 12.5px; color: var(--muted); }
+
+.dropBrowse {
+  pointer-events: auto;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--amber-bright);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.dropBrowse:disabled { opacity: 0.55; cursor: not-allowed; }
+.dropOr { color: var(--muted); }
+
+.dropSpinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(224, 160, 77, 0.25);
+  border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: dropSpin 0.7s linear infinite;
+}
+@keyframes dropSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .dropSpinner { animation-duration: 2.4s; }
+}
+
+.orDivider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.orDivider::before,
+.orDivider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.uploadNotice {
+  background: rgba(224, 160, 77, 0.10);
+  border: 1px solid rgba(224, 160, 77, 0.35);
+  border-radius: 9px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+/* Download split-menu button (PDF / Word) */
+.dlWrap { position: relative; display: inline-block; }
+.dlBtn { display: inline-flex; align-items: center; gap: 8px; }
+.dlCaret { font-size: 12px; line-height: 1; opacity: 0.8; }
+.dlMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  z-index: 20;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.dlItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: var(--text);
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.dlItem:hover { background: var(--surface-2); color: var(--amber-bright); }
+
 .limitNotice {
   margin-top: 12px;
   background: var(--surface-2);
@@ -197,6 +327,38 @@ textarea:focus { outline: none; border-color: var(--amber); }
 .dot.hit { color: #5FB783; }
 .dot.miss { color: #E5896B; }
 .dot.rec { color: var(--amber-bright); }
+
+/* Pre-tailoring ATS gate — a quick, free preview shown before the paid 8-step
+   pipeline runs. Dashed border marks it as provisional; .scoreCard (the real,
+   post-tailoring score) uses a solid border so the two are visually distinct
+   even though they show a similar-looking number. */
+.gateCard {
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  padding: 20px 22px;
+  margin-top: 16px;
+}
+.gateLabel {
+  font-size: 12px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.gateValue {
+  font-size: 32px; font-weight: 700;
+  letter-spacing: -0.02em; margin: 4px 0 6px;
+}
+.gateValue.good { color: #5FB783; }
+.gateValue.low { color: var(--amber-bright); }
+.gateNote {
+  font-size: 13px; color: var(--muted); line-height: 1.55; margin-bottom: 16px;
+}
+.gateActions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.gateSecondary {
+  background: transparent; border: none; color: var(--muted);
+  font-size: 13px; cursor: pointer; text-decoration: underline;
+  text-underline-offset: 3px; font-family: inherit; padding: 0;
+}
+.gateSecondary:hover { color: var(--text); }
 .cvDocWrap { margin-top: 24px; }
 .editHint { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 
@@ -248,7 +410,8 @@ textarea:focus { outline: none; border-color: var(--amber); }
 }
 .clDoc:focus-within { box-shadow: 0 0 0 2px var(--amber), 0 4px 24px rgba(0,0,0,0.3); }
 .clLine { margin: 0 0 8px; text-align: justify; }
-/* Prevent html2pdf from slicing through text at page breaks */
+/* Keep text intact at page breaks when the user prints the preview directly.
+   The PDF download no longer renders from this DOM — it renders the .docx. */
 .cvDoc p,
 .cvDoc li,
 .cvDoc h2,
