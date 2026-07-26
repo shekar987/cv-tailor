@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
+import CvUpload from "../CvUpload";
+import type { AtsMatchResult } from "@/lib/atsMatch";
 
 // Server strings for the unlimited-account provider override (tailor route Path A)
 type TailorProvider = "anthropic" | "gemini" | "openrouter";
@@ -47,6 +49,10 @@ export default function Home() {
   const [editingCv, setEditingCv] = useState(false);         // is the CV editor open?
   const [cvSavedAt, setCvSavedAt] = useState<number | null>(null);
 
+  // Set when a CV is populated from an uploaded file, so the user is told to
+  // check the extraction before saving. Cleared once they edit or save.
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+
   const [profile, setProfile] = useState<Profile | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [cvLoading, setCvLoading] = useState(true);  // true while initial DB fetch is in-flight
@@ -56,6 +62,17 @@ export default function Home() {
   const [isUnlimited, setIsUnlimited] = useState(false);
   const [provider, setProvider] = useState<TailorProvider>("anthropic");
   const [ranProvider, setRanProvider] = useState<string | null>(null);
+
+  // Pre-tailoring ATS gate: a free-ish preview (Step 1 only, ~1/9th the cost of
+  // a full tailor) run before the paid 8-step pipeline. `gateAnalysis` is the
+  // JD analysis it produced — held so that if the user proceeds, /api/tailor
+  // reuses it instead of paying for Step 1 a second time. Both are cleared
+  // whenever the JD or CV changes, since a stale analysis would be reused
+  // against a different job/CV than it was computed for.
+  const [preCheck, setPreCheck] = useState<AtsMatchResult | null>(null);
+  const [gateAnalysis, setGateAnalysis] = useState<unknown>(null);
+  const [gateLoading, setGateLoading] = useState(false);
+  const [gateError, setGateError] = useState("");
 
   // On load: fetch CV + profile from Supabase.
   // If the DB has nothing but localStorage does, import it once then clear localStorage.
@@ -114,6 +131,11 @@ export default function Home() {
     setMasterCvText(rec.text);
     setCvSavedAt(rec.updatedAt);
     setError("");
+    setUploadNotice(null);
+    // A new CV invalidates any gate result computed against the old one.
+    setPreCheck(null);
+    setGateAnalysis(null);
+    setGateError("");
 
     // Extract the profile (name/contact/education) from the new CV
     setExtracting(true);
@@ -148,6 +170,10 @@ export default function Home() {
     setCvSavedAt(null);
     setCvDraft("");
     setEditingCv(true);
+    setUploadNotice(null);
+    setPreCheck(null);
+    setGateAnalysis(null);
+    setGateError("");
     // Delete from DB in the background
     await clearMasterCV();
     await clearProfile();
@@ -167,8 +193,10 @@ export default function Home() {
     router.push('/auth/login');
   }
 
-  async function handleTailor() {
-
+  // Step 1 of the click-through: run ONLY the JD analyzer + a local keyword
+  // check against the raw CV, so the user sees a rough fit estimate before the
+  // paid 8-step pipeline runs. Never blocks on a low score — just informs.
+  async function handlePreCheck() {
     if (!masterCvText.trim()) {
       setError("Set your master CV first (the box above).");
       setErrorType(null);
@@ -180,6 +208,35 @@ export default function Home() {
       setErrorType(null);
       return;
     }
+    setError("");
+    setErrorType(null);
+    setGateError("");
+    setGateLoading(true);
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobDescription, cvText: masterCvText }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setGateError(data.error || "Couldn't check keyword match. You can still tailor without it.");
+      } else {
+        setGateAnalysis(data.result ?? null);
+        setPreCheck(data.atsPreCheck ?? null);
+      }
+    } catch {
+      setGateError("Couldn't reach the server for the keyword check. You can still tailor without it.");
+    } finally {
+      setGateLoading(false);
+    }
+  }
+
+  // Step 2: the full 8-step pipeline. If gateAnalysis is set (the user came
+  // through the pre-check), it's sent along so /api/tailor skips re-running
+  // Step 1 — otherwise the server runs Step 1 fresh, exactly as before this
+  // feature existed.
+  async function runFullTailor() {
     setError("");
     setErrorType(null);
     setLoading(true);
@@ -194,6 +251,7 @@ export default function Home() {
           projectNames: (profile?.projects || []).map((p) => p.name),
           // Only meaningful for unlimited accounts; the server ignores it otherwise
           ...(isUnlimited ? { provider } : {}),
+          ...(gateAnalysis ? { analysis: gateAnalysis } : {}),
         }),
       });
       const data = await res.json();
@@ -209,6 +267,10 @@ export default function Home() {
       setErrorType(null);
     } finally {
       setLoading(false);
+      // The gate applied to this specific run; clear it so a re-tailor of the
+      // same JD starts a fresh pre-check rather than silently reusing a stale one.
+      setPreCheck(null);
+      setGateAnalysis(null);
     }
   }
   // Stable reference so React.memo on CvPreview can skip re-renders when only the JD
@@ -276,11 +338,36 @@ export default function Home() {
           ) : editingCv ? (
             <>
               <label className="label" htmlFor="cv">Your master CV</label>
-              <p className="cvHelp">Paste your full CV once. It's saved to your account and reused for every job — you'll only need to paste the job description each time.</p>
+              <p className="cvHelp">Add your full CV once. It's saved to your account and reused for every job — you'll only need to paste the job description each time.</p>
+
+              <CvUpload
+                disabled={extracting}
+                onExtracted={(text, meta) => {
+                  // Populate the SAME textarea the paste flow uses. Nothing is
+                  // saved yet — the user reviews and edits, then hits Save.
+                  setCvDraft(text);
+                  setError("");
+                  setUploadNotice(
+                    `Text extracted from ${meta.filename} (${meta.characters.toLocaleString()} characters). ` +
+                    `Check it below before saving — PDFs and Word files can lose formatting, so fix any run-together ` +
+                    `lines or missing headings now.`
+                  );
+                }}
+              />
+
+              <div className="orDivider"><span>or paste it below</span></div>
+
+              {uploadNotice && (
+                <p className="uploadNotice" role="status">{uploadNotice}</p>
+              )}
+
               <textarea
                 id="cv"
                 value={cvDraft}
-                onChange={(e) => setCvDraft(e.target.value)}
+                onChange={(e) => {
+                  setCvDraft(e.target.value);
+                  if (uploadNotice) setUploadNotice(null);
+                }}
                 placeholder="Paste your full CV here…"
                 rows={10}
               />
@@ -332,36 +419,88 @@ export default function Home() {
             <textarea
               id="jd"
               value={jobDescription}
-              onChange={(e) => setJobDescription(e.target.value)}
+              onChange={(e) => {
+                setJobDescription(e.target.value);
+                // The gate's analysis was computed for the PREVIOUS JD text —
+                // reusing it against an edited JD would show a stale keyword
+                // match and let /api/tailor skip Step 1 for the wrong job.
+                if (preCheck || gateAnalysis) {
+                  setPreCheck(null);
+                  setGateAnalysis(null);
+                  setGateError("");
+                }
+              }}
               placeholder="Paste the job description for the role you're applying to…"
               rows={8}
             />
-            <div className="actions">
-              <button onClick={handleTailor} disabled={loading} className="cta">
-                {loading ? "Tailoring…" : "Tailor my CV"}
-              </button>
-              {error && errorType !== "user_limit" && errorType !== "provider_limit" && errorType !== "claude_limit_reached" && errorType !== "needs_keys" && errorType !== "user_key_limit" && errorType !== "key_decrypt_failed" && (
-                <span className="error">{error}</span>
-              )}
-              {isUnlimited && (
-                <span className="providerPick">
-                  <label htmlFor="providerSelect">Provider</label>
-                  <select
-                    id="providerSelect"
-                    value={provider}
-                    onChange={(e) => setProvider(e.target.value as TailorProvider)}
-                    disabled={loading}
-                  >
-                    <option value="anthropic">Claude</option>
-                    <option value="gemini">Gemini</option>
-                    <option value="openrouter">OpenRouter</option>
-                  </select>
-                  {ranProvider && ranProvider in PROVIDER_LABELS && (
-                    <span className="providerRan">ran on {PROVIDER_LABELS[ranProvider as TailorProvider]}</span>
+            {/* Step 1: cheap pre-check (JD analysis only) — shown until a gate
+                result exists. Provider choice doesn't apply here: the gate
+                always runs on Claude, same as profile extraction. */}
+            {!preCheck && (
+              <div className="actions">
+                <button onClick={handlePreCheck} disabled={gateLoading || loading} className="cta">
+                  {gateLoading ? "Checking keyword match…" : "Tailor my CV"}
+                </button>
+                {error && errorType !== "user_limit" && errorType !== "provider_limit" && errorType !== "claude_limit_reached" && errorType !== "needs_keys" && errorType !== "user_key_limit" && errorType !== "key_decrypt_failed" && (
+                  <span className="error">{error}</span>
+                )}
+              </div>
+            )}
+
+            {/* The pre-check call itself failed — don't block on it, just let
+                them proceed straight to the full run (which re-runs Step 1 fresh). */}
+            {gateError && !preCheck && (
+              <div className="gateCard">
+                <p className="gateNote" style={{ marginBottom: 12 }}>{gateError}</p>
+                <div className="gateActions">
+                  <button onClick={runFullTailor} disabled={loading} className="cta secondary">
+                    {loading ? "Tailoring…" : "Tailor without the check →"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: the gate result. Never blocks below 10/15 — just informs. */}
+            {preCheck && (
+              <div className="gateCard">
+                <div className="gateLabel">Rough keyword match, before tailoring</div>
+                <div className={`gateValue ${preCheck.matched >= 10 ? "good" : "low"}`}>
+                  {preCheck.matched}/{preCheck.total}
+                </div>
+                <p className="gateNote">
+                  {preCheck.matched >= 10
+                    ? "Good overlap with this role's top keywords, from your CV as it stands today."
+                    : "Below the usual 10-keyword mark for your CV as-is — tailoring can still genuinely help by surfacing real adjacent skills, though a gap this size may be honest too."}
+                  {" "}This checks literal keyword presence in your raw CV; the tailored version gets scored separately afterward, and the two numbers can differ.
+                </p>
+                <div className="gateActions">
+                  <button onClick={runFullTailor} disabled={loading} className="cta">
+                    {loading ? "Tailoring…" : "Continue to full tailoring →"}
+                  </button>
+                  {isUnlimited && (
+                    <span className="providerPick">
+                      <label htmlFor="providerSelect">Provider</label>
+                      <select
+                        id="providerSelect"
+                        value={provider}
+                        onChange={(e) => setProvider(e.target.value as TailorProvider)}
+                        disabled={loading}
+                      >
+                        <option value="anthropic">Claude</option>
+                        <option value="gemini">Gemini</option>
+                        <option value="openrouter">OpenRouter</option>
+                      </select>
+                      {ranProvider && ranProvider in PROVIDER_LABELS && (
+                        <span className="providerRan">ran on {PROVIDER_LABELS[ranProvider as TailorProvider]}</span>
+                      )}
+                    </span>
                   )}
-                </span>
-              )}
-            </div>
+                </div>
+                {error && errorType !== "user_limit" && errorType !== "provider_limit" && errorType !== "claude_limit_reached" && errorType !== "needs_keys" && errorType !== "user_key_limit" && errorType !== "key_decrypt_failed" && (
+                  <p className="error" style={{ marginTop: 10 }}>{error}</p>
+                )}
+              </div>
+            )}
 
             {/* ── Saved key unreadable — re-entry needed (e.g. after KEY_ENCRYPTION_SECRET rotation) ── */}
             {errorType === "key_decrypt_failed" && (
@@ -509,15 +648,5 @@ export default function Home() {
         )}
       </div>
     </main>
-  );
-}
-
-function Block({ title, content }: { title: string; content?: string }) {
-  if (!content) return null;
-  return (
-    <article className="block">
-      <h2>{title}</h2>
-      <div className="blockBody">{content}</div>
-    </article>
   );
 }

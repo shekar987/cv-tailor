@@ -32,7 +32,12 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  if (pathname.startsWith('/app') && !user) {
+  // Signed-in-only pages. /settings is included because it hosts the API-key
+  // form: guarding it here redirects before render, instead of letting the page
+  // mount and bounce from the client (which flashes the UI to a stranger).
+  const PROTECTED_PREFIXES = ['/app', '/settings']
+
+  if (PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix)) && !user) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
     return NextResponse.redirect(url)

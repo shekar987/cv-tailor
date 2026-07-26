@@ -1,5 +1,47 @@
 import { ABSOLUTE_RULES } from "./rules";
 
+// Step 1 of the pipeline. Shared by /api/analyze (standalone JD analysis, also
+// used for the pre-tailoring ATS keyword gate) and /api/tailor (Step 0 of the
+// full 9-call pipeline) — one definition so the two never drift apart.
+export const JD_ANALYZER_PROMPT = `You are a JD analyzer for a CV tailoring system. Extract structured data from the job description the user provides.
+
+Output ONLY a JSON object (no prose, no markdown fences) with these fields:
+{
+  "role_title": "exact job title",
+  "company_name": "company name",
+  "seniority_level": "junior | mid | senior | staff | unspecified",
+  "role_type": "backend | frontend | fullstack | ai_engineering | data_engineering | ml_engineering | devops | other",
+  "location_and_mode": "e.g. London, Hybrid",
+  "required_skills": ["top 10 mandatory skills, priority order"],
+  "nice_to_have_skills": ["up to 8 preferred skills"],
+  "top_15_ats_keywords": ["top 15 ATS keywords, priority ordered"],
+  "company_values_and_culture": ["3-6 cultural signals"],
+  "domain_context": "1 sentence on what the product does",
+  "tone_signals": "formal | semi-formal | founder-casual | technical-dense"
+}`;
+
+// The rendered CV must fit TWO A4 pages. Page count is a product of this length
+// budget and the layout density in api/download/route.ts — change one and
+// re-check the other.
+//
+// At 10.5pt Calibri with 0.5" margins a page holds roughly 55 lines, so the two
+// pages are ~110 lines total. After the header, summary, skills, projects,
+// education and right-to-work sections take their share, EXPERIENCE has roughly
+// 55 lines — about 22 bullets at an average of 1.5 lines each.
+//
+// HOW TO TRIM — this matters for honesty: cut by REMOVING whole bullets that
+// matter least for this JD. Never merge two achievements into one sentence, and
+// never compress by dropping the qualifier that makes a claim true. Omission is
+// allowed; blurring two facts into a third is invention.
+export const LENGTH_BUDGET = `LENGTH BUDGET — the finished CV must fit on TWO A4 pages:
+- Most recent / most relevant role: at most 5 bullets.
+- Next role: at most 4 bullets.
+- Every older role: at most 3 bullets, and at most 2 once a role is more than ~8 years old or clearly unrelated to this JD.
+- Keep every bullet to a maximum of two printed lines (roughly 200 characters).
+- If it still runs long, DROP the least JD-relevant bullets entirely, oldest roles first.
+- Trim ONLY by deleting whole bullets. Never merge two achievements into one sentence, never combine metrics, and never drop a qualifier that a claim depends on — that would state something the master CV does not support.
+- Never drop a whole role, and never change any employer, title, or date.`;
+
 export const summaryPrompt = (cv: string) => `You write a 3-line achievement-oriented professional summary for a CV, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
@@ -62,6 +104,8 @@ NATURAL WRITING RULES (write like a human, not an AI):
 - ATS BALANCE: While varying your phrasing, you MUST still include the exact technical keywords and skills from the JD analysis that the candidate genuinely has (e.g. "REST API", "Spring Boot", "PostgreSQL", "CI/CD"). Natural phrasing does not mean dropping keywords — weave them into plain sentences. The scanner needs the exact terms; the recruiter needs readable prose. Deliver both.
 - Keep each bullet's core keyword density intact: name the real technology, the real metric, the real action verb. Just vary the SENTENCE STRUCTURE around them, not the keywords themselves.
 
+${LENGTH_BUDGET}
+
 You will receive the JD analysis as JSON. Keep the same employer, title, and dates exactly as in the master CV. Reorder bullets so the most JD-relevant come first. Bold quantified wins with **. Do not invent bullets — use only what's in the master CV.
 
 OUTPUT FORMAT — follow exactly, no exceptions:
@@ -102,6 +146,12 @@ The candidate's CV contains these projects (by index):
 ${projectList}
 
 You will receive the JD analysis as JSON. For EACH project by index, write 2-3 tailored bullets (What + How + Result) emphasizing what's most relevant to this JD. Quantify only where the master CV quantifies for that project.
+
+LENGTH BUDGET — the finished CV must fit on TWO A4 pages, and projects sit after
+experience, so they are what pushes it over. Write 2 bullets per project, not 3,
+whenever there are 3 or more projects. Keep each bullet to a single printed line
+where possible and never more than two. Trim by dropping a whole bullet, never by
+merging two achievements or combining their metrics into one sentence.
 
 Output ONLY valid JSON — an OBJECT mapping each project index (as a string) to its array of bullet strings. Example shape for 2 projects:
 {
@@ -172,7 +222,7 @@ export const PROFILE_EXTRACTION_PROMPT = `You extract factual profile details fr
 Output ONLY this JSON (no fences, no preamble):
 {
   "name": "full name as written, e.g. SOMA SHEKAR KEESARI",
-  "tagline": "the headline/title line under the name if present, else empty string",
+  "tagline": "the professional headline/title line under the name (e.g. 'Full-Stack Engineer') if present, else empty string. Do NOT put contact details here — no email, phone, location, or LinkedIn/GitHub URLs; those belong in their own fields.",
   "location": "city/country if present, else empty",
   "phone": "phone number if present, else empty",
   "email": "email if present, else empty",
