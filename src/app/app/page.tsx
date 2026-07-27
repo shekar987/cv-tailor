@@ -8,6 +8,7 @@ import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 import CvUpload from "../CvUpload";
 import type { AtsMatchResult } from "@/lib/atsMatch";
+import { loadWorkspace, saveWorkspace, clearWorkspace } from "@/lib/workspace";
 
 // Server strings for the unlimited-account provider override (tailor route Path A)
 type TailorProvider = "anthropic" | "gemini" | "openrouter";
@@ -16,6 +17,24 @@ const PROVIDER_LABELS: Record<TailorProvider, string> = {
   gemini: "Gemini",
   openrouter: "OpenRouter",
 };
+
+// errorTypes that render their own dedicated notice block below the JD card.
+// The plain inline error is suppressed for these so the message isn't shown
+// twice. Kept as ONE list because it was previously duplicated across two
+// conditions, which meant adding an errorType silently double-rendered it.
+const ERROR_TYPES_WITH_OWN_NOTICE = new Set([
+  "user_limit",
+  "provider_limit",
+  "claude_limit_reached",
+  "needs_keys",
+  "needs_openrouter_key",
+  "user_key_limit",
+  "key_decrypt_failed",
+]);
+
+function hasOwnNotice(errorType: string | null): boolean {
+  return errorType !== null && ERROR_TYPES_WITH_OWN_NOTICE.has(errorType);
+}
 
 type Result = {
   provider?: string; // echoed back for unlimited accounts only
@@ -78,6 +97,11 @@ export default function Home() {
   const [gateLoading, setGateLoading] = useState(false);
   const [gateError, setGateError] = useState("");
 
+  // Identity for the persisted workspace, and a flag so we never write back
+  // before the restore has run (which would blank out saved work on mount).
+  const [userId, setUserId] = useState<string | null>(null);
+  const [workspaceReady, setWorkspaceReady] = useState(false);
+
   // On load: fetch CV + profile from Supabase.
   // If the DB has nothing but localStorage does, import it once then clear localStorage.
   useEffect(() => {
@@ -86,6 +110,24 @@ export default function Home() {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
       setUserEmail(session?.user?.email ?? null);
+
+      // Restore the pasted JD and tailored result from the last visit, so a
+      // refresh — or following a link out of the CV preview — doesn't discard
+      // work. Keyed by user id: a different account on this browser must not
+      // inherit the previous person's CV.
+      const uid = session?.user?.id ?? null;
+      setUserId(uid);
+      if (uid) {
+        const saved = loadWorkspace(uid);
+        if (saved) {
+          if (saved.jobDescription) setJobDescription(saved.jobDescription);
+          if (saved.result) setResult(saved.result as Result);
+          if (saved.ranProvider) setRanProvider(saved.ranProvider);
+        }
+      }
+      // Only now may the save effect run — writing before this point would
+      // persist the empty initial state over whatever was stored.
+      setWorkspaceReady(true);
 
       // Gate the provider selector: RLS scopes this SELECT to the user's own
       // profiles row. On any error, warn (for diagnosis) and keep the selector hidden.
@@ -133,6 +175,13 @@ export default function Home() {
     loadCv();
   }, []);
 
+  // Persist the JD and the tailored result whenever either changes. Guarded on
+  // workspaceReady so the initial empty state never overwrites saved work.
+  useEffect(() => {
+    if (!workspaceReady || !userId) return;
+    saveWorkspace(userId, { jobDescription, result, ranProvider });
+  }, [workspaceReady, userId, jobDescription, result, ranProvider]);
+
   async function handleSaveCv() {
     if (!cvDraft.trim()) {
       setError("Paste your CV before saving.");
@@ -147,6 +196,13 @@ export default function Home() {
     setPreCheck(null);
     setGateAnalysis(null);
     setGateError("");
+    // ...and invalidates the tailored result itself. Project bullets are keyed
+    // by index against the profile's project list, so keeping a result built
+    // from the previous CV could render bullets under the wrong project.
+    // Persistence makes this matter more: without clearing, the stale result
+    // would now survive reloads instead of dying with the page.
+    setResult(null);
+    setRanProvider(null);
 
     // Extract the profile (name/contact/education) from the new CV
     setExtracting(true);
@@ -185,6 +241,10 @@ export default function Home() {
     setPreCheck(null);
     setGateAnalysis(null);
     setGateError("");
+    // The tailored result belongs to the CV being removed — drop it too, or it
+    // would render against a profile that no longer exists.
+    setResult(null);
+    setRanProvider(null);
     // Delete from DB in the background
     await clearMasterCV();
     await clearProfile();
@@ -198,6 +258,8 @@ export default function Home() {
   }
 
   async function handleSignOut() {
+    // Don't leave a tailored CV in this browser's storage after sign-out.
+    if (userId) clearWorkspace(userId);
     const supabase = createClient();
     await supabase.auth.signOut({ scope: 'local' });
     router.refresh();
@@ -453,7 +515,7 @@ export default function Home() {
                 <button onClick={handlePreCheck} disabled={gateLoading || loading} className="cta">
                   {gateLoading ? "Checking keyword match…" : "Tailor my CV"}
                 </button>
-                {error && errorType !== "user_limit" && errorType !== "provider_limit" && errorType !== "claude_limit_reached" && errorType !== "needs_keys" && errorType !== "user_key_limit" && errorType !== "key_decrypt_failed" && (
+                {error && !hasOwnNotice(errorType) && (
                   <span className="error">{error}</span>
                 )}
               </div>
@@ -508,7 +570,7 @@ export default function Home() {
                     </span>
                   )}
                 </div>
-                {error && errorType !== "user_limit" && errorType !== "provider_limit" && errorType !== "claude_limit_reached" && errorType !== "needs_keys" && errorType !== "user_key_limit" && errorType !== "key_decrypt_failed" && (
+                {error && !hasOwnNotice(errorType) && (
                   <p className="error" style={{ marginTop: 10 }}>{error}</p>
                 )}
               </div>
@@ -544,6 +606,25 @@ export default function Home() {
                   style={{ display: 'inline-block', padding: '8px 18px', fontSize: 14, borderRadius: 9, textDecoration: 'none' }}
                 >
                   Add your key in Settings →
+                </Link>
+              </div>
+            )}
+
+            {/* ── Has a Gemini key, but Gemini can't complete a run ── */}
+            {errorType === "needs_openrouter_key" && (
+              <div className="limitNotice">
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Your Gemini key can&apos;t run a tailor.</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 14 }}>
+                  Gemini&apos;s free tier allows 5 requests per minute, and one tailoring run makes 8 —
+                  so it can&apos;t finish even once. Add an OpenRouter key instead; its free tier handles
+                  a full run.
+                </div>
+                <Link
+                  href="/settings"
+                  className="cta"
+                  style={{ display: 'inline-block', padding: '8px 18px', fontSize: 14, borderRadius: 9, textDecoration: 'none' }}
+                >
+                  Add an OpenRouter key →
                 </Link>
               </div>
             )}
