@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { filterExtraSections } from "@/lib/sections";
 import { chooseDensity, wrappedLines, PAGE_HEIGHT, type Density } from "@/lib/cvDensity";
+import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import {
   Document,
   Packer,
@@ -189,7 +190,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { summary, skills, experience, projects, projectsMeta, companyName, roleTitle, profile } = await req.json();
+    const { summary, skills, experience, projects, projectsMeta, companyName, roleTitle, profile, sectionOrder } = await req.json();
 // Always use profile data exclusively. Missing fields render blank — never fall back to owner data.
 const contactName = profile?.name || "";
 // A professional headline should never contain contact/social URLs. When the
@@ -290,27 +291,45 @@ const extraSections = filterExtraSections(profile?.extraSections);
       children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 }, children: contactLinkRuns }));
     }
 
-    // Tailored sections
-    if (summary) { children.push(sectionHeading("Professional Summary", density)); children.push(...textToParagraphs(summary, "plain", density)); }
-    if (skills) { children.push(sectionHeading("Skills", density)); children.push(...textToParagraphs(skills, "skills", density)); }
-    if (experience) { children.push(sectionHeading("Experience", density)); children.push(...textToParagraphs(experience, "plain", density)); }
-    const projectParas = buildProjects(projectsMeta || [], projects || {}, density);
-    if (projectParas.length > 0) {
-      children.push(sectionHeading("Projects", density));
-      children.push(...projectParas);
+    // Tailored sections, emitted in the user's saved order. Each builder below
+    // produces exactly the paragraphs it did before this feature — only the
+    // sequence varies. resolveSectionOrder is total: null/malformed input gives
+    // back the original hardcoded order, so an untouched user's .docx is
+    // unchanged. Sections after this block (certifications, right to work,
+    // pass-through extras) keep their fixed positions.
+    const sectionBuilders: Record<SectionId, () => Paragraph[]> = {
+      summary: () =>
+        summary ? [sectionHeading("Professional Summary", density), ...textToParagraphs(summary, "plain", density)] : [],
+
+      skills: () =>
+        skills ? [sectionHeading("Skills", density), ...textToParagraphs(skills, "skills", density)] : [],
+
+      experience: () =>
+        experience ? [sectionHeading("Experience", density), ...textToParagraphs(experience, "plain", density)] : [],
+
+      projects: () => {
+        const projectParas = buildProjects(projectsMeta || [], projects || {}, density);
+        return projectParas.length > 0 ? [sectionHeading("Projects", density), ...projectParas] : [];
+      },
+
+      education: () => {
+        if (education.length === 0) return [];
+        const out: Paragraph[] = [sectionHeading("Education", density)];
+        for (const e of education) {
+          out.push(new Paragraph({ spacing: { before: density.tightAfter, after: density.tightAfter }, tabStops: [{ type: "right" as any, position: 9026 }],
+            children: [ new TextRun({ text: e.head, bold: true, size: 22, font: "Calibri" }), new TextRun({ text: e.date ? "\t" + e.date : "", size: 20, color: GREY, font: "Calibri" }) ] }));
+          out.push(new Paragraph({ spacing: { after: density.tightAfter }, children: [new TextRun({ text: e.school, size: 21, font: "Calibri" })] }));
+          if (e.note?.trim()) {
+            out.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text: e.note, size: 20, font: "Calibri" })] }));
+          }
+        }
+        return out;
+      },
+    };
+
+    for (const sectionId of resolveSectionOrder(sectionOrder)) {
+      children.push(...sectionBuilders[sectionId]());
     }
-    // Education
-    if (education.length > 0) {
-    children.push(sectionHeading("Education", density));
-     for (const e of education){
-      children.push(new Paragraph({ spacing: { before: density.tightAfter, after: density.tightAfter }, tabStops: [{ type: "right" as any, position: 9026 }],
-        children: [ new TextRun({ text: e.head, bold: true, size: 22, font: "Calibri" }), new TextRun({ text: e.date ? "\t" + e.date : "", size: 20, color: GREY, font: "Calibri" }) ] }));
-      children.push(new Paragraph({ spacing: { after: density.tightAfter }, children: [new TextRun({ text: e.school, size: 21, font: "Calibri" })] }));
-      if (e.note?.trim()) {
-        children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text: e.note, size: 20, font: "Calibri" })] }));
-      }
-    }
-  }
 
     // Certifications
     if (certs.length > 0) {
