@@ -328,6 +328,62 @@ textarea:focus { outline: none; border-color: var(--amber); }
 .dot.miss { color: #E5896B; }
 .dot.rec { color: var(--amber-bright); }
 
+/* ---- Customize: CV section order ---- */
+.customizeLink {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 5px 12px;
+  text-decoration: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.customizeLink:hover { color: var(--text); border-color: var(--muted); }
+
+.orderList { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 4px 0 4px; }
+.orderItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: grab;
+  transition: border-color 0.15s ease, opacity 0.15s ease;
+}
+.orderItem:active { cursor: grabbing; }
+.orderItem.dragging { opacity: 0.45; }
+.orderItem.dropTarget { border-color: var(--amber); }
+
+.orderGrip { color: var(--muted); font-size: 15px; letter-spacing: -2px; flex-shrink: 0; }
+.orderNum {
+  color: var(--muted); font-size: 12px; width: 16px; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+/* Reuses .cvHead so the list shows the real CV heading style. Reset only the
+   document-layout bits that don't belong in a list row. */
+.orderHead { flex: 1; margin: 0 !important; border: none !important; padding: 0 !important; }
+
+.orderBtns { display: flex; gap: 6px; flex-shrink: 0; }
+.orderBtn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 6px 9px;
+  font-family: inherit;
+}
+.orderBtn:hover:not(:disabled) { border-color: var(--amber); color: var(--amber-bright); }
+.orderBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.savedMsg { color: #5FB783; font-size: 13.5px; }
+
 /* Pre-tailoring ATS gate — a quick, free preview shown before the paid 8-step
    pipeline runs. Dashed border marks it as provisional; .scoreCard (the real,
    post-tailoring score) uses a solid border so the two are visually distinct

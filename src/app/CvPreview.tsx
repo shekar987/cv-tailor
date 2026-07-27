@@ -16,16 +16,23 @@ import type { Profile } from "@/lib/cvStore";
 import DownloadButton from "./DownloadButton";
 import { filterExtraSections, isReservedSectionTitle } from "@/lib/sections";
 import { saveBlob } from "@/lib/saveBlob";
+import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 
 function CvPreview({
   data,
   profile,
   fileBaseName = "CV",
+  sectionOrder,
 }: {
   data: CvData;
   profile?: Profile | null;
   fileBaseName?: string;
+  // The user's saved order from profiles.section_order. Undefined/null/malformed
+  // all resolve to the default order, so an untouched account renders exactly
+  // as it did before this feature existed.
+  sectionOrder?: unknown;
 }) {
+  const order = resolveSectionOrder(sectionOrder);
   // Fallbacks keep it working if profile is missing
   const p = profile || null;
   const name = p?.name || "YOUR NAME";
@@ -327,6 +334,10 @@ function CvPreview({
       projectsMeta: p?.projects || [],
       profile: profileForDownload,
       fileBaseName,
+      // Send the ALREADY-RESOLVED order rather than the raw stored value, so the
+      // .docx (and therefore the PDF, which renders that .docx) is laid out in
+      // exactly the sequence the user is looking at on screen.
+      sectionOrder: order,
     };
   }
 
@@ -356,6 +367,112 @@ function CvPreview({
     }
   }
 
+  // The five reorderable sections. Each renders exactly the markup it did
+  // before this feature — they are only pulled out into a map so the render
+  // sequence can follow the user's saved order. Anything NOT in here (contact
+  // header, certifications, right to work, pass-through extras) keeps its
+  // fixed position.
+  const SECTIONS: Record<SectionId, () => React.ReactNode> = {
+    summary: () =>
+      data.summary ? (
+        <>
+          <h2 className="cvHead">Professional Summary</h2>
+          {lines(data.summary).map((l, i) => (<p className="cvText" key={`sum-${i}`}>{l}</p>))}
+        </>
+      ) : null,
+
+    skills: () =>
+      data.skills ? (
+        <>
+          <h2 className="cvHead">Skills</h2>
+          {lines(data.skills).map((l, i) => {
+            // Bold the label before the first colon ("Functional Competencies:",
+            // "Technical Tools:") — mirrors textToParagraphs skills mode in /api/download
+            const ci = l.indexOf(":");
+            return ci > 0 ? (
+              <p className="cvText" key={`sk-${i}`}>
+                <strong>{l.slice(0, ci + 1)}</strong>
+                {l.slice(ci + 1)}
+              </p>
+            ) : (
+              <p className="cvText" key={`sk-${i}`}>{l}</p>
+            );
+          })}
+        </>
+      ) : null,
+
+    experience: () =>
+      data.experience ? (
+        <>
+          <h2 className="cvHead">Experience</h2>
+          {renderMixed(data.experience, "exp")}
+        </>
+      ) : null,
+
+    projects: () =>
+      p?.projects && p.projects.length > 0 ? (
+        <>
+          <h2 className="cvHead">Projects</h2>
+          {p.projects.map((proj, idx) => {
+            // tailored bullets for this project come keyed by index; fall back to original bullets
+            const tailored = data.projects?.[String(idx)];
+            const bullets = (Array.isArray(tailored) && tailored.length > 0)
+              ? tailored
+              : (proj.originalBullets || []);
+            if (bullets.length === 0 && !proj.name) return null;
+            return (
+              <div key={`proj-${idx}`}>
+                <p className="cvProjTitle">{proj.name}</p>
+                {proj.tech && <p className="cvText">{proj.tech}</p>}
+                {proj.links && proj.links.length > 0 && (
+                  <p className="cvText">
+                    {proj.links.map((l, li) => {
+                      // Match the download route: show the label only when it
+                      // isn't a duplicate of the link text (avoids "GitHubGitHub"),
+                      // separate with ": ", and strip the protocol for display.
+                      const label = (l.label || "").trim().replace(/:\s*$/, "");
+                      const rawText = (l.text || l.url || "").trim();
+                      const display = rawText.replace(/^https?:\/\//i, "");
+                      const href = l.url?.startsWith("http") ? l.url : "https://" + (l.url || rawText);
+                      const showLabel = !!label && label.toLowerCase() !== display.toLowerCase() && label.toLowerCase() !== rawText.toLowerCase();
+                      return (
+                        <span key={li}>
+                          {li > 0 ? "  |  " : ""}
+                          {showLabel ? `${label}: ` : ""}
+                          <a href={href} className="cvLink">{display}</a>
+                        </span>
+                      );
+                    })}
+                  </p>
+                )}
+                <ul>
+                  {bullets.map((b, i) => (<li className="cvBullet" key={`${idx}-${i}`}>{b.replace(/^[-•]\s*/, "")}</li>))}
+                </ul>
+              </div>
+            );
+          })}
+        </>
+      ) : null,
+
+    education: () =>
+      p?.education && p.education.length > 0 ? (
+        <>
+          <h2 className="cvHead">Education</h2>
+          {p.education.map((e, i) => (
+            <div key={`edu-${i}`}>
+              <p className="cvSubhead">{e.degree}{e.dates ? ` — ${e.dates}` : ""}</p>
+              {e.institution && <p className="cvText">{e.institution}</p>}
+              {e.note?.trim() && (
+                <ul>
+                  <li className="cvBullet">{e.note}</li>
+                </ul>
+              )}
+            </div>
+          ))}
+        </>
+      ) : null,
+  };
+
   return (
     <div className="cvDocWrap">
       <div className="cvActions">
@@ -375,99 +492,13 @@ function CvPreview({
           </p>
         )}
 
-        {data.summary && (
-          <>
-            <h2 className="cvHead">Professional Summary</h2>
-            {lines(data.summary).map((l, i) => (<p className="cvText" key={`sum-${i}`}>{l}</p>))}
-          </>
-        )}
-
-        {data.skills && (
-          <>
-            <h2 className="cvHead">Skills</h2>
-            {lines(data.skills).map((l, i) => {
-              // Bold the label before the first colon ("Functional Competencies:",
-              // "Technical Tools:") — mirrors textToParagraphs skills mode in /api/download
-              const ci = l.indexOf(":");
-              return ci > 0 ? (
-                <p className="cvText" key={`sk-${i}`}>
-                  <strong>{l.slice(0, ci + 1)}</strong>
-                  {l.slice(ci + 1)}
-                </p>
-              ) : (
-                <p className="cvText" key={`sk-${i}`}>{l}</p>
-              );
-            })}
-          </>
-        )}
-
-        {data.experience && (
-          <>
-            <h2 className="cvHead">Experience</h2>
-            {renderMixed(data.experience, "exp")}
-          </>
-        )}
-
-        {p?.projects && p.projects.length > 0 && (
-          <>
-            <h2 className="cvHead">Projects</h2>
-            {p.projects.map((proj, idx) => {
-              // tailored bullets for this project come keyed by index; fall back to original bullets
-              const tailored = data.projects?.[String(idx)];
-              const bullets = (Array.isArray(tailored) && tailored.length > 0)
-                ? tailored
-                : (proj.originalBullets || []);
-              if (bullets.length === 0 && !proj.name) return null;
-              return (
-                <div key={`proj-${idx}`}>
-                  <p className="cvProjTitle">{proj.name}</p>
-                  {proj.tech && <p className="cvText">{proj.tech}</p>}
-                  {proj.links && proj.links.length > 0 && (
-                    <p className="cvText">
-                      {proj.links.map((l, li) => {
-                        // Match the download route: show the label only when it
-                        // isn't a duplicate of the link text (avoids "GitHubGitHub"),
-                        // separate with ": ", and strip the protocol for display.
-                        const label = (l.label || "").trim().replace(/:\s*$/, "");
-                        const rawText = (l.text || l.url || "").trim();
-                        const display = rawText.replace(/^https?:\/\//i, "");
-                        const href = l.url?.startsWith("http") ? l.url : "https://" + (l.url || rawText);
-                        const showLabel = !!label && label.toLowerCase() !== display.toLowerCase() && label.toLowerCase() !== rawText.toLowerCase();
-                        return (
-                          <span key={li}>
-                            {li > 0 ? "  |  " : ""}
-                            {showLabel ? `${label}: ` : ""}
-                            <a href={href} className="cvLink">{display}</a>
-                          </span>
-                        );
-                      })}
-                    </p>
-                  )}
-                  <ul>
-                    {bullets.map((b, i) => (<li className="cvBullet" key={`${idx}-${i}`}>{b.replace(/^[-•]\s*/, "")}</li>))}
-                  </ul>
-                </div>
-              );
-            })}
-          </>
-        )}
-
-        {p?.education && p.education.length > 0 && (
-          <>
-            <h2 className="cvHead">Education</h2>
-            {p.education.map((e, i) => (
-              <div key={`edu-${i}`}>
-                <p className="cvSubhead">{e.degree}{e.dates ? ` — ${e.dates}` : ""}</p>
-                {e.institution && <p className="cvText">{e.institution}</p>}
-                {e.note?.trim() && (
-                  <ul>
-                    <li className="cvBullet">{e.note}</li>
-                  </ul>
-                )}
-              </div>
-            ))}
-          </>
-        )}
+        {/* The five reorderable sections, emitted in the user's saved order.
+            Each entry renders the SAME markup it always did — only the sequence
+            varies. React.Fragment adds no DOM, so the default order produces
+            output identical to before this feature. */}
+        {order.map((sectionId) => (
+          <React.Fragment key={`section-${sectionId}`}>{SECTIONS[sectionId]()}</React.Fragment>
+        ))}
 
         {p?.certifications && p.certifications.length > 0 && (
           <>

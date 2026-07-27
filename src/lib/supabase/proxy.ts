@@ -35,7 +35,7 @@ export async function updateSession(request: NextRequest) {
   // Signed-in-only pages. /settings is included because it hosts the API-key
   // form: guarding it here redirects before render, instead of letting the page
   // mount and bounce from the client (which flashes the UI to a stranger).
-  const PROTECTED_PREFIXES = ['/app', '/settings']
+  const PROTECTED_PREFIXES = ['/app', '/settings', '/customize']
 
   if (PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix)) && !user) {
     const url = request.nextUrl.clone()

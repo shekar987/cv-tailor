@@ -69,6 +69,10 @@ export default function Home() {
   // reuses it instead of paying for Step 1 a second time. Both are cleared
   // whenever the JD or CV changes, since a stale analysis would be reused
   // against a different job/CV than it was computed for.
+  // The user's saved CV section order. Left as null until loaded (and on any
+  // failure), which resolveSectionOrder treats as "use the default order".
+  const [sectionOrder, setSectionOrder] = useState<unknown>(null);
+
   const [preCheck, setPreCheck] = useState<AtsMatchResult | null>(null);
   const [gateAnalysis, setGateAnalysis] = useState<unknown>(null);
   const [gateLoading, setGateLoading] = useState(false);
@@ -96,6 +100,13 @@ export default function Home() {
             setIsUnlimited(true);
           }
         });
+
+      // Section order for rendering. Non-blocking and fail-soft: any problem
+      // leaves it null, which renders the default order.
+      fetch("/api/section-order")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => { if (data?.order) setSectionOrder(data.order); })
+        .catch(() => { /* default order */ });
 
       let stored = await getMasterCV();
 
@@ -293,6 +304,7 @@ export default function Home() {
             {userEmail && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ fontSize: 13, color: 'var(--muted)' }}>{userEmail}</span>
+                <Link href="/customize" className="customizeLink">Customize</Link>
                 <Link
                   href="/settings"
                   style={{
@@ -623,6 +635,7 @@ export default function Home() {
             <CvPreview
               data={cvData}
               profile={profile}
+              sectionOrder={sectionOrder}
               fileBaseName={(() => {
                 const first = (profile?.name || "User").trim().split(/\s+/).slice(0, 2).join("_");
                 const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
