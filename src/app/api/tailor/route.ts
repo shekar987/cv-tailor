@@ -240,29 +240,53 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(result);
     }
 
-    // ── Path C: Claude credits exhausted — route to user's own keys ───────────
+    // ── Path C: Claude credits exhausted — route to the user's own key ────────
+    //
+    // OpenRouter ONLY. Gemini is deliberately not in this rotation: its free
+    // tier allows 5 requests/minute, and one tailoring run makes 8 calls — five
+    // of them fired in parallel in wave 1, after Step 0 has already spent one.
+    // A user on their own Gemini key therefore cannot complete a single run.
+    // That is a structural ceiling, not an occasional rate limit, so attempting
+    // it would only burn ~20 seconds and their quota before failing.
+    //
+    // Saving a Gemini key in Settings is still supported; it just isn't used
+    // for automatic tailoring.
     if (lifetimeReason === "claude_limit_reached") {
-      // Fetch both encrypted keys via the SECURITY DEFINER function.
-      // key_enc is column-revoked from authenticated; this RPC is the only read path.
-      const [{ data: geminiEnc }, { data: orEnc }] = await Promise.all([
-        supabase.rpc("get_encrypted_key", { p_user_id: userId, p_provider: "gemini" }),
+      // key_enc is column-revoked from `authenticated`; this SECURITY DEFINER
+      // RPC is the only read path. Check BOTH data and error: a failed lookup
+      // previously read as "no key saved", which told a user who had saved a
+      // key that they had none.
+      const [orLookup, geminiLookup] = await Promise.all([
         supabase.rpc("get_encrypted_key", { p_user_id: userId, p_provider: "openrouter" }),
+        supabase.rpc("get_encrypted_key", { p_user_id: userId, p_provider: "gemini" }),
       ]);
 
+      if (orLookup.error || geminiLookup.error) {
+        // Never claim "you have no key" when we simply failed to look.
+        console.error(
+          "Key lookup RPC failed:",
+          orLookup.error?.message ?? geminiLookup.error?.message ?? "unknown"
+        );
+        return NextResponse.json(
+          { error: "Couldn't check your saved API key just now. Please try again in a moment." },
+          { status: 503 }
+        );
+      }
+
       // Decrypt server-side only — keys live only in this request scope, never logged
-      let geminiKey:     string | null = null;
       let openrouterKey: string | null = null;
       let decryptFailed = false;
-      try { if (geminiEnc)  geminiKey     = decrypt(geminiEnc);  } catch (e) {
-        console.error("Gemini key decryption failed (KEY_ENCRYPTION_SECRET rotation?):", e instanceof Error ? e.message : String(e));
-        decryptFailed = true;
-      }
-      try { if (orEnc)      openrouterKey = decrypt(orEnc);      } catch (e) {
-        console.error("OpenRouter key decryption failed (KEY_ENCRYPTION_SECRET rotation?):", e instanceof Error ? e.message : String(e));
+      try {
+        if (orLookup.data) openrouterKey = decrypt(orLookup.data);
+      } catch (e) {
+        console.error(
+          "OpenRouter key decryption failed (KEY_ENCRYPTION_SECRET rotation?):",
+          e instanceof Error ? e.message : String(e)
+        );
         decryptFailed = true;
       }
 
-      if (!geminiKey && !openrouterKey) {
+      if (!openrouterKey) {
         if (decryptFailed) {
           return NextResponse.json(
             {
@@ -272,7 +296,21 @@ export async function POST(req: NextRequest) {
             { status: 422 }
           );
         }
-        // User is capped but hasn't saved any keys yet — prompt the Settings page
+        // Distinguish "saved the wrong kind of key" from "saved nothing at all".
+        // Telling someone who HAS added a key to add a key is the same confusing
+        // message this routing was fixed to avoid.
+        if (geminiLookup.data) {
+          return NextResponse.json(
+            {
+              needsKeys: true,
+              error:
+                "Your Gemini key can't complete a tailoring run — Gemini's free tier allows 5 requests per minute and one run makes 8. Add an OpenRouter key in Settings to continue.",
+              errorType: "needs_openrouter_key",
+            },
+            { status: 402 }
+          );
+        }
+        // Capped and no usable key saved — prompt the Settings page.
         return NextResponse.json(
           {
             needsKeys: true,
@@ -283,49 +321,22 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Try Gemini first; auto-fallback to OpenRouter on quota error.
-      // Both retries are invisible — no provider name leaks to the browser.
-      if (geminiKey) {
-        try {
-          const result = await runPipeline({ provider: "gemini", apiKeyOverride: geminiKey, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
-          return NextResponse.json(result);
-        } catch (err) {
-          if (err instanceof ProviderRateLimitError) {
-            if (!openrouterKey) {
-              return NextResponse.json(
-                {
-                  limitReached: true,
-                  error: "Your API key has hit its usage limit. Try again later or add a second key in Settings.",
-                  errorType: "user_key_limit",
-                },
-                { status: 429 }
-              );
-            }
-            // Fallthrough to OpenRouter below
-          } else {
-            throw err; // non-quota error — let outer catch handle
-          }
+      try {
+        const result = await runPipeline({ provider: "openrouter", apiKeyOverride: openrouterKey, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
+        return NextResponse.json(result);
+      } catch (err) {
+        if (err instanceof ProviderRateLimitError) {
+          // OpenRouter's own limit — the app imposes no cap of its own here.
+          return NextResponse.json(
+            {
+              limitReached: true,
+              error: "Your OpenRouter key has hit its usage limit. Try again later.",
+              errorType: "user_key_limit",
+            },
+            { status: 429 }
+          );
         }
-      }
-
-      // OpenRouter: either as the primary key (no Gemini saved) or as the fallback
-      if (openrouterKey) {
-        try {
-          const result = await runPipeline({ provider: "openrouter", apiKeyOverride: openrouterKey, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
-          return NextResponse.json(result);
-        } catch (err) {
-          if (err instanceof ProviderRateLimitError) {
-            return NextResponse.json(
-              {
-                limitReached: true,
-                error: "Both your API keys have hit their usage limits. Try again later.",
-                errorType: "user_key_limit",
-              },
-              { status: 429 }
-            );
-          }
-          throw err;
-        }
+        throw err;
       }
     }
 

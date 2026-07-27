@@ -439,7 +439,7 @@ function CvPreview({
                         <span key={li}>
                           {li > 0 ? "  |  " : ""}
                           {showLabel ? `${label}: ` : ""}
-                          <a href={href} className="cvLink">{display}</a>
+                          <a href={href} className="cvLink" target="_blank" rel="noopener noreferrer">{display}</a>
                         </span>
                       );
                     })}
@@ -486,9 +486,11 @@ function CvPreview({
         {contactLine && <p className="cvContact">{contactLine}</p>}
         {(linkedin || github) && (
           <p className="cvContact" contentEditable={false}>
-            {linkedin && <a href={linkedin.startsWith("http") ? linkedin : "https://" + linkedin} className="cvLink">LinkedIn</a>}
+            {/* Open in a new tab: following a link in this tab would unload the
+                page and throw away the tailored result the user is looking at. */}
+            {linkedin && <a href={linkedin.startsWith("http") ? linkedin : "https://" + linkedin} className="cvLink" target="_blank" rel="noopener noreferrer">LinkedIn</a>}
             {linkedin && github && " | "}
-            {github && <a href={github.startsWith("http") ? github : "https://" + github} className="cvLink">GitHub</a>}
+            {github && <a href={github.startsWith("http") ? github : "https://" + github} className="cvLink" target="_blank" rel="noopener noreferrer">GitHub</a>}
           </p>
         )}
 
