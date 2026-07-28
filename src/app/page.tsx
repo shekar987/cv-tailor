@@ -10,14 +10,14 @@ export default function Landing() {
 
       <section className="lpHero">
         <p className="lpEyebrow">For backend, full-stack & AI engineers</p>
-        <h1 className="lpТitle">
+        <h1 className="lpTitle">
           A CV tailor that <span className="lpAmber">won't lie</span> for you.
         </h1>
         <p className="lpSub">
           Most AI CV tools pad your experience with skills you don't have to match the job description.
           This one refuses — and shows you exactly where you really stand.
         </p>
-        <Link href="/app" className="lpCta">Tailor my CV →</Link>
+        <Link href="/app" className="cta">Tailor my CV →</Link>
       </section>
 
       <section className="lpContrast">
@@ -58,7 +58,7 @@ export default function Landing() {
         <p className="lpCloseSub">
           A CV with ten skills you can defend beats one with twenty that fall apart under questioning.
         </p>
-        <Link href="/app" className="lpCta">Tailor my CV →</Link>
+        <Link href="/app" className="cta">Tailor my CV →</Link>
       </section>
 
       <footer className="lpFooter">
