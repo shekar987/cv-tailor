@@ -163,30 +163,30 @@ export default function SettingsPage() {
 
   if (!loaded) {
     return (
-      <main style={st.page}>
-        <p style={{ color: "var(--muted)", fontSize: 14 }}>Loading…</p>
+      <main className="page">
+        <div className="container">
+          <p className="cvHelp">Loading your keys…</p>
+        </div>
       </main>
     );
   }
 
   return (
-    <main style={st.page}>
-      <div style={st.container}>
-        {/* Nav bar */}
-        <div style={st.nav}>
-          <span style={st.wordmark}>
-            CV<span style={{ color: "var(--amber)" }}>.</span>Tailor
-          </span>
-          <Link href="/app" style={st.navLink}>← Back to app</Link>
-        </div>
+    <main className="page">
+      <div className="container">
+        <header className="header">
+          <div className="appBar">
+            <div className="wordmark">CV<span className="dot">.</span>Tailor</div>
+            <Link href="/app" className="customizeLink">← Back to app</Link>
+          </div>
+          <h1 className="settingsHeading">API Keys</h1>
+          <p className="tagline">
+            Add your own AI provider keys to keep tailoring after your free credits run out.
+            Keys are encrypted before storage and are never shown in full after saving.
+          </p>
+        </header>
 
-        <h1 style={st.heading}>API Keys</h1>
-        <p style={st.subtext}>
-          Add your own AI provider keys to keep tailoring after your free credits run out.
-          Keys are encrypted before storage and are never shown in full after saving.
-        </p>
-
-        <div style={st.slotList}>
+        <div className="keyList">
           {SLOTS.map((slot) => {
             const saved = savedKeys[slot.provider];
             const isBusy = status[slot.provider] === "saving";
@@ -195,31 +195,31 @@ export default function SettingsPage() {
             const showInputField = !saved || isReplacing;
 
             return (
-              <div key={slot.provider} style={st.card}>
+              <section key={slot.provider} className="inputCard">
                 {/* Card header — slot label + masked badge */}
-                <div style={st.cardHeader}>
-                  <span style={st.slotLabel}>{slot.label}</span>
+                <div className="keyCardHeader">
+                  <span className="keyLabel">{slot.label}</span>
                   {saved && !isReplacing && (
-                    <span style={st.savedBadge}>✓ Saved ••••{saved.hint}</span>
+                    <span className="savedBadge">✓ Saved ••••{saved.hint}</span>
                   )}
                 </div>
 
                 {/* Collapsible how-to — provider name only appears here */}
-                <details style={st.details}>
-                  <summary style={st.summary}>
+                <details className="keyDetails">
+                  <summary className="keySummary">
                     How to get this key ({slot.providerDisplay}) →
                   </summary>
-                  <div style={st.howToBox}>
-                    <ol style={st.howToList}>
+                  <div className="keyHowTo">
+                    <ol className="howToList">
                       {slot.howToSteps.map((step, i) => (
-                        <li key={i} style={st.howToItem}>{step}</li>
+                        <li key={i} className="howToItem">{step}</li>
                       ))}
                     </ol>
                     <a
                       href={slot.linkUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      style={st.howToLink}
+                      className="howToLink"
                     >
                       {slot.linkText}
                     </a>
@@ -228,7 +228,7 @@ export default function SettingsPage() {
 
                 {/* Key input — visible when no key saved yet, or during Replace */}
                 {showInputField && (
-                  <div style={{ marginTop: 14 }}>
+                  <div className="keyInputRow">
                     <input
                       type="password"
                       value={inputValues[slot.provider]}
@@ -240,17 +240,14 @@ export default function SettingsPage() {
                       disabled={isBusy}
                       autoComplete="off"
                       spellCheck={false}
-                      style={st.input}
+                      aria-label={`${slot.providerDisplay} API key`}
+                      className="keyInput"
                     />
-                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <div className="actions">
                       <button
                         onClick={() => handleSave(slot.provider)}
                         disabled={isBusy || !inputValues[slot.provider].trim()}
-                        style={{
-                          ...st.ctaBtn,
-                          opacity: isBusy || !inputValues[slot.provider].trim() ? 0.55 : 1,
-                          cursor: isBusy || !inputValues[slot.provider].trim() ? "not-allowed" : "pointer",
-                        }}
+                        className="cta"
                       >
                         {isBusy ? "Saving…" : "Save key"}
                       </button>
@@ -258,7 +255,7 @@ export default function SettingsPage() {
                         <button
                           onClick={() => cancelReplace(slot.provider)}
                           disabled={isBusy}
-                          style={st.ghostBtn}
+                          className="cta ghost"
                         >
                           Cancel
                         </button>
@@ -269,18 +266,18 @@ export default function SettingsPage() {
 
                 {/* Replace / Remove actions — only when key is saved and not replacing */}
                 {saved && !isReplacing && (
-                  <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                  <div className="actions">
                     <button
                       onClick={() => setShowInput(si => ({ ...si, [slot.provider]: true }))}
                       disabled={isBusy}
-                      style={st.ghostBtn}
+                      className="cta secondary"
                     >
                       Replace
                     </button>
                     <button
                       onClick={() => handleRemove(slot.provider)}
                       disabled={isBusy}
-                      style={{ ...st.ghostBtn, color: "#E5736B", borderColor: "rgba(229,115,107,0.3)" }}
+                      className="cta ghost keyRemove"
                     >
                       {isBusy ? "Removing…" : "Remove"}
                     </button>
@@ -289,9 +286,9 @@ export default function SettingsPage() {
 
                 {/* Per-slot error */}
                 {err && (
-                  <p role="alert" style={st.errText}>{err}</p>
+                  <p role="alert" className="keyError">{err}</p>
                 )}
-              </div>
+              </section>
             );
           })}
         </div>
@@ -299,172 +296,3 @@ export default function SettingsPage() {
     </main>
   );
 }
-
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
-const st = {
-  page: {
-    minHeight: "100vh",
-    background: "var(--bg)",
-    color: "var(--text)",
-    padding: "40px 24px 96px",
-    fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-  } as React.CSSProperties,
-
-  container: {
-    maxWidth: 560,
-    margin: "0 auto",
-  } as React.CSSProperties,
-
-  nav: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 40,
-  } as React.CSSProperties,
-
-  wordmark: {
-    fontSize: 22,
-    fontWeight: 700,
-    letterSpacing: "-0.02em",
-  } as React.CSSProperties,
-
-  navLink: {
-    fontSize: 13,
-    color: "var(--muted)" as string,
-    textDecoration: "none",
-  } as React.CSSProperties,
-
-  heading: {
-    fontSize: 26,
-    fontWeight: 700,
-    letterSpacing: "-0.02em",
-    marginBottom: 10,
-  } as React.CSSProperties,
-
-  subtext: {
-    fontSize: 14,
-    color: "var(--muted)" as string,
-    lineHeight: 1.6,
-    marginBottom: 32,
-  } as React.CSSProperties,
-
-  slotList: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: 16,
-  } as React.CSSProperties,
-
-  card: {
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    borderRadius: 14,
-    padding: "20px 22px",
-  } as React.CSSProperties,
-
-  cardHeader: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 6,
-  } as React.CSSProperties,
-
-  slotLabel: {
-    fontSize: 15,
-    fontWeight: 600,
-    color: "var(--text)" as string,
-  } as React.CSSProperties,
-
-  savedBadge: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: "#5FB783",
-  } as React.CSSProperties,
-
-  details: {
-    marginTop: 2,
-  } as React.CSSProperties,
-
-  summary: {
-    fontSize: 13,
-    color: "var(--amber)" as string,
-    cursor: "pointer",
-    userSelect: "none" as const,
-  } as React.CSSProperties,
-
-  howToBox: {
-    marginTop: 10,
-    background: "var(--bg)",
-    border: "1px solid var(--border)",
-    borderRadius: 10,
-    padding: "14px 16px",
-  } as React.CSSProperties,
-
-  howToList: {
-    paddingLeft: 18,
-    marginBottom: 10,
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: 4,
-  } as React.CSSProperties,
-
-  howToItem: {
-    fontSize: 13,
-    color: "var(--muted)" as string,
-    lineHeight: 1.65,
-  } as React.CSSProperties,
-
-  howToLink: {
-    fontSize: 13,
-    color: "var(--amber)" as string,
-    textDecoration: "none",
-  } as React.CSSProperties,
-
-  input: {
-    width: "100%",
-    background: "var(--bg)",
-    border: "1px solid var(--border)",
-    borderRadius: 8,
-    color: "var(--text)" as string,
-    padding: "10px 12px",
-    fontSize: 14,
-    fontFamily: "inherit",
-    outline: "none",
-    letterSpacing: "0.04em",
-  } as React.CSSProperties,
-
-  ctaBtn: {
-    background: "var(--amber)",
-    color: "#1A1206",
-    border: "none",
-    borderRadius: 9,
-    padding: "9px 18px",
-    fontSize: 14,
-    fontWeight: 600,
-    fontFamily: "inherit",
-    transition: "background 0.15s",
-  } as React.CSSProperties,
-
-  ghostBtn: {
-    background: "transparent",
-    border: "1px solid var(--border)",
-    borderRadius: 9,
-    color: "var(--muted)" as string,
-    cursor: "pointer",
-    fontSize: 13,
-    padding: "8px 14px",
-    fontFamily: "inherit",
-    transition: "color 0.15s, border-color 0.15s",
-  } as React.CSSProperties,
-
-  errText: {
-    color: "#E5736B",
-    fontSize: 13,
-    marginTop: 10,
-    lineHeight: 1.5,
-    padding: "8px 10px",
-    background: "rgba(229,115,107,0.08)",
-    borderRadius: 8,
-    border: "1px solid rgba(229,115,107,0.2)",
-  } as React.CSSProperties,
-} as const;

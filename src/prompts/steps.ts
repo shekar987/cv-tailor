@@ -207,14 +207,16 @@ A keyword goes in exactly ONE array. Never put a missing keyword in "hits". Neve
 
 CRITICAL for recommendations: NEVER recommend adding a skill, keyword, or technology the candidate does not genuinely have. NEVER recommend "(Learning)" tags or keyword-stuffing to game ATS. Honest recommendations only: surface an adjacent skill they DO have, reorder real content, or note a genuine gap they could close by actually learning the skill (as a real action, not a CV edit).
 
+VOICE: this text is shown directly to the person whose CV it is. Write "misses", "recommendations", and "overall_assessment" addressed straight to them — "you", "your CV", "you're missing" — never in the third person ("the candidate", "the applicant", "this CV").
+
 Output ONLY a JSON object (no fences):
 {
   "keyword_coverage": "X/15",
   "required_skill_coverage": "X/10",
   "hits": ["only keywords genuinely present, each with the section it appears in"],
-  "misses": ["only keywords genuinely absent, each with a brief honest reason"],
-  "recommendations": ["2-3 honest actions — never suggest adding skills the CV lacks or keyword-stuffing"],
-  "overall_assessment": "2-3 sentences: is this submittable, and the honest competitive position"
+  "misses": ["only keywords genuinely absent, each with a brief honest reason, addressed to \"you\""],
+  "recommendations": ["2-3 honest actions, addressed to \"you\" — never suggest adding skills the CV lacks or keyword-stuffing"],
+  "overall_assessment": "2-3 sentences addressed to \"you\": is this submittable, and your honest competitive position"
 }`;
 
 export const PROFILE_EXTRACTION_PROMPT = `You extract factual profile details from a CV. Extract ONLY what is explicitly present — never invent or guess. If a field isn't in the CV, use an empty string or empty array.

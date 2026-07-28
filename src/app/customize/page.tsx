@@ -5,6 +5,18 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
+  getMasterCV,
+  saveMasterCV,
+  clearMasterCV,
+  getProfile,
+  saveProfile,
+  clearProfile,
+  importFromLocalStorageIfNeeded,
+  type Profile,
+} from "@/lib/cvStore";
+import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
+import CvUpload from "../CvUpload";
+import {
   DEFAULT_SECTION_ORDER,
   SECTION_LABELS,
   resolveSectionOrder,
@@ -29,6 +41,28 @@ export default function CustomizePage() {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
 
+  // Identity for the /app workspace — used to drop a stale tailored result
+  // when the master CV changes here (project bullets are index-keyed against
+  // the profile's project list, so a result built from the old CV could
+  // otherwise render bullets under the wrong project on /app).
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Master CV
+  const [masterCvText, setMasterCvText] = useState("");
+  const [cvDraft, setCvDraft] = useState("");
+  const [editingCv, setEditingCv] = useState(false);
+  const [cvSavedAt, setCvSavedAt] = useState<number | null>(null);
+  const [cvLoading, setCvLoading] = useState(true);
+  const [cvError, setCvError] = useState("");
+  // Set when a CV is populated from an uploaded file, so the user is told to
+  // check the extraction before saving. Cleared once they edit or save.
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+
+  // Profile details — extracted from the master CV, edited here.
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [extracting, setExtracting] = useState(false);
+
   useEffect(() => {
     let active = true;
     async function load() {
@@ -40,6 +74,8 @@ export default function CustomizePage() {
         router.replace("/auth/login");
         return;
       }
+      setUserId(session.user.id);
+
       try {
         const res = await fetch("/api/section-order");
         const data = await res.json();
@@ -51,10 +87,100 @@ export default function CustomizePage() {
       } finally {
         if (active) setLoading(false);
       }
+
+      let stored = await getMasterCV();
+      if (!stored) {
+        // First login, or user hasn't saved a CV yet — check localStorage for
+        // a one-time migration of any pre-auth CV.
+        const imported = await importFromLocalStorageIfNeeded();
+        if (imported) stored = imported;
+      }
+      if (!active) return;
+      if (stored) {
+        setMasterCvText(stored.text);
+        setCvSavedAt(stored.updatedAt);
+      } else {
+        setEditingCv(true); // no CV yet — open the editor so they set one
+      }
+      setCvLoading(false);
+
+      const p = await getProfile();
+      if (active) {
+        setProfile(p);
+        setProfileLoading(false);
+      }
     }
     load();
     return () => { active = false; };
   }, [router]);
+
+  function updateProfileField(field: keyof Profile, value: string) {
+    if (!profile) return;
+    const updated = { ...profile, [field]: value };
+    setProfile(updated);
+    saveProfile(updated); // fire-and-forget: UI state is already correct, DB catches up
+  }
+
+  // Drops any tailored result sitting in the /app workspace without touching
+  // the pasted job description — the JD is independent of the CV, but a
+  // tailored result is not.
+  function invalidateWorkspaceResult() {
+    if (!userId) return;
+    const existing = loadWorkspace(userId);
+    saveWorkspace(userId, { jobDescription: existing?.jobDescription ?? "", result: null, ranProvider: null });
+  }
+
+  async function handleSaveCv() {
+    if (!cvDraft.trim()) {
+      setCvError("Paste your CV before saving.");
+      return;
+    }
+    const rec = await saveMasterCV(cvDraft);
+    setMasterCvText(rec.text);
+    setCvSavedAt(rec.updatedAt);
+    setCvError("");
+    setUploadNotice(null);
+    invalidateWorkspaceResult();
+
+    // Extract the profile (name/contact/education) from the new CV
+    setExtracting(true);
+    try {
+      const res = await fetch("/api/extract-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cvText: rec.text }),
+      });
+      const data = await res.json();
+      if (res.ok && data.profile) {
+        setProfile(data.profile);
+        await saveProfile(data.profile);
+      }
+    } catch {
+      // extraction failed — user can still proceed; we'll fall back
+    } finally {
+      setExtracting(false);
+      setEditingCv(false);
+    }
+  }
+
+  function handleEditCv() {
+    setCvDraft(masterCvText);
+    setEditingCv(true);
+  }
+
+  async function handleClearCv() {
+    // Reset UI immediately so the user doesn't wait for the DB delete
+    setProfile(null);
+    setMasterCvText("");
+    setCvSavedAt(null);
+    setCvDraft("");
+    setEditingCv(true);
+    setUploadNotice(null);
+    invalidateWorkspaceResult();
+    // Delete from DB in the background
+    await clearMasterCV();
+    await clearProfile();
+  }
 
   function move(from: number, to: number) {
     if (to < 0 || to >= order.length || from === to) return;
@@ -103,9 +229,98 @@ export default function CustomizePage() {
             <Link href="/app" className="customizeLink">← Back to app</Link>
           </div>
           <p className="tagline">
-            Choose the order your CV sections appear in. Saved once, applied to every future tailoring run.
+            Manage your master CV, your details, and how your tailored CV is laid out.
           </p>
         </header>
+
+        <section className="inputCard">
+          {cvLoading ? (
+            <p className="cvHelp">Loading your CV…</p>
+          ) : editingCv ? (
+            <>
+              <label className="label" htmlFor="cv">Master CV</label>
+              <p className="cvHelp">Add your full CV once. It's saved to your account and reused for every job — you'll only need to paste the job description on the main page each time.</p>
+
+              <CvUpload
+                disabled={extracting}
+                onExtracted={(text, meta) => {
+                  // Populate the SAME textarea the paste flow uses. Nothing is
+                  // saved yet — the user reviews and edits, then hits Save.
+                  setCvDraft(text);
+                  setCvError("");
+                  setUploadNotice(
+                    `Text extracted from ${meta.filename} (${meta.characters.toLocaleString()} characters). ` +
+                    `Check it below before saving — PDFs and Word files can lose formatting, so fix any run-together ` +
+                    `lines or missing headings now.`
+                  );
+                }}
+              />
+
+              <div className="orDivider"><span>or paste it below</span></div>
+
+              {uploadNotice && (
+                <p className="uploadNotice" role="status">{uploadNotice}</p>
+              )}
+
+              <textarea
+                id="cv"
+                value={cvDraft}
+                onChange={(e) => {
+                  setCvDraft(e.target.value);
+                  if (uploadNotice) setUploadNotice(null);
+                }}
+                placeholder="Paste your full CV here…"
+                rows={10}
+              />
+              <div className="actions">
+                <button onClick={handleSaveCv} className="cta">Save master CV</button>
+                {masterCvText && (
+                  <button onClick={() => setEditingCv(false)} className="cta secondary">Cancel</button>
+                )}
+                {cvError && <span className="error">{cvError}</span>}
+              </div>
+            </>
+          ) : (
+            <div className="cvSavedRow">
+              <div>
+                <div className="cvSavedLabel">✓ Master CV saved</div>
+                {cvSavedAt && (
+                  <div className="cvSavedMeta">Last updated {new Date(cvSavedAt).toLocaleDateString()}</div>
+                )}
+              </div>
+              <div className="cvSavedActions">
+                <button onClick={handleEditCv} className="cta secondary">Edit</button>
+                <button onClick={handleClearCv} className="cta ghost">Replace</button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="inputCard">
+          <div className="label">
+            Your details {extracting && <span className="cvSavedMeta">— extracting…</span>}
+          </div>
+          {profileLoading ? (
+            <p className="cvHelp" style={{ color: "var(--muted)" }}>Loading your details…</p>
+          ) : profile ? (
+            <>
+              <p className="cvHelp">Pulled from your CV. Check these are right — they appear in your tailored CV's header and sections.</p>
+              <div className="profileGrid">
+                <label>Name<input value={profile.name} onChange={(e) => updateProfileField("name", e.target.value)} /></label>
+                <label>Tagline<input value={profile.tagline} onChange={(e) => updateProfileField("tagline", e.target.value)} /></label>
+                <label>Location<input value={profile.location} onChange={(e) => updateProfileField("location", e.target.value)} /></label>
+                <label>Phone<input value={profile.phone} onChange={(e) => updateProfileField("phone", e.target.value)} /></label>
+                <label>Email<input value={profile.email} onChange={(e) => updateProfileField("email", e.target.value)} /></label>
+                <label>LinkedIn<input value={profile.linkedin} onChange={(e) => updateProfileField("linkedin", e.target.value)} /></label>
+                <label>GitHub<input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} /></label>
+              </div>
+            </>
+          ) : (
+            <p className="cvHelp">
+              No details yet — add your master CV above and these will be extracted automatically.
+            </p>
+          )}
+        </section>
 
         <section className="inputCard">
           <div className="label">Section order</div>

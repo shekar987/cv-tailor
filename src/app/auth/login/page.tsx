@@ -116,17 +116,17 @@ export default function LoginPage() {
   // ─── "Check your inbox" screen ──────────────────────────────────────────────
   if (checkInbox) {
     return (
-      <main style={styles.page}>
-        <div style={styles.card}>
+      <main className="authPage">
+        <div className="authCard">
           <Wordmark />
-          <p style={styles.cardEyebrow}>Almost there</p>
-          <h1 style={styles.cardTitle}>Check your inbox</h1>
-          <p style={{ ...styles.muted, marginBottom: 24 }}>
+          <p className="authEyebrow">Almost there</p>
+          <h1 className="authTitle">Check your inbox</h1>
+          <p className="authMuted">
             We sent a confirmation link to <strong style={{ color: 'var(--text)' }}>{email}</strong>.
             Click it to activate your account and sign in.
           </p>
           <button
-            style={styles.linkBtn}
+            className="authLinkBtn"
             onClick={() => { setCheckInbox(false); setMode('login') }}
           >
             Back to sign in
@@ -138,21 +138,21 @@ export default function LoginPage() {
 
   // ─── Main form ──────────────────────────────────────────────────────────────
   return (
-    <main style={styles.page}>
-      <div style={styles.card}>
+    <main className="authPage">
+      <div className="authCard">
         <Wordmark />
 
         {/* Mode toggle */}
-        <div style={styles.toggle}>
+        <div className="authToggle">
           <button
-            style={mode === 'login' ? styles.toggleActive : styles.toggleInactive}
+            className={mode === 'login' ? 'active' : ''}
             onClick={() => switchMode('login')}
             type="button"
           >
             Sign in
           </button>
           <button
-            style={mode === 'signup' ? styles.toggleActive : styles.toggleInactive}
+            className={mode === 'signup' ? 'active' : ''}
             onClick={() => switchMode('signup')}
             type="button"
           >
@@ -161,7 +161,7 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} noValidate>
-          <label style={styles.label}>
+          <label className="authLabel">
             Email
             <input
               type="email"
@@ -170,11 +170,11 @@ export default function LoginPage() {
               placeholder="you@example.com"
               required
               autoComplete="email"
-              style={styles.input}
+              className="authInput"
             />
           </label>
 
-          <label style={{ ...styles.label, marginTop: 14 }}>
+          <label className="authLabel">
             Password
             <input
               type="password"
@@ -183,18 +183,19 @@ export default function LoginPage() {
               placeholder={mode === 'signup' ? 'At least 8 characters' : ''}
               required
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              style={styles.input}
+              className="authInput"
             />
           </label>
 
           {error && (
-            <p role="alert" style={styles.error}>{error}</p>
+            <p role="alert" className="error" style={{ marginTop: 'var(--space-3)' }}>{error}</p>
           )}
 
           <button
             type="submit"
             disabled={loading || !email || !password}
-            style={{ ...styles.cta, marginTop: 20 }}
+            className="cta block"
+            style={{ marginTop: 'var(--space-5)' }}
           >
             {loading
               ? (mode === 'login' ? 'Signing in…' : 'Creating account…')
@@ -202,24 +203,19 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* ── Social login placeholder — wired up in Step 6 ─────────────────── */}
-        <div style={styles.dividerRow}>
-          <span style={styles.dividerLine} />
-          <span style={styles.dividerText}>or continue with</span>
-          <span style={styles.dividerLine} />
+        {/* ── Social login ───────────────────────────────────────────────────── */}
+        <div className="authDivider">
+          <span className="authDividerLine" />
+          <span className="authDividerText">or continue with</span>
+          <span className="authDividerLine" />
         </div>
 
-        <div style={styles.socialRow}>
+        <div className="authSocialRow">
           <button
             type="button"
             onClick={() => handleOAuth('google')}
             disabled={loading || socialLoading !== null}
-            style={{
-              ...styles.socialBtn,
-              opacity: loading || socialLoading !== null ? 0.6 : 1,
-              cursor: loading || socialLoading !== null ? 'wait' : 'pointer',
-              color: 'var(--text)',
-            }}
+            className="authSocialBtn"
           >
             {socialLoading === 'google' ? 'Redirecting…' : 'Google'}
           </button>
@@ -227,12 +223,7 @@ export default function LoginPage() {
             type="button"
             onClick={() => handleOAuth('github')}
             disabled={loading || socialLoading !== null}
-            style={{
-              ...styles.socialBtn,
-              opacity: loading || socialLoading !== null ? 0.6 : 1,
-              cursor: loading || socialLoading !== null ? 'wait' : 'pointer',
-              color: 'var(--text)',
-            }}
+            className="authSocialBtn"
           >
             {socialLoading === 'github' ? 'Redirecting…' : 'GitHub'}
           </button>
@@ -245,190 +236,8 @@ export default function LoginPage() {
 
 function Wordmark() {
   return (
-    <div style={{ marginBottom: 28 }}>
-      <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em' }}>
-        CV<span style={{ color: 'var(--amber)' }}>.</span>Tailor
-      </span>
+    <div className="authWordmark">
+      CV<span className="dot">.</span>Tailor
     </div>
   )
 }
-
-// ─── Styles (uses CSS variables from globals.css) ────────────────────────────
-
-const styles = {
-  page: {
-    minHeight: '100vh',
-    background: 'var(--bg)',
-    color: 'var(--text)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '40px 24px',
-    fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-  } as React.CSSProperties,
-
-  card: {
-    width: '100%',
-    maxWidth: 420,
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 16,
-    padding: '32px 32px 28px',
-  } as React.CSSProperties,
-
-  cardEyebrow: {
-    fontSize: 12,
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.08em',
-    color: 'var(--amber)',
-    marginBottom: 8,
-    fontWeight: 600,
-  } as React.CSSProperties,
-
-  cardTitle: {
-    fontSize: 22,
-    fontWeight: 700,
-    letterSpacing: '-0.02em',
-    marginBottom: 12,
-  } as React.CSSProperties,
-
-  toggle: {
-    display: 'flex',
-    background: 'var(--bg)',
-    border: '1px solid var(--border)',
-    borderRadius: 10,
-    padding: 3,
-    marginBottom: 24,
-    gap: 3,
-  } as React.CSSProperties,
-
-  toggleActive: {
-    flex: 1,
-    padding: '7px 0',
-    fontSize: 14,
-    fontWeight: 600,
-    background: 'var(--surface-2)',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    color: 'var(--text)',
-    cursor: 'pointer',
-    transition: 'background 0.15s',
-  } as React.CSSProperties,
-
-  toggleInactive: {
-    flex: 1,
-    padding: '7px 0',
-    fontSize: 14,
-    fontWeight: 400,
-    background: 'transparent',
-    border: '1px solid transparent',
-    borderRadius: 8,
-    color: 'var(--muted)',
-    cursor: 'pointer',
-    transition: 'color 0.15s',
-  } as React.CSSProperties,
-
-  label: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 6,
-    fontSize: 13,
-    color: 'var(--muted)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.06em',
-  } as React.CSSProperties,
-
-  input: {
-    background: 'var(--bg)',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    color: 'var(--text)',
-    padding: '10px 12px',
-    fontSize: 15,
-    fontFamily: 'inherit',
-    outline: 'none',
-    width: '100%',
-  } as React.CSSProperties,
-
-  error: {
-    color: '#E5736B',
-    fontSize: 13,
-    lineHeight: 1.5,
-    marginTop: 12,
-    padding: '10px 12px',
-    background: 'rgba(229,115,107,0.08)',
-    borderRadius: 8,
-    border: '1px solid rgba(229,115,107,0.2)',
-  } as React.CSSProperties,
-
-  cta: {
-    width: '100%',
-    background: 'var(--amber)',
-    color: '#1A1206',
-    border: 'none',
-    borderRadius: 10,
-    padding: '11px 0',
-    fontSize: 15,
-    fontWeight: 600,
-    cursor: 'pointer',
-    transition: 'background 0.15s',
-    opacity: 1,
-  } as React.CSSProperties,
-
-  dividerRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    margin: '24px 0 16px',
-  } as React.CSSProperties,
-
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    background: 'var(--border)',
-    display: 'block',
-  } as React.CSSProperties,
-
-  dividerText: {
-    fontSize: 12,
-    color: 'var(--muted)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.06em',
-    whiteSpace: 'nowrap' as const,
-  } as React.CSSProperties,
-
-  socialRow: {
-    display: 'flex',
-    gap: 10,
-  } as React.CSSProperties,
-
-  socialBtn: {
-    flex: 1,
-    padding: '10px 0',
-    fontSize: 14,
-    fontWeight: 500,
-    background: 'transparent',
-    border: '1px solid var(--border)',
-    borderRadius: 9,
-    color: 'var(--text)',
-    fontFamily: 'inherit',
-    transition: 'border-color 0.15s',
-  } as React.CSSProperties,
-
-  muted: {
-    fontSize: 14,
-    color: 'var(--muted)',
-    lineHeight: 1.6,
-  } as React.CSSProperties,
-
-  linkBtn: {
-    background: 'none',
-    border: 'none',
-    color: 'var(--amber)',
-    fontSize: 14,
-    cursor: 'pointer',
-    padding: 0,
-    fontFamily: 'inherit',
-    textDecoration: 'underline',
-  } as React.CSSProperties,
-} as const

@@ -1,12 +1,11 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { getMasterCV, saveMasterCV, clearMasterCV, getProfile, saveProfile, clearProfile, importFromLocalStorageIfNeeded, type Profile } from "@/lib/cvStore";
+import { getMasterCV, getProfile, importFromLocalStorageIfNeeded, type Profile } from "@/lib/cvStore";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
-import CvUpload from "../CvUpload";
 import type { AtsMatchResult } from "@/lib/atsMatch";
 import { loadWorkspace, saveWorkspace, clearWorkspace } from "@/lib/workspace";
 
@@ -62,18 +61,10 @@ export default function Home() {
   const [errorType, setErrorType] = useState<string | null>(null); // "user_limit" | "provider_limit" | null
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
-  // Master CV state
-  const [masterCvText, setMasterCvText] = useState("");      // the stored CV text
-  const [cvDraft, setCvDraft] = useState("");                // editing buffer
-  const [editingCv, setEditingCv] = useState(false);         // is the CV editor open?
-  const [cvSavedAt, setCvSavedAt] = useState<number | null>(null);
-
-  // Set when a CV is populated from an uploaded file, so the user is told to
-  // check the extraction before saving. Cleared once they edit or save.
-  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
-
+  // Master CV — read-only here. Uploading/editing/replacing it lives on
+  // /customize; this page only needs to know whether one exists.
+  const [masterCvText, setMasterCvText] = useState("");
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [extracting, setExtracting] = useState(false);
   const [cvLoading, setCvLoading] = useState(true);  // true while initial DB fetch is in-flight
 
   // Provider selector — owner accounts only (profiles.is_unlimited).
@@ -164,11 +155,8 @@ export default function Home() {
 
       if (stored) {
         setMasterCvText(stored.text);
-        setCvSavedAt(stored.updatedAt);
         const p = await getProfile();
         setProfile(p);
-      } else {
-        setEditingCv(true); // no CV yet — open the editor so they set one
       }
       setCvLoading(false);
     }
@@ -181,81 +169,6 @@ export default function Home() {
     if (!workspaceReady || !userId) return;
     saveWorkspace(userId, { jobDescription, result, ranProvider });
   }, [workspaceReady, userId, jobDescription, result, ranProvider]);
-
-  async function handleSaveCv() {
-    if (!cvDraft.trim()) {
-      setError("Paste your CV before saving.");
-      return;
-    }
-    const rec = await saveMasterCV(cvDraft);
-    setMasterCvText(rec.text);
-    setCvSavedAt(rec.updatedAt);
-    setError("");
-    setUploadNotice(null);
-    // A new CV invalidates any gate result computed against the old one.
-    setPreCheck(null);
-    setGateAnalysis(null);
-    setGateError("");
-    // ...and invalidates the tailored result itself. Project bullets are keyed
-    // by index against the profile's project list, so keeping a result built
-    // from the previous CV could render bullets under the wrong project.
-    // Persistence makes this matter more: without clearing, the stale result
-    // would now survive reloads instead of dying with the page.
-    setResult(null);
-    setRanProvider(null);
-
-    // Extract the profile (name/contact/education) from the new CV
-    setExtracting(true);
-    try {
-      const res = await fetch("/api/extract-profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cvText: rec.text }),
-      });
-      const data = await res.json();
-      if (res.ok && data.profile) {
-        setProfile(data.profile);
-        await saveProfile(data.profile);
-      }
-    } catch {
-      // extraction failed — user can still proceed; we'll fall back
-    } finally {
-      setExtracting(false);
-      setEditingCv(false);
-    }
-  }
-
-  function handleEditCv() {
-    setCvDraft(masterCvText);
-    setEditingCv(true);
-  }
-
-  async function handleClearCv() {
-    // Reset UI immediately so the user doesn't wait for the DB delete
-    setProfile(null);
-    setMasterCvText("");
-    setCvSavedAt(null);
-    setCvDraft("");
-    setEditingCv(true);
-    setUploadNotice(null);
-    setPreCheck(null);
-    setGateAnalysis(null);
-    setGateError("");
-    // The tailored result belongs to the CV being removed — drop it too, or it
-    // would render against a profile that no longer exists.
-    setResult(null);
-    setRanProvider(null);
-    // Delete from DB in the background
-    await clearMasterCV();
-    await clearProfile();
-  }
-
-  function updateProfileField(field: keyof Profile, value: any) {
-    if (!profile) return;
-    const updated = { ...profile, [field]: value };
-    setProfile(updated);
-    saveProfile(updated); // fire-and-forget: UI state is already correct, DB catches up
-  }
 
   async function handleSignOut() {
     // Don't leave a tailored CV in this browser's storage after sign-out.
@@ -271,9 +184,8 @@ export default function Home() {
   // paid 8-step pipeline runs. Never blocks on a low score — just informs.
   async function handlePreCheck() {
     if (!masterCvText.trim()) {
-      setError("Set your master CV first (the box above).");
+      setError("Add your master CV in Customize first.");
       setErrorType(null);
-      setEditingCv(true);
       return;
     }
     if (!jobDescription.trim()) {
@@ -355,46 +267,24 @@ export default function Home() {
     projects: result?.projects as any,
   }), [result]);
 
+  // First name only, for a personal greeting on the results — falls back to
+  // nothing (not a placeholder) if no profile name is set yet.
+  const firstName = (profile?.name || "").trim().split(/\s+/)[0] || "";
+
   return (
     <main className="page">
       <div className="container">
         <header className="header">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div className="appBar">
             <div className="wordmark">
               CV<span className="dot">.</span>Tailor
             </div>
             {userEmail && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontSize: 13, color: 'var(--muted)' }}>{userEmail}</span>
+              <div className="appBarActions">
+                <span className="appBarEmail" title={userEmail}>{userEmail}</span>
                 <Link href="/customize" className="customizeLink">Customize</Link>
-                <Link
-                  href="/settings"
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid var(--border)',
-                    borderRadius: 8,
-                    color: 'var(--muted)',
-                    fontSize: 13,
-                    padding: '5px 12px',
-                    textDecoration: 'none',
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  Settings
-                </Link>
-                <button
-                  onClick={handleSignOut}
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid var(--border)',
-                    borderRadius: 8,
-                    color: 'var(--muted)',
-                    cursor: 'pointer',
-                    fontSize: 13,
-                    padding: '5px 12px',
-                    fontFamily: 'inherit',
-                  }}
-                >
+                <Link href="/settings" className="customizeLink">Settings</Link>
+                <button type="button" onClick={handleSignOut} className="customizeLink">
                   Sign out
                 </button>
               </div>
@@ -405,86 +295,20 @@ export default function Home() {
           </p>
         </header>
 
-        {/* Master CV card */}
-        <section className="inputCard">
-          {cvLoading ? (
-            <p className="cvHelp" style={{ color: 'var(--muted)' }}>Loading your CV…</p>
-          ) : editingCv ? (
-            <>
-              <label className="label" htmlFor="cv">Your master CV</label>
-              <p className="cvHelp">Add your full CV once. It's saved to your account and reused for every job — you'll only need to paste the job description each time.</p>
-
-              <CvUpload
-                disabled={extracting}
-                onExtracted={(text, meta) => {
-                  // Populate the SAME textarea the paste flow uses. Nothing is
-                  // saved yet — the user reviews and edits, then hits Save.
-                  setCvDraft(text);
-                  setError("");
-                  setUploadNotice(
-                    `Text extracted from ${meta.filename} (${meta.characters.toLocaleString()} characters). ` +
-                    `Check it below before saving — PDFs and Word files can lose formatting, so fix any run-together ` +
-                    `lines or missing headings now.`
-                  );
-                }}
-              />
-
-              <div className="orDivider"><span>or paste it below</span></div>
-
-              {uploadNotice && (
-                <p className="uploadNotice" role="status">{uploadNotice}</p>
-              )}
-
-              <textarea
-                id="cv"
-                value={cvDraft}
-                onChange={(e) => {
-                  setCvDraft(e.target.value);
-                  if (uploadNotice) setUploadNotice(null);
-                }}
-                placeholder="Paste your full CV here…"
-                rows={10}
-              />
-              <div className="actions">
-                <button onClick={handleSaveCv} className="cta">Save master CV</button>
-                {masterCvText && (
-                  <button onClick={() => setEditingCv(false)} className="cta secondary">Cancel</button>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="cvSavedRow">
-              <div>
-                <div className="cvSavedLabel">✓ Master CV saved</div>
-                {cvSavedAt && (
-                  <div className="cvSavedMeta">Last updated {new Date(cvSavedAt).toLocaleDateString()}</div>
-                )}
-              </div>
-              <div className="cvSavedActions">
-                <button onClick={handleEditCv} className="cta secondary">Edit</button>
-                <button onClick={handleClearCv} className="cta ghost">Replace</button>
-              </div>
-            </div>
-          )}
-        </section>
-        {/* Profile confirm card — shows extracted details for the user to verify */}
-        {masterCvText && !editingCv && (
+        {/* Master CV status — uploading/editing/replacing it lives on /customize now */}
+        {cvLoading ? (
           <section className="inputCard">
-            <div className="label">Your details {extracting && <span className="cvSavedMeta">— extracting…</span>}</div>
-            <p className="cvHelp">Pulled from your CV. Check these are right — they appear in your tailored CV's header and sections.</p>
-            {profile && (
-              <div className="profileGrid">
-                <label>Name<input value={profile.name} onChange={(e) => updateProfileField("name", e.target.value)} /></label>
-                <label>Tagline<input value={profile.tagline} onChange={(e) => updateProfileField("tagline", e.target.value)} /></label>
-                <label>Location<input value={profile.location} onChange={(e) => updateProfileField("location", e.target.value)} /></label>
-                <label>Phone<input value={profile.phone} onChange={(e) => updateProfileField("phone", e.target.value)} /></label>
-                <label>Email<input value={profile.email} onChange={(e) => updateProfileField("email", e.target.value)} /></label>
-                <label>LinkedIn<input value={profile.linkedin} onChange={(e) => updateProfileField("linkedin", e.target.value)} /></label>
-                <label>GitHub<input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} /></label>
-              </div>
-            )}
+            <p className="cvHelp">Loading your CV…</p>
           </section>
-        )}
+        ) : !masterCvText ? (
+          <section className="inputCard">
+            <div className="label">Master CV</div>
+            <p className="cvHelp">
+              Add your CV once in Customize, and it's reused for every job you tailor for here.
+            </p>
+            <Link href="/customize" className="cta">Add your CV in Customize →</Link>
+          </section>
+        ) : null}
 
         {/* JD card — only show once a master CV exists */}
         {masterCvText && (
@@ -525,7 +349,7 @@ export default function Home() {
                 them proceed straight to the full run (which re-runs Step 1 fresh). */}
             {gateError && !preCheck && (
               <div className="gateCard">
-                <p className="gateNote" style={{ marginBottom: 12 }}>{gateError}</p>
+                <p className="gateNote" style={{ marginBottom: 'var(--space-3)' }}>{gateError}</p>
                 <div className="gateActions">
                   <button onClick={runFullTailor} disabled={loading} className="cta secondary">
                     {loading ? "Tailoring…" : "Tailor without the check →"}
@@ -571,7 +395,7 @@ export default function Home() {
                   )}
                 </div>
                 {error && !hasOwnNotice(errorType) && (
-                  <p className="error" style={{ marginTop: 10 }}>{error}</p>
+                  <p className="error" style={{ marginTop: 'var(--space-3)' }}>{error}</p>
                 )}
               </div>
             )}
@@ -579,15 +403,11 @@ export default function Home() {
             {/* ── Saved key unreadable — re-entry needed (e.g. after KEY_ENCRYPTION_SECRET rotation) ── */}
             {errorType === "key_decrypt_failed" && (
               <div className="limitNotice">
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Your API key needs to be re-entered.</div>
-                <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 14 }}>
+                <div className="limitNotice__title">Your API key needs to be re-entered.</div>
+                <div className="limitNotice__body">
                   Your saved key can no longer be read. Please go to Settings and replace it.
                 </div>
-                <Link
-                  href="/settings"
-                  className="cta"
-                  style={{ display: 'inline-block', padding: '8px 18px', fontSize: 14, borderRadius: 9, textDecoration: 'none' }}
-                >
+                <Link href="/settings" className="cta limitNotice__cta">
                   Go to Settings →
                 </Link>
               </div>
@@ -596,15 +416,11 @@ export default function Home() {
             {/* ── Free tailors used up — no keys saved yet ── */}
             {errorType === "needs_keys" && (
               <div className="limitNotice">
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Your 3 free tailors are used up.</div>
-                <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 14 }}>
+                <div className="limitNotice__title">Your 3 free tailors are used up.</div>
+                <div className="limitNotice__body">
                   Add your own key to keep going — it takes 2 minutes and the tool stays free.
                 </div>
-                <Link
-                  href="/settings"
-                  className="cta"
-                  style={{ display: 'inline-block', padding: '8px 18px', fontSize: 14, borderRadius: 9, textDecoration: 'none' }}
-                >
+                <Link href="/settings" className="cta limitNotice__cta">
                   Add your key in Settings →
                 </Link>
               </div>
@@ -613,17 +429,13 @@ export default function Home() {
             {/* ── Has a Gemini key, but Gemini can't complete a run ── */}
             {errorType === "needs_openrouter_key" && (
               <div className="limitNotice">
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Your Gemini key can&apos;t run a tailor.</div>
-                <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 14 }}>
+                <div className="limitNotice__title">Your Gemini key can&apos;t run a tailor.</div>
+                <div className="limitNotice__body">
                   Gemini&apos;s free tier allows 5 requests per minute, and one tailoring run makes 8 —
                   so it can&apos;t finish even once. Add an OpenRouter key instead; its free tier handles
                   a full run.
                 </div>
-                <Link
-                  href="/settings"
-                  className="cta"
-                  style={{ display: 'inline-block', padding: '8px 18px', fontSize: 14, borderRadius: 9, textDecoration: 'none' }}
-                >
+                <Link href="/settings" className="cta limitNotice__cta">
                   Add an OpenRouter key →
                 </Link>
               </div>
@@ -632,11 +444,11 @@ export default function Home() {
             {/* ── User's own key quota exhausted ── */}
             {errorType === "user_key_limit" && (
               <div className="limitNotice">
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Today's tailoring limit is reached.</div>
-                <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 4 }}>
+                <div className="limitNotice__title">Today's tailoring limit is reached.</div>
+                <div className="limitNotice__body">
                   Your key's free quota resets daily — come back tomorrow to continue.
                 </div>
-                <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55 }}>
+                <div className="limitNotice__body">
                   A subscription plan with higher limits is on the way.
                 </div>
               </div>
@@ -666,7 +478,9 @@ export default function Home() {
           <section className="results">
             {result.atsScore?.keyword_coverage && (
               <div className="scoreCard">
-                <div className="scoreLabel">ATS keyword match</div>
+                <div className="scoreLabel">
+                  {firstName ? `Hey ${firstName}, here's your ATS keyword match` : "Your ATS keyword match"}
+                </div>
                 <div className="scoreValue">{result.atsScore.keyword_coverage}</div>
                 {result.atsScore.required_skill_coverage && (
                   <div className="scoreSub">
