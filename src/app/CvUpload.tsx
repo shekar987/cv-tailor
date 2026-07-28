@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import StatusText from "@/components/ui/StatusText";
 
 // Upload a CV file and hand the extracted text back to the caller. This does NOT
 // save anything: the text lands in the existing master-CV textarea so the user
@@ -121,7 +122,7 @@ export default function CvUpload({
           )}
         </div>
       </div>
-      {error && <p className="error" role="alert" style={{ marginTop: 10 }}>{error}</p>}
+      {error && <StatusText role="alert" style={{ marginTop: 10 }}>{error}</StatusText>}
     </div>
   );
 }

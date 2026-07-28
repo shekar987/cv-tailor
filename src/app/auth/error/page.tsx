@@ -1,4 +1,4 @@
-import Link from 'next/link'
+import Button from '@/components/ui/Button'
 
 const ERROR_MESSAGES: Record<string, string> = {
   access_denied: 'You cancelled the login or the app doesn\'t have permission from the provider.',
@@ -26,9 +26,9 @@ export default async function AuthErrorPage({
           <p className="authEyebrow danger">Sign-in error</p>
           <h1 className="authTitle">We couldn&apos;t sign you in</h1>
           <p className="authMuted">{message}</p>
-          <Link href="/auth/login" className="cta">
+          <Button href="/auth/login">
             Back to sign in
-          </Link>
+          </Button>
         </div>
 
         <p className="cvHelp" style={{ marginTop: 'var(--space-5)', textAlign: 'center' }}>

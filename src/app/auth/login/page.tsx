@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import Button from '@/components/ui/Button'
+import Input from '@/components/ui/Input'
+import StatusText from '@/components/ui/StatusText'
 
 type Mode = 'login' | 'signup'
 
@@ -163,44 +166,44 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} noValidate>
           <label className="authLabel">
             Email
-            <input
+            <Input
+              variant="auth"
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
               autoComplete="email"
-              className="authInput"
             />
           </label>
 
           <label className="authLabel">
             Password
-            <input
+            <Input
+              variant="auth"
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder={mode === 'signup' ? 'At least 8 characters' : ''}
               required
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              className="authInput"
             />
           </label>
 
           {error && (
-            <p role="alert" className="error" style={{ marginTop: 'var(--space-3)' }}>{error}</p>
+            <StatusText role="alert" style={{ marginTop: 'var(--space-3)' }}>{error}</StatusText>
           )}
 
-          <button
+          <Button
             type="submit"
             disabled={loading || !email || !password}
-            className="cta block"
+            block
             style={{ marginTop: 'var(--space-5)' }}
           >
             {loading
               ? (mode === 'login' ? 'Signing in…' : 'Creating account…')
               : (mode === 'login' ? 'Sign in' : 'Create account')}
-          </button>
+          </Button>
         </form>
 
         {/* ── Social login ───────────────────────────────────────────────────── */}

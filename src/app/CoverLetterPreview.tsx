@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import DownloadButton from "./DownloadButton";
 import { saveBlob } from "@/lib/saveBlob";
+import StatusText from "@/components/ui/StatusText";
 
 export default function CoverLetterPreview({
   coverLetter,
@@ -90,7 +91,7 @@ export default function CoverLetterPreview({
       <div className="cvActions">
         <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={pdfBusy} />
       </div>
-      {docErr && <p className="error" role="alert">{docErr}</p>}
+      {docErr && <StatusText role="alert">{docErr}</StatusText>}
       <p className="editHint">Click any text to edit your cover letter. Changes are included when you download.</p>
       <div className="clDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false}>
         <p className="clLine">{todayLine}</p>

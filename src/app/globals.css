@@ -2,8 +2,18 @@
   /* ── Palette ──────────────────────────────────────────────────────────────
      Charcoal + amber, unchanged in character. Two additions: a raised surface
      for elements that sit ON a card, and a stronger border for interactive
-     edges so a control reads as a control before you hover it. */
+     edges so a control reads as a control before you hover it.
+
+     Semantic roles (prep for a future light/dark toggle — naming only, no
+     toggle logic or second palette exists yet):
+       --bg            canvas
+       --surface(-2/3) raised surfaces, each one step further off the canvas
+       --border(-strong) resting / interactive-hover edges
+       --text / --muted   primary / secondary content
+       --amber(-bright/-dim) the one accent — actions and meaningful emphasis
+       --success / --danger  status meaning, never decoration */
   --bg: #0E0E10;
+  --bg-gradient: radial-gradient(ellipse 1200px 600px at 50% -10%, #17171b, transparent), #0E0E10;
   --surface: #1A1A1D;
   --surface-2: #202024;
   --surface-3: #26262B;
@@ -66,12 +76,15 @@
 
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --duration: 150ms;
+  /* For card/shadow-level transitions (slower, heavier surfaces) vs. the
+     150ms above, which stays reserved for immediate button feedback. */
+  --duration-slow: 240ms;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
-  background: var(--bg);
+  background: var(--bg-gradient);
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -120,7 +133,8 @@ html, body {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--space-6);
-  box-shadow: var(--shadow-sm);
+  /* Layered shadow plus a hairline top highlight — a glass edge, not a flat card. */
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 /* Cards stack in a consistent rhythm rather than relying on ad-hoc margins. */
 .inputCard + .inputCard { margin-top: var(--space-4); }
@@ -145,11 +159,43 @@ textarea {
   line-height: var(--leading-normal);
   resize: vertical;
   font-family: inherit;
-  transition: border-color var(--duration) var(--ease), background var(--duration) var(--ease);
+  transition:
+    border-color var(--duration) var(--ease),
+    background var(--duration) var(--ease),
+    box-shadow var(--duration) var(--ease);
 }
 textarea::placeholder { color: var(--muted); opacity: 0.7; }
 textarea:hover { border-color: var(--border-strong); }
-textarea:focus-visible { border-color: var(--amber); background: var(--surface); }
+textarea:focus-visible {
+  border-color: var(--amber);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--amber-dim);
+}
+
+/* Shared class for bare <input> elements — no bare `input{}` tag rule exists,
+   so inputs outside .profileGrid/.authInput/.keyInput had nowhere to point.
+   Mirrors the textarea rule above. */
+.textInput {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+  font-family: inherit;
+  transition:
+    border-color var(--duration) var(--ease),
+    background var(--duration) var(--ease),
+    box-shadow var(--duration) var(--ease);
+}
+.textInput::placeholder { color: var(--muted); opacity: 0.7; }
+.textInput:hover { border-color: var(--border-strong); }
+.textInput:focus-visible {
+  border-color: var(--amber);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--amber-dim);
+}
 
 .actions { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-5); flex-wrap: wrap; }
 
@@ -179,7 +225,7 @@ textarea:focus-visible { border-color: var(--amber); background: var(--surface);
   justify-content: center;
   gap: var(--space-2);
   min-height: 44px;
-  background: var(--amber);
+  background: linear-gradient(180deg, var(--amber-bright), var(--amber));
   color: #1A1206;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -253,7 +299,8 @@ textarea:focus-visible { border-color: var(--amber); background: var(--surface);
   text-align: center;
   transition:
     border-color var(--duration) var(--ease),
-    background var(--duration) var(--ease);
+    background var(--duration) var(--ease),
+    transform var(--duration) var(--ease);
 }
 /* Hover only firms the edge. Amber is held back for the drag/busy states,
    where it signals "this will accept the file you're holding". */
@@ -262,6 +309,8 @@ textarea:focus-visible { border-color: var(--amber); background: var(--surface);
   border-color: var(--amber);
   border-style: solid;
   background: var(--amber-dim);
+  /* A tactile "about to accept" nudge, not just a color swap. */
+  transform: scale(1.005);
 }
 .dropZone.busy { border-style: solid; border-color: var(--border-strong); }
 
@@ -360,12 +409,16 @@ textarea:focus-visible { border-color: var(--amber); background: var(--surface);
   top: calc(100% + 6px);
   left: 0;
   min-width: 100%;
-  background: var(--surface);
+  /* The one real popover in the app — glass treatment lives here rather than
+     being invented somewhere without an overlay to justify it. */
+  background: rgba(26, 26, 29, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 6px;
   z-index: 20;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-lg);
 }
 .dlItem {
   display: block;
@@ -475,7 +528,7 @@ textarea:focus-visible { border-color: var(--amber); background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--space-6);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 .scoreLabel {
   font-size: var(--text-xs);
@@ -509,6 +562,7 @@ textarea:focus-visible { border-color: var(--amber); background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 22px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 .block h2 {
   font-size: 13px; color: var(--muted);
@@ -684,7 +738,9 @@ textarea:focus-visible { border-color: var(--amber); background: var(--surface);
    post-tailoring score) uses a solid border so the two are visually distinct
    even though they show a similar-looking number. */
 .gateCard {
-  background: var(--surface);
+  /* Subtle vertical wash, distinct from .scoreCard's flat surface — reinforces
+     "provisional" alongside the dashed border. */
+  background: linear-gradient(180deg, var(--surface), var(--surface-2));
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-lg);
   padding: var(--space-6);
@@ -919,11 +975,18 @@ textarea:focus-visible { border-color: var(--amber); background: var(--surface);
   font-family: inherit;
   letter-spacing: 0.04em;
   min-height: 44px;
-  transition: border-color var(--duration) var(--ease), background var(--duration) var(--ease);
+  transition:
+    border-color var(--duration) var(--ease),
+    background var(--duration) var(--ease),
+    box-shadow var(--duration) var(--ease);
 }
 .keyInput::placeholder { color: var(--muted); opacity: 0.7; }
 .keyInput:hover { border-color: var(--border-strong); }
-.keyInput:focus-visible { border-color: var(--amber); background: var(--surface); }
+.keyInput:focus-visible {
+  border-color: var(--amber);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--amber-dim);
+}
 
 .keyRemove { color: var(--danger); border-color: rgba(229, 137, 107, 0.3); }
 .keyRemove:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); background: rgba(229, 137, 107, 0.08); }
@@ -954,7 +1017,7 @@ textarea:focus-visible { border-color: var(--amber); background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--space-8) var(--space-8) var(--space-6);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 .authCard.danger { border-left: 3px solid var(--danger); }
 .authWordmark {
@@ -1009,9 +1072,16 @@ textarea:focus-visible { border-color: var(--amber); background: var(--surface);
   transition:
     background var(--duration) var(--ease),
     color var(--duration) var(--ease),
-    border-color var(--duration) var(--ease);
+    border-color var(--duration) var(--ease),
+    box-shadow var(--duration) var(--ease);
 }
-.authToggle button.active { background: var(--surface-3); border-color: var(--border); color: var(--text); }
+.authToggle button.active {
+  background: var(--surface-3);
+  border-color: var(--border);
+  color: var(--text);
+  /* Raised-segment feel in the segmented control. */
+  box-shadow: var(--shadow-sm);
+}
 .authToggle button:hover:not(.active) { color: var(--text); }
 
 .authLabel {
@@ -1036,11 +1106,18 @@ textarea:focus-visible { border-color: var(--amber); background: var(--surface);
   min-height: 44px;
   text-transform: none;
   letter-spacing: normal;
-  transition: border-color var(--duration) var(--ease), background var(--duration) var(--ease);
+  transition:
+    border-color var(--duration) var(--ease),
+    background var(--duration) var(--ease),
+    box-shadow var(--duration) var(--ease);
 }
 .authInput::placeholder { color: var(--muted); opacity: 0.7; }
 .authInput:hover { border-color: var(--border-strong); }
-.authInput:focus-visible { border-color: var(--amber); background: var(--surface); }
+.authInput:focus-visible {
+  border-color: var(--amber);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--amber-dim);
+}
 
 .authDivider { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-6) 0 var(--space-4); }
 .authDivider .authDividerLine { flex: 1; height: 1px; background: var(--border); }

@@ -4,6 +4,10 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
+import Input from "@/components/ui/Input";
+import Badge from "@/components/ui/Badge";
 
 type Provider = "gemini" | "openrouter";
 type SlotStatus = "idle" | "saving" | "error";
@@ -195,12 +199,12 @@ export default function SettingsPage() {
             const showInputField = !saved || isReplacing;
 
             return (
-              <section key={slot.provider} className="inputCard">
+              <Card key={slot.provider}>
                 {/* Card header — slot label + masked badge */}
                 <div className="keyCardHeader">
                   <span className="keyLabel">{slot.label}</span>
                   {saved && !isReplacing && (
-                    <span className="savedBadge">✓ Saved ••••{saved.hint}</span>
+                    <Badge variant="pill">✓ Saved ••••{saved.hint}</Badge>
                   )}
                 </div>
 
@@ -229,7 +233,8 @@ export default function SettingsPage() {
                 {/* Key input — visible when no key saved yet, or during Replace */}
                 {showInputField && (
                   <div className="keyInputRow">
-                    <input
+                    <Input
+                      variant="key"
                       type="password"
                       value={inputValues[slot.provider]}
                       onChange={e =>
@@ -241,24 +246,22 @@ export default function SettingsPage() {
                       autoComplete="off"
                       spellCheck={false}
                       aria-label={`${slot.providerDisplay} API key`}
-                      className="keyInput"
                     />
                     <div className="actions">
-                      <button
+                      <Button
                         onClick={() => handleSave(slot.provider)}
                         disabled={isBusy || !inputValues[slot.provider].trim()}
-                        className="cta"
                       >
                         {isBusy ? "Saving…" : "Save key"}
-                      </button>
+                      </Button>
                       {isReplacing && (
-                        <button
+                        <Button
                           onClick={() => cancelReplace(slot.provider)}
                           disabled={isBusy}
-                          className="cta ghost"
+                          variant="ghost"
                         >
                           Cancel
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -267,20 +270,21 @@ export default function SettingsPage() {
                 {/* Replace / Remove actions — only when key is saved and not replacing */}
                 {saved && !isReplacing && (
                   <div className="actions">
-                    <button
+                    <Button
                       onClick={() => setShowInput(si => ({ ...si, [slot.provider]: true }))}
                       disabled={isBusy}
-                      className="cta secondary"
+                      variant="secondary"
                     >
                       Replace
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       onClick={() => handleRemove(slot.provider)}
                       disabled={isBusy}
-                      className="cta ghost keyRemove"
+                      variant="ghost"
+                      className="keyRemove"
                     >
                       {isBusy ? "Removing…" : "Remove"}
-                    </button>
+                    </Button>
                   </div>
                 )}
 
@@ -288,7 +292,7 @@ export default function SettingsPage() {
                 {err && (
                   <p role="alert" className="keyError">{err}</p>
                 )}
-              </section>
+              </Card>
             );
           })}
         </div>
