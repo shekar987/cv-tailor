@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Button from "@/components/ui/Button";
 
 // Single "Download ▾" control with a PDF / Word menu — replaces the two separate
 // buttons. Closes on outside-click or Escape; keyboard and ARIA friendly.
@@ -39,9 +40,9 @@ export default function DownloadButton({
 
   return (
     <div className="dlWrap" ref={wrapRef}>
-      <button
+      <Button
         type="button"
-        className="cta dlBtn"
+        className="dlBtn"
         onClick={() => setOpen((o) => !o)}
         disabled={busy}
         aria-haspopup="menu"
@@ -49,7 +50,7 @@ export default function DownloadButton({
       >
         {busy ? "Generating…" : "Download"}
         <span className="dlCaret" aria-hidden="true">▾</span>
-      </button>
+      </Button>
       {open && (
         <div className="dlMenu" role="menu">
           <button type="button" role="menuitem" className="dlItem" onClick={() => pick(onPdf)}>

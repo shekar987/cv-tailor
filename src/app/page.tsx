@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Button from "@/components/ui/Button";
 
 export default function Landing() {
   return (
@@ -17,7 +18,7 @@ export default function Landing() {
           Most AI CV tools pad your experience with skills you don't have to match the job description.
           This one refuses — and shows you exactly where you really stand.
         </p>
-        <Link href="/app" className="cta">Tailor my CV →</Link>
+        <Button href="/app">Tailor my CV →</Button>
       </section>
 
       <section className="lpContrast">
@@ -58,7 +59,7 @@ export default function Landing() {
         <p className="lpCloseSub">
           A CV with ten skills you can defend beats one with twenty that fall apart under questioning.
         </p>
-        <Link href="/app" className="cta">Tailor my CV →</Link>
+        <Button href="/app">Tailor my CV →</Button>
       </section>
 
       <footer className="lpFooter">

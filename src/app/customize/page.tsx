@@ -16,6 +16,12 @@ import {
 } from "@/lib/cvStore";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import CvUpload from "../CvUpload";
+import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
+import Input from "@/components/ui/Input";
+import Textarea from "@/components/ui/Textarea";
+import FormField from "@/components/ui/FormField";
+import StatusText from "@/components/ui/StatusText";
 import {
   DEFAULT_SECTION_ORDER,
   SECTION_LABELS,
@@ -233,14 +239,15 @@ export default function CustomizePage() {
           </p>
         </header>
 
-        <section className="inputCard">
+        <Card>
           {cvLoading ? (
             <p className="cvHelp">Loading your CV…</p>
           ) : editingCv ? (
-            <>
-              <label className="label" htmlFor="cv">Master CV</label>
-              <p className="cvHelp">Add your full CV once. It's saved to your account and reused for every job — you'll only need to paste the job description on the main page each time.</p>
-
+            <FormField
+              label="Master CV"
+              htmlFor="cv"
+              help="Add your full CV once. It's saved to your account and reused for every job — you'll only need to paste the job description on the main page each time."
+            >
               <CvUpload
                 disabled={extracting}
                 onExtracted={(text, meta) => {
@@ -262,7 +269,7 @@ export default function CustomizePage() {
                 <p className="uploadNotice" role="status">{uploadNotice}</p>
               )}
 
-              <textarea
+              <Textarea
                 id="cv"
                 value={cvDraft}
                 onChange={(e) => {
@@ -273,13 +280,13 @@ export default function CustomizePage() {
                 rows={10}
               />
               <div className="actions">
-                <button onClick={handleSaveCv} className="cta">Save master CV</button>
+                <Button onClick={handleSaveCv}>Save master CV</Button>
                 {masterCvText && (
-                  <button onClick={() => setEditingCv(false)} className="cta secondary">Cancel</button>
+                  <Button variant="secondary" onClick={() => setEditingCv(false)}>Cancel</Button>
                 )}
-                {cvError && <span className="error">{cvError}</span>}
+                {cvError && <StatusText as="span">{cvError}</StatusText>}
               </div>
-            </>
+            </FormField>
           ) : (
             <div className="cvSavedRow">
               <div>
@@ -289,14 +296,14 @@ export default function CustomizePage() {
                 )}
               </div>
               <div className="cvSavedActions">
-                <button onClick={handleEditCv} className="cta secondary">Edit</button>
-                <button onClick={handleClearCv} className="cta ghost">Replace</button>
+                <Button variant="secondary" onClick={handleEditCv}>Edit</Button>
+                <Button variant="ghost" onClick={handleClearCv}>Replace</Button>
               </div>
             </div>
           )}
-        </section>
+        </Card>
 
-        <section className="inputCard">
+        <Card>
           <div className="label">
             Your details {extracting && <span className="cvSavedMeta">— extracting…</span>}
           </div>
@@ -306,13 +313,13 @@ export default function CustomizePage() {
             <>
               <p className="cvHelp">Pulled from your CV. Check these are right — they appear in your tailored CV's header and sections.</p>
               <div className="profileGrid">
-                <label>Name<input value={profile.name} onChange={(e) => updateProfileField("name", e.target.value)} /></label>
-                <label>Tagline<input value={profile.tagline} onChange={(e) => updateProfileField("tagline", e.target.value)} /></label>
-                <label>Location<input value={profile.location} onChange={(e) => updateProfileField("location", e.target.value)} /></label>
-                <label>Phone<input value={profile.phone} onChange={(e) => updateProfileField("phone", e.target.value)} /></label>
-                <label>Email<input value={profile.email} onChange={(e) => updateProfileField("email", e.target.value)} /></label>
-                <label>LinkedIn<input value={profile.linkedin} onChange={(e) => updateProfileField("linkedin", e.target.value)} /></label>
-                <label>GitHub<input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} /></label>
+                <label>Name<Input value={profile.name} onChange={(e) => updateProfileField("name", e.target.value)} /></label>
+                <label>Tagline<Input value={profile.tagline} onChange={(e) => updateProfileField("tagline", e.target.value)} /></label>
+                <label>Location<Input value={profile.location} onChange={(e) => updateProfileField("location", e.target.value)} /></label>
+                <label>Phone<Input value={profile.phone} onChange={(e) => updateProfileField("phone", e.target.value)} /></label>
+                <label>Email<Input value={profile.email} onChange={(e) => updateProfileField("email", e.target.value)} /></label>
+                <label>LinkedIn<Input value={profile.linkedin} onChange={(e) => updateProfileField("linkedin", e.target.value)} /></label>
+                <label>GitHub<Input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} /></label>
               </div>
             </>
           ) : (
@@ -320,15 +327,13 @@ export default function CustomizePage() {
               No details yet — add your master CV above and these will be extracted automatically.
             </p>
           )}
-        </section>
+        </Card>
 
-        <section className="inputCard">
-          <div className="label">Section order</div>
-          <p className="cvHelp">
-            Drag a section, or use the arrows. This changes the order only — how many bullets each
-            section gets is still decided by the tailoring for each specific job.
-          </p>
-
+        <Card>
+          <FormField
+            label="Section order"
+            help="Drag a section, or use the arrows. This changes the order only — how many bullets each section gets is still decided by the tailoring for each specific job."
+          >
           {loading ? (
             <p className="cvHelp" style={{ color: "var(--muted)" }}>Loading your layout…</p>
           ) : (
@@ -387,31 +392,32 @@ export default function CustomizePage() {
               </ul>
 
               <div className="actions">
-                <button onClick={save} disabled={saving} className="cta">
+                <Button onClick={save} disabled={saving}>
                   {saving ? "Saving…" : "Save order"}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
                   onClick={() => { setOrder([...DEFAULT_SECTION_ORDER]); setSavedMsg(""); }}
                   disabled={saving || isDefaultOrder(order)}
-                  className="cta ghost"
                 >
                   Reset to standard
-                </button>
+                </Button>
               </div>
 
-              {error && <p className="error" style={{ marginTop: 12 }} role="alert">{error}</p>}
-              {savedMsg && <p className="savedMsg" style={{ marginTop: 12 }} role="status">{savedMsg}</p>}
+              {error && <StatusText style={{ marginTop: 12 }} role="alert">{error}</StatusText>}
+              {savedMsg && <StatusText tone="success" style={{ marginTop: 12 }} role="status">{savedMsg}</StatusText>}
             </>
           )}
-        </section>
+          </FormField>
+        </Card>
 
-        <section className="inputCard">
+        <Card>
           <div className="label">Not affected by this</div>
           <p className="cvHelp" style={{ marginBottom: 0 }}>
             Your name and contact details stay at the top. Certifications, Right to Work and any
             extra sections from your CV stay after the sections above, in that order.
           </p>
-        </section>
+        </Card>
       </div>
     </main>
   );

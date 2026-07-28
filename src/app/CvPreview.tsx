@@ -14,6 +14,7 @@ type CvData = {
 
 import type { Profile } from "@/lib/cvStore";
 import DownloadButton from "./DownloadButton";
+import StatusText from "@/components/ui/StatusText";
 import { filterExtraSections, isReservedSectionTitle } from "@/lib/sections";
 import { saveBlob } from "@/lib/saveBlob";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
@@ -478,7 +479,7 @@ function CvPreview({
       <div className="cvActions">
         <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={pdfBusy} />
       </div>
-      {docErr && <p className="error" role="alert">{docErr}</p>}
+      {docErr && <StatusText role="alert">{docErr}</StatusText>}
       <p className="editHint">Click any text to edit it. Your changes are included when you download.</p>
       <div className="cvDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false}>
         <h1 className="cvName">{name}</h1>

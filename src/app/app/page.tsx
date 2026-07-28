@@ -8,6 +8,12 @@ import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 import type { AtsMatchResult } from "@/lib/atsMatch";
 import { loadWorkspace, saveWorkspace, clearWorkspace } from "@/lib/workspace";
+import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
+import Textarea from "@/components/ui/Textarea";
+import FormField from "@/components/ui/FormField";
+import StatusText from "@/components/ui/StatusText";
+import Badge from "@/components/ui/Badge";
 
 // Server strings for the unlimited-account provider override (tailor route Path A)
 type TailorProvider = "anthropic" | "gemini" | "openrouter";
@@ -297,50 +303,52 @@ export default function Home() {
 
         {/* Master CV status — uploading/editing/replacing it lives on /customize now */}
         {cvLoading ? (
-          <section className="inputCard">
+          <Card>
             <p className="cvHelp">Loading your CV…</p>
-          </section>
+          </Card>
         ) : !masterCvText ? (
-          <section className="inputCard">
-            <div className="label">Master CV</div>
-            <p className="cvHelp">
-              Add your CV once in Customize, and it's reused for every job you tailor for here.
-            </p>
-            <Link href="/customize" className="cta">Add your CV in Customize →</Link>
-          </section>
+          <Card>
+            <FormField
+              label="Master CV"
+              help="Add your CV once in Customize, and it's reused for every job you tailor for here."
+            >
+              <Button href="/customize">Add your CV in Customize →</Button>
+            </FormField>
+          </Card>
         ) : null}
 
         {/* JD card — only show once a master CV exists */}
         {masterCvText && (
-          <section className="inputCard">
-            <label className="label" htmlFor="jd">Job description</label>
-            <textarea
-              id="jd"
-              value={jobDescription}
-              onChange={(e) => {
-                setJobDescription(e.target.value);
-                // The gate's analysis was computed for the PREVIOUS JD text —
-                // reusing it against an edited JD would show a stale keyword
-                // match and let /api/tailor skip Step 1 for the wrong job.
-                if (preCheck || gateAnalysis) {
-                  setPreCheck(null);
-                  setGateAnalysis(null);
-                  setGateError("");
-                }
-              }}
-              placeholder="Paste the job description for the role you're applying to…"
-              rows={8}
-            />
+          <Card>
+            <FormField label="Job description" htmlFor="jd">
+              <Textarea
+                id="jd"
+                value={jobDescription}
+                onChange={(e) => {
+                  setJobDescription(e.target.value);
+                  // The gate's analysis was computed for the PREVIOUS JD text —
+                  // reusing it against an edited JD would show a stale keyword
+                  // match and let /api/tailor skip Step 1 for the wrong job.
+                  if (preCheck || gateAnalysis) {
+                    setPreCheck(null);
+                    setGateAnalysis(null);
+                    setGateError("");
+                  }
+                }}
+                placeholder="Paste the job description for the role you're applying to…"
+                rows={8}
+              />
+            </FormField>
             {/* Step 1: cheap pre-check (JD analysis only) — shown until a gate
                 result exists. Provider choice doesn't apply here: the gate
                 always runs on Claude, same as profile extraction. */}
             {!preCheck && (
               <div className="actions">
-                <button onClick={handlePreCheck} disabled={gateLoading || loading} className="cta">
+                <Button onClick={handlePreCheck} disabled={gateLoading || loading}>
                   {gateLoading ? "Checking keyword match…" : "Tailor my CV"}
-                </button>
+                </Button>
                 {error && !hasOwnNotice(errorType) && (
-                  <span className="error">{error}</span>
+                  <StatusText as="span">{error}</StatusText>
                 )}
               </div>
             )}
@@ -348,23 +356,23 @@ export default function Home() {
             {/* The pre-check call itself failed — don't block on it, just let
                 them proceed straight to the full run (which re-runs Step 1 fresh). */}
             {gateError && !preCheck && (
-              <div className="gateCard">
+              <Card variant="dashed">
                 <p className="gateNote" style={{ marginBottom: 'var(--space-3)' }}>{gateError}</p>
                 <div className="gateActions">
-                  <button onClick={runFullTailor} disabled={loading} className="cta secondary">
+                  <Button variant="secondary" onClick={runFullTailor} disabled={loading}>
                     {loading ? "Tailoring…" : "Tailor without the check →"}
-                  </button>
+                  </Button>
                 </div>
-              </div>
+              </Card>
             )}
 
             {/* Step 2: the gate result. Never blocks below 10/15 — just informs. */}
             {preCheck && (
-              <div className="gateCard">
+              <Card variant="dashed">
                 <div className="gateLabel">Rough keyword match, before tailoring</div>
-                <div className={`gateValue ${preCheck.matched >= 10 ? "good" : "low"}`}>
+                <Badge variant="value" tone={preCheck.matched >= 10 ? "success" : "neutral"}>
                   {preCheck.matched}/{preCheck.total}
-                </div>
+                </Badge>
                 <p className="gateNote">
                   {preCheck.matched >= 10
                     ? "Good overlap with this role's top keywords, from your CV as it stands today."
@@ -372,9 +380,9 @@ export default function Home() {
                   {" "}This checks literal keyword presence in your raw CV; the tailored version gets scored separately afterward, and the two numbers can differ.
                 </p>
                 <div className="gateActions">
-                  <button onClick={runFullTailor} disabled={loading} className="cta">
+                  <Button onClick={runFullTailor} disabled={loading}>
                     {loading ? "Tailoring…" : "Continue to full tailoring →"}
-                  </button>
+                  </Button>
                   {isUnlimited && (
                     <span className="providerPick">
                       <label htmlFor="providerSelect">Provider</label>
@@ -395,9 +403,9 @@ export default function Home() {
                   )}
                 </div>
                 {error && !hasOwnNotice(errorType) && (
-                  <p className="error" style={{ marginTop: 'var(--space-3)' }}>{error}</p>
+                  <StatusText style={{ marginTop: 'var(--space-3)' }}>{error}</StatusText>
                 )}
-              </div>
+              </Card>
             )}
 
             {/* ── Saved key unreadable — re-entry needed (e.g. after KEY_ENCRYPTION_SECRET rotation) ── */}
@@ -407,9 +415,9 @@ export default function Home() {
                 <div className="limitNotice__body">
                   Your saved key can no longer be read. Please go to Settings and replace it.
                 </div>
-                <Link href="/settings" className="cta limitNotice__cta">
+                <Button href="/settings" className="limitNotice__cta">
                   Go to Settings →
-                </Link>
+                </Button>
               </div>
             )}
 
@@ -420,9 +428,9 @@ export default function Home() {
                 <div className="limitNotice__body">
                   Add your own key to keep going — it takes 2 minutes and the tool stays free.
                 </div>
-                <Link href="/settings" className="cta limitNotice__cta">
+                <Button href="/settings" className="limitNotice__cta">
                   Add your key in Settings →
-                </Link>
+                </Button>
               </div>
             )}
 
@@ -435,9 +443,9 @@ export default function Home() {
                   so it can&apos;t finish even once. Add an OpenRouter key instead; its free tier handles
                   a full run.
                 </div>
-                <Link href="/settings" className="cta limitNotice__cta">
+                <Button href="/settings" className="limitNotice__cta">
                   Add an OpenRouter key →
-                </Link>
+                </Button>
               </div>
             )}
 
@@ -458,7 +466,7 @@ export default function Home() {
             {error && (errorType === "user_limit" || errorType === "provider_limit" || errorType === "claude_limit_reached") && (
               <div className="limitNotice">{error}</div>
             )}
-          </section>
+          </Card>
         )}
 
         {loading && (
@@ -496,7 +504,7 @@ export default function Home() {
                     <div className="atsGroupLabel hits">Matched ({(result.atsScore as any).hits.length})</div>
                     <ul className="atsList">
                       {(result.atsScore as any).hits.map((h: string, i: number) => (
-                        <li key={i}><span className="dot hit">✓</span>{h}</li>
+                        <li key={i}><Badge variant="dot" tone="hit">✓</Badge>{h}</li>
                       ))}
                     </ul>
                   </div>
@@ -507,7 +515,7 @@ export default function Home() {
                     <div className="atsGroupLabel misses">Missing ({(result.atsScore as any).misses.length})</div>
                     <ul className="atsList">
                       {(result.atsScore as any).misses.map((m: string, i: number) => (
-                        <li key={i}><span className="dot miss">✕</span>{m}</li>
+                        <li key={i}><Badge variant="dot" tone="miss">✕</Badge>{m}</li>
                       ))}
                     </ul>
                   </div>
@@ -518,7 +526,7 @@ export default function Home() {
                     <div className="atsGroupLabel recs">Recommendations</div>
                     <ul className="atsList">
                       {(result.atsScore as any).recommendations.map((r: string, i: number) => (
-                        <li key={i}><span className="dot rec">→</span>{r}</li>
+                        <li key={i}><Badge variant="dot" tone="rec">→</Badge>{r}</li>
                       ))}
                     </ul>
                   </div>
