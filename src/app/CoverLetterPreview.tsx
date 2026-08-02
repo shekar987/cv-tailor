@@ -58,12 +58,18 @@ export default function CoverLetterPreview({
     setDocErr(null);
     setPdfBusy(true);
     try {
-      // PDF renders from the SAME server-built .docx as Word — identical layout,
-      // all in-browser, no data leaves the page.
-      const blob = await fetchDocx();
-      if (!blob) throw new Error("Could not build the document");
-      const { docxBlobToPdf } = await import("@/lib/docxToPdf");
-      await docxBlobToPdf(blob, fileBaseName);
+      // Built server-side from the same edited text as the Word download,
+      // with a real text layer (not a rasterized image) so it's ATS-parseable.
+      const edited = collectText();
+      if (edited === null) throw new Error("Could not build the document");
+      const res = await fetch("/api/download-cover-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ coverLetter: edited }),
+      });
+      if (!res.ok) throw new Error("Could not build the document");
+      const blob = await res.blob();
+      saveBlob(blob, `${fileBaseName}.pdf`);
     } catch (e) {
       console.error("Cover letter PDF generation failed:", e);
       setDocErr("PDF generation failed. Try the Word download, or retry.");

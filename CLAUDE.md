@@ -23,7 +23,7 @@ The core product promise: **nothing is invented**. Every claim in the output mus
 | Styling | Tailwind CSS 4 |
 | AI | Anthropic SDK (`@anthropic-ai/sdk`) via Claude |
 | Word output | `docx` v9 |
-| PDF output | `docx-preview` + `html2canvas` + `jspdf` — renders the server-built .docx, client-side (see `src/lib/docxToPdf.ts`) |
+| PDF output | `jspdf`, server-side, real text layer — draws directly from the same structured content that builds the .docx, no rasterization (see `src/lib/buildCvPdf.ts`, `src/lib/buildCoverLetterPdf.ts`, `src/lib/pdfText.ts`) |
 | Auth & storage | Supabase (`@supabase/ssr@0.12.0` + `@supabase/supabase-js@2.108.2`) |
 
 > **This is Next.js 16, not 13/14.** APIs, conventions, and file structure differ from training data. Read `node_modules/next/dist/docs/` before writing any Next.js code. Heed deprecation notices.
@@ -49,11 +49,16 @@ src/
       tailor/route.ts         ← Main AI pipeline (2-wave parallel Claude calls) — auth-gated
       download/route.ts       ← Generates CV Word .docx from DOM-extracted content
       download-cover/route.ts ← Generates cover letter Word .docx
+      download-pdf/route.ts       ← Generates CV PDF (real text layer, mirrors download/route.ts)
+      download-cover-pdf/route.ts ← Generates cover letter PDF (real text layer)
       extract-profile/route.ts← Extracts structured profile (name/contact/edu/projects) — auth-gated
       analyze/route.ts        ← Standalone JD analysis endpoint — auth-gated
   lib/
     claude.ts                 ← callClaude() wrapper — all AI calls go through here
     cvStore.ts                ← MasterCV + Profile CRUD — reads/writes Supabase DB (was localStorage)
+    buildCvPdf.ts              ← CV PDF generator — draws real text with jsPDF, mirrors download/route.ts
+    buildCoverLetterPdf.ts     ← Cover letter PDF generator — same approach
+    pdfText.ts                 ← Shared jsPDF text-layout engine (word-wrap, bold/link runs, pagination)
     rateLimit.ts              ← DEPRECATED — replaced by SECURITY DEFINER RPC; do not use
     supabase/
       client.ts               ← createBrowserClient() — use in Client Components only
@@ -268,7 +273,7 @@ Next.js 16's caching is aggressive. When in doubt, nuke it first.
 
 ### Fallback-leakage trap
 
-The download routes (`/api/download`, `/api/download-cover`) receive user data in the request body. They must **never** fall back to hardcoded owner data. The pattern to follow:
+The download routes (`/api/download`, `/api/download-cover`, `/api/download-pdf`, `/api/download-cover-pdf`) receive user data in the request body. They must **never** fall back to hardcoded owner data. The pattern to follow:
 
 ```ts
 // CORRECT — missing fields render blank
@@ -280,25 +285,45 @@ const contactName = profile?.name || OWNER_NAME_FALLBACK;
 
 `src/prompts/masterCV.ts` contains the owner's real CV. It must never be imported in any download or tailor route. It exists only for prompt development/testing.
 
-### docx-preview does not paginate — we do
+### PDF must have a real text layer — never rasterize it
 
-`src/lib/docxToPdf.ts` renders the server-built `.docx` and snapshots it, so the
-PDF and the Word file come from identical bytes. The trap: **docx-preview does
-not reflow text into pages.** It only starts a new `<section>` at an *explicit*
-page break, and a `.docx` built by the `docx` library has none — Word writes
-those itself when it lays the document out and saves. So a 3-page CV renders as
-a **single section that is 3 pages tall**, not three sections.
+An earlier version of this app generated PDFs by rendering the .docx with
+`docx-preview`, snapshotting it with `html2canvas` into a `<canvas>`, and
+dropping that canvas into the PDF as a JPEG (`src/lib/docxToPdf.ts`, removed).
+The only real content in that PDF was invisible link-annotation rectangles
+layered on top of a picture — **there was no text layer at all**. Every ATS
+that parses a resume for text saw nothing. This shipped to production and
+broke real users' job applications before it was caught.
 
-Consequences for anyone touching that file:
+The fix (`src/lib/buildCvPdf.ts`, `src/lib/buildCoverLetterPdf.ts`,
+`src/lib/pdfText.ts`) generates the PDF server-side with `jsPDF`, drawing real
+text (`doc.text(...)`) directly from the same structured content that builds
+the `.docx` in `src/app/api/download/route.ts` / `download-cover/route.ts` —
+not by converting rendered HTML into text. Both PDF routes
+(`/api/download-pdf`, `/api/download-cover-pdf`) mirror their `.docx`
+counterparts function-for-function: same density calc from `cvDensity.ts`,
+same section order, same job-header/bullet/skills parsing — just drawn with
+jsPDF's text APIs instead of building `docx` `Paragraph`/`TextRun` objects.
 
-- Never assume "one `section.docx` = one PDF page". That assumption squashes an
-  entire CV onto one sheet (verified: a 2.3-page fixture came out as one
-  illegible page).
-- `docxToPdf` measures each section and cuts it into A4-height slices itself,
-  placing cuts at the bottom edge of a rendered block (`p`, `li`, `h2`, `tr`) so
-  a page never breaks mid-line.
-- If you change the slicing, re-verify with a **multi-page** document. A
-  one-page CV passes every version of this code, including the broken ones.
+Consequences for anyone touching this:
+
+- **Never reintroduce html2canvas/docx-preview for PDF generation.** If a
+  future "PDF doesn't match Word exactly" complaint tempts you toward
+  rendering-and-rasterizing again, don't — that trade (visual fidelity for a
+  dead text layer) is exactly the bug described above, and it costs users
+  real job applications, not just a cosmetic mismatch.
+- Font is Helvetica (a real, embedded, extractable standard font), not
+  Calibri — Calibri isn't redistributable/embeddable, and text correctness
+  matters far more than matching Word's exact typeface.
+- Body text is left-aligned, not justified — true justification needs
+  manual space-stretching per line; this was the honest tradeoff for shipping
+  a correct fix rather than a cosmetic one.
+- **Any change to the PDF generators must be verified by actually extracting
+  text back out of the generated PDF** (e.g. via `unpdf`, already a
+  dependency, used elsewhere for parsing uploaded resumes) and confirming the
+  real content comes back — not just that the code compiles or "looks right"
+  visually. That check is what would have caught the original bug
+  immediately, and its absence is why it shipped.
 
 ### The @@JOB@@ marker system
 
@@ -339,13 +364,14 @@ Next.js middleware defaults to the Edge runtime. This project's `src/proxy.ts` m
 
 ## What "done" means
 
-A change is done when it is **verified in the browser and the Word download** — not just when it compiles.
+A change is done when it is **verified in the browser, the Word download, and the PDF download** — not just when it compiles.
 
 Checklist:
 - [ ] The preview renders correctly in the browser (check Experience job headers, project bullets, contact info)
 - [ ] The Word download opens in Word/LibreOffice and formatting matches: bold job headers with date right-aligned, bullet points, section headings in navy
-- [ ] Inline edits (name, experience text, etc.) made in the contentEditable preview are preserved in the Word download
+- [ ] The PDF download has a **real, selectable, extractable text layer** — never just "looks right." Confirm by selecting/copying text in a PDF viewer, or by extracting text back out programmatically (`unpdf`, already a dependency). This is non-negotiable: an earlier version of this app shipped a PDF pipeline that looked correct on screen but was actually a JPEG with no text layer, invisible to every ATS — see "PDF must have a real text layer" above.
+- [ ] Inline edits (name, experience text, etc.) made in the contentEditable preview are preserved in both the Word and PDF downloads
 - [ ] No content from one user bleeds into another user's output (profile fields, CV text)
 - [ ] Type check passes (`npm run build`)
 
-TypeScript compiling and ESLint passing are necessary but not sufficient. Feature correctness means verifying the actual output — browser + Word.
+TypeScript compiling and ESLint passing are necessary but not sufficient. Feature correctness means verifying the actual output — browser + Word + PDF. For the PDF specifically, "looks right on screen" is not sufficient either — extract the text and check it, every time.
