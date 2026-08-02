@@ -240,7 +240,7 @@ export default function LoginPage() {
 function Wordmark() {
   return (
     <div className="authWordmark">
-      CV<span className="dot">.</span>Tailor
+      Jobhuntz
     </div>
   )
 }

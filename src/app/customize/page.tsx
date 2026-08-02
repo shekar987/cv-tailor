@@ -231,7 +231,7 @@ export default function CustomizePage() {
       <div className="container">
         <header className="header">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <div className="wordmark">CV<span className="dot">.</span>Tailor</div>
+            <div className="wordmark">Jobhuntz</div>
             <Link href="/app" className="customizeLink">← Back to app</Link>
           </div>
           <p className="tagline">

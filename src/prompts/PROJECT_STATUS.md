@@ -1,4 +1,4 @@
-# CV.Tailor — Project Status
+# Jobhuntz (formerly CV.Tailor) — Project Status
 
 ## What this is
 

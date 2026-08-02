@@ -19,7 +19,7 @@ export default async function AuthErrorPage({
     <main className="authPage">
       <div style={{ maxWidth: 460, width: '100%' }}>
         <div className="authWordmark" style={{ marginBottom: 'var(--space-8)' }}>
-          CV<span className="dot">.</span>Tailor
+          Jobhuntz
         </div>
 
         <div className="authCard danger" style={{ maxWidth: 'none' }}>
