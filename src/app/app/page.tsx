@@ -283,7 +283,7 @@ export default function Home() {
         <header className="header">
           <div className="appBar">
             <div className="wordmark">
-              CV<span className="dot">.</span>Tailor
+              Jobhuntz
             </div>
             {userEmail && (
               <div className="appBarActions">

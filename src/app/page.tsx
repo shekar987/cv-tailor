@@ -5,7 +5,7 @@ export default function Landing() {
   return (
     <main className="lp">
       <nav className="lpNav">
-        <div className="lpWordmark">CV<span className="lpDot">.</span>Tailor</div>
+        <div className="lpWordmark">Jobhuntz</div>
         <Link href="/app" className="lpNavCta">Open the tool</Link>
       </nav>
 
@@ -29,7 +29,7 @@ export default function Landing() {
           <p className="lpCardLine">Result: a CV you can't defend in the interview.</p>
         </div>
         <div className="lpCard lpGood">
-          <div className="lpCardLabel">CV.Tailor</div>
+          <div className="lpCardLabel">Jobhuntz</div>
           <p className="lpCardLine">JD wants Kubernetes? <strong>Surfaces your real Docker experience instead.</strong></p>
           <p className="lpCardLine">Every claim traces back to your actual CV.</p>
           <p className="lpCardLine">Result: a CV that's sharp, honest, and yours.</p>

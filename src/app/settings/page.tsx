@@ -42,7 +42,7 @@ const SLOTS: {
     howToSteps: [
       "Go to openrouter.ai and sign in (or create a free account)",
       'Click your avatar in the top-right → "Keys"',
-      'Click "Create key", give it a name (e.g. "CV Tailor")',
+      'Click "Create key", give it a name (e.g. "Jobhuntz")',
       "Copy the key — it starts with sk-or-v1-",
       "Paste it in the field below",
     ],
@@ -180,7 +180,7 @@ export default function SettingsPage() {
       <div className="container">
         <header className="header">
           <div className="appBar">
-            <div className="wordmark">CV<span className="dot">.</span>Tailor</div>
+            <div className="wordmark">Jobhuntz</div>
             <Link href="/app" className="customizeLink">← Back to app</Link>
           </div>
           <h1 className="settingsHeading">API Keys</h1>
