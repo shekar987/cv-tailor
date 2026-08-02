@@ -182,12 +182,18 @@ function CvPreview({
     setDocErr(null);
     setPdfBusy(true);
     try {
-      // PDF renders from the SAME server-built .docx as the Word download, so
-      // the two match by construction. Entirely in-browser — nothing leaves the page.
-      const blob = await fetchDocx();
-      if (!blob) throw new Error("Could not build the document");
-      const { docxBlobToPdf } = await import("@/lib/docxToPdf");
-      await docxBlobToPdf(blob, fileBaseName);
+      // Built server-side from the same payload as the Word download, with a
+      // real text layer (not a rasterized image) so it's ATS-parseable.
+      const payload = collectPayload();
+      if (!payload) throw new Error("Could not build the document");
+      const res = await fetch("/api/download-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Could not build the document");
+      const blob = await res.blob();
+      saveBlob(blob, `${fileBaseName}.pdf`);
     } catch (e) {
       console.error("PDF generation failed:", e);
       setDocErr("PDF generation failed. Try the Word download, or retry.");
