@@ -793,6 +793,8 @@ textarea:focus-visible {
   line-height: 1.4;            /* was 1.5 — tighter */
   outline: none;
   box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  overflow-wrap: break-word;   /* long unbroken strings (URLs, etc.) wrap instead of overflowing the page */
+  word-break: break-word;
 }
 .cvDoc:focus-within { box-shadow: 0 0 0 2px var(--amber), 0 4px 24px rgba(0,0,0,0.3); }
 
@@ -1179,8 +1181,8 @@ textarea:focus-visible {
   margin: 10px 0 4px;
   gap: 12px;
 }
-.cvJobRole { font-weight: 700; }
-.cvJobDate { font-weight: 700; white-space: nowrap; }
+.cvJobRole { font-weight: 700; min-width: 0; }
+.cvJobDate { font-weight: 700; white-space: nowrap; flex-shrink: 0; }
 
 /* Ensure bullets are NOT bold even if a parent is */
 .cvDoc ul li,

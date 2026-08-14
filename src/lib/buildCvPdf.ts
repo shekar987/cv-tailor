@@ -8,7 +8,8 @@ import { jsPDF } from "jspdf";
 import { filterExtraSections } from "@/lib/sections";
 import { chooseDensity, wrappedLines, type Density } from "@/lib/cvDensity";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
-import { PdfCursor, parseWords, drawWrapped, drawBullet, drawJobHeader, hexToRgb, type Word } from "@/lib/pdfText";
+import { PdfCursor, parseWords, drawWrapped, drawBullet, drawHeaderLine, hexToRgb, type Word } from "@/lib/pdfText";
+import { splitTrailingDate } from "@/lib/projectDate";
 
 const NAVY = hexToRgb("1F3864");
 const GREY = hexToRgb("595959");
@@ -50,7 +51,7 @@ function drawTextBlock(doc: jsPDF, cursor: PdfCursor, text: string, mode: "plain
       const role = parts[0] || "";
       const date = parts[1] || "";
       cursor.advance(pt(d.jobBefore));
-      drawJobHeader(doc, cursor, role, date, 10.5, lineOf(10.5));
+      drawHeaderLine(doc, cursor, role, date, 10.5, lineOf(10.5));
       cursor.advance(pt(d.tightAfter));
       continue;
     }
@@ -113,12 +114,8 @@ function drawProjects(doc: jsPDF, cursor: PdfCursor, projectsMeta: any[], tailor
     if (!meta.name && bullets.length === 0) continue;
 
     cursor.advance(pt(d.jobBefore));
-    cursor.ensureRoom(lineOf(11));
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(0, 0, 0);
-    doc.text(meta.name || "", cursor.marginLeft, cursor.y);
-    cursor.advance(lineOf(11));
+    const { title, date } = splitTrailingDate(meta.name || "");
+    drawHeaderLine(doc, cursor, title, date, 11, lineOf(11));
     cursor.advance(pt(d.tightAfter));
 
     if (meta.tech) {
@@ -158,20 +155,11 @@ function drawEducation(doc: jsPDF, cursor: PdfCursor, education: any[], d: Densi
   drawSectionHeading(doc, cursor, "Education", d);
   for (const e of education) {
     cursor.advance(pt(d.tightAfter));
-    cursor.ensureRoom(lineOf(11));
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(0, 0, 0);
-    doc.text(e.head || "", cursor.marginLeft, cursor.y);
-    if (e.date) {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.setTextColor(...GREY);
-      const dw = doc.getTextWidth(e.date);
-      doc.text(e.date, cursor.marginLeft + cursor.contentWidth - dw, cursor.y);
-      doc.setTextColor(0, 0, 0);
-    }
-    cursor.advance(lineOf(11));
+    drawHeaderLine(doc, cursor, e.head || "", e.date || "", 11, lineOf(11), {
+      rightColor: GREY,
+      rightBold: false,
+      rightSize: 10,
+    });
     cursor.advance(pt(d.tightAfter));
 
     if (e.school) {
@@ -219,7 +207,7 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
       .replace(/\s{2,}/g, " ")
       .trim();
   const contactTagline = cleanTagline(profile?.tagline ?? "");
-  const contactLine = [profile?.location, profile?.phone, profile?.email].filter(Boolean).join(" | ");
+  const contactEmail = (profile?.email || "").trim();
   const contactLinkedin = profile?.linkedin ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin) : "";
   const contactGithub = profile?.github ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github) : "";
   const education = (profile?.education || []).map((e: any) => ({
@@ -244,7 +232,8 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
   const bodyText = [summary, skills, experience, projectText, projectMetaText, educationText, certs.join("\n"), rightToWork.join("\n"), extrasText]
     .filter(Boolean)
     .join("\n");
-  const contactLines = 1 + (contactTagline ? 1 : 0) + (contactLine ? 1 : 0) + (contactLinkedin || contactGithub ? 1 : 0);
+  const hasContactRow = !!(profile?.location || profile?.phone || contactEmail || contactLinkedin || contactGithub);
+  const contactLines = 1 + (contactTagline ? 1 : 0) + (hasContactRow ? 1 : 0);
   const headingCount =
     (summary ? 1 : 0) + (skills ? 1 : 0) + (experience ? 1 : 0) +
     (education.length > 0 ? 1 : 0) + (certs.length > 0 ? 1 : 0) +
@@ -274,16 +263,21 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
     drawWrapped(doc, cursor, [{ text: contactTagline }], 10, lineOf(10), { color: GREY, align: "center" });
     cursor.advance(2);
   }
-  if (contactLine) {
-    drawWrapped(doc, cursor, [{ text: contactLine }], 10, lineOf(10), { align: "center" });
-    cursor.advance(2);
-  }
-  if (contactLinkedin || contactGithub) {
-    const words: Word[] = [];
-    if (contactLinkedin) words.push({ text: "LinkedIn", link: contactLinkedin });
-    if (contactLinkedin && contactGithub) words.push({ text: "|" });
-    if (contactGithub) words.push({ text: "GitHub", link: contactGithub });
-    drawWrapped(doc, cursor, words, 10, lineOf(10), { align: "center", linkColor: LINK });
+  if (hasContactRow) {
+    // One line: location · phone · email (mailto) · LinkedIn · GitHub — only
+    // the pieces that exist, each separated by "·", never a dangling
+    // separator for a missing piece.
+    const contactWords: Word[] = [];
+    const addPiece = (piece: Word) => {
+      if (contactWords.length > 0) contactWords.push({ text: "·" });
+      contactWords.push(piece);
+    };
+    if (profile?.location) addPiece({ text: profile.location });
+    if (profile?.phone) addPiece({ text: profile.phone });
+    if (contactEmail) addPiece({ text: contactEmail, link: "mailto:" + contactEmail });
+    if (contactLinkedin) addPiece({ text: "LinkedIn", link: contactLinkedin });
+    if (contactGithub) addPiece({ text: "GitHub", link: contactGithub });
+    drawWrapped(doc, cursor, contactWords, 10, lineOf(10), { align: "center", linkColor: LINK });
     cursor.advance(2);
   }
 
