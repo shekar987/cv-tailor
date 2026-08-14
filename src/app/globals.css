@@ -846,8 +846,9 @@ textarea:focus-visible {
 }
 
 /* ---- Landing page ---- */
-.lp { max-width: 920px; margin: 0 auto; padding: 0 var(--space-6) var(--space-16); }
-.lpNav { display: flex; justify-content: space-between; align-items: center; padding: var(--space-6) 0; }
+.lp { max-width: 1080px; margin: 0 auto; padding: 0 var(--space-6) var(--space-16); }
+.lpNav { display: flex; justify-content: space-between; align-items: center; padding: var(--space-6) 0; flex-wrap: wrap; gap: var(--space-3); }
+.lpNavActions { display: flex; align-items: center; gap: var(--space-4); }
 .lpWordmark { font-size: var(--text-lg); font-weight: 700; letter-spacing: var(--tracking-tight); }
 .lpDot { color: var(--amber); }
 /* Neutral by default — the real action on this page is "Tailor my CV", not
@@ -861,52 +862,157 @@ textarea:focus-visible {
 }
 .lpNavCta:hover { color: var(--text); text-decoration: underline; }
 
-.lpHero { padding: var(--space-16) 0 var(--space-10); max-width: 680px; }
+/* ── Scroll-reveal: progressive enhancement ──────────────────────────────────
+   Starts hidden only once JS has actually hydrated and observed it (the
+   .reveal--visible class is added by IntersectionObserver in page.tsx). The
+   <noscript> block below forces full visibility when JS never runs, so this
+   never leaves content permanently invisible. prefers-reduced-motion is
+   already handled globally (near the top of this file), which zeroes the
+   transition duration here too. */
+.reveal { opacity: 0; transform: translateY(18px); transition: opacity 600ms var(--ease), transform 600ms var(--ease); }
+.reveal--visible { opacity: 1; transform: translateY(0); }
+
+.lpHero { padding: var(--space-16) 0 var(--space-12); max-width: 700px; }
 .lpEyebrow {
   color: var(--muted); font-size: var(--text-sm); text-transform: uppercase;
   letter-spacing: var(--tracking-label); margin-bottom: var(--space-5);
 }
 .lpTitle, .lpHero h1 {
-  font-size: clamp(2rem, 1.35rem + 3vw, 3.25rem);
-  line-height: 1.08;
+  font-size: clamp(2.25rem, 1.15rem + 4.5vw, 4.25rem);
+  line-height: 1.05;
   font-weight: 700;
   letter-spacing: -0.03em;
   margin-bottom: var(--space-5);
 }
 .lpAmber { color: var(--amber-bright); }
-.lpSub { font-size: var(--text-md); line-height: var(--leading-relaxed); color: #C8C8CC; margin-bottom: var(--space-8); }
+.lpSub { font-size: var(--text-md); line-height: var(--leading-relaxed); color: #C8C8CC; margin-bottom: var(--space-8); max-width: 52ch; }
+.lpHeroCta { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); }
+.lpHeroNote { font-size: var(--text-sm); color: var(--muted); }
 
-.lpContrast { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin: var(--space-10) 0 var(--space-16); }
-.lpCard { border-radius: var(--radius-lg); padding: var(--space-6); border: 1px solid var(--border); }
-.lpBad { background: #18120F; border-color: #3A2A24; }
-.lpGood { background: #0F1813; border-color: #234034; }
-.lpCardLabel {
-  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-label);
-  margin-bottom: var(--space-4); font-weight: 600;
+/* Small uppercase label used above a section's H2 — same voice as .lpEyebrow,
+   reused so every section introduces itself the same way. */
+.lpKicker {
+  display: block; color: var(--amber); font-size: var(--text-sm); font-weight: 700;
+  text-transform: uppercase; letter-spacing: var(--tracking-label); margin-bottom: var(--space-3);
 }
-.lpBad .lpCardLabel { color: var(--danger); }
-.lpGood .lpCardLabel { color: var(--success); }
-.lpCardLine { font-size: var(--text-base); line-height: var(--leading-normal); color: #C8C8CC; margin-bottom: var(--space-3); }
-.lpCardLine strong { color: var(--text); }
-
-.lpHow { margin-bottom: var(--space-16); }
 .lpH2 { font-size: var(--text-2xl); font-weight: 700; letter-spacing: var(--tracking-tight); margin-bottom: var(--space-6); }
-.lpSteps { display: flex; flex-direction: column; gap: var(--space-5); }
-.lpStep { display: flex; gap: var(--space-4); align-items: flex-start; }
+
+/* ── The problem ──────────────────────────────────────────────────────────── */
+.lpProblem { padding: var(--space-16) 0; border-top: 1px solid var(--border); }
+.lpProblemGrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); margin-top: var(--space-8); }
+.lpProblemCard {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: var(--space-6); transition: border-color var(--duration-slow) var(--ease), transform var(--duration-slow) var(--ease);
+}
+.lpProblemCard:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+.lpProblemIcon {
+  width: 40px; height: 40px; border-radius: var(--radius-md); margin-bottom: var(--space-5);
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(229, 137, 107, 0.12); color: var(--danger);
+}
+.lpProblemIcon svg { width: 20px; height: 20px; }
+.lpProblemTitle { font-size: var(--text-md); font-weight: 700; margin-bottom: var(--space-3); }
+.lpProblemBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: #C8C8CC; }
+
+/* ── How it works ─────────────────────────────────────────────────────────── */
+.lpHow { padding: var(--space-16) 0; border-top: 1px solid var(--border); }
+.lpSteps { display: flex; flex-direction: column; gap: var(--space-6); margin-top: var(--space-8); max-width: 620px; }
+.lpStep { display: flex; gap: var(--space-4); align-items: flex-start; position: relative; }
 .lpStepNum {
-  flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
-  background: var(--amber-dim); color: var(--amber-bright);
+  position: relative; z-index: 1; flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%;
+  background: var(--amber-dim); color: var(--amber-bright); border: 1px solid var(--amber);
   display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-sm);
 }
-.lpStep p { font-size: var(--text-base); line-height: var(--leading-relaxed); color: #C8C8CC; padding-top: 3px; }
+/* Connects each numbered circle to the next one, so the list reads as one
+   flow rather than four unrelated bullets. */
+.lpStep:not(:last-child)::before {
+  content: ''; position: absolute; left: 17px; top: 36px; bottom: -24px; width: 1px; background: var(--border-strong);
+}
+.lpStep p { font-size: var(--text-base); line-height: var(--leading-relaxed); color: #C8C8CC; padding-top: 6px; }
+.lpStep p strong { color: var(--text); }
 
-.lpClose { text-align: center; padding: var(--space-10) 0 var(--space-12); border-top: 1px solid var(--border); }
+/* ── Product showcase — the most important section on the page ─────────────
+   A hand-built, faithful re-creation of the real CV preview + ATS score
+   card (own scoped classes, not the real .cvDoc/.scoreCard — this page
+   never imports CvPreview.tsx), so it can't drift out of sync with or
+   accidentally affect the real document renderer. */
+.lpShow { padding: var(--space-16) 0; border-top: 1px solid var(--border); }
+.lpShowStage {
+  display: grid; grid-template-columns: 1.3fr 1fr; gap: var(--space-6);
+  margin-top: var(--space-8); align-items: start;
+}
+.lpShowTag {
+  font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: var(--tracking-label);
+  color: var(--muted); margin-bottom: var(--space-3);
+}
+
+.lpShowCv {
+  background: #ffffff; color: #1a1a1a; border-radius: var(--radius-lg);
+  padding: var(--space-6); box-shadow: var(--shadow-lg);
+  transition: transform var(--duration-slow) var(--ease), box-shadow var(--duration-slow) var(--ease);
+}
+.lpShowCv:hover { transform: translateY(-4px); }
+.lpCvName { font-size: 19px; font-weight: 700; color: #1F3864; text-align: center; margin-bottom: 2px; }
+.lpCvContact { font-size: 11px; color: #444; text-align: center; margin-bottom: 14px; }
+.lpCvHead {
+  font-size: 11px; font-weight: 700; color: #1F3864; text-transform: uppercase; letter-spacing: 0.04em;
+  border-bottom: 1.5px solid #1F3864; padding-bottom: 3px; margin-bottom: 8px;
+}
+.lpCvJob { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-weight: 700; font-size: 12.5px; margin-bottom: 6px; }
+.lpCvDate { white-space: nowrap; flex-shrink: 0; margin-left: auto; color: #444; font-weight: 600; }
+.lpCvBullets { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+.lpCvBullets li { font-size: 12px; line-height: 1.55; padding-left: 14px; position: relative; }
+.lpCvBullets li::before { content: '•'; position: absolute; left: 0; color: #1F3864; }
+.lpShowCv mark { background: var(--amber-dim); color: #7a4f14; padding: 0 3px; border-radius: 3px; font-weight: 600; }
+
+.lpShowScore {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: var(--space-6); box-shadow: var(--shadow-md);
+  transition: transform var(--duration-slow) var(--ease);
+}
+.lpShowScore:hover { transform: translateY(-4px); }
+.lpShowScoreLabel { font-size: var(--text-xs); font-weight: 600; color: var(--muted); margin-bottom: var(--space-2); }
+.lpShowScoreValue { font-size: var(--text-2xl); font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.lpShowScoreSub { font-size: var(--text-sm); color: var(--muted); margin-top: var(--space-1); margin-bottom: var(--space-5); }
+.lpShowScoreGroup { padding-top: var(--space-4); border-top: 1px solid var(--border); margin-top: var(--space-4); }
+.lpShowScoreGroup:first-of-type { margin-top: 0; }
+.lpShowScoreGroupLabel {
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-label);
+  font-weight: 600; margin-bottom: var(--space-3);
+}
+.lpShowScoreGroupLabel.hits { color: var(--success); }
+.lpShowScoreGroupLabel.misses { color: var(--danger); }
+.lpShowScoreList { list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.lpShowScoreList li { font-size: var(--text-sm); line-height: var(--leading-snug); color: var(--text); display: flex; gap: var(--space-2); }
+.lpShowScoreList .dot { flex-shrink: 0; font-weight: 700; }
+.lpShowScoreList .hit .dot { color: var(--success); }
+.lpShowScoreList .miss .dot { color: var(--danger); }
+
+/* ── What makes it different ──────────────────────────────────────────────── */
+.lpDiff { padding: var(--space-16) 0; border-top: 1px solid var(--border); }
+.lpDiffGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); margin-top: var(--space-8); }
+.lpDiffCard { padding: var(--space-2) 0; }
+.lpDiffIcon {
+  width: 40px; height: 40px; border-radius: var(--radius-md); margin-bottom: var(--space-5);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--amber-dim); color: var(--amber-bright);
+}
+.lpDiffIcon svg { width: 20px; height: 20px; }
+.lpDiffTitle { font-size: var(--text-md); font-weight: 700; margin-bottom: var(--space-3); }
+.lpDiffBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: #C8C8CC; }
+
+.lpClose { text-align: center; padding: var(--space-16) 0 var(--space-12); border-top: 1px solid var(--border); }
 .lpCloseSub { font-size: var(--text-md); color: #C8C8CC; max-width: 520px; margin: 0 auto var(--space-6); line-height: var(--leading-relaxed); }
 
 .lpFooter { text-align: center; color: var(--muted); font-size: var(--text-sm); padding-top: var(--space-8); border-top: 1px solid var(--border); }
 
+@media (max-width: 860px) {
+  .lpShowStage { grid-template-columns: 1fr; }
+}
 @media (max-width: 640px) {
-  .lpContrast { grid-template-columns: 1fr; }
+  .lpProblemGrid { grid-template-columns: 1fr; }
+  .lpDiffGrid { grid-template-columns: 1fr; }
+  .lpHeroCta { align-items: stretch; }
 }
 /* Helper text sits under a .label and above the control it explains, so it
    needs to read as guidance, not as another label. */
@@ -1175,14 +1281,24 @@ textarea:focus-visible {
 @media (max-width: 640px) { .profileGrid { grid-template-columns: 1fr; } }
 .cvJobHeader {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   align-items: baseline;
   font-weight: 700;
   margin: 10px 0 4px;
   gap: 12px;
 }
-.cvJobRole { font-weight: 700; min-width: 0; }
-.cvJobDate { font-weight: 700; white-space: nowrap; flex-shrink: 0; }
+/* No min-width:0 here: that would let this item shrink indefinitely on the
+   same line as the date (its text wrapping internally while the date stays
+   pinned top-right) instead of ever triggering the row wrap below — the
+   whole point of flex-wrap here is for the date to drop to its own line
+   when the role/title is too long to share one line with it. Overflow of a
+   single unbreakable token is still handled separately by the
+   overflow-wrap/word-break rules on .cvDoc. */
+.cvJobRole { font-weight: 700; }
+/* margin-left:auto pushes this flush right on whichever line it ends up on
+   — the same line as a short role, or its own line (right-aligned) when a
+   long role/title pushes it there via the container's flex-wrap. */
+.cvJobDate { font-weight: 700; white-space: nowrap; flex-shrink: 0; margin-left: auto; text-align: right; }
 
 /* Ensure bullets are NOT bold even if a parent is */
 .cvDoc ul li,
