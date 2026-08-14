@@ -175,6 +175,11 @@ export default function CustomizePage() {
   }
 
   async function handleClearCv() {
+    // Destructive and irreversible — the button sits right next to "Edit",
+    // so a confirmation guards against a misclick wiping the master CV.
+    if (!window.confirm("Replace your master CV? This deletes your saved CV and extracted details — this can't be undone.")) {
+      return;
+    }
     // Reset UI immediately so the user doesn't wait for the DB delete
     setProfile(null);
     setMasterCvText("");
@@ -230,7 +235,7 @@ export default function CustomizePage() {
     <main className="page">
       <div className="container">
         <header className="header">
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <div className="appBar" style={{ marginBottom: 8 }}>
             <div className="wordmark">Jobhuntz</div>
             <Link href="/app" className="customizeLink">← Back to app</Link>
           </div>
@@ -311,7 +316,7 @@ export default function CustomizePage() {
             <p className="cvHelp" style={{ color: "var(--muted)" }}>Loading your details…</p>
           ) : profile ? (
             <>
-              <p className="cvHelp">Pulled from your CV. Check these are right — they appear in your tailored CV's header and sections.</p>
+              <p className="cvHelp">Pulled from your CV. Check these are right — they appear in your tailored CV&apos;s header and sections.</p>
               <div className="profileGrid">
                 <label>Name<Input value={profile.name} onChange={(e) => updateProfileField("name", e.target.value)} /></label>
                 <label>Tagline<Input value={profile.tagline} onChange={(e) => updateProfileField("tagline", e.target.value)} /></label>

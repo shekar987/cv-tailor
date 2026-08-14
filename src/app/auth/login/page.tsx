@@ -48,12 +48,24 @@ export default function LoginPage() {
     setCheckInbox(false)
   }
 
+  // Where to send the user after a successful sign-in. Set by proxy.ts when it
+  // bounces an unauthenticated visit to a protected page (?next=/customize),
+  // so logging in returns them there instead of always landing on /app.
+  // Read directly from window.location rather than useSearchParams() so this
+  // page can stay statically prerendered (useSearchParams needs a Suspense
+  // boundary; this value is only needed inside event handlers, not on render).
+  function getSafeNext(): string {
+    const next = new URLSearchParams(window.location.search).get('next')
+    return next && next.startsWith('/') ? next : '/app'
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError(null)
 
     const supabase = createClient()
+    const safeNext = getSafeNext()
 
     if (mode === 'login') {
       const { error: err } = await supabase.auth.signInWithPassword({ email, password })
@@ -63,7 +75,7 @@ export default function LoginPage() {
         return
       }
       router.refresh()
-      router.push('/app')
+      router.push(safeNext)
       return
     }
 
@@ -73,7 +85,7 @@ export default function LoginPage() {
       password,
       options: {
         // Used when email confirmation is ON — Supabase sends a link back to this route
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(safeNext)}`,
       },
     })
 
@@ -86,7 +98,7 @@ export default function LoginPage() {
     if (data.session) {
       // Email confirmation is OFF — user is immediately signed in
       router.refresh()
-      router.push('/app')
+      router.push(safeNext)
       return
     }
 
@@ -104,7 +116,7 @@ export default function LoginPage() {
       options: {
         // Supabase redirects here after exchanging the OAuth code.
         // This URL must be in: Supabase Dashboard → Auth → URL Configuration → Redirect URLs
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(getSafeNext())}`,
       },
     })
     // If we reach this point the browser redirect didn't fire — provider not

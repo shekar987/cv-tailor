@@ -28,11 +28,26 @@ function sectionHeading(text: string, d: Density): Paragraph {
   });
 }
 
-// Bold left text + date right-aligned via a right tab stop — the ONE
-// mechanism used for Experience, Projects, and Education alike, so all
-// three align in the same column down the page. Word wraps the left text
-// on its own (paragraphs always wrap); the tab just pushes the date to the
-// margin on whichever line it lands on.
+// Word has no way to measure text width while building the document, so
+// "will this fit on one line" is estimated from character count rather than
+// real font metrics: bold Calibri at 21 half-points (10.5pt) averages
+// roughly 130 twips/char. Deliberately generous (over-estimates width) so a
+// borderline title wraps a little earlier rather than risking the date
+// overlapping it — the cost of guessing wrong here is a title that gets its
+// own line slightly sooner than strictly necessary, not visual breakage.
+const TWIPS_PER_CHAR_AT_21 = 130;
+function estimatedWidthTwips(text: string, sizeHalfPoints: number): number {
+  return text.length * TWIPS_PER_CHAR_AT_21 * (sizeHalfPoints / 21);
+}
+
+// Bold left text + date right-aligned — the ONE mechanism used for
+// Experience, Projects, and Education alike, so all three align in the same
+// column down the page. When the left text is short enough to share a line
+// with the date, that's a single paragraph with a right tab stop. When it's
+// estimated too long, the date drops to its own right-aligned paragraph
+// below instead of flowing inline wherever the wrapped title happens to
+// end — matching drawHeaderLine()'s fallback in src/lib/pdfText.ts, so Word
+// and PDF behave the same way for a long role/project title/degree.
 function datedHeaderParagraph(
   leftText: string,
   date: string,
@@ -44,21 +59,43 @@ function datedHeaderParagraph(
     dateColor?: string;
     dateBold?: boolean;
   }
-): Paragraph {
+): Paragraph[] {
   const leftSize = opts.leftSize ?? 21;
   const dateSize = opts.dateSize ?? leftSize;
   const dateBold = opts.dateBold ?? true;
+
+  if (date) {
+    const gap = 200; // twips of breathing room between title and date
+    const wouldOverlap =
+      estimatedWidthTwips(leftText, leftSize) + gap + estimatedWidthTwips(date, dateSize) > DATE_TAB_POSITION;
+    if (wouldOverlap) {
+      return [
+        new Paragraph({
+          spacing: { before: opts.spacingBefore, after: 0 },
+          children: [new TextRun({ text: leftText, bold: true, size: leftSize, font: "Calibri" })],
+        }),
+        new Paragraph({
+          alignment: AlignmentType.RIGHT,
+          spacing: { before: 0, after: opts.spacingAfter },
+          children: [new TextRun({ text: date, bold: dateBold, size: dateSize, color: opts.dateColor, font: "Calibri" })],
+        }),
+      ];
+    }
+  }
+
   const children: TextRun[] = [new TextRun({ text: leftText, bold: true, size: leftSize, font: "Calibri" })];
   if (date) {
     children.push(
       new TextRun({ text: "\t" + date, bold: dateBold, size: dateSize, color: opts.dateColor, font: "Calibri" })
     );
   }
-  return new Paragraph({
-    spacing: { before: opts.spacingBefore, after: opts.spacingAfter },
-    tabStops: [{ type: "right" as any, position: DATE_TAB_POSITION }],
-    children,
-  });
+  return [
+    new Paragraph({
+      spacing: { before: opts.spacingBefore, after: opts.spacingAfter },
+      tabStops: [{ type: "right" as any, position: DATE_TAB_POSITION }],
+      children,
+    }),
+  ];
 }
 
 // Build runs from a line: turns **bold** into bold and bare URLs into clickable links.
@@ -111,7 +148,7 @@ function textToParagraphs(text: string, mode: "plain" | "skills", d: Density): P
     .split("\n")
     .filter((line) => line.trim() !== "")
     .filter((line) => !/^(SKILLS|PROJECTS|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE)\s*$/i.test(line.trim()))
-    .map((line) => {
+    .flatMap((line): Paragraph[] => {
       const trimmed = line.trim();
       // Job header line: "@@JOB@@role@@date" → bold role left, bold date right
       if (trimmed.startsWith("@@JOB@@")) {
@@ -120,7 +157,7 @@ function textToParagraphs(text: string, mode: "plain" | "skills", d: Density): P
         const date = parts[1] || "";
         return datedHeaderParagraph(role, date, { spacingBefore: d.jobBefore, spacingAfter: d.tightAfter });
       }
-      
+
       const isBullet = trimmed.startsWith("•") || trimmed.startsWith("-");
       const clean = isBullet ? trimmed.replace(/^[•\-]\s*/, "") : trimmed;
 
@@ -129,22 +166,22 @@ function textToParagraphs(text: string, mode: "plain" | "skills", d: Density): P
         const idx = clean.indexOf(":");
         const label = clean.slice(0, idx + 1);
         const rest = clean.slice(idx + 1);
-        return new Paragraph({
+        return [new Paragraph({
           spacing: { after: d.bulletAfter },
           alignment: AlignmentType.LEFT,
           children: [
             new TextRun({ text: label, bold: true, size: 21, font: "Calibri" }),
             ...buildRuns(rest, { size: 21 }),
           ],
-        });
+        })];
       }
 
-      return new Paragraph({
+      return [new Paragraph({
         spacing: { after: d.bulletAfter },
         alignment: AlignmentType.JUSTIFIED,
         ...(isBullet ? { numbering: { reference: "default-bullet", level: 0 } } : {}),
         children: buildRuns(clean, { size: 21 }),
-      });
+      })];
     });
 }
 
@@ -167,7 +204,7 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any, d: Density): P
     // Title (bold), with any trailing date ("Project Name | 2026") split off
     // and right-aligned the same way Experience/Education dates are.
     const { title: projectTitle, date: projectDate } = splitTrailingDate(meta.name || "");
-    out.push(datedHeaderParagraph(projectTitle, projectDate, {
+    out.push(...datedHeaderParagraph(projectTitle, projectDate, {
       spacingBefore: d.jobBefore,
       spacingAfter: d.tightAfter,
       leftSize: 22,
@@ -360,7 +397,7 @@ const extraSections = filterExtraSections(profile?.extraSections);
         if (education.length === 0) return [];
         const out: Paragraph[] = [sectionHeading("Education", density)];
         for (const e of education) {
-          out.push(datedHeaderParagraph(e.head, e.date, {
+          out.push(...datedHeaderParagraph(e.head, e.date, {
             spacingBefore: density.tightAfter,
             spacingAfter: density.tightAfter,
             leftSize: 22,
@@ -420,7 +457,7 @@ const extraSections = filterExtraSections(profile?.extraSections);
       },
     });
   } catch (error) {
-    console.error("Download error:", error);
+    console.error("Download error:", error instanceof Error ? error.message : "Unknown error");
     return new Response(JSON.stringify({ error: "Failed to generate document" }), { status: 500 });
   }
 }

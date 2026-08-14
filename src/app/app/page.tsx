@@ -452,9 +452,9 @@ export default function Home() {
             {/* ── User's own key quota exhausted ── */}
             {errorType === "user_key_limit" && (
               <div className="limitNotice">
-                <div className="limitNotice__title">Today's tailoring limit is reached.</div>
+                <div className="limitNotice__title">Today&apos;s tailoring limit is reached.</div>
                 <div className="limitNotice__body">
-                  Your key's free quota resets daily — come back tomorrow to continue.
+                  Your key&apos;s free quota resets daily — come back tomorrow to continue.
                 </div>
                 <div className="limitNotice__body">
                   A subscription plan with higher limits is on the way.

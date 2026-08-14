@@ -39,7 +39,12 @@ export async function updateSession(request: NextRequest) {
 
   if (PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix)) && !user) {
     const url = request.nextUrl.clone()
+    // Preserve where the user was headed so login can send them back there
+    // instead of always dropping them on /app.
+    const dest = pathname + request.nextUrl.search
     url.pathname = '/auth/login'
+    url.search = ''
+    url.searchParams.set('next', dest)
     return NextResponse.redirect(url)
   }
 
