@@ -18,6 +18,7 @@ import StatusText from "@/components/ui/StatusText";
 import { filterExtraSections, isReservedSectionTitle } from "@/lib/sections";
 import { saveBlob } from "@/lib/saveBlob";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
+import { splitTrailingDate } from "@/lib/projectDate";
 
 function CvPreview({
   data,
@@ -47,9 +48,12 @@ function CvPreview({
     .replace(/^\s*[|•·,\-–—]+\s*|\s*[|•·,\-–—]+\s*$/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
-  const contactLine = [p?.location, p?.phone, p?.email].filter(Boolean).join(" | ");
+  const location = p?.location || "";
+  const phone = p?.phone || "";
+  const email = p?.email || "";
   const linkedin = p?.linkedin || "";
   const github = p?.github || "";
+  const hasContactRow = !!(location || phone || email || linkedin || github);
   const ref = useRef<HTMLDivElement>(null);
   // Download UX state — surfaces failures instead of a silent dead button
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -272,14 +276,22 @@ function CvPreview({
         if (bullets.length > 0) domProjects[String(idx)] = bullets;
       });
 
-    // Education: each div child has a cvSubhead (degree+dates) and optionally cvText + cvBullet.
+    // Education: each div child has either a cvJobHeader (degree + right-aligned
+    // dates, when dates exist) or a plain cvSubhead (degree only), plus
+    // optionally cvText + cvBullet.
     const domEducation = sectionKids("education")
       .filter(el => el.tagName === "DIV")
       .map(eduDiv => {
-        const subhead = (eduDiv.querySelector(".cvSubhead")?.textContent || "").trim();
+        const jobHeader = eduDiv.querySelector(".cvJobHeader");
+        const degree = jobHeader
+          ? (jobHeader.querySelector(".cvJobRole")?.textContent || "").trim()
+          : (eduDiv.querySelector(".cvSubhead")?.textContent || "").trim();
+        const dates = jobHeader
+          ? (jobHeader.querySelector(".cvJobDate")?.textContent || "").trim()
+          : "";
         const institution = (eduDiv.querySelector(".cvText")?.textContent || "").trim();
         const note = (eduDiv.querySelector(".cvBullet")?.textContent || "").trim();
-        return { degree: subhead, institution: institution || undefined, note: note || undefined };
+        return { degree, dates: dates || undefined, institution: institution || undefined, note: note || undefined };
       })
       .filter(e => e.degree);
 
@@ -427,9 +439,17 @@ function CvPreview({
               ? tailored
               : (proj.originalBullets || []);
             if (bullets.length === 0 && !proj.name) return null;
+            const { title: projTitle, date: projDate } = splitTrailingDate(proj.name || "");
             return (
               <div key={`proj-${idx}`}>
-                <p className="cvProjTitle">{proj.name}</p>
+                {projDate ? (
+                  <p className="cvJobHeader">
+                    <span className="cvJobRole cvProjTitle">{projTitle}</span>
+                    <span className="cvJobDate">{projDate}</span>
+                  </p>
+                ) : (
+                  <p className="cvProjTitle">{projTitle}</p>
+                )}
                 {proj.tech && <p className="cvText">{proj.tech}</p>}
                 {proj.links && proj.links.length > 0 && (
                   <p className="cvText">
@@ -467,7 +487,14 @@ function CvPreview({
           <h2 className="cvHead">Education</h2>
           {p.education.map((e, i) => (
             <div key={`edu-${i}`}>
-              <p className="cvSubhead">{e.degree}{e.dates ? ` — ${e.dates}` : ""}</p>
+              {e.dates ? (
+                <p className="cvJobHeader">
+                  <span className="cvJobRole">{e.degree}</span>
+                  <span className="cvJobDate">{e.dates}</span>
+                </p>
+              ) : (
+                <p className="cvSubhead">{e.degree}</p>
+              )}
               {e.institution && <p className="cvText">{e.institution}</p>}
               {e.note?.trim() && (
                 <ul>
@@ -490,14 +517,34 @@ function CvPreview({
       <div className="cvDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false}>
         <h1 className="cvName">{name}</h1>
         {tagline && <p className="cvTagline">{tagline}</p>}
-        {contactLine && <p className="cvContact">{contactLine}</p>}
-        {(linkedin || github) && (
+        {hasContactRow && (
+          // contentEditable={false}: contact fields are never read back out of
+          // this DOM (collectPayload() always sources them from `profile`), so
+          // inline edits here would silently vanish — a single non-editable
+          // line, matching how the download routes render this row, avoids
+          // that trap. Open links in a new tab: following one in this tab
+          // would unload the page and throw away the tailored result.
           <p className="cvContact" contentEditable={false}>
-            {/* Open in a new tab: following a link in this tab would unload the
-                page and throw away the tailored result the user is looking at. */}
-            {linkedin && <a href={linkedin.startsWith("http") ? linkedin : "https://" + linkedin} className="cvLink" target="_blank" rel="noopener noreferrer">LinkedIn</a>}
-            {linkedin && github && " | "}
-            {github && <a href={github.startsWith("http") ? github : "https://" + github} className="cvLink" target="_blank" rel="noopener noreferrer">GitHub</a>}
+            {[
+              location,
+              phone,
+              email ? (
+                <a key="email" href={`mailto:${email}`} className="cvLink">{email}</a>
+              ) : null,
+              linkedin ? (
+                <a key="li" href={linkedin.startsWith("http") ? linkedin : "https://" + linkedin} className="cvLink" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+              ) : null,
+              github ? (
+                <a key="gh" href={github.startsWith("http") ? github : "https://" + github} className="cvLink" target="_blank" rel="noopener noreferrer">GitHub</a>
+              ) : null,
+            ]
+              .filter((piece) => piece !== null && piece !== "")
+              .map((piece, i) => (
+                <React.Fragment key={i}>
+                  {i > 0 && " · "}
+                  {piece}
+                </React.Fragment>
+              ))}
           </p>
         )}
 

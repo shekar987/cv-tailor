@@ -111,6 +111,33 @@ type DrawOpts = {
   align?: "left" | "right" | "center";
 };
 
+// A word wider than the available line width on its own (a long URL, a long
+// unbroken token) would otherwise just be drawn past the right margin — the
+// packing loop below only breaks BETWEEN words, never within one. This
+// forces such a word into smaller glued fragments that each fit, as a last
+// resort — normal words with natural spaces never reach this path.
+function splitOversizedWord(doc: jsPDF, w: Word, size: number, maxWidth: number): Word[] {
+  doc.setFont(FONT, w.bold ? "bold" : "normal");
+  doc.setFontSize(size);
+  if (w.text.length <= 1 || doc.getTextWidth(w.text) <= maxWidth) return [w];
+
+  const chunks: Word[] = [];
+  let current = "";
+  let isFirstChunk = true;
+  for (const ch of w.text) {
+    const candidate = current + ch;
+    if (current !== "" && doc.getTextWidth(candidate) > maxWidth) {
+      chunks.push({ text: current, bold: w.bold, link: w.link, glued: isFirstChunk ? w.glued : true });
+      isFirstChunk = false;
+      current = ch;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push({ text: current, bold: w.bold, link: w.link, glued: isFirstChunk ? w.glued : true });
+  return chunks;
+}
+
 // Packs `words` into lines no wider than `cursor.contentWidth`, drawing each
 // line at the left margin (or a custom `x`/`maxWidth`) and advancing the
 // cursor. Any word with a `link` is drawn in link color, underlined, and
@@ -120,20 +147,22 @@ type DrawOpts = {
 export function drawWrapped(
   doc: jsPDF,
   cursor: PdfCursor,
-  words: Word[],
+  rawWords: Word[],
   size: number,
   lineHeight: number,
   opts: DrawOpts = {},
   x = cursor.marginLeft,
   maxWidth = cursor.contentWidth
 ): void {
-  if (words.length === 0) return;
+  if (rawWords.length === 0) return;
   const color = opts.color ?? [0, 0, 0];
   const linkColor = opts.linkColor ?? [5, 99, 193]; // #0563C1
 
   doc.setFont(FONT, "normal");
   doc.setFontSize(size);
   const spaceWidth = doc.getTextWidth(" ");
+
+  const words = rawWords.flatMap((w) => splitOversizedWord(doc, w, size, maxWidth));
 
   function widthOf(w: Word): number {
     doc.setFont(FONT, w.bold ? "bold" : "normal");
@@ -208,28 +237,65 @@ export function drawLine(
   drawWrapped(doc, cursor, [{ text, bold: opts.bold }], size, lineHeight, opts);
 }
 
-// Role left / date right on ONE line, matching the docx tab-stop job header.
-// Job headers are short in practice; if a role is long enough that both
-// pieces would collide, the date is simply placed after measuring — no
-// wrapping, matching the docx version's own behavior (a tab stop doesn't
-// wrap either).
-export function drawJobHeader(
+// Bold left text (role, project title, or degree) with a date right-aligned
+// on the same line — the ONE mechanism used for Experience, Projects, and
+// Education alike, so all three align in the same column down the page.
+//
+// If both pieces fit on one line, renders exactly as a single line (left
+// text, date flush right) — the common case. If the left text is too long
+// to share the line with the date, it wraps across multiple lines at full
+// width via drawWrapped (so it can never run past the page edge, unlike a
+// single unwrapped doc.text() call), and the date drops to its own
+// right-aligned line immediately after.
+export function drawHeaderLine(
   doc: jsPDF,
   cursor: PdfCursor,
-  role: string,
-  date: string,
+  leftText: string,
+  rightText: string,
   size: number,
-  lineHeight: number
+  lineHeight: number,
+  opts: { rightColor?: Rgb; rightBold?: boolean; rightSize?: number } = {}
 ): void {
-  cursor.ensureRoom(lineHeight);
+  const rightSize = opts.rightSize ?? size;
+  const rightColor = opts.rightColor ?? [0, 0, 0];
+  const rightBold = opts.rightBold ?? true;
+
   doc.setFont(FONT, "bold");
   doc.setFontSize(size);
-  doc.setTextColor(0, 0, 0);
-  doc.text(role, cursor.marginLeft, cursor.y);
-  if (date) {
-    const dateWidth = doc.getTextWidth(date);
-    doc.text(date, cursor.marginLeft + cursor.contentWidth - dateWidth, cursor.y);
+  const leftWidth = doc.getTextWidth(leftText);
+  doc.setFont(FONT, rightBold ? "bold" : "normal");
+  doc.setFontSize(rightSize);
+  const rightWidth = rightText ? doc.getTextWidth(rightText) : 0;
+  const gap = rightText ? 8 : 0;
+
+  if (!rightText || leftWidth + gap + rightWidth <= cursor.contentWidth) {
+    cursor.ensureRoom(lineHeight);
+    doc.setFont(FONT, "bold");
+    doc.setFontSize(size);
+    doc.setTextColor(0, 0, 0);
+    doc.text(leftText, cursor.marginLeft, cursor.y);
+    if (rightText) {
+      doc.setFont(FONT, rightBold ? "bold" : "normal");
+      doc.setFontSize(rightSize);
+      const [r, g, b] = rightColor;
+      doc.setTextColor(r, g, b);
+      doc.text(rightText, cursor.marginLeft + cursor.contentWidth - rightWidth, cursor.y);
+      doc.setTextColor(0, 0, 0);
+    }
+    cursor.advance(lineHeight);
+    return;
   }
+
+  // Doesn't fit on one line — wrap the left text at word boundaries, full
+  // width, then place the date right-aligned on its own line right after.
+  drawWrapped(doc, cursor, parseWords(leftText, true), size, lineHeight);
+  cursor.ensureRoom(lineHeight);
+  doc.setFont(FONT, rightBold ? "bold" : "normal");
+  doc.setFontSize(rightSize);
+  const [r, g, b] = rightColor;
+  doc.setTextColor(r, g, b);
+  doc.text(rightText, cursor.marginLeft + cursor.contentWidth - rightWidth, cursor.y);
+  doc.setTextColor(0, 0, 0);
   cursor.advance(lineHeight);
 }
 

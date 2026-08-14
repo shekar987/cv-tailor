@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { filterExtraSections } from "@/lib/sections";
 import { chooseDensity, wrappedLines, PAGE_HEIGHT, type Density } from "@/lib/cvDensity";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
+import { splitTrailingDate } from "@/lib/projectDate";
 import {
   Document,
   Packer,
@@ -17,12 +18,46 @@ import {
 const NAVY = "1F3864";
 const GREY = "595959";
 const LINK = "0563C1";
+const DATE_TAB_POSITION = 9026;
 
 function sectionHeading(text: string, d: Density): Paragraph {
   return new Paragraph({
     spacing: { before: d.sectionBefore, after: d.sectionAfter },
     border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: NAVY, space: 3 } },
     children: [new TextRun({ text: text.toUpperCase(), bold: true, size: 24, color: NAVY, font: "Calibri" })],
+  });
+}
+
+// Bold left text + date right-aligned via a right tab stop — the ONE
+// mechanism used for Experience, Projects, and Education alike, so all
+// three align in the same column down the page. Word wraps the left text
+// on its own (paragraphs always wrap); the tab just pushes the date to the
+// margin on whichever line it lands on.
+function datedHeaderParagraph(
+  leftText: string,
+  date: string,
+  opts: {
+    spacingBefore: number;
+    spacingAfter: number;
+    leftSize?: number;
+    dateSize?: number;
+    dateColor?: string;
+    dateBold?: boolean;
+  }
+): Paragraph {
+  const leftSize = opts.leftSize ?? 21;
+  const dateSize = opts.dateSize ?? leftSize;
+  const dateBold = opts.dateBold ?? true;
+  const children: TextRun[] = [new TextRun({ text: leftText, bold: true, size: leftSize, font: "Calibri" })];
+  if (date) {
+    children.push(
+      new TextRun({ text: "\t" + date, bold: dateBold, size: dateSize, color: opts.dateColor, font: "Calibri" })
+    );
+  }
+  return new Paragraph({
+    spacing: { before: opts.spacingBefore, after: opts.spacingAfter },
+    tabStops: [{ type: "right" as any, position: DATE_TAB_POSITION }],
+    children,
   });
 }
 
@@ -83,14 +118,7 @@ function textToParagraphs(text: string, mode: "plain" | "skills", d: Density): P
         const parts = trimmed.replace("@@JOB@@", "").split("@@");
         const role = parts[0] || "";
         const date = parts[1] || "";
-        return new Paragraph({
-          spacing: { before: d.jobBefore, after: d.tightAfter },
-          tabStops: [{ type: "right" as any, position: 9026 }],
-          children: [
-            new TextRun({ text: role, bold: true, size: 21, font: "Calibri" }),
-            new TextRun({ text: "\t" + date, bold: true, size: 21, font: "Calibri" }),
-          ],
-        });
+        return datedHeaderParagraph(role, date, { spacingBefore: d.jobBefore, spacingAfter: d.tightAfter });
       }
       
       const isBullet = trimmed.startsWith("•") || trimmed.startsWith("-");
@@ -136,10 +164,14 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any, d: Density): P
 
     if (!meta.name && bullets.length === 0) return;
 
-    // Title (bold)
-    out.push(new Paragraph({
-      spacing: { before: d.jobBefore, after: d.tightAfter },
-      children: [new TextRun({ text: meta.name || "", bold: true, size: 22, font: "Calibri" })],
+    // Title (bold), with any trailing date ("Project Name | 2026") split off
+    // and right-aligned the same way Experience/Education dates are.
+    const { title: projectTitle, date: projectDate } = splitTrailingDate(meta.name || "");
+    out.push(datedHeaderParagraph(projectTitle, projectDate, {
+      spacingBefore: d.jobBefore,
+      spacingAfter: d.tightAfter,
+      leftSize: 22,
+      dateSize: 22,
     }));
     // Tech (same style as body)
     if (meta.tech) {
@@ -206,7 +238,7 @@ const cleanTagline = (t: string): string =>
     .replace(/\s{2,}/g, " ")
     .trim();
 const contactTagline = cleanTagline(profile?.tagline ?? "");
-const contactLine = [profile?.location, profile?.phone, profile?.email].filter(Boolean).join(" | ");
+const contactEmail = String(profile?.email || "").trim();
 const contactLinkedin = profile?.linkedin
   ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin)
   : "";
@@ -249,8 +281,8 @@ const extraSections = filterExtraSections(profile?.extraSections);
       educationText, certs.join("\n"), rightToWork.join("\n"), extrasText,
     ].filter(Boolean).join("\n");
 
-    const contactLines =
-      1 + (contactTagline ? 1 : 0) + (contactLine ? 1 : 0) + (contactLinkedin || contactGithub ? 1 : 0);
+    const hasContactRow = !!(profile?.location || profile?.phone || contactEmail || contactLinkedin || contactGithub);
+    const contactLines = 1 + (contactTagline ? 1 : 0) + (hasContactRow ? 1 : 0);
     const headingCount =
       (summary ? 1 : 0) + (skills ? 1 : 0) + (experience ? 1 : 0) +
       (education.length > 0 ? 1 : 0) + (certs.length > 0 ? 1 : 0) +
@@ -273,22 +305,34 @@ const extraSections = filterExtraSections(profile?.extraSections);
       children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 },
         children: [new TextRun({ text: contactTagline, size: 20, color: GREY, font: "Calibri" })] }));
     }
-    if (contactLine) {
-      children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 },
-        children: [new TextRun({ text: contactLine, size: 20, font: "Calibri" })] }));
-    }
-    const contactLinkRuns: (TextRun | ExternalHyperlink)[] = [];
-    if (contactLinkedin) {
-      contactLinkRuns.push(new ExternalHyperlink({ link: contactLinkedin, children: [new TextRun({ text: "LinkedIn", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
-    }
-    if (contactLinkedin && contactGithub) {
-      contactLinkRuns.push(new TextRun({ text: "  |  ", size: 20, font: "Calibri" }));
-    }
-    if (contactGithub) {
-      contactLinkRuns.push(new ExternalHyperlink({ link: contactGithub, children: [new TextRun({ text: "GitHub", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
-    }
-    if (contactLinkRuns.length > 0) {
-      children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 }, children: contactLinkRuns }));
+    if (hasContactRow) {
+      // One line: location · phone · email (mailto) · LinkedIn · GitHub —
+      // only the pieces that exist, each separated by " · ", never a
+      // dangling separator for a missing piece. Email gets its own mailto:
+      // link built explicitly here — it does NOT go through the S1
+      // http/https-only sanitisation below (that gate is for arbitrary
+      // profile/link URLs; mailto: is a fixed scheme we construct ourselves
+      // from a controlled prefix, not user-suppliable).
+      const contactRuns: (TextRun | ExternalHyperlink)[] = [];
+      const addContactRun = (run: TextRun | ExternalHyperlink) => {
+        if (contactRuns.length > 0) contactRuns.push(new TextRun({ text: " · ", size: 20, font: "Calibri" }));
+        contactRuns.push(run);
+      };
+      if (profile?.location) addContactRun(new TextRun({ text: profile.location, size: 20, font: "Calibri" }));
+      if (profile?.phone) addContactRun(new TextRun({ text: profile.phone, size: 20, font: "Calibri" }));
+      if (contactEmail) {
+        addContactRun(new ExternalHyperlink({
+          link: `mailto:${contactEmail}`,
+          children: [new TextRun({ text: contactEmail, size: 20, color: LINK, underline: {}, font: "Calibri" })],
+        }));
+      }
+      if (contactLinkedin) {
+        addContactRun(new ExternalHyperlink({ link: contactLinkedin, children: [new TextRun({ text: "LinkedIn", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
+      }
+      if (contactGithub) {
+        addContactRun(new ExternalHyperlink({ link: contactGithub, children: [new TextRun({ text: "GitHub", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
+      }
+      children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 }, children: contactRuns }));
     }
 
     // Tailored sections, emitted in the user's saved order. Each builder below
@@ -316,8 +360,14 @@ const extraSections = filterExtraSections(profile?.extraSections);
         if (education.length === 0) return [];
         const out: Paragraph[] = [sectionHeading("Education", density)];
         for (const e of education) {
-          out.push(new Paragraph({ spacing: { before: density.tightAfter, after: density.tightAfter }, tabStops: [{ type: "right" as any, position: 9026 }],
-            children: [ new TextRun({ text: e.head, bold: true, size: 22, font: "Calibri" }), new TextRun({ text: e.date ? "\t" + e.date : "", size: 20, color: GREY, font: "Calibri" }) ] }));
+          out.push(datedHeaderParagraph(e.head, e.date, {
+            spacingBefore: density.tightAfter,
+            spacingAfter: density.tightAfter,
+            leftSize: 22,
+            dateSize: 20,
+            dateColor: GREY,
+            dateBold: false,
+          }));
           out.push(new Paragraph({ spacing: { after: density.tightAfter }, children: [new TextRun({ text: e.school, size: 21, font: "Calibri" })] }));
           if (e.note?.trim()) {
             out.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text: e.note, size: 20, font: "Calibri" })] }));
