@@ -8,7 +8,7 @@ import { jsPDF } from "jspdf";
 import { filterExtraSections } from "@/lib/sections";
 import { chooseDensity, wrappedLines, type Density } from "@/lib/cvDensity";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
-import { PdfCursor, parseWords, drawWrapped, drawBullet, drawHeaderLine, hexToRgb, type Word } from "@/lib/pdfText";
+import { PdfCursor, parseWords, drawWrapped, drawBullet, drawHeaderLine, hexToRgb, registerFonts, FONT, type Word } from "@/lib/pdfText";
 import { splitTrailingDate } from "@/lib/projectDate";
 
 const NAVY = hexToRgb("1F3864");
@@ -21,7 +21,7 @@ const lineOf = (sizePt: number) => sizePt * 1.15;
 function drawSectionHeading(doc: jsPDF, cursor: PdfCursor, text: string, d: Density) {
   cursor.advance(pt(d.sectionBefore));
   cursor.ensureRoom(lineOf(12));
-  doc.setFont("helvetica", "bold");
+  doc.setFont(FONT, "bold");
   doc.setFontSize(12);
   doc.setTextColor(...NAVY);
   doc.text(text.toUpperCase(), cursor.marginLeft, cursor.y);
@@ -245,12 +245,13 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
   });
 
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
+  registerFonts(doc);
   const margin = pt(density.margin);
   const cursor = new PdfCursor(doc, { top: margin, right: margin, bottom: margin, left: margin });
 
   // Contact header — only the parts that exist, matching the docx route.
   cursor.ensureRoom(lineOf(20));
-  doc.setFont("helvetica", "bold");
+  doc.setFont(FONT, "bold");
   doc.setFontSize(20);
   doc.setTextColor(...NAVY);
   const nameWidth = doc.getTextWidth(contactName);

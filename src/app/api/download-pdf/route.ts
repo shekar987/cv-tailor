@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("PDF download error:", error);
+    console.error("PDF download error:", error instanceof Error ? error.message : "Unknown error");
     return new Response(JSON.stringify({ error: "Failed to generate PDF" }), { status: 500 });
   }
 }

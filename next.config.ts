@@ -7,6 +7,14 @@ import type { NextConfig } from "next";
 // domain, path and query preserved. permanent: true (308) so browsers and
 // search engines cache the redirect rather than re-checking it forever.
 const nextConfig: NextConfig = {
+  // src/lib/pdfText.ts reads these at runtime (fs.readFileSync) to embed a
+  // Unicode font in generated PDFs. That call isn't statically traceable by
+  // Next's serverless bundler (the path is built at runtime, not a literal),
+  // so without this the font files build and work locally but go missing
+  // from the actual Vercel deployment.
+  outputFileTracingIncludes: {
+    "/*": ["./src/lib/fonts/**/*"],
+  },
   async redirects() {
     return [
       {

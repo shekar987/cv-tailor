@@ -9,6 +9,8 @@
 // extractable text in the output file.
 
 import type { jsPDF } from "jspdf";
+import fs from "node:fs";
+import path from "node:path";
 
 export type Word = { text: string; bold?: boolean; link?: string; glued?: boolean };
 
@@ -103,7 +105,28 @@ export class PdfCursor {
   }
 }
 
-const FONT = "helvetica";
+// jsPDF's built-in "helvetica" is one of the 14 standard PDF fonts — WinAnsi
+// encoded, so it silently drops or mangles anything outside Latin-1 (a name
+// in Cyrillic, Greek, or CJK script would render as garbage, not an error).
+// Noto Sans is embedded instead so real names in those scripts render
+// correctly. It does NOT cover CJK or Arabic (separate Noto font families,
+// and Arabic also needs contextual glyph shaping that jsPDF's plain
+// doc.text() doesn't perform) — characters in those scripts are dropped
+// rather than garbled, a known, documented remaining gap.
+export const FONT = "NotoSans";
+
+const FONTS_DIR = path.join(process.cwd(), "src", "lib", "fonts");
+const FONT_REGULAR_B64 = fs.readFileSync(path.join(FONTS_DIR, "NotoSans-Regular.ttf")).toString("base64");
+const FONT_BOLD_B64 = fs.readFileSync(path.join(FONTS_DIR, "NotoSans-Bold.ttf")).toString("base64");
+
+// jsPDF's font registry lives on the document instance, not globally — call
+// this once on every new jsPDF(), before any setFont/text call.
+export function registerFonts(doc: jsPDF): void {
+  doc.addFileToVFS("NotoSans-Regular.ttf", FONT_REGULAR_B64);
+  doc.addFont("NotoSans-Regular.ttf", FONT, "normal");
+  doc.addFileToVFS("NotoSans-Bold.ttf", FONT_BOLD_B64);
+  doc.addFont("NotoSans-Bold.ttf", FONT, "bold");
+}
 
 type DrawOpts = {
   color?: Rgb;

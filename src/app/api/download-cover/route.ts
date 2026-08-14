@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Cover letter download error:", error);
+    console.error("Cover letter download error:", error instanceof Error ? error.message : "Unknown error");
     return new Response(JSON.stringify({ error: "Failed to generate cover letter" }), { status: 500 });
   }
 }

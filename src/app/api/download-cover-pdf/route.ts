@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Cover letter PDF download error:", error);
+    console.error("Cover letter PDF download error:", error instanceof Error ? error.message : "Unknown error");
     return new Response(JSON.stringify({ error: "Failed to generate cover letter PDF" }), { status: 500 });
   }
 }
