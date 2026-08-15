@@ -29,10 +29,22 @@ export async function POST(req: NextRequest) {
     if (cvText.length > 20_000) {
       return NextResponse.json({ error: "CV is too long (max ~5 pages / 20,000 characters)." }, { status: 400 });
     }
+    // Unlike the tailoring prompts (which each carry an explicit length
+    // budget), this prompt demands full verbatim capture of every section —
+    // education notes, certifications, every project's name/tech/links/
+    // bullets, right-to-work, every extra section — for CVs up to this
+    // route's own 20,000-character cap, all in one JSON response. The
+    // previous default (2000 tokens) was silently truncating detailed CVs;
+    // 8000 is comfortably more than double the input size even accounting
+    // for JSON structural overhead. This runs on the owner's API key with no
+    // per-call cost cap (see checkBurstLimit above), so this raises the
+    // theoretical max cost per call — in practice Claude only spends the
+    // tokens it needs, so a typical CV's actual cost shouldn't change.
     const profile = await callClaude({
       system: PROFILE_EXTRACTION_PROMPT,
       userInput: cvText,
       expectJson: true,
+      maxTokens: 8000,
     });
     return NextResponse.json({ profile });
   } catch (error) {
