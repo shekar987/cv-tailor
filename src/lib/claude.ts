@@ -96,9 +96,10 @@ type BaseCallOptions = {
   expectJson?: boolean; // if true, strip fences + validate JSON
 };
 
-// Raw Anthropic call — returns cleaned text, no JSON parsing. Shared by
-// callClaude() and its repair retry so both go through one code path.
-async function anthropicRaw(options: BaseCallOptions): Promise<string> {
+// Raw Anthropic call — returns cleaned text plus whether the response was
+// cut off by hitting maxTokens, no JSON parsing. Shared by callClaude() and
+// its repair retry so both go through one code path.
+async function anthropicRaw(options: BaseCallOptions): Promise<{ text: string; truncated: boolean }> {
   const {
     system,
     userInput,
@@ -114,7 +115,10 @@ async function anthropicRaw(options: BaseCallOptions): Promise<string> {
   });
 
   const textBlock = message.content.find((b) => b.type === "text");
-  return cleanText(textBlock && "text" in textBlock ? textBlock.text : "");
+  return {
+    text: cleanText(textBlock && "text" in textBlock ? textBlock.text : ""),
+    truncated: message.stop_reason === "max_tokens",
+  };
 }
 
 /**
@@ -123,11 +127,25 @@ async function anthropicRaw(options: BaseCallOptions): Promise<string> {
  * On a JSON step, an invalid response triggers one automatic repair retry.
  */
 export async function callClaude(options: BaseCallOptions) {
-  const text = await anthropicRaw(options);
-  if (!options.expectJson) return text;
-  return parseJsonWithRepair(text, (repair) =>
-    anthropicRaw({ ...options, userInput: `${options.userInput}\n\n${repair}` })
-  );
+  let result = await anthropicRaw(options);
+
+  // A response cut off by the token cap isn't malformed, it's incomplete —
+  // parseJsonWithRepair's "fix this JSON" prompt can only reformat what's
+  // there, it can't recover content that was never generated, and can "fix"
+  // truncated JSON by closing brackets early, silently returning
+  // valid-but-incomplete data (this is exactly how PROFILE_EXTRACTION_PROMPT,
+  // which has no length budget unlike the tailoring prompts, went silently
+  // incomplete for a detailed CV). Retry once with a doubled budget before
+  // ever reaching the repair path.
+  if (result.truncated && options.expectJson) {
+    result = await anthropicRaw({ ...options, maxTokens: (options.maxTokens ?? 2000) * 2 });
+  }
+
+  if (!options.expectJson) return result.text;
+  return parseJsonWithRepair(result.text, async (repair) => {
+    const retry = await anthropicRaw({ ...options, userInput: `${options.userInput}\n\n${repair}` });
+    return retry.text;
+  });
 }
 
 // PRIVACY (manual pre-flight — not enforced by this code): OpenRouter's free

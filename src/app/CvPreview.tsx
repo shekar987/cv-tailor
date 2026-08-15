@@ -265,8 +265,13 @@ function CvPreview({
       return parts.join("\n");
     }
 
-    // Projects: div children of the projects section → each div holds one project's bullets.
+    // Projects: div children of the projects section → each holds one
+    // project's title (read back so inline title edits persist instead of
+    // silently reverting, the same bug class as the education-note fix) and
+    // bullets. Tech/links are deliberately NOT read back — see
+    // contentEditable={false} on those below.
     const domProjects: Record<string, string[]> = {};
+    const domProjectNames: Record<string, string> = {};
     sectionKids("projects")
       .filter(el => el.tagName === "DIV")
       .forEach((projDiv, idx) => {
@@ -274,6 +279,16 @@ function CvPreview({
           .map(li => (li.textContent || "").trim())
           .filter(Boolean);
         if (bullets.length > 0) domProjects[String(idx)] = bullets;
+
+        const jobHeader = projDiv.querySelector(".cvJobHeader");
+        const title = ((jobHeader
+          ? jobHeader.querySelector(".cvProjTitle")?.textContent
+          : projDiv.querySelector(".cvProjTitle")?.textContent) || "").trim();
+        // Reconstruct the stored "title | date" format splitTrailingDate()
+        // expects — always with " | ", regardless of what separator the
+        // original name used, since that's re-parsed on every render anyway.
+        const date = (jobHeader?.querySelector(".cvJobDate")?.textContent || "").trim();
+        if (title) domProjectNames[String(idx)] = date ? `${title} | ${date}` : title;
       });
 
     // Education: each div child has either a cvJobHeader (degree + right-aligned
@@ -351,12 +366,20 @@ function CvPreview({
         }
       : p;
 
+    // Apply any DOM-read title edit on top of the saved project metadata —
+    // tech/links stay whatever was saved, since those two are read-only in
+    // the DOM (see contentEditable={false} on those below).
+    const projectsMeta = (p?.projects || []).map((proj, idx) => {
+      const domName = domProjectNames[String(idx)];
+      return domName ? { ...proj, name: domName } : proj;
+    });
+
     return {
       summary,
       skills,
       experience,
       projects: Object.keys(domProjects).length > 0 ? domProjects : (data.projects || {}),
-      projectsMeta: p?.projects || [],
+      projectsMeta,
       profile: profileForDownload,
       fileBaseName,
       // Send the ALREADY-RESOLVED order rather than the raw stored value, so the
@@ -456,9 +479,16 @@ function CvPreview({
                 ) : (
                   <p className="cvProjTitle">{projTitle}</p>
                 )}
-                {proj.tech && <p className="cvText">{proj.tech}</p>}
+                {/* contentEditable={false}: like the contact row, these two
+                    are never read back out of the DOM by collectPayload()
+                    (a rendered link <a> can't be unambiguously reconstructed
+                    into its original {label, text, url}) — editable-looking
+                    but silently reverting on download is worse than
+                    read-only. The title above IS read back, so it stays
+                    editable. */}
+                {proj.tech && <p className="cvText" contentEditable={false}>{proj.tech}</p>}
                 {proj.links && proj.links.length > 0 && (
-                  <p className="cvText">
+                  <p className="cvText" contentEditable={false}>
                     {proj.links.map((l, li) => {
                       // Match the download route: show the label only when it
                       // isn't a duplicate of the link text (avoids "GitHubGitHub"),
