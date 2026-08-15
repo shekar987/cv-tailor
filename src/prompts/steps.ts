@@ -231,7 +231,7 @@ Output ONLY this JSON (no fences, no preamble):
   "linkedin": "LinkedIn URL or handle if present, else empty",
   "github": "GitHub URL or handle if present, else empty",
   "education": [
-    { "degree": "degree + any modifier", "dates": "date range", "institution": "school name", "note": "one-line note if present, else empty" }
+    { "degree": "degree + any modifier", "dates": "date range", "institution": "school name", "note": "every additional bullet point listed under this entry, verbatim and complete, one per line separated by \\n if there are multiple entries — capture ALL of them, not just the first, else empty string" }
   ],
   "certifications": ["each certification as one string"],
   "projects": [

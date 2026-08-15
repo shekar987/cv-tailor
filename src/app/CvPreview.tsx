@@ -290,7 +290,13 @@ function CvPreview({
           ? (jobHeader.querySelector(".cvJobDate")?.textContent || "").trim()
           : "";
         const institution = (eduDiv.querySelector(".cvText")?.textContent || "").trim();
-        const note = (eduDiv.querySelector(".cvBullet")?.textContent || "").trim();
+        // An entry can have multiple note bullets (one <li class="cvBullet">
+        // each) — read all of them back, not just the first, or editing/
+        // downloading would silently drop the 2nd and 3rd.
+        const note = Array.from(eduDiv.querySelectorAll(".cvBullet"))
+          .map(li => (li.textContent || "").trim())
+          .filter(Boolean)
+          .join("\n");
         return { degree, dates: dates || undefined, institution: institution || undefined, note: note || undefined };
       })
       .filter(e => e.degree);
@@ -498,7 +504,9 @@ function CvPreview({
               {e.institution && <p className="cvText">{e.institution}</p>}
               {e.note?.trim() && (
                 <ul>
-                  <li className="cvBullet">{e.note}</li>
+                  {e.note.split("\n").map((n, ni) => n.trim() && (
+                    <li className="cvBullet" key={`edu-${i}-note-${ni}`}>{n.trim()}</li>
+                  ))}
                 </ul>
               )}
             </div>

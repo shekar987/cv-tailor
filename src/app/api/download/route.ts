@@ -406,8 +406,13 @@ const extraSections = filterExtraSections(profile?.extraSections);
             dateBold: false,
           }));
           out.push(new Paragraph({ spacing: { after: density.tightAfter }, children: [new TextRun({ text: e.school, size: 21, font: "Calibri" })] }));
+          // e.note can hold multiple bullets, one per line — a paragraph per
+          // line, not one paragraph for the whole blob.
           if (e.note?.trim()) {
-            out.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text: e.note, size: 20, font: "Calibri" })] }));
+            for (const n of e.note.split("\n")) {
+              if (!n.trim()) continue;
+              out.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text: n.trim(), size: 20, font: "Calibri" })] }));
+            }
           }
         }
         return out;

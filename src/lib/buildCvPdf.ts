@@ -171,11 +171,15 @@ function drawEducation(doc: jsPDF, cursor: PdfCursor, education: any[], d: Densi
       drawWrapped(doc, cursor, [{ text: e.school }], 10.5, lineOf(10.5));
       cursor.advance(pt(d.tightAfter));
     }
+    // e.note can hold multiple bullets, one per line — draw one bullet per
+    // line, matching the docx route's education section builder (also
+    // matches its AlignmentType.JUSTIFIED there).
     if (e.note && String(e.note).trim()) {
-      // Matches AlignmentType.JUSTIFIED on the e.note bullet in the docx
-      // route's education section builder.
-      drawBullet(doc, cursor, [{ text: e.note }], 10, lineOf(10), { align: "justify" });
-      cursor.advance(pt(d.bulletAfter));
+      for (const n of String(e.note).split("\n")) {
+        if (!n.trim()) continue;
+        drawBullet(doc, cursor, [{ text: n.trim() }], 10, lineOf(10), { align: "justify" });
+        cursor.advance(pt(d.bulletAfter));
+      }
     }
   }
 }
