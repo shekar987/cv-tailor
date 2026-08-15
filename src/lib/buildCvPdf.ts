@@ -75,11 +75,14 @@ function drawTextBlock(doc: jsPDF, cursor: PdfCursor, text: string, mode: "plain
       continue;
     }
 
+    // Matches AlignmentType.JUSTIFIED in the docx route's equivalent default
+    // branch (textToParagraphs) — every plain body line and bullet here
+    // except the skills "Label:" line above, which docx also leaves LEFT.
     const words = parseWords(clean);
     if (isBullet) {
-      drawBullet(doc, cursor, words, 10.5, lineOf(10.5));
+      drawBullet(doc, cursor, words, 10.5, lineOf(10.5), { align: "justify" });
     } else {
-      drawWrapped(doc, cursor, words, 10.5, lineOf(10.5));
+      drawWrapped(doc, cursor, words, 10.5, lineOf(10.5), { align: "justify" });
     }
     cursor.advance(pt(d.bulletAfter));
   }
@@ -144,7 +147,9 @@ function drawProjects(doc: jsPDF, cursor: PdfCursor, projectsMeta: any[], tailor
 
     for (const b of bullets) {
       const words = parseWords(b.replace(/^[-•]\s*/, ""));
-      drawBullet(doc, cursor, words, 10.5, lineOf(10.5));
+      // Matches AlignmentType.JUSTIFIED on this same bullet loop in
+      // buildProjects() in the docx route.
+      drawBullet(doc, cursor, words, 10.5, lineOf(10.5), { align: "justify" });
       cursor.advance(pt(d.bulletAfter));
     }
   }
@@ -167,7 +172,9 @@ function drawEducation(doc: jsPDF, cursor: PdfCursor, education: any[], d: Densi
       cursor.advance(pt(d.tightAfter));
     }
     if (e.note && String(e.note).trim()) {
-      drawBullet(doc, cursor, [{ text: e.note }], 10, lineOf(10));
+      // Matches AlignmentType.JUSTIFIED on the e.note bullet in the docx
+      // route's education section builder.
+      drawBullet(doc, cursor, [{ text: e.note }], 10, lineOf(10), { align: "justify" });
       cursor.advance(pt(d.bulletAfter));
     }
   }

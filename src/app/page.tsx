@@ -132,7 +132,10 @@ export default function Landing() {
       </noscript>
 
       <nav className="lpNav">
-        <div className="lpWordmark">Jobhuntz</div>
+        <div>
+          <div className="lpWordmark">Jobhuntz</div>
+          <p className="lpTagline">Welcome to the jungle.</p>
+        </div>
         <div className="lpNavActions">
           <Link href="/auth/login" className="customizeLink">Sign in</Link>
           <Link href="/app" className="lpNavCta">Open the tool</Link>
@@ -141,7 +144,7 @@ export default function Landing() {
 
       {/* ── Hero — no scroll-reveal here, it's above the fold on load ────── */}
       <section className="lpHero">
-        <p className="lpEyebrow">For backend, full-stack &amp; AI engineers</p>
+        <p className="lpHeroLede">Built for everyone — especially useful if you&apos;re serious about the search.</p>
         <h1 className="lpTitle">
           Every AI CV tool lies for you. This one <span className="lpAmber">won&apos;t</span>.
         </h1>
@@ -151,7 +154,6 @@ export default function Landing() {
         </p>
         <div className="lpHeroCta">
           <Button href="/app">Tailor my CV →</Button>
-          <span className="lpHeroNote">3 free tailors, no card required.</span>
         </div>
       </section>
 

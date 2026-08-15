@@ -850,6 +850,7 @@ textarea:focus-visible {
 .lpNav { display: flex; justify-content: space-between; align-items: center; padding: var(--space-6) 0; flex-wrap: wrap; gap: var(--space-3); }
 .lpNavActions { display: flex; align-items: center; gap: var(--space-4); }
 .lpWordmark { font-size: var(--text-lg); font-weight: 700; letter-spacing: var(--tracking-tight); }
+.lpTagline { font-size: var(--text-xs); color: var(--muted); letter-spacing: var(--tracking-label); margin-top: 1px; }
 .lpDot { color: var(--amber); }
 /* Neutral by default — the real action on this page is "Tailor my CV", not
    this nav link. Amber stays reserved for the two hero/closing CTAs. */
@@ -877,6 +878,10 @@ textarea:focus-visible {
   color: var(--muted); font-size: var(--text-sm); text-transform: uppercase;
   letter-spacing: var(--tracking-label); margin-bottom: var(--space-5);
 }
+/* A full sentence, not a 2-3 word label — normal case, not letter-spaced
+   like .lpEyebrow/.lpKicker (those are for short uppercase tags and would
+   hurt readability at sentence length). */
+.lpHeroLede { color: var(--muted); font-size: var(--text-base); margin-bottom: var(--space-5); }
 .lpTitle, .lpHero h1 {
   font-size: clamp(2.25rem, 1.15rem + 4.5vw, 4.25rem);
   line-height: 1.05;
@@ -887,7 +892,6 @@ textarea:focus-visible {
 .lpAmber { color: var(--amber-bright); }
 .lpSub { font-size: var(--text-md); line-height: var(--leading-relaxed); color: #C8C8CC; margin-bottom: var(--space-8); max-width: 52ch; }
 .lpHeroCta { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); }
-.lpHeroNote { font-size: var(--text-sm); color: var(--muted); }
 
 /* Small uppercase label used above a section's H2 — same voice as .lpEyebrow,
    reused so every section introduces itself the same way. */

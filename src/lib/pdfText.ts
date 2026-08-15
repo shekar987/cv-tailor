@@ -131,7 +131,7 @@ export function registerFonts(doc: jsPDF): void {
 type DrawOpts = {
   color?: Rgb;
   linkColor?: Rgb;
-  align?: "left" | "right" | "center";
+  align?: "left" | "right" | "center" | "justify";
 };
 
 // A word wider than the available line width on its own (a long URL, a long
@@ -211,20 +211,38 @@ export function drawWrapped(
   }
   if (line.length > 0) lines.push(line);
 
-  for (const ln of lines) {
+  lines.forEach((ln, lineIndex) => {
     cursor.ensureRoom(lineHeight);
-    // Total width of this line, for right/center alignment.
+    const isLastLine = lineIndex === lines.length - 1;
+    const gapCount = ln.reduce((n, w, i) => (i > 0 && !w.glued ? n + 1 : n), 0);
+
+    // Total width of this line (using the normal fixed space width), for
+    // right/center alignment and as the fallback when a line can't be
+    // justified (its own paragraph's last line, or a single word with no
+    // gap to stretch).
     let total = 0;
     ln.forEach((w, i) => {
       if (i > 0 && !w.glued) total += spaceWidth;
       total += widthOf(w);
     });
+
+    // Justify: distribute the line's slack evenly across its inter-word
+    // gaps instead of drawing it with the fixed space width, so the right
+    // edge lands flush against maxWidth — matching the on-screen preview
+    // and the Word download, which both justify this same text. A
+    // paragraph's last line stays ragged (standard convention, and what
+    // Word's own AlignmentType.JUSTIFIED does too); a line with no
+    // stretchable gap (one word alone) can't be justified and falls back
+    // to left-aligned.
+    const justify = opts.align === "justify" && !isLastLine && gapCount > 0;
+    const gapWidth = justify ? spaceWidth + (maxWidth - total) / gapCount : spaceWidth;
+
     let cx = x;
     if (opts.align === "right") cx = x + maxWidth - total;
     else if (opts.align === "center") cx = x + (maxWidth - total) / 2;
 
     ln.forEach((w, i) => {
-      if (i > 0 && !w.glued) cx += spaceWidth;
+      if (i > 0 && !w.glued) cx += gapWidth;
       doc.setFont(FONT, w.bold ? "bold" : "normal");
       doc.setFontSize(size);
       const [r, g, b] = w.link ? linkColor : color;
@@ -244,7 +262,7 @@ export function drawWrapped(
     });
     doc.setTextColor(0, 0, 0);
     cursor.advance(lineHeight);
-  }
+  });
 }
 
 // A single-style line (no bold/link mixing needed) — contact info, plain
