@@ -309,7 +309,19 @@ export function drawHeaderLine(
   const rightWidth = rightText ? doc.getTextWidth(rightText) : 0;
   const gap = rightText ? 8 : 0;
 
-  if (!rightText || leftWidth + gap + rightWidth <= cursor.contentWidth) {
+  // Whether leftText alone (plus any date) actually fits is the ONLY thing
+  // that decides the branch below — deliberately not short-circuited by
+  // "no date" the way this used to read (`!rightText || ...`). That
+  // shortcut meant any title without a date — e.g. splitTrailingDate()
+  // finding no trailing date to extract, which happens for any title that
+  // doesn't match its expected suffix format — always took the single-line
+  // path below and got drawn via one raw, unwrapped doc.text() call with no
+  // length limit at all, straight off the page edge for a long title. This
+  // must stay correct for arbitrary user data, not just titles a test
+  // happens to cover.
+  const fitsOneLine = leftWidth + gap + rightWidth <= cursor.contentWidth;
+
+  if (fitsOneLine) {
     cursor.ensureRoom(lineHeight);
     doc.setFont(FONT, "bold");
     doc.setFontSize(size);
@@ -328,16 +340,20 @@ export function drawHeaderLine(
   }
 
   // Doesn't fit on one line — wrap the left text at word boundaries, full
-  // width, then place the date right-aligned on its own line right after.
+  // width (this alone guarantees leftText can never run past the page edge,
+  // regardless of length or whether there's a date at all), then place the
+  // date right-aligned on its own line right after, if there is one.
   drawWrapped(doc, cursor, parseWords(leftText, true), size, lineHeight);
-  cursor.ensureRoom(lineHeight);
-  doc.setFont(FONT, rightBold ? "bold" : "normal");
-  doc.setFontSize(rightSize);
-  const [r, g, b] = rightColor;
-  doc.setTextColor(r, g, b);
-  doc.text(rightText, cursor.marginLeft + cursor.contentWidth - rightWidth, cursor.y);
-  doc.setTextColor(0, 0, 0);
-  cursor.advance(lineHeight);
+  if (rightText) {
+    cursor.ensureRoom(lineHeight);
+    doc.setFont(FONT, rightBold ? "bold" : "normal");
+    doc.setFontSize(rightSize);
+    const [r, g, b] = rightColor;
+    doc.setTextColor(r, g, b);
+    doc.text(rightText, cursor.marginLeft + cursor.contentWidth - rightWidth, cursor.y);
+    doc.setTextColor(0, 0, 0);
+    cursor.advance(lineHeight);
+  }
 }
 
 // A bullet point with a hanging indent — wrapped continuation lines align
