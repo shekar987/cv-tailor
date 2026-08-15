@@ -298,7 +298,7 @@ export default function Landing() {
       </Reveal>
 
       <footer className="lpFooter">
-        Built by Soma Shekar Keesari · An honest CV tool for engineers
+        Built by Soma Shekar Keesari · Search smarter. Apply faster.
       </footer>
     </main>
   );
