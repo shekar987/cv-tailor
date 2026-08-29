@@ -29,6 +29,14 @@ const DETAIL_COLUMNS =
   "id, company_name, role, cv_reference, tailor_session_id, status, salary, date_applied, followup_date, notes, job_description, source, created_at, updated_at, tailored_cv";
 
 const MAX_TAILORED_CV_JSON = 200_000;
+
+// Migrations are applied by hand here, so "column does not exist" (42703) is
+// a real, reachable state — name the fix rather than returning a generic 500.
+const MIGRATION_HINT =
+  "The database is missing the latest migration (supabase/migrations/20260829120000_applications_tailored_cv.sql). Run it in the Supabase SQL editor, then try again.";
+function isMissingColumn(err: { code?: string } | null): boolean {
+  return err?.code === "42703";
+}
 const TAILORED_CV_KEYS = ["summary", "skills", "experience", "projects", "profile", "sectionOrder"] as const;
 
 // The CV snapshot comes from our own client, so this only pins the shape and
@@ -172,6 +180,9 @@ export async function GET(req: NextRequest) {
         .maybeSingle();
       if (rowError) {
         console.error("applications detail read error:", rowError.message);
+        if (isMissingColumn(rowError)) {
+          return NextResponse.json({ error: MIGRATION_HINT }, { status: 500 });
+        }
         return NextResponse.json({ error: "Could not load that application" }, { status: 500 });
       }
       if (!row) return NextResponse.json({ error: "Application not found" }, { status: 404 });
@@ -298,6 +309,9 @@ export async function POST(req: NextRequest) {
         }
       }
       console.error("applications insert error:", insertError.message);
+      if (isMissingColumn(insertError)) {
+        return NextResponse.json({ error: MIGRATION_HINT }, { status: 500 });
+      }
       return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
     }
     return NextResponse.json({ ok: true, id: inserted?.id });

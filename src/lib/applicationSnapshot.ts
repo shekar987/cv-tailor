@@ -117,16 +117,83 @@ export type AtsScoreLike = {
 
 const MAX_NOTES = 2000;
 
+// ── Second person ───────────────────────────────────────────────────────────
+// The scorer is asked to address the user as "you" but drifts into "the
+// candidate". These are the user's own notes, so they should read that way.
+// Only explicit "the/this candidate" phrasings are touched; "a strong
+// candidate for this role" is left alone.
+
+const IRREGULAR_VERBS: Record<string, string> = {
+  has: "have",
+  is: "are",
+  does: "do",
+  was: "were",
+  "hasn't": "haven't",
+  "isn't": "aren't",
+  "doesn't": "don't",
+  "wasn't": "weren't",
+};
+const ADVERBS = new Set([
+  "also", "already", "clearly", "currently", "only", "still", "never", "not",
+  "now", "then", "likely", "probably", "certainly", "generally", "mostly", "largely",
+]);
+
+// Third-person-singular verb → base form ("lacks" → "lack"); null when the
+// word doesn't look like such a verb, so nouns and adverbs pass through.
+function baseVerb(word: string): string | null {
+  const lower = word.toLowerCase();
+  if (IRREGULAR_VERBS[lower]) return IRREGULAR_VERBS[lower];
+  if (lower.length < 4 || !lower.endsWith("s") || /(ss|us|is|os)$/.test(lower)) return null;
+  if (/(ches|shes|sses|xes|zes|oes)$/.test(lower)) return word.slice(0, -2);
+  if (/[^aeiou]ies$/.test(lower)) return `${word.slice(0, -3)}y`;
+  return word.slice(0, -1);
+}
+
+// `rest` is up to two words following "candidate", whitespace included.
+// Conjugates the first verb-looking word, skipping over a leading adverb.
+function conjugateTail(rest: string): string {
+  const parts = rest.match(/^(\s+)(\S+)(?:(\s+)(\S+))?$/);
+  if (!parts) return rest;
+  const [, sp1, w1, sp2 = "", w2 = ""] = parts;
+  const first = baseVerb(w1);
+  if (first) return `${sp1}${first}${sp2}${w2}`;
+  if (ADVERBS.has(w1.toLowerCase()) || /ly$/i.test(w1)) {
+    const second = w2 ? baseVerb(w2) : null;
+    if (second) return `${sp1}${w1}${sp2}${second}`;
+  }
+  return rest;
+}
+
+export function toSecondPerson(text: string): string {
+  const you = (word: string) => (/^[A-Z]/.test(word) ? "You" : "you");
+  const your = (word: string) => (/^[A-Z]/.test(word) ? "Your" : "your");
+  return text
+    .replace(/\b(the|this) candidate's\b/gi, (_m, det: string) => your(det))
+    .replace(/\b(the|this) candidate\b((?:\s+[\w']+){0,2})/gi, (_m, det: string, rest: string) => you(det) + conjugateTail(rest))
+    // Bare "candidate has …", as in "…not mentioned; candidate has generic AWS experience".
+    .replace(/(?<!\b(?:a|an|strong|ideal|good|suitable)\s)\b(candidate)\b((?:\s+[\w']+){0,2})/gi, (_m, word: string, rest: string) =>
+      you(word) + conjugateTail(rest)
+    )
+    .replace(/\bcandidate's\b/gi, "your");
+}
+
+// Cut at a word boundary with an ellipsis, never mid-word.
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.lastIndexOf(" ", max - 1);
+  return `${text.slice(0, cut > max / 2 ? cut : max - 1).trimEnd()}…`;
+}
+
 // Two to three lines: the scorer's own assessment, the coverage numbers, and
-// the gaps it flagged — taken verbatim from the run, never rewritten.
+// the gaps it flagged — from the run's real output, only re-addressed to "you".
 export function buildAppliedNotes(atsScore: AtsScoreLike): string | null {
   if (!atsScore) return null;
   const lines: string[] = [];
 
-  const assessment = (atsScore.overall_assessment ?? "").trim();
+  const assessment = toSecondPerson((atsScore.overall_assessment ?? "").trim());
   if (assessment) {
     const firstTwo = assessment.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ");
-    lines.push(firstTwo.slice(0, 300));
+    lines.push(clip(firstTwo, 300));
   }
 
   const coverage: string[] = [];
@@ -140,7 +207,7 @@ export function buildAppliedNotes(atsScore: AtsScoreLike): string | null {
     ? atsScore.misses.filter((x): x is string => typeof x === "string" && x.trim() !== "").slice(0, 3)
     : [];
   if (misses.length) {
-    lines.push(`Gaps flagged: ${misses.map((x) => x.trim().slice(0, 100)).join("; ")}`);
+    lines.push(`Gaps flagged: ${misses.map((x) => clip(toSecondPerson(x.trim()), 140)).join("; ")}`);
   }
 
   if (lines.length === 0) return null;
