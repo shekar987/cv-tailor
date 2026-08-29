@@ -30,12 +30,14 @@ const DETAIL_COLUMNS =
 
 const MAX_TAILORED_CV_JSON = 200_000;
 
-// Migrations are applied by hand here, so "column does not exist" (42703) is
-// a real, reachable state — name the fix rather than returning a generic 500.
+// Migrations are applied by hand here, so "column does not exist" is a real,
+// reachable state — name the fix rather than returning a generic 500. Postgres
+// reports it as 42703 on reads; PostgREST reports it as PGRST204 on writes
+// (the column isn't in its schema cache).
 const MIGRATION_HINT =
   "The database is missing the latest migration (supabase/migrations/20260829120000_applications_tailored_cv.sql). Run it in the Supabase SQL editor, then try again.";
 function isMissingColumn(err: { code?: string } | null): boolean {
-  return err?.code === "42703";
+  return err?.code === "42703" || err?.code === "PGRST204";
 }
 const TAILORED_CV_KEYS = ["summary", "skills", "experience", "projects", "profile", "sectionOrder"] as const;
 
