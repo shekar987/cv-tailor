@@ -288,6 +288,7 @@ export default function Home() {
             {userEmail && (
               <div className="appBarActions">
                 <span className="appBarEmail" title={userEmail}>{userEmail}</span>
+                <Link href="/applications" className="customizeLink">Applications</Link>
                 <Link href="/customize" className="customizeLink">Customize</Link>
                 <Link href="/settings" className="customizeLink">Settings</Link>
                 <button type="button" onClick={handleSignOut} className="customizeLink">
