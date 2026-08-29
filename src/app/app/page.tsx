@@ -8,6 +8,7 @@ import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 import type { AtsMatchResult } from "@/lib/atsMatch";
 import { loadWorkspace, saveWorkspace, clearWorkspace } from "@/lib/workspace";
+import { extractSalary, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Textarea from "@/components/ui/Textarea";
@@ -48,6 +49,12 @@ type Result = {
   experience?: string;
   projects?: any;
   coverLetter?: string;
+  // Step 1's JD analysis, echoed back by /api/tailor. Only the fields the
+  // client reads are typed here.
+  analysis?: {
+    company_name?: string;
+    role_title?: string;
+  };
   atsScore?: {
     keyword_coverage?: string;
     required_skill_coverage?: string;
@@ -57,6 +64,18 @@ type Result = {
     recommendations?: string[];
   };
 };
+
+type AppliedState = "idle" | "saving" | "saved" | "already" | "error";
+
+// Download filename, e.g. Jane_Doe_Acme_Backend_Engineer_CV. Also stored as
+// the tracker row's cv_reference, so the two always name the same document.
+// CvPreview is memoised on this string — keep it deterministic.
+function buildFileBaseName(profile: Profile | null, analysis: Result["analysis"], suffix: string): string {
+  const first = (profile?.name || "User").trim().split(/\s+/).slice(0, 2).join("_");
+  const cn = (analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  const rt = (analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  return [first, cn, rt, suffix].filter(Boolean).join("_");
+}
 
 export default function Home() {
   const router = useRouter();
@@ -99,6 +118,13 @@ export default function Home() {
   const [userId, setUserId] = useState<string | null>(null);
   const [workspaceReady, setWorkspaceReady] = useState(false);
 
+  // Identity of the current tailoring run — minted when a run completes and
+  // persisted with the workspace. The tracker keys "Applied" saves on it, so
+  // clicking twice (even across a reload) can't create two rows.
+  const [tailorSessionId, setTailorSessionId] = useState<string | null>(null);
+  const [appliedState, setAppliedState] = useState<AppliedState>("idle");
+  const [appliedError, setAppliedError] = useState("");
+
   // On load: fetch CV + profile from Supabase.
   // If the DB has nothing but localStorage does, import it once then clear localStorage.
   useEffect(() => {
@@ -120,6 +146,7 @@ export default function Home() {
           if (saved.jobDescription) setJobDescription(saved.jobDescription);
           if (saved.result) setResult(saved.result as Result);
           if (saved.ranProvider) setRanProvider(saved.ranProvider);
+          if (saved.tailorSessionId) setTailorSessionId(saved.tailorSessionId);
         }
       }
       // Only now may the save effect run — writing before this point would
@@ -173,8 +200,8 @@ export default function Home() {
   // workspaceReady so the initial empty state never overwrites saved work.
   useEffect(() => {
     if (!workspaceReady || !userId) return;
-    saveWorkspace(userId, { jobDescription, result, ranProvider });
-  }, [workspaceReady, userId, jobDescription, result, ranProvider]);
+    saveWorkspace(userId, { jobDescription, result, ranProvider, tailorSessionId });
+  }, [workspaceReady, userId, jobDescription, result, ranProvider, tailorSessionId]);
 
   async function handleSignOut() {
     // Don't leave a tailored CV in this browser's storage after sign-out.
@@ -232,6 +259,8 @@ export default function Home() {
     setErrorType(null);
     setLoading(true);
     setResult(null);
+    setAppliedState("idle");
+    setAppliedError("");
     try {
       const res = await fetch("/api/tailor", {
         method: "POST",
@@ -252,6 +281,9 @@ export default function Home() {
       } else {
         setResult(data);
         setRanProvider(typeof data.provider === "string" ? data.provider : null);
+        // A fresh id per completed run: re-tailoring the same job is a new
+        // session, and legitimately gets its own tracker row.
+        setTailorSessionId(crypto.randomUUID());
       }
     } catch {
       setError("Couldn't reach the server. Check it's running and try again.");
@@ -264,6 +296,53 @@ export default function Home() {
       setGateAnalysis(null);
     }
   }
+  // Snapshot the finished run into the application tracker. Reads only what
+  // the run already produced — the pipeline itself is untouched. The server
+  // owns the duplicate rule (one row per session id) and reports a repeat
+  // click back as alreadySaved, without touching the existing row.
+  async function handleApplied() {
+    if (!result) return;
+    // Workspaces saved before session ids existed restore without one; mint
+    // it now so the save effect persists it and a second click still dedupes.
+    const sid = tailorSessionId ?? crypto.randomUUID();
+    if (sid !== tailorSessionId) setTailorSessionId(sid);
+    const analysis = result.analysis;
+    const today = new Date();
+
+    setAppliedState("saving");
+    setAppliedError("");
+    try {
+      const res = await fetch("/api/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company_name: analysis?.company_name?.trim() || "Unknown company",
+          role: analysis?.role_title?.trim() || "Unknown role",
+          cv_reference: buildFileBaseName(profile, analysis, "CV"),
+          tailor_session_id: sid,
+          status: "Applied",
+          source: "tailored",
+          // Only a figure the posting literally states; null otherwise.
+          salary: extractSalary(jobDescription),
+          date_applied: localIsoDate(today),
+          followup_date: localIsoDate(addDays(today, 7)),
+          notes: buildAppliedNotes(result.atsScore),
+          job_description: jobDescription.slice(0, 15_000),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAppliedState("error");
+        setAppliedError(data.error || "Couldn't save to the tracker. Try again.");
+        return;
+      }
+      setAppliedState(data.alreadySaved ? "already" : "saved");
+    } catch {
+      setAppliedState("error");
+      setAppliedError("Couldn't reach the server. Try again.");
+    }
+  }
+
   // Stable reference so React.memo on CvPreview can skip re-renders when only the JD
   // textarea or other unrelated state changes. Only rebuilds when result changes.
   const cvData = useMemo(() => ({
@@ -536,28 +615,42 @@ export default function Home() {
             )}
           
             
+            {/* Applied → snapshot this run into the tracker. Secondary on
+                purpose: amber on this view belongs to Download. */}
+            <div className="actions appliedRow">
+              <Button
+                variant="secondary"
+                onClick={handleApplied}
+                disabled={appliedState === "saving" || appliedState === "saved" || appliedState === "already"}
+              >
+                {appliedState === "saving"
+                  ? "Saving…"
+                  : appliedState === "saved"
+                    ? "Saved to tracker ✓"
+                    : appliedState === "already"
+                      ? "Already in tracker"
+                      : "Applied — save to tracker"}
+              </Button>
+              {(appliedState === "saved" || appliedState === "already") && (
+                <Link href="/applications" className="customizeLink">View tracker →</Link>
+              )}
+              {appliedState === "error" && appliedError && (
+                <StatusText as="span" role="alert">{appliedError}</StatusText>
+              )}
+            </div>
+
             <CvPreview
               data={cvData}
               profile={profile}
               sectionOrder={sectionOrder}
-              fileBaseName={(() => {
-                const first = (profile?.name || "User").trim().split(/\s+/).slice(0, 2).join("_");
-                const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-                const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-                return [first, cn, rt, "CV"].filter(Boolean).join("_");
-              })()}
+              fileBaseName={buildFileBaseName(profile, result.analysis, "CV")}
             />
 {result.coverLetter && (
               <>
                 <h2 className="clHeading">Cover Letter</h2>
                 <CoverLetterPreview
                   coverLetter={result.coverLetter}
-                  fileBaseName={(() => {
-                    const first = (profile?.name || "User").trim().split(/\s+/).slice(0, 2).join("_");
-                    const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-                    const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-                    return [first, cn, rt, "CoverLetter"].filter(Boolean).join("_");
-                  })()}
+                  fileBaseName={buildFileBaseName(profile, result.analysis, "CoverLetter")}
                 />
               </>
             )}

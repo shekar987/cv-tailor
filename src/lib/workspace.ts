@@ -23,6 +23,10 @@ export type StoredWorkspace = {
   jobDescription: string;
   result: unknown;
   ranProvider: string | null;
+  // Minted once per completed tailoring run. An "Applied" save is keyed on it,
+  // so a reload can't turn a second click into a second tracker row. Optional:
+  // envelopes written before it existed restore fine without one.
+  tailorSessionId?: string | null;
 };
 
 type Envelope = StoredWorkspace & { v: number; savedAt: number };
@@ -42,6 +46,7 @@ export function loadWorkspace(userId: string): StoredWorkspace | null {
       jobDescription: typeof parsed.jobDescription === "string" ? parsed.jobDescription : "",
       result: parsed.result ?? null,
       ranProvider: typeof parsed.ranProvider === "string" ? parsed.ranProvider : null,
+      tailorSessionId: typeof parsed.tailorSessionId === "string" ? parsed.tailorSessionId : null,
     };
   } catch {
     // Corrupt or unreadable — behave as if nothing was saved.

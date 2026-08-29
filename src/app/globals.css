@@ -1560,3 +1560,7 @@ textarea:focus-visible {
   }
   .appsTable tr.appsDetail td::before { content: none; }
 }
+
+/* "Applied" row on the results view — secondary by design; amber on this
+   view belongs to Download. */
+.appliedRow { margin-top: var(--space-4); margin-bottom: var(--space-2); }
