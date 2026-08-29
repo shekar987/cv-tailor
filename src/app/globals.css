@@ -1310,10 +1310,12 @@ textarea:focus-visible {
   font-weight: 400 !important;
 }
 /* ── Application tracker (/applications) ────────────────────────────────────
-   Eight columns don't fit the 760px reading measure, so this page widens the
-   container. Desktop is a real <table>; below 640px each row re-lays as a
-   card and every cell prints its own label via data-label. */
-.appsContainer { max-width: 1100px; }
+   A spreadsheet, not a report: grid lines, a sticky header row, and every
+   cell a control that edits in place. Desktop is a real <table>; below 640px
+   each row re-lays as a card and every cell prints its own label via
+   data-label. Nine columns don't fit the 760px reading measure, so this page
+   widens the container. */
+.appsContainer { max-width: 1180px; }
 
 .srOnly {
   position: absolute;
@@ -1345,9 +1347,8 @@ textarea:focus-visible {
 }
 .appsCount { font-size: var(--text-sm); color: var(--muted); }
 
-/* Same skin as .providerPick select / .textInput, sized for a table cell. */
-.appsSelect,
-.appsInput {
+/* Toolbar filter — same skin as .providerPick select. */
+.appsSelect {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -1356,31 +1357,22 @@ textarea:focus-visible {
   min-height: 36px;
   font-size: var(--text-sm);
   font-family: inherit;
-  transition: border-color var(--duration) var(--ease);
 }
-.appsInput { width: 100%; min-width: 0; }
-.appsSelectBlock { width: 100%; }
-.appsSelect:focus,
-.appsInput:focus { outline: none; border-color: var(--amber); }
-/* Native date pickers default to a light palette; match the page. */
-.appsInput[type="date"],
-.appsDateInput { color-scheme: dark; }
+.appsSelect:focus { outline: none; border-color: var(--amber); }
 
-.appsAddCard { margin-bottom: var(--space-4); }
-.appsFormGrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
-.appsFormGrid .full { grid-column: 1 / -1; }
-.appsCharCount { font-size: var(--text-xs); color: var(--muted); margin-top: var(--space-1); text-align: right; }
-.appsCharCount.over { color: var(--danger); }
-
+/* ── The sheet ── */
 .appsTableWrap {
   overflow-x: auto;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
 }
-.appsTable { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.appsTable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--text-sm); }
 .appsTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-2);
   text-align: left;
   font-size: var(--text-xs);
   font-weight: 600;
@@ -1388,16 +1380,21 @@ textarea:focus-visible {
   text-transform: uppercase;
   letter-spacing: var(--tracking-label);
   padding: var(--space-3);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border);
   white-space: nowrap;
 }
 .appsTable td {
-  padding: var(--space-3);
+  padding: 0;
   border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
   vertical-align: middle;
-  line-height: var(--leading-snug);
 }
+.appsTable th:last-child,
+.appsTable td:last-child { border-right: none; }
 .appsTable tbody tr:last-child td { border-bottom: none; }
+.appsRow.open td { background: var(--surface-2); }
+.appsNewRow td { background: var(--amber-dim); }
 
 .appsSortBtn {
   background: none;
@@ -1413,48 +1410,60 @@ textarea:focus-visible {
 .appsSortBtn:hover,
 .appsSortBtn.active { color: var(--text); }
 
-.appsRow { cursor: pointer; transition: background var(--duration) var(--ease); }
-.appsRow:hover,
-.appsRow.open { background: var(--surface-2); }
-.appsRow.editing { cursor: default; }
-
-.appsPrimary { font-weight: 600; color: var(--text); }
-.appsMuted { color: var(--muted); }
-.appsCvRef {
-  display: inline-block;
-  max-width: 14ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
-  color: var(--muted);
-}
-.appsNotesCell { max-width: 22ch; }
-.appsNotesCell span {
+/* Every cell control shares one box, so the grid never jumps between
+   viewing and editing. */
+.appsCellBtn,
+.appsCellInput,
+.appsCellSelect,
+.appsLinkBtn,
+.appsCellStatic {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-}
-
-/* Status is data, not an action: a quiet outlined pill. Only the two
-   terminal outcomes get a semantic colour. */
-.appsStatus {
-  display: inline-block;
-  padding: 2px 8px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  white-space: nowrap;
+  width: 100%;
+  min-height: 42px;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  border-radius: 0;
   color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  text-align: left;
 }
-.appsStatus.offer { color: var(--success); border-color: rgba(109, 196, 142, 0.45); }
-.appsStatus.rejected { color: var(--danger); border-color: rgba(229, 137, 107, 0.45); }
-.appsStatus.withdrawn { color: var(--muted); }
+.appsCellBtn { cursor: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.appsCellBtn.empty { color: var(--muted); }
+.appsCellBtn:hover,
+.appsLinkBtn:hover,
+.appsCellSelect:hover { background: var(--surface-3); }
+.appsCellBtn:focus-visible,
+.appsLinkBtn:focus-visible,
+.appsCellSelect:focus { outline: 2px solid var(--amber); outline-offset: -2px; }
+.appsCellInput { background: var(--bg); box-shadow: inset 0 0 0 2px var(--amber); min-width: 9ch; }
+.appsCellInput:focus { outline: none; }
+.appsCellInput::placeholder { color: var(--muted); opacity: 0.7; }
+/* Native pickers default to a light palette; match the page. */
+.appsCellInput[type="date"],
+.appsCellSelect { color-scheme: dark; }
+.appsCellSelect { cursor: pointer; }
+.appsCellStatic { color: var(--muted); }
+.appsCellError {
+  display: block;
+  padding: 0 var(--space-3) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--danger);
+}
 
-.appsActions { white-space: nowrap; text-align: right; }
+/* View CV / View JD / notes — the cells that open a panel. */
+.appsLinkBtn { color: var(--amber); cursor: pointer; white-space: nowrap; }
+.appsLinkBtn:hover { color: var(--amber-bright); }
+.appsLinkBtn.active { background: var(--surface-3); }
+.appsLinkBtn.muted { color: var(--muted); }
+.appsNotesCell { max-width: 26ch; }
+.appsNotesBtn { overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.appsNotesBtn.muted { color: var(--muted); }
+.appsMuted { color: var(--muted); }
+
+.appsActions { white-space: nowrap; text-align: right; padding: 0 var(--space-2) !important; }
 .appsActionBtn {
   background: transparent;
   border: 1px solid var(--border);
@@ -1477,16 +1486,32 @@ textarea:focus-visible {
   background: var(--surface-3);
 }
 .appsActionBtn.danger { color: var(--danger); }
+.appsActionBtn.primary { color: var(--amber); border-color: rgba(224, 160, 77, 0.45); }
 .appsActionBtn:disabled { opacity: 0.6; cursor: not-allowed; }
 .appsConfirm { font-size: var(--text-xs); color: var(--danger); margin-right: var(--space-1); }
 
+/* ── Detail panel under a row (CV / JD / Notes) ── */
 .appsDetail td {
-  background: var(--surface-2);
   padding: var(--space-4) var(--space-5);
-  cursor: default;
+  background: var(--surface-2);
+  border-right: none;
 }
-.appsDetailGrid { display: grid; gap: var(--space-4); }
-.appsDetailMeta { font-size: var(--text-xs); color: var(--muted); }
+.appsPanelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+.appsPanelActions { display: flex; gap: var(--space-1); }
+.appsPanelTitle {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
 .appsJd {
   margin: 0;
   white-space: pre-wrap;
@@ -1496,29 +1521,33 @@ textarea:focus-visible {
   line-height: var(--leading-normal);
   color: var(--text);
   max-width: 80ch;
-  max-height: 360px;
+  max-height: 480px;
   overflow-y: auto;
 }
+.appsCharCount { font-size: var(--text-xs); color: var(--muted); margin-top: var(--space-1); text-align: right; }
+.appsCharCount.over { color: var(--danger); }
 
 .appsEmpty { text-align: center; color: var(--text); font-size: var(--text-base); padding: var(--space-6) var(--space-4); }
 .appsEmpty .cvHelp { margin: var(--space-2) auto var(--space-4); }
 .appsEmpty .actions { justify-content: center; margin-top: 0; }
 
 @media (max-width: 640px) {
-  .appsFormGrid { grid-template-columns: 1fr; }
-  .appsTableWrap { overflow: visible; background: transparent; border: none; box-shadow: none; }
+  .appsTableWrap { overflow: visible; background: transparent; border: none; }
   .appsTable thead { display: none; }
   .appsTable,
   .appsTable tbody,
   .appsTable tr,
   .appsTable td { display: block; width: 100%; }
-  .appsTable tr.appsRow {
+  .appsTable tr.appsRow,
+  .appsTable tr.appsNewRow {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    padding: var(--space-2) var(--space-4);
+    padding: var(--space-2) var(--space-3);
     margin-bottom: var(--space-3);
   }
+  .appsTable tr.appsNewRow { background: var(--amber-dim); }
+  .appsNewRow td { background: transparent; }
   .appsTable tr.appsRow.open {
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
@@ -1527,28 +1556,29 @@ textarea:focus-visible {
   .appsTable td {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    padding: var(--space-2) 0;
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
+    padding: 0;
+    border-right: none;
     border-bottom: 1px solid var(--border);
   }
-  .appsTable tr.appsRow td:last-child { border-bottom: none; }
+  .appsTable tr td:last-child { border-bottom: none; }
   .appsTable td::before {
     content: attr(data-label);
-    flex-shrink: 0;
+    flex: 0 0 34%;
     font-size: var(--text-xs);
     font-weight: 600;
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: var(--tracking-label);
   }
-  .appsTable td.appsActions::before { content: none; }
-  .appsActions { justify-content: flex-end; }
-  .appsCvRef { max-width: 55%; }
+  .appsTable td > * { flex: 1 1 0; min-width: 0; }
+  .appsTable td > .appsCellError { flex-basis: 100%; }
+  .appsTable td.appsActions::before,
+  .appsTable td[colspan]::before { content: none; }
+  .appsActions { justify-content: flex-end; padding: var(--space-2) 0 !important; }
+  .appsActions > * { flex: 0 0 auto; }
   .appsNotesCell { max-width: none; }
-  .appsNotesCell span { white-space: normal; text-align: right; }
-  .appsInput,
-  .appsSelect { max-width: 60%; }
   .appsTable tr.appsDetail td {
     display: block;
     background: var(--surface);

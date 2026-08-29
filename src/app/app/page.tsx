@@ -328,6 +328,16 @@ export default function Home() {
           followup_date: localIsoDate(addDays(today, 7)),
           notes: buildAppliedNotes(result.atsScore),
           job_description: jobDescription.slice(0, 15_000),
+          // The CV as generated, with the profile and section order it was
+          // rendered with, so the tracker shows this exact document later.
+          tailored_cv: {
+            summary: result.summary ?? "",
+            skills: result.skills ?? "",
+            experience: result.experience ?? "",
+            projects: result.projects ?? {},
+            profile,
+            sectionOrder,
+          },
         }),
       });
       const data = await res.json();

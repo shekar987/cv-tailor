@@ -22,8 +22,30 @@ function isStatus(value: unknown): value is Status {
   return typeof value === "string" && (STATUSES as readonly string[]).includes(value);
 }
 
+// The list omits tailored_cv (a multi-KB snapshot per row); GET ?id= adds it.
 const SELECT_COLUMNS =
   "id, company_name, role, cv_reference, tailor_session_id, status, salary, date_applied, followup_date, notes, job_description, source, created_at, updated_at";
+const DETAIL_COLUMNS =
+  "id, company_name, role, cv_reference, tailor_session_id, status, salary, date_applied, followup_date, notes, job_description, source, created_at, updated_at, tailored_cv";
+
+const MAX_TAILORED_CV_JSON = 200_000;
+const TAILORED_CV_KEYS = ["summary", "skills", "experience", "projects", "profile", "sectionOrder"] as const;
+
+// The CV snapshot comes from our own client, so this only pins the shape and
+// size: a plain object, known keys only, bounded JSON.
+function cleanTailoredCv(value: unknown): { snapshot: Record<string, unknown> | null } | { error: string } {
+  if (value == null) return { snapshot: null };
+  if (typeof value !== "object" || Array.isArray(value)) return { error: "Invalid tailored CV snapshot." };
+  const input = value as Record<string, unknown>;
+  const snapshot: Record<string, unknown> = {};
+  for (const key of TAILORED_CV_KEYS) {
+    if (input[key] !== undefined) snapshot[key] = input[key];
+  }
+  if (JSON.stringify(snapshot).length > MAX_TAILORED_CV_JSON) {
+    return { error: "Tailored CV snapshot is too large to store." };
+  }
+  return { snapshot };
+}
 
 // Strict YYYY-MM-DD that also exists on the calendar (rejects 2026-02-30).
 function isIsoDate(value: unknown): value is string {
@@ -47,6 +69,7 @@ type Editable = {
   date_applied?: string;
   followup_date?: string | null;
   notes?: string | null;
+  job_description?: string | null;
 };
 
 type Validation = { fields: Editable } | { error: string };
@@ -111,6 +134,14 @@ function validateEditable(body: Record<string, unknown>, partial: boolean): Vali
     fields.notes = notes || null;
   }
 
+  // Editable after the fact so a manually added row can get its posting
+  // pasted in later. On create the JD is handled with the snapshot fields.
+  if (partial && "job_description" in body) {
+    const jd = typeof body.job_description === "string" ? body.job_description.trim() : "";
+    if (jd.length > MAX_JD_CHARS) return { error: "Job description is too long (max ~15,000 characters)." };
+    fields.job_description = jd || null;
+  }
+
   return { fields };
 }
 
@@ -121,12 +152,30 @@ function followupTooEarly(dateApplied: string, followup: string | null): boolean
 
 const FOLLOWUP_ERROR = "Follow-up date can't be earlier than the date applied.";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
     const { data, error } = await supabase.auth.getClaims();
     if (error || !data?.claims?.sub) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const userId = data.claims.sub as string;
+
+    // One full record, snapshot included.
+    const id = new URL(req.url).searchParams.get("id");
+    if (id) {
+      const { data: row, error: rowError } = await supabase
+        .from("applications")
+        .select(DETAIL_COLUMNS)
+        .eq("id", id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (rowError) {
+        console.error("applications detail read error:", rowError.message);
+        return NextResponse.json({ error: "Could not load that application" }, { status: 500 });
+      }
+      if (!row) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+      return NextResponse.json({ application: row });
     }
 
     const { data: rows, error: readError } = await supabase
@@ -184,6 +233,10 @@ export async function POST(req: NextRequest) {
     const source = body.source === "tailored" ? "tailored" : "manual";
     const sessionId = source === "tailored" ? clampOptional(body.tailor_session_id, MAX_SESSION_ID) : null;
     const cvReference = source === "tailored" ? clampOptional(body.cv_reference, MAX_CV_REF) : null;
+    const cv = source === "tailored" ? cleanTailoredCv(body.tailored_cv) : { snapshot: null };
+    if ("error" in cv) {
+      return NextResponse.json({ error: cv.error }, { status: 400 });
+    }
 
     const record = {
       ...fields,
@@ -191,6 +244,7 @@ export async function POST(req: NextRequest) {
       tailor_session_id: sessionId,
       cv_reference: cvReference,
       job_description: jobDescription || null,
+      tailored_cv: cv.snapshot,
     };
 
     // Duplicate rule: one row per tailoring session. Check-then-insert rather
