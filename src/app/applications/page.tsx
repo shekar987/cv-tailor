@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import CvPreview from "../CvPreview";
 import { getProfile, type Profile } from "@/lib/cvStore";
+import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Textarea from "@/components/ui/Textarea";
@@ -83,11 +84,35 @@ type NewRow = {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// Local calendar date. toISOString() is UTC and shifts the day near midnight.
 function todayLocal(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return localIsoDate(new Date());
+}
+
+// Period filter on date_applied, in the user's own timezone. Calendar periods:
+// "week" is Monday–Sunday of the current week, "month" the current month.
+type Period = "all" | "today" | "week" | "month";
+const PERIODS: { key: Period; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "today", label: "Today" },
+  { key: "week", label: "This week" },
+  { key: "month", label: "This month" },
+];
+
+function periodBounds(period: Period): { from: string; to: string } | null {
+  if (period === "all") return null;
+  const now = new Date();
+  if (period === "today") {
+    const today = localIsoDate(now);
+    return { from: today, to: today };
+  }
+  if (period === "week") {
+    const sinceMonday = (now.getDay() + 6) % 7;
+    const monday = addDays(now, -sinceMonday);
+    return { from: localIsoDate(monday), to: localIsoDate(addDays(monday, 6)) };
+  }
+  const first = new Date(now.getFullYear(), now.getMonth(), 1);
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return { from: localIsoDate(first), to: localIsoDate(last) };
 }
 
 // Dates arrive as plain YYYY-MM-DD strings; format them without a Date
@@ -142,6 +167,7 @@ export default function ApplicationsPage() {
   const [sectionOrder, setSectionOrder] = useState<unknown>(null);
 
   const [statusFilter, setStatusFilter] = useState<"All" | Status>("All");
+  const [periodFilter, setPeriodFilter] = useState<Period>("all");
   const [sortKey, setSortKey] = useState<SortKey>("date_applied");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -198,8 +224,13 @@ export default function ApplicationsPage() {
     setTimeout(() => setFlash(""), 3000);
   }
 
+  const bounds = periodBounds(periodFilter);
   const visible = useMemo(() => {
-    const filtered = statusFilter === "All" ? rows : rows.filter((r) => r.status === statusFilter);
+    const filtered = rows.filter(
+      (r) =>
+        (statusFilter === "All" || r.status === statusFilter) &&
+        (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to))
+    );
     // Empty values always sort last, whichever direction is active.
     return [...filtered].sort((a, b) => {
       const av = a[sortKey] ?? "";
@@ -211,7 +242,19 @@ export default function ApplicationsPage() {
       if (cmp !== 0) return sortDir === "asc" ? cmp : -cmp;
       return b.created_at.localeCompare(a.created_at);
     });
-  }, [rows, statusFilter, sortKey, sortDir]);
+  }, [rows, statusFilter, bounds?.from, bounds?.to, sortKey, sortDir]);
+
+  // The export carries the same filters, so the file matches the screen.
+  const exportHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (statusFilter !== "All") params.set("status", statusFilter);
+    if (bounds) {
+      params.set("from", bounds.from);
+      params.set("to", bounds.to);
+    }
+    const qs = params.toString();
+    return `/api/applications/export${qs ? `?${qs}` : ""}`;
+  }, [statusFilter, bounds?.from, bounds?.to]);
 
   // The CV shown in the open panel. Memoised so CvPreview's React.memo holds.
   const panelCv = panel?.kind === "cv" ? cvCache[panel.id] : undefined;
@@ -667,6 +710,19 @@ export default function ApplicationsPage() {
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
+            <div className="appsSeg" role="group" aria-label="Filter by date applied">
+              {PERIODS.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  className={"appsSegBtn" + (periodFilter === p.key ? " active" : "")}
+                  onClick={() => setPeriodFilter(p.key)}
+                  aria-pressed={periodFilter === p.key}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
             {hasRows && (
               <span className="appsCount">
                 {visible.length} of {rows.length}
@@ -676,9 +732,12 @@ export default function ApplicationsPage() {
             {actionError && <StatusText as="span" role="alert">{actionError}</StatusText>}
           </div>
           <div className="appsToolbarGroup">
-            {/* Plain anchor, not next/link: Link would prefetch the download. */}
-            {hasRows && (
-              <a href="/api/applications/export" className="customizeLink">Export CSV</a>
+            {/* Plain anchor, not next/link: Link would prefetch the download.
+                Only offered when the current filters leave something to export. */}
+            {visible.length > 0 && (
+              <a href={exportHref} className="customizeLink">
+                Export CSV{periodFilter !== "all" || statusFilter !== "All" ? ` (${visible.length})` : ""}
+              </a>
             )}
             <Button onClick={startNewRow} disabled={newRow !== null}>+ Add row</Button>
           </div>
@@ -703,7 +762,11 @@ export default function ApplicationsPage() {
         {hasRows && visible.length === 0 && !newRow && (
           <Card variant="dashed">
             <div className="appsEmpty">
-              <p>No applications with status &ldquo;{statusFilter}&rdquo;.</p>
+              <p>
+                No applications
+                {periodFilter !== "all" ? ` ${PERIODS.find((p) => p.key === periodFilter)?.label.toLowerCase()}` : ""}
+                {statusFilter !== "All" ? ` with status “${statusFilter}”` : ""}.
+              </p>
             </div>
           </Card>
         )}
