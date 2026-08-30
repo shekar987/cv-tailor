@@ -1707,3 +1707,43 @@ textarea { resize: vertical; min-height: 96px; }
   .inputCard, .scoreCard, .gateCard { padding: var(--space-5); }
   .feedbackWidget { width: min(var(--container), 100% - 2 * var(--space-4)); }
 }
+
+/* ── /app UX pass: usage chip, detected role, loading meta, results header ── */
+.usageRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: var(--space-2);
+}
+.usageRow strong {
+  color: var(--text-subtle);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.gateRole {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-3);
+  max-width: var(--measure-prose);
+}
+.gateRole strong { color: var(--text); font-weight: 600; }
+.loadingBody { display: flex; flex-direction: column; gap: var(--space-3); }
+.loadingMeta {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.resultsContext {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.resultsContext strong { color: var(--text); font-weight: 600; }

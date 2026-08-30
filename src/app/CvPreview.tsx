@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useImperativeHandle, useRef, useState } from "react";
 // projects now arrives keyed by index: { "0": [...bullets], "1": [...bullets] }
 type ProjectsData = Record<string, string[]>;
 
@@ -21,12 +21,7 @@ import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
 import { pastePlainText } from "@/lib/pastePlainText";
 
-function CvPreview({
-  data,
-  profile,
-  fileBaseName = "CV",
-  sectionOrder,
-}: {
+type CvPreviewProps = {
   data: CvData;
   profile?: Profile | null;
   fileBaseName?: string;
@@ -34,7 +29,28 @@ function CvPreview({
   // all resolve to the default order, so an untouched account renders exactly
   // as it did before this feature existed.
   sectionOrder?: unknown;
-}) {
+};
+
+// What collectPayload() hands back: the document as currently on screen,
+// inline edits included. Consumed by both downloads and, via the ref, by the
+// /app page's Applied snapshot.
+export type CvPreviewHandle = {
+  collectPayload: () => {
+    summary: string;
+    skills: string;
+    experience: string;
+    projects: ProjectsData;
+    projectsMeta: NonNullable<Profile["projects"]>;
+    profile: Profile | null;
+    fileBaseName: string;
+    sectionOrder: SectionId[];
+  } | null;
+};
+
+const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvPreview(
+  { data, profile, fileBaseName = "CV", sectionOrder },
+  fwdRef
+) {
   const order = resolveSectionOrder(sectionOrder);
   // Fallbacks keep it working if profile is missing
   const p = profile || null;
@@ -60,6 +76,10 @@ function CvPreview({
   // "Generating…" for a Word build as well as a PDF one.
   const [busy, setBusy] = useState(false);
   const [docErr, setDocErr] = useState<string | null>(null);
+
+  // The /app page snapshots the EDITED document for the tracker through this
+  // handle — the same DOM walk both downloads use, so nothing can drift.
+  useImperativeHandle(fwdRef, () => ({ collectPayload }));
 
   const lines = (text?: string) =>
     (text || "")
@@ -321,7 +341,9 @@ function CvPreview({
           .map(li => (li.textContent || "").trim())
           .filter(Boolean)
           .join("\n");
-        return { degree, dates: dates || undefined, institution: institution || undefined, note: note || undefined };
+        // Plain strings ("" when absent) to match Education — every consumer
+        // gates on truthiness, so "" and undefined behave alike.
+        return { degree, dates, institution, note };
       })
       .filter(e => e.degree);
 
@@ -642,7 +664,7 @@ function CvPreview({
       </div>
     </div>
   );
-}
+});
 
 // Wrap in memo so parent re-renders (e.g. user typing in the JD box) don't reconcile
 // the contentEditable and silently reset user edits. Re-renders only when props change.

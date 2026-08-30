@@ -1,14 +1,15 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { getMasterCV, getProfile, importFromLocalStorageIfNeeded, type Profile } from "@/lib/cvStore";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
-import CvPreview from "../CvPreview";
+import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 import type { AtsMatchResult } from "@/lib/atsMatch";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { extractSalary, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { MAX_JD_CHARS, JD_TOO_LONG } from "@/lib/limits";
+import { getUsage, type Usage } from "@/lib/usage";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -128,6 +129,17 @@ export default function Home() {
   // Saved, but the API had something to tell us (e.g. no CV snapshot column yet).
   const [appliedNotice, setAppliedNotice] = useState("");
 
+  // Free-tier position for the usage chip. Null (load failed, signed out,
+  // column blocked) hides the chip — quota display must never break the page.
+  const [usage, setUsage] = useState<Usage | null>(null);
+  // The JD the current result was generated from, so editing the textarea can
+  // flag the results below as stale. Null for results saved before this field.
+  const [resultJd, setResultJd] = useState<string | null>(null);
+  // Seconds since the full pipeline started — honest feedback during the wait.
+  const [elapsed, setElapsed] = useState(0);
+  // Reaches into CvPreview for the EDITED document when saving to the tracker.
+  const previewRef = useRef<CvPreviewHandle>(null);
+
   // On load: fetch CV + profile from Supabase.
   // If the DB has nothing but localStorage does, import it once then clear localStorage.
   useEffect(() => {
@@ -150,6 +162,7 @@ export default function Home() {
           if (saved.result) setResult(saved.result as Result);
           if (saved.ranProvider) setRanProvider(saved.ranProvider);
           if (saved.tailorSessionId) setTailorSessionId(saved.tailorSessionId);
+          if (typeof saved.resultJd === "string") setResultJd(saved.resultJd);
         }
       }
       // Only now may the save effect run — writing before this point would
@@ -169,6 +182,9 @@ export default function Home() {
             setIsUnlimited(true);
           }
         });
+
+      // The usage chip. Fire-and-forget: null just hides it.
+      getUsage().then(setUsage);
 
       // Section order for rendering, resolved BEFORE the results are allowed
       // to render: a restored CV must not paint in the default order and then
@@ -207,8 +223,16 @@ export default function Home() {
   // workspaceReady so the initial empty state never overwrites saved work.
   useEffect(() => {
     if (!workspaceReady || !userId) return;
-    saveWorkspace(userId, { jobDescription, result, ranProvider, tailorSessionId });
-  }, [workspaceReady, userId, jobDescription, result, ranProvider, tailorSessionId]);
+    saveWorkspace(userId, { jobDescription, result, ranProvider, tailorSessionId, resultJd });
+  }, [workspaceReady, userId, jobDescription, result, ranProvider, tailorSessionId, resultJd]);
+
+  // Tick once a second while the pipeline runs; resets to 0 on each new run.
+  useEffect(() => {
+    if (!loading) return;
+    setElapsed(0);
+    const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, [loading]);
 
   // Step 1 of the click-through: run ONLY the JD analyzer + a local keyword
   // check against the raw CV, so the user sees a rough fit estimate before the
@@ -299,6 +323,7 @@ export default function Home() {
       setResult(data);
       setRanProvider(typeof data.provider === "string" ? data.provider : null);
       setTailorSessionId(sessionId);
+      setResultJd(jobDescription);
       setAppliedState("idle");
       setAppliedError("");
       setAppliedNotice("");
@@ -313,6 +338,8 @@ export default function Home() {
       setErrorType(null);
     } finally {
       setLoading(false);
+      // Success or limit error, the counters may have moved — refresh the chip.
+      getUsage().then(setUsage);
     }
   }
   // Snapshot the finished run into the application tracker. Reads only what
@@ -327,6 +354,21 @@ export default function Home() {
     if (sid !== tailorSessionId) setTailorSessionId(sid);
     const analysis = result.analysis;
     const today = new Date();
+
+    // Snapshot the document AS EDITED in the preview — the tracker should hold
+    // the CV that was actually sent, not the raw pipeline output. The @@JOB@@
+    // wire markers go back to plain "Role | Company | Date" lines, the format
+    // every renderer of this snapshot expects.
+    const edited = previewRef.current?.collectPayload() ?? null;
+    const editedExperience = edited
+      ? edited.experience
+          .split("\n")
+          .map((line) => {
+            const m = /^@@JOB@@(.*)@@(.*)$/.exec(line);
+            return m ? [m[1].trim(), m[2].trim()].filter(Boolean).join(" | ") : line;
+          })
+          .join("\n")
+      : null;
 
     setAppliedState("saving");
     setAppliedError("");
@@ -350,12 +392,14 @@ export default function Home() {
           // The CV as generated, with the profile and section order it was
           // rendered with, so the tracker shows this exact document later.
           tailored_cv: {
-            summary: result.summary ?? "",
-            skills: result.skills ?? "",
-            experience: result.experience ?? "",
-            projects: result.projects ?? {},
-            profile,
-            sectionOrder,
+            summary: edited?.summary || result.summary || "",
+            skills: edited?.skills || result.skills || "",
+            experience: editedExperience || result.experience || "",
+            projects: edited?.projects ?? result.projects ?? {},
+            profile: edited?.profile
+              ? { ...edited.profile, projects: edited.projectsMeta }
+              : profile,
+            sectionOrder: edited ? edited.sectionOrder : sectionOrder,
           },
         }),
       });
@@ -382,6 +426,32 @@ export default function Home() {
     experience: result?.experience,
     projects: result?.projects as any,
   }), [result]);
+
+  // Step 1's read of the JD, surfaced on the gate card so a mis-pasted JD is
+  // caught before the full run is spent on the wrong job.
+  const gateInfo = useMemo(() => {
+    const a = gateAnalysis as { role_title?: unknown; company_name?: unknown } | null;
+    const role = typeof a?.role_title === "string" ? a.role_title.trim() : "";
+    const company = typeof a?.company_name === "string" ? a.company_name.trim() : "";
+    return role || company ? { role, company } : null;
+  }, [gateAnalysis]);
+
+  // Steps that quietly failed this run — named honestly instead of rendering
+  // as blank sections the user might not notice until after they've applied.
+  const partialIssues = useMemo(() => {
+    if (!result) return [];
+    const empty: string[] = [];
+    if (!result.summary?.trim()) empty.push("summary");
+    if (!result.skills?.trim()) empty.push("skills");
+    if (!result.experience?.trim()) empty.push("experience");
+    if (!result.coverLetter?.trim()) empty.push("cover letter");
+    const issues: string[] = [];
+    if (empty.length > 0) {
+      issues.push(`The ${empty.join(", ")} ${empty.length > 1 ? "sections" : "section"} came back empty this run.`);
+    }
+    if (!result.atsScore?.keyword_coverage) issues.push("ATS scoring didn't complete.");
+    return issues;
+  }, [result]);
 
   // First name only, for a personal greeting on the results — falls back to
   // nothing (not a placeholder) if no profile name is set yet.
@@ -444,6 +514,19 @@ export default function Home() {
                 {jobDescription.length.toLocaleString()} / {MAX_JD_CHARS.toLocaleString()}
               </p>
             </FormField>
+            {usage && !usage.unlimited && (
+              <p className="usageRow">
+                <span>
+                  Free tailors today:{" "}
+                  <strong>{Math.max(usage.dailyLimit - usage.dailyUsed, 0)} of {usage.dailyLimit}</strong>
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  Claude credits:{" "}
+                  <strong>{Math.max(usage.claudeLimit - usage.claudeUsed, 0)} of {usage.claudeLimit}</strong>
+                </span>
+              </p>
+            )}
             {/* Step 1: cheap pre-check (JD analysis only) — shown until a gate
                 result exists. Provider choice doesn't apply here: the gate
                 always runs on Claude, same as profile extraction. */}
@@ -474,6 +557,13 @@ export default function Home() {
             {/* Step 2: the gate result. Never blocks below 10/15 — just informs. */}
             {preCheck && (
               <Card variant="dashed">
+                {gateInfo && (
+                  <p className="gateRole">
+                    Looks like: <strong>{gateInfo.role || "this role"}</strong>
+                    {gateInfo.company && <> at <strong>{gateInfo.company}</strong></>}
+                    {" "}— if that&apos;s not the job you meant, fix the JD above before continuing.
+                  </p>
+                )}
                 <div className="gateLabel">Rough keyword match, before tailoring</div>
                 <Badge variant="value" tone={preCheck.matched >= 10 ? "success" : "neutral"}>
                   {preCheck.matched}/{preCheck.total}
@@ -577,18 +667,52 @@ export default function Home() {
         {loading && (
           <section className="loading">
             <div className="pulse" />
-            <ul>
-              <li>Analysing the job description</li>
-              <li>Researching the company</li>
-              <li>Tailoring summary, skills, experience, projects</li>
-              <li>Writing your cover letter</li>
-              <li>Scoring against ATS keywords</li>
-            </ul>
+            <div className="loadingBody">
+              <ul>
+                <li>Analysing the job description</li>
+                <li>Researching the company</li>
+                <li>Tailoring summary, skills, experience, projects</li>
+                <li>Writing your cover letter</li>
+                <li>Scoring against ATS keywords</li>
+              </ul>
+              <p className="loadingMeta">{elapsed}s — a full run usually takes 20–40 seconds.</p>
+            </div>
           </section>
         )}
 
         {!cvLoading && result && (
           <section className="results">
+            {(result.analysis?.role_title || result.analysis?.company_name) && (
+              <div className="resultsContext">
+                <span>
+                  Tailored for <strong>{result.analysis?.role_title || "this role"}</strong>
+                  {result.analysis?.company_name && <> at <strong>{result.analysis.company_name}</strong></>}
+                </span>
+                <button
+                  type="button"
+                  className="inlineLink"
+                  onClick={() => {
+                    const jd = document.getElementById("jd");
+                    jd?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    (jd as HTMLTextAreaElement | null)?.focus({ preventScroll: true });
+                  }}
+                >
+                  Start a new tailoring ↑
+                </button>
+              </div>
+            )}
+            {resultJd !== null && jobDescription.trim() !== resultJd.trim() && (
+              <div className="limitNotice" role="status">
+                These results were tailored for your previous job description — the text above has
+                changed since. Run another tailor to refresh them.
+              </div>
+            )}
+            {partialIssues.length > 0 && (
+              <div className="limitNotice" role="status">
+                {partialIssues.join(" ")} Re-running the same job description retries those steps
+                (it counts as a new run).
+              </div>
+            )}
             {result.atsScore?.keyword_coverage && (
               <div className="scoreCard">
                 <div className="scoreLabel">
@@ -668,6 +792,7 @@ export default function Home() {
             )}
 
             <CvPreview
+              ref={previewRef}
               data={cvData}
               profile={profile}
               sectionOrder={sectionOrder}

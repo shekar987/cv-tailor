@@ -27,6 +27,10 @@ export type StoredWorkspace = {
   // so a reload can't turn a second click into a second tracker row. Optional:
   // envelopes written before it existed restore fine without one.
   tailorSessionId?: string | null;
+  // The JD the stored result was tailored from — /app compares it against the
+  // textarea to flag stale results. Optional for the same backwards-compat
+  // reason as tailorSessionId.
+  resultJd?: string | null;
 };
 
 type Envelope = StoredWorkspace & { v: number; savedAt: number };
@@ -47,6 +51,7 @@ export function loadWorkspace(userId: string): StoredWorkspace | null {
       result: parsed.result ?? null,
       ranProvider: typeof parsed.ranProvider === "string" ? parsed.ranProvider : null,
       tailorSessionId: typeof parsed.tailorSessionId === "string" ? parsed.tailorSessionId : null,
+      resultJd: typeof parsed.resultJd === "string" ? parsed.resultJd : null,
     };
   } catch {
     // Corrupt or unreadable — behave as if nothing was saved.
