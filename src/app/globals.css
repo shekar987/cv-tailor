@@ -1896,3 +1896,23 @@ textarea { resize: vertical; min-height: 96px; }
 @media (max-width: 760px) {
   .lpCostGrid { grid-template-columns: 1fr; }
 }
+
+/* An .inlineLink rendered as a <button> ("Start a new tailoring", "Dismiss")
+   must read as a link, not a browser-default button — the shared button base
+   only skins the named classes, so the UA background leaks through here. */
+button.inlineLink {
+  background: none;
+  border: none;
+  padding: 0;
+  min-height: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  border-radius: var(--radius-xs);
+}
+button.inlineLink:hover { background: none; }
+button.inlineLink:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
