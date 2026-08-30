@@ -219,6 +219,8 @@ export default function ApplicationsPage() {
   const [panelBusy, setPanelBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [actionError, setActionError] = useState("");
+  // A caution that isn't a failure (e.g. saved without the CV snapshot).
+  const [notice, setNotice] = useState("");
   const [flash, setFlash] = useState("");
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -560,7 +562,7 @@ export default function ApplicationsPage() {
     setNewRow(null);
     setSavingNew(false);
     showFlash("Application added.");
-    if (typeof data.warning === "string") setActionError(data.warning);
+    if (typeof data.warning === "string") setNotice(data.warning);
   }
 
   function handleNewRowKey(e: React.KeyboardEvent<HTMLElement>) {
@@ -783,6 +785,12 @@ export default function ApplicationsPage() {
               </>
             )}
           </p>
+        )}
+        {notice && (
+          <div className="limitNotice" role="status">
+            {notice}{" "}
+            <button type="button" className="inlineLink" onClick={() => setNotice("")}>Dismiss</button>
+          </div>
         )}
 
         <div className="appsToolbar">

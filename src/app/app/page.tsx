@@ -125,6 +125,8 @@ export default function Home() {
   const [tailorSessionId, setTailorSessionId] = useState<string | null>(null);
   const [appliedState, setAppliedState] = useState<AppliedState>("idle");
   const [appliedError, setAppliedError] = useState("");
+  // Saved, but the API had something to tell us (e.g. no CV snapshot column yet).
+  const [appliedNotice, setAppliedNotice] = useState("");
 
   // On load: fetch CV + profile from Supabase.
   // If the DB has nothing but localStorage does, import it once then clear localStorage.
@@ -299,6 +301,7 @@ export default function Home() {
       setTailorSessionId(sessionId);
       setAppliedState("idle");
       setAppliedError("");
+      setAppliedNotice("");
       // The gate applied to this specific run; clear it so a re-tailor of the
       // same JD starts a fresh pre-check rather than silently reusing a stale
       // one. Only on success: a failed run keeps the paid-for analysis for the
@@ -364,7 +367,7 @@ export default function Home() {
       }
       setAppliedState(data.alreadySaved ? "already" : "saved");
       // Saved, but without the CV snapshot (database migration pending).
-      if (typeof data.warning === "string") setAppliedError(data.warning);
+      setAppliedNotice(typeof data.warning === "string" ? data.warning : "");
     } catch {
       setAppliedState("error");
       setAppliedError("Couldn't reach the server. Try again.");
@@ -660,6 +663,9 @@ export default function Home() {
                 <StatusText as="span" role="alert">{appliedError}</StatusText>
               )}
             </div>
+            {appliedNotice && (
+              <div className="limitNotice" role="status">{appliedNotice}</div>
+            )}
 
             <CvPreview
               data={cvData}
