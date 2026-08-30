@@ -96,6 +96,24 @@ function todayLocal(): string {
   return localIsoDate(new Date());
 }
 
+// A follow-up is "due" while the application is still moving — a date in the
+// past on a Rejected row is history, not a task.
+const LIVE_STATUSES: ReadonlySet<Status> = new Set(["Applied", "Screening", "Interview"]);
+
+function isDue(row: Application): boolean {
+  return !!row.followup_date && row.followup_date <= todayLocal() && LIVE_STATUSES.has(row.status);
+}
+
+// Data colour only: outcomes get colour, in-flight statuses stay neutral.
+const STATUS_TONES: Record<Status, string> = {
+  Applied: "neutral",
+  Screening: "neutral",
+  Interview: "neutral",
+  Offer: "success",
+  Rejected: "danger",
+  Withdrawn: "muted",
+};
+
 // Period filter on date_applied, in the user's own timezone. Calendar periods:
 // "week" is Monday–Sunday of the current week, "month" the current month.
 type Period = "all" | "today" | "week" | "month";
@@ -223,6 +241,11 @@ export default function ApplicationsPage() {
   const [notice, setNotice] = useState("");
   const [flash, setFlash] = useState("");
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // "Follow-ups due" computed filter — combines with, not replaces, status/period.
+  const [dueOnly, setDueOnly] = useState(false);
+  // The row that just saved, for a brief success flash on its cells.
+  const [flashRowId, setFlashRowId] = useState<string | null>(null);
+  const rowFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -250,6 +273,7 @@ export default function ApplicationsPage() {
     return () => {
       cancelled = true;
       if (flashTimer.current) clearTimeout(flashTimer.current);
+      if (rowFlashTimer.current) clearTimeout(rowFlashTimer.current);
     };
   }, []);
 
@@ -259,12 +283,29 @@ export default function ApplicationsPage() {
     flashTimer.current = setTimeout(() => setFlash(""), 3000);
   }
 
+  function flashRow(id: string) {
+    setFlashRowId(id);
+    if (rowFlashTimer.current) clearTimeout(rowFlashTimer.current);
+    rowFlashTimer.current = setTimeout(() => setFlashRowId(null), 700);
+  }
+
   const bounds = periodBounds(periodFilter);
+
+  // Funnel strip numbers — always over ALL rows, so the overview stays stable
+  // while filters narrow the table below it.
+  const statusCounts = useMemo(() => {
+    const counts = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<Status, number>;
+    for (const r of rows) if (r.status in counts) counts[r.status] += 1;
+    return counts;
+  }, [rows]);
+  const dueCount = useMemo(() => rows.filter(isDue).length, [rows]);
+
   const visible = useMemo(() => {
     const filtered = rows.filter(
       (r) =>
         (statusFilter === "All" || r.status === statusFilter) &&
-        (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to))
+        (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
+        (!dueOnly || isDue(r))
     );
     // Empty values always sort last, whichever direction is active. Status
     // sorts in funnel order (Applied → … → Withdrawn), salary by its number.
@@ -287,7 +328,7 @@ export default function ApplicationsPage() {
       if (cmp !== 0) return sortDir === "asc" ? cmp : -cmp;
       return b.created_at.localeCompare(a.created_at);
     });
-  }, [rows, statusFilter, bounds?.from, bounds?.to, sortKey, sortDir]);
+  }, [rows, statusFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly]);
 
   // The export carries the same filters, so the file matches the screen.
   const exportHref = useMemo(() => {
@@ -346,6 +387,7 @@ export default function ApplicationsPage() {
       }
       return data.error || "Could not save that change.";
     }
+    flashRow(id);
     return null;
   }
 
@@ -627,12 +669,13 @@ export default function ApplicationsPage() {
     }
     const value = row[field] ?? "";
     const display = DATE_FIELDS.has(field) ? formatDate(value || null) : value;
+    const due = field === "followup_date" && isDue(row);
     return (
       <button
         type="button"
-        className={"appsCellBtn" + (value ? "" : " empty")}
+        className={"appsCellBtn" + (value ? "" : " empty") + (due ? " due" : "")}
         onClick={() => openCell(row, field)}
-        title="Click to edit"
+        title={due ? "Follow-up due — click to edit" : "Click to edit"}
         aria-label={value ? undefined : `${CELL_LABELS[field]}: empty, click to edit`}
       >
         {display || "—"}
@@ -793,6 +836,36 @@ export default function ApplicationsPage() {
           </div>
         )}
 
+        {hasRows && (
+          <div className="appsFunnel" role="group" aria-label="Applications by status">
+            {STATUSES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={
+                  "appsFunnelChip" +
+                  (statusFilter === s ? " active" : "") +
+                  (statusCounts[s] === 0 ? " zero" : "")
+                }
+                onClick={() => setStatusFilter(statusFilter === s ? "All" : s)}
+                aria-pressed={statusFilter === s}
+              >
+                {s} <strong>{statusCounts[s]}</strong>
+              </button>
+            ))}
+            {dueCount > 0 && (
+              <button
+                type="button"
+                className={"appsFunnelChip due" + (dueOnly ? " active" : "")}
+                onClick={() => setDueOnly((v) => !v)}
+                aria-pressed={dueOnly}
+              >
+                {dueCount} follow-up{dueCount === 1 ? "" : "s"} due
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="appsToolbar">
           <div className="appsToolbarGroup">
             <label className="appsFilterLabel" htmlFor="statusFilter">Status</label>
@@ -880,10 +953,14 @@ export default function ApplicationsPage() {
                   No applications
                   {periodFilter !== "all" ? ` ${PERIODS.find((p) => p.key === periodFilter)?.label.toLowerCase()}` : ""}
                   {statusFilter !== "All" ? ` with status “${statusFilter}”` : ""}
+                  {dueOnly ? " with a follow-up due" : ""}
                 </>
               }
               actions={
-                <Button variant="secondary" onClick={() => { setPeriodFilter("all"); setStatusFilter("All"); }}>
+                <Button
+                  variant="secondary"
+                  onClick={() => { setPeriodFilter("all"); setStatusFilter("All"); setDueOnly(false); }}
+                >
                   Clear filters
                 </Button>
               }
@@ -1028,7 +1105,7 @@ export default function ApplicationsPage() {
                   const panelIs = (kind: PanelKind) => open && panel?.kind === kind;
                   return (
                     <RowGroup key={row.id}>
-                      <tr className={"appsRow" + (open ? " open" : "")}>
+                      <tr className={"appsRow" + (open ? " open" : "") + (flashRowId === row.id ? " flashSave" : "")}>
                         <td data-label="Company Name">{textCell(row, "company_name")}</td>
                         <td data-label="Role">{textCell(row, "role")}</td>
                         <td data-label="CV">
@@ -1055,16 +1132,19 @@ export default function ApplicationsPage() {
                           </button>
                         </td>
                         <td data-label="Status">
-                          <select
-                            className="appsCellSelect"
-                            value={row.status}
-                            onChange={(e) => changeStatus(row, e.target.value as Status)}
-                            aria-label={`Status for ${row.company_name}`}
-                          >
-                            {STATUSES.map((s) => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
-                          </select>
+                          <span className="appsStatusWrap">
+                            <span className={"appsStatusDot " + STATUS_TONES[row.status]} aria-hidden="true" />
+                            <select
+                              className="appsCellSelect"
+                              value={row.status}
+                              onChange={(e) => changeStatus(row, e.target.value as Status)}
+                              aria-label={`Status for ${row.company_name}`}
+                            >
+                              {STATUSES.map((s) => (
+                                <option key={s} value={s}>{s}</option>
+                              ))}
+                            </select>
+                          </span>
                         </td>
                         <td data-label="Salary">{textCell(row, "salary")}</td>
                         <td data-label="Date Applied">{textCell(row, "date_applied")}</td>
