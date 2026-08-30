@@ -1747,3 +1747,70 @@ textarea { resize: vertical; min-height: 96px; }
   color: var(--muted);
 }
 .resultsContext strong { color: var(--text); font-weight: 600; }
+
+/* ── Customize: extracted-content summary ─────────────────────────────────── */
+.extractSummary {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.extractLabel {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  margin-bottom: var(--space-3);
+}
+.extractGrid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+}
+.extractRow { display: grid; grid-template-columns: 160px 1fr; gap: var(--space-3); }
+.extractRow dt { font-size: var(--text-sm); color: var(--text-subtle); font-weight: 600; }
+.extractRow dd {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin: 0;
+  line-height: var(--leading-normal);
+}
+@media (max-width: 640px) {
+  .extractRow { grid-template-columns: 1fr; gap: var(--space-1); }
+}
+
+/* ── Settings: role/caveat lines, muted optional card, usage list ─────────── */
+.keyRole {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-3);
+  max-width: var(--measure-prose);
+}
+.keyCaveat {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: var(--leading-normal);
+  margin-top: var(--space-3);
+  max-width: var(--measure-prose);
+}
+.keyCardMuted {
+  opacity: 0.75;
+  transition: opacity var(--duration) var(--ease);
+}
+.keyCardMuted:hover,
+.keyCardMuted:focus-within { opacity: 1; }
+.usageList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.usageList strong {
+  color: var(--text-subtle);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

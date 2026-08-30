@@ -15,6 +15,7 @@ import {
 } from "@/lib/cvStore";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { MAX_CV_CHARS } from "@/lib/limits";
+import { splitTrailingDate } from "@/lib/projectDate";
 import CvUpload from "../CvUpload";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -65,6 +66,12 @@ export default function CustomizePage() {
   // Set when a CV is populated from an uploaded file, so the user is told to
   // check the extraction before saving. Cleared once they edit or save.
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+
+  // Inline two-step confirms (no blocking window.confirm): replacing the CV is
+  // destructive, and re-running extraction spends an AI call.
+  const [confirmReplace, setConfirmReplace] = useState(false);
+  const [confirmReextract, setConfirmReextract] = useState(false);
+  const [reextracting, setReextracting] = useState(false);
 
   // Profile details — extracted from the master CV, edited here.
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -215,11 +222,9 @@ export default function CustomizePage() {
   }
 
   async function handleClearCv() {
-    // Destructive and irreversible — the button sits right next to "Edit",
-    // so a confirmation guards against a misclick wiping the master CV.
-    if (!window.confirm("Replace your master CV? This deletes your saved CV and extracted details — this can't be undone.")) {
-      return;
-    }
+    // Destructive and irreversible — reached only through the inline two-step
+    // confirm below, so no blocking window.confirm here.
+    setConfirmReplace(false);
     // Reset UI immediately so the user doesn't wait for the DB delete
     setProfile(null);
     setMasterCvText("");
@@ -231,6 +236,45 @@ export default function CustomizePage() {
     // Delete from DB in the background
     await clearMasterCV();
     await clearProfile();
+  }
+
+  // Re-runs profile extraction against the SAVED master CV — the recovery path
+  // when extraction failed on save, or when the extracted details look wrong.
+  // Spends one AI call, hence the two-step confirm in the UI.
+  async function handleReextract() {
+    if (!masterCvText || reextracting || extracting) return;
+    setConfirmReextract(false);
+    setReextracting(true);
+    setProfileError("");
+    try {
+      const res = await fetch("/api/extract-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cvText: masterCvText }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.profile) {
+        setProfile(data.profile);
+        const persisted = await saveProfile(data.profile);
+        if (persisted) {
+          // The project list may have changed shape — a tailored result keyed
+          // by the old project indexes must not survive it.
+          invalidateWorkspaceResult();
+        } else {
+          setProfileError("Extraction worked, but the result couldn't be stored. Try again.");
+        }
+      } else {
+        setProfileError(
+          data.error
+            ? `Re-running extraction failed: ${data.error}`
+            : "Re-running extraction failed. Try again."
+        );
+      }
+    } catch {
+      setProfileError("Couldn't reach the server to re-run extraction. Try again.");
+    } finally {
+      setReextracting(false);
+    }
   }
 
   function move(from: number, to: number) {
@@ -345,8 +389,20 @@ export default function CustomizePage() {
                 )}
               </div>
               <div className="cvSavedActions">
-                <Button variant="secondary" onClick={handleEditCv}>Edit</Button>
-                <Button variant="ghost" onClick={handleClearCv}>Replace</Button>
+                {confirmReplace ? (
+                  <>
+                    <StatusText as="span">Delete your saved CV and extracted details?</StatusText>
+                    <Button variant="ghost" className="keyRemove" onClick={handleClearCv}>
+                      Yes, replace
+                    </Button>
+                    <Button variant="ghost" onClick={() => setConfirmReplace(false)}>Keep it</Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="secondary" onClick={handleEditCv}>Edit</Button>
+                    <Button variant="ghost" onClick={() => setConfirmReplace(true)}>Replace</Button>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -371,11 +427,87 @@ export default function CustomizePage() {
                 <label>LinkedIn<Input value={profile.linkedin} onChange={(e) => updateProfileField("linkedin", e.target.value)} /></label>
                 <label>GitHub<Input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} /></label>
               </div>
+
+              {(profile.projects.length > 0 ||
+                profile.education.length > 0 ||
+                profile.certifications.length > 0 ||
+                (profile.extraSections?.length ?? 0) > 0) && (
+                <div className="extractSummary">
+                  <div className="extractLabel">Also extracted from your CV</div>
+                  <dl className="extractGrid">
+                    {profile.projects.length > 0 && (
+                      <div className="extractRow">
+                        <dt>Projects ({profile.projects.length})</dt>
+                        <dd>
+                          {profile.projects
+                            .map((pr) => splitTrailingDate(pr.name || "").title || pr.name)
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </dd>
+                      </div>
+                    )}
+                    {profile.education.length > 0 && (
+                      <div className="extractRow">
+                        <dt>Education ({profile.education.length})</dt>
+                        <dd>
+                          {profile.education
+                            .map((e) => [e.degree, e.institution].filter(Boolean).join(" — "))
+                            .join(" · ")}
+                        </dd>
+                      </div>
+                    )}
+                    {profile.certifications.length > 0 && (
+                      <div className="extractRow">
+                        <dt>Certifications ({profile.certifications.length})</dt>
+                        <dd>{profile.certifications.join(" · ")}</dd>
+                      </div>
+                    )}
+                    {(profile.extraSections?.length ?? 0) > 0 && (
+                      <div className="extractRow">
+                        <dt>Extra sections</dt>
+                        <dd>{(profile.extraSections ?? []).map((s) => s.title).join(" · ")}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  <p className="cvHelp cvHelpTight">
+                    This just shows what was read out of your CV — the wording itself is edited
+                    inline on the tailored CV preview.
+                  </p>
+                </div>
+              )}
             </>
+          ) : masterCvText ? (
+            <p className="cvHelp">
+              Your CV is saved, but no details have been extracted from it yet — run the
+              extraction below.
+            </p>
           ) : (
             <p className="cvHelp">
               No details yet — add your master CV above and these will be extracted automatically.
             </p>
+          )}
+          {!profileLoading && masterCvText && (
+            <div className="actions">
+              {confirmReextract ? (
+                <>
+                  <StatusText as="span">Re-running uses one AI call — continue?</StatusText>
+                  <Button variant="secondary" onClick={handleReextract} disabled={reextracting}>
+                    Yes, re-run
+                  </Button>
+                  <Button variant="ghost" onClick={() => setConfirmReextract(false)} disabled={reextracting}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="secondary"
+                  onClick={() => setConfirmReextract(true)}
+                  disabled={reextracting || extracting || editingCv}
+                >
+                  {reextracting ? "Re-running extraction…" : "Re-run extraction"}
+                </Button>
+              )}
+            </div>
           )}
         </Card>
 
