@@ -6,8 +6,9 @@ import { supabaseUrl, supabasePublishableKey } from './env'
 // form: guarding it here redirects before render, instead of letting the page
 // mount and bounce from the client (which flashes the UI to a stranger).
 // Matched per path segment, so '/app' guards /app and /app/… but not a future
-// /apply or /appearance.
-const PROTECTED_PREFIXES = ['/app', '/settings', '/customize', '/applications']
+// /apply or /appearance. /auth/update-password needs the session the recovery
+// link's code exchange creates, so it is guarded too.
+const PROTECTED_PREFIXES = ['/app', '/settings', '/customize', '/applications', '/auth/update-password']
 
 function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))

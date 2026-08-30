@@ -45,8 +45,9 @@ src/
     settings/page.tsx         ← User's own encrypted Gemini/OpenRouter keys
     applications/page.tsx     ← Application tracker: spreadsheet-style sheet, CV/JD/Notes panels, CSV export
     auth/
-      login/page.tsx          ← Email/password login AND signup (mode toggle) + Google/GitHub OAuth
-      callback/route.ts       ← OAuth exchange handler (PKCE)
+      login/page.tsx          ← Email/password login AND signup (mode toggle) + Google/GitHub OAuth + forgot-password
+      update-password/page.tsx← Set a new password after the recovery link (or while signed in)
+      callback/route.ts       ← PKCE code exchange (OAuth, signup confirmation, password recovery)
       error/page.tsx          ← On-brand auth error page
     CvPreview.tsx             ← Editable CV preview; collectPayload() walks its DOM for both downloads
     CoverLetterPreview.tsx    ← Editable cover letter preview + downloads
@@ -103,8 +104,9 @@ supabase/migrations/          ← Checked-in SQL (applications table + tailored_
 - `/customize` — master CV, extracted details, section order (requires auth)
 - `/settings` — API-key management (requires auth)
 - `/applications` — application tracker (requires auth)
-- `/auth/login` — email/password login **and** signup, plus OAuth. One page with a `mode` toggle; there is no separate `/auth/signup` route.
-- `/auth/callback` — OAuth PKCE exchange (must match Supabase redirect allowlist)
+- `/auth/login` — email/password login **and** signup, plus OAuth, plus "Forgot password?" (`resetPasswordForEmail`). One page with a `mode` toggle; there is no separate `/auth/signup` route.
+- `/auth/callback` — PKCE code exchange for OAuth, signup confirmation and password recovery (must match the Supabase redirect allowlist)
+- `/auth/update-password` — where the recovery email lands (via the callback with `?next=`); sets the new password with `updateUser`. Requires a session, so it's in `PROTECTED_PREFIXES`, and it's the one `/auth/*` path `safeNextPath()` allows as a destination.
 - `/auth/error` — auth error display
 
 Every signed-in page renders `<AppHeader>` (`src/components/ui/AppHeader.tsx`): the sticky bar with the full nav and Sign out, plus the page's `<h1>`. Don't hand-write a header.
@@ -170,7 +172,7 @@ Full column/constraint/RPC expectations, and how to verify them against the live
 
 | Layer | Where | What it protects | Failure mode |
 |---|---|---|---|
-| **Quota** (source of truth) | Postgres SECURITY DEFINER RPCs `check_and_increment_tailor_count` / `check_and_increment_claude_lifetime`, called from `/api/tailor` | How many tailors bill the owner's wallet. Can't be bypassed by the client. Note: they count attempts — a run that fails on a provider 429 still consumed a slot (no refund RPC exists yet). | **Fail-closed**: an RPC error, a null result, or a missing profile row → 503, never an unmetered run. Only `reason === "unlimited"` honours a client-chosen provider. |
+| **Quota** (source of truth) | Postgres SECURITY DEFINER RPCs `check_and_increment_tailor_count` / `check_and_increment_claude_lifetime`, called from `/api/tailor`; `refund_tailor_count` / `refund_claude_lifetime` (migration `20260830120000_quota_refunds.sql`) give the slot back when the pipeline throws after the increment | How many tailors bill the owner's wallet. Can't be bypassed by the client. | **Fail-closed**: an RPC error, a null result, or a missing profile row → 503, never an unmetered run. Only `reason === "unlimited"` honours a client-chosen provider. The refund is best-effort: a missing refund function is logged, never surfaced. |
 | **Burst** (cheap first gate) | `src/lib/apiRateLimit.ts` → `checkBurstLimit()`, called from `/api/tailor`, `/api/analyze`, `/api/extract-profile`, `/api/parse-cv` | A logged-in user (or script) hammering any Claude-spending endpoint — `analyze` and `extract-profile` have no DB counter at all | Upstash Redis (shared across instances) when `UPSTASH_REDIS_REST_URL`/`TOKEN` are set; otherwise, or on a Redis error, an **in-process sliding window** (10/min per user, per instance, resets on cold start). Never fully open. |
 
 Any new route that calls Claude on the owner's key must call `checkBurstLimit()` first, before auth-heavy DB work or the paid LLM call.
@@ -194,7 +196,7 @@ The old in-memory per-IP `lib/rateLimit.ts` is gone. The in-process fallback ins
 
 ### Schema changes
 
-- Migrations live in `supabase/migrations/*.sql` and are the source of truth for schema. Write the SQL file first, then apply it.
+- Migrations live in `supabase/migrations/*.sql` and are the source of truth for schema. Write the SQL file first, then apply it. The tables and functions created before this convention existed are documented in `supabase/schema.md`; `supabase/introspect.sql` dumps their live definitions so a baseline migration can be written from the real thing.
 - Applied by hand in the Supabase SQL editor (this project does not run the CLI migration workflow). The Supabase MCP `apply_migration` / `execute_sql` tools hit the **live remote project** — use them only with explicit approval, and never for anything you haven't also checked into `supabase/migrations/`.
 - Use `$func$` (not `$$`) as the PL/pgSQL delimiter — the SQL editor mangles plain `$$`.
 - Every user-owned table gets RLS with `auth.uid() = user_id` on all four verbs, same as `applications` / `user_projects` / `user_skills`.

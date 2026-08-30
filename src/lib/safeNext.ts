@@ -5,6 +5,10 @@
 
 const FALLBACK = "/app";
 
+// The one auth page that IS a valid destination: the password-recovery link
+// lands on /auth/callback with ?next=/auth/update-password.
+const ALLOWED_AUTH_PATHS = new Set(["/auth/update-password"]);
+
 export function safeNextPath(next: string | null | undefined): string {
   if (!next || typeof next !== "string") return FALLBACK;
   let url: URL;
@@ -16,6 +20,6 @@ export function safeNextPath(next: string | null | undefined): string {
   if (url.origin !== "https://placeholder.invalid") return FALLBACK;
   if (!url.pathname.startsWith("/") || url.pathname.startsWith("//")) return FALLBACK;
   // Never bounce someone back into the auth flow itself.
-  if (url.pathname.startsWith("/auth/")) return FALLBACK;
+  if (url.pathname.startsWith("/auth/") && !ALLOWED_AUTH_PATHS.has(url.pathname)) return FALLBACK;
   return url.pathname + url.search + url.hash;
 }

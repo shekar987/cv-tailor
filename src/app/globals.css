@@ -1196,6 +1196,11 @@ textarea { resize: vertical; min-height: 96px; }
 }
 .authLinkBtn:hover:not(:disabled) { color: var(--amber-bright); }
 .authLinkBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.authForgotRow { display: flex; justify-content: flex-end; margin-top: var(--space-2); }
+.authForgot { font-size: var(--text-sm); color: var(--muted); text-decoration-color: var(--border-strong); }
+.authForgot:hover:not(:disabled) { color: var(--text); text-decoration-color: var(--amber); }
+.authSubmit { margin-top: var(--space-5); }
+.authStrong { color: var(--text); }
 
 /* ── Landing page ──────────────────────────────────────────────────────────── */
 /* overflow-x: clip (not hidden) — clips the hero bloom's overhang without

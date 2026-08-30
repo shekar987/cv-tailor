@@ -28,9 +28,21 @@ this file.
 | `check_and_increment_claude_lifetime` | `uid uuid, lifetime_limit int` | `{ allowed bool, reason text }` | `reason` ∈ `unlimited`, `ok`, `claude_limit_reached`, `profile_not_found`, `forbidden` |
 | `get_encrypted_key` | `p_user_id uuid, p_provider text` | `text` (ciphertext) or `null` | Returns null unless `auth.uid()` matches |
 | `set_updated_at()` | trigger | — | From the applications migration (`$func$`-delimited) |
+| `refund_tailor_count` | `uid uuid` | `void` | `migrations/20260830120000_quota_refunds.sql`; decrements `tailor_count` (floor 0) for the caller's own row |
+| `refund_claude_lifetime` | `uid uuid` | `void` | Same migration; decrements `claude_tailors_used` (floor 0) |
 
-Both counters increment **before** the pipeline runs and there is no refund
-function: a run that fails on a provider 429 still consumed a slot.
+Both counters increment **before** the pipeline runs; `/api/tailor` calls the
+refund functions if the pipeline then throws, so a provider 429 or outage no
+longer costs the user a slot. Until that migration is applied the refund
+call fails quietly (logged) and behaviour is as before.
+
+## Writing the baseline migration
+
+Everything above except `applications` and the refund functions was created
+by hand before migrations were tracked. `supabase/introspect.sql` dumps the
+live DDL (tables, constraints, indexes, RLS, policies, functions, triggers,
+grants) from the catalogs; run it in the SQL editor and turn the output into
+`migrations/00000000000000_baseline.sql` so a fresh project can be rebuilt.
 
 ## Verifying against the live project
 

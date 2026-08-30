@@ -43,11 +43,37 @@ export default function LoginPage() {
   const [socialLoading, setSocialLoading] = useState<'google' | 'github' | null>(null)
   const [error, setError]             = useState<string | null>(null)
   const [checkInbox, setCheckInbox]   = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetSent, setResetSent]     = useState(false)
 
   function switchMode(next: Mode) {
     setMode(next)
     setError(null)
     setCheckInbox(false)
+    setResetSent(false)
+  }
+
+  // Password recovery. Supabase emails a link that comes back through
+  // /auth/callback (PKCE code exchange) and then lands on /auth/update-password
+  // with a session, where the new password is set.
+  async function handleForgotPassword() {
+    if (loading || resetLoading) return
+    if (!email.trim()) {
+      setError('Enter your email address above first, then choose "Forgot password?".')
+      return
+    }
+    setError(null)
+    setResetLoading(true)
+    const supabase = createClient()
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent('/auth/update-password')}`,
+    })
+    setResetLoading(false)
+    if (err) {
+      setError(friendlyError(err.code, err.message))
+      return
+    }
+    setResetSent(true)
   }
 
   // Where to send the user after a successful sign-in. Set by proxy.ts when it
@@ -133,6 +159,30 @@ export default function LoginPage() {
     // On success the browser navigates away — no cleanup needed.
   }
 
+  // ─── "Reset link sent" screen ───────────────────────────────────────────────
+  if (resetSent) {
+    return (
+      <main className="authPage">
+        <div className="authCard">
+          <Wordmark />
+          <p className="authEyebrow">Password reset</p>
+          <h1 className="authTitle">Check your inbox</h1>
+          <p className="authMuted">
+            If an account exists for <strong className="authStrong">{email}</strong>, we&apos;ve sent a
+            link to choose a new password. It expires after a short while, so use it soon.
+          </p>
+          <button
+            className="authLinkBtn"
+            type="button"
+            onClick={() => { setResetSent(false); setMode('login') }}
+          >
+            Back to sign in
+          </button>
+        </div>
+      </main>
+    )
+  }
+
   // ─── "Check your inbox" screen ──────────────────────────────────────────────
   if (checkInbox) {
     return (
@@ -142,7 +192,7 @@ export default function LoginPage() {
           <p className="authEyebrow">Almost there</p>
           <h1 className="authTitle">Check your inbox</h1>
           <p className="authMuted">
-            We sent a confirmation link to <strong style={{ color: 'var(--text)' }}>{email}</strong>.
+            We sent a confirmation link to <strong className="authStrong">{email}</strong>.
             Click it to activate your account and sign in.
           </p>
           <button
@@ -215,15 +265,28 @@ export default function LoginPage() {
             />
           </label>
 
+          {mode === 'login' && (
+            <div className="authForgotRow">
+              <button
+                type="button"
+                className="authLinkBtn authForgot"
+                onClick={handleForgotPassword}
+                disabled={loading || resetLoading}
+              >
+                {resetLoading ? 'Sending reset link…' : 'Forgot password?'}
+              </button>
+            </div>
+          )}
+
           {error && (
-            <StatusText role="alert" style={{ marginTop: 'var(--space-3)' }}>{error}</StatusText>
+            <StatusText role="alert" className="msgBelow">{error}</StatusText>
           )}
 
           <Button
             type="submit"
             disabled={loading || !email || !password}
             block
-            style={{ marginTop: 'var(--space-5)' }}
+            className="authSubmit"
           >
             {loading
               ? (mode === 'login' ? 'Signing in…' : 'Creating account…')

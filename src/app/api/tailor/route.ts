@@ -243,16 +243,38 @@ export async function POST(req: NextRequest) {
 
     const lifetimeReason = lifetimeResult.reason as string | undefined;
 
+    // Both counters have been incremented at this point. If the pipeline then
+    // fails — provider 429, upstream outage, transport error — give the slot
+    // back; the user got nothing for it. Best effort: a missing refund
+    // function (migration not applied yet) is logged, never surfaced.
+    async function refundQuota() {
+      const calls = [supabase.rpc("refund_tailor_count", { uid: userId })];
+      if (lifetimeReason === "ok") calls.push(supabase.rpc("refund_claude_lifetime", { uid: userId }));
+      const settled = await Promise.allSettled(calls);
+      for (const s of settled) {
+        if (s.status === "rejected") console.error("Quota refund failed:", s.reason instanceof Error ? s.reason.message : String(s.reason));
+        else if (s.value.error) console.error("Quota refund RPC error:", s.value.error.message);
+      }
+    }
+    async function runOrRefund(opts: Parameters<typeof runPipeline>[0]) {
+      try {
+        return await runPipeline(opts);
+      } catch (err) {
+        await refundQuota();
+        throw err;
+      }
+    }
+
     // ── Path A: unlimited account — the only path that honours a client-chosen provider ──
     if (lifetimeReason === "unlimited") {
       const provider = resolveProvider(bodyProvider);
-      const result   = await runPipeline({ provider, apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
+      const result   = await runOrRefund({ provider, apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
       return NextResponse.json({ provider, ...result });
     }
 
     // ── Path B: user has free Claude credits (counter just incremented) ───────
     if (lifetimeReason === "ok") {
-      const result = await runPipeline({ provider: "anthropic", apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
+      const result = await runOrRefund({ provider: "anthropic", apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
       return NextResponse.json(result);
     }
 
@@ -338,7 +360,7 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        const result = await runPipeline({ provider: "openrouter", apiKeyOverride: openrouterKey, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
+        const result = await runOrRefund({ provider: "openrouter", apiKeyOverride: openrouterKey, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
         return NextResponse.json(result);
       } catch (err) {
         if (err instanceof ProviderRateLimitError) {
