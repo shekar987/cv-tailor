@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Button from "@/components/ui/Button";
+import { createClient } from "@/lib/supabase/client";
 
 // ─── Scroll-reveal: progressive enhancement ─────────────────────────────────
 // Fires once per element via IntersectionObserver, then disconnects. The
@@ -130,14 +131,33 @@ function IconMail() {
     </svg>
   );
 }
+function IconClipboard() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="5" y="4" width="14" height="17" rx="2" />
+      <path d="M9 4a3 3 0 0 1 6 0" />
+      <path d="M9 11h6M9 15h6" />
+    </svg>
+  );
+}
 
 export default function Landing() {
   // The scroll-reveal hides content ONLY once JS is running: the `.reveal`
   // hidden state is scoped under `.js-ready` (see globals.css), so the
   // server-rendered page is fully visible until hydration has actually
   // happened — slow networks, failed hydration and crawlers all see it all.
+  // Adaptive nav: someone already signed in doesn't need "Sign in" — they need
+  // the app. Fail-soft: any error keeps the signed-out pair.
+  const [signedIn, setSignedIn] = useState(false);
+
   useEffect(() => {
     document.documentElement.classList.add("js-ready");
+    createClient()
+      .auth.getSession()
+      .then(({ data }) => {
+        if (data.session) setSignedIn(true);
+      })
+      .catch(() => {});
   }, []);
 
   return (
@@ -149,8 +169,14 @@ export default function Landing() {
           <p className="lpTagline">Welcome to the jungle.</p>
         </div>
         <div className="lpNavActions">
-          <Link href="/auth/login" className="customizeLink">Sign in</Link>
-          <Link href="/app" className="lpNavCta">Open the tool</Link>
+          {signedIn ? (
+            <Link href="/app" className="lpNavCta">Open the app →</Link>
+          ) : (
+            <>
+              <Link href="/auth/login" className="customizeLink">Sign in</Link>
+              <Link href="/app" className="lpNavCta">Open the tool</Link>
+            </>
+          )}
         </div>
       </nav>
 
@@ -215,7 +241,7 @@ export default function Landing() {
           </div>
           <div className="lpStep">
             <span className="lpStepNum">4</span>
-            <p><strong>Edit anything inline</strong>, then download a matching CV and cover letter — PDF or Word, ready to send.</p>
+            <p><strong>Edit anything inline</strong>, then download a matching CV and cover letter — PDF or Word, ready to send. One click saves the run to your application tracker.</p>
           </div>
         </div>
       </Reveal>
@@ -298,6 +324,37 @@ export default function Landing() {
               honesty, ready to send.
             </p>
           </Reveal>
+          <Reveal className="lpDiffCard" delay={300}>
+            <div className="lpDiffIcon"><IconClipboard /></div>
+            <div className="lpDiffTitle">A tracker built in</div>
+            <p className="lpDiffBody">
+              Click Applied and the run lands in your tracker — the exact CV you sent, the job
+              description you sent it for, and a follow-up date, ready for the week the recruiter
+              calls back.
+            </p>
+          </Reveal>
+        </div>
+      </Reveal>
+
+      {/* ── What it costs — said here, not discovered at the limit ────────── */}
+      <Reveal as="section" className="lpSection lpCost">
+        <span className="lpKicker">What it costs</span>
+        <h2 className="lpH2">Free to start. Honest about what happens after.</h2>
+        <div className="lpCostGrid">
+          <div className="lpCostCard">
+            <div className="lpCostTitle">Your first 3 tailors are on us</div>
+            <p className="lpCostBody">
+              Full runs on Claude — tailored CV, cover letter and ATS score — with a cap of 3
+              tailors a day. No card, ever.
+            </p>
+          </div>
+          <div className="lpCostCard">
+            <div className="lpCostTitle">Then bring your own key</div>
+            <p className="lpCostBody">
+              Add a free OpenRouter API key in Settings — it takes about two minutes — and keep
+              tailoring at no cost. The tool itself stays free.
+            </p>
+          </div>
         </div>
       </Reveal>
 
@@ -308,6 +365,9 @@ export default function Landing() {
           A CV with ten skills you can defend beats one with twenty that fall apart under questioning.
         </p>
         <Button href="/app">Tailor my CV →</Button>
+        <p className="lpPrivacy">
+          Your CV stays in your account and is processed only by the AI provider that runs your tailoring.
+        </p>
       </Reveal>
 
       <footer className="lpFooter">

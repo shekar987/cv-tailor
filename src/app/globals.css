@@ -1376,7 +1376,7 @@ textarea { resize: vertical; min-height: 96px; }
 .lpShowScoreList .miss .dot { color: var(--danger); }
 
 /* ── What makes it different ──────────────────────────────────────────────── */
-.lpDiffGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); margin-top: var(--space-8); }
+.lpDiffGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-5); margin-top: var(--space-8); }
 .lpDiffCard {
   padding: var(--space-6);
   border: 1px solid var(--border);
@@ -1868,4 +1868,31 @@ textarea { resize: vertical; min-height: 96px; }
 @keyframes rowFlash {
   from { opacity: 1; }
   to { opacity: 0; }
+}
+
+/* ── Landing: what-it-costs section, closing privacy line ─────────────────── */
+.lpCostGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  margin-top: var(--space-8);
+}
+.lpCostCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-sm), var(--surface-inset);
+}
+.lpCostTitle { font-size: var(--text-md); font-weight: 700; margin-bottom: var(--space-3); }
+.lpCostBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); }
+.lpPrivacy {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  max-width: 520px;
+  margin: var(--space-6) auto 0;
+  line-height: var(--leading-normal);
+}
+@media (max-width: 760px) {
+  .lpCostGrid { grid-template-columns: 1fr; }
 }
