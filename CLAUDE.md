@@ -4,11 +4,12 @@
 
 ## Project purpose
 
-CV.Tailor is an honest CV tailoring tool for engineers. A user pastes their master CV once (stored in their browser), then pastes job descriptions to get:
+Jobhuntz (the codebase is still named `cv-tailor`; the product was renamed) is an honest CV tailoring tool for engineers. A user saves their master CV once on `/customize` (stored in their Supabase account), then pastes job descriptions on `/app` to get:
 
 - A tailored CV (summary, skills, experience, projects) emphasising the most relevant real experience
 - A cover letter matched to the company's tone and values
 - An ATS keyword score showing exactly which keywords matched and which genuinely didn't
+- An application tracker (`/applications`) that snapshots each tailored CV they applied with, plus rows they add by hand
 
 The core product promise: **nothing is invented**. Every claim in the output must trace back to the master CV verbatim. The tool will surface honest gaps rather than fabricate keywords to match a JD.
 
@@ -20,8 +21,8 @@ The core product promise: **nothing is invented**. Every claim in the output mus
 |---|---|
 | Framework | Next.js 16.2.7 (App Router) |
 | UI | React 19.2.4 + TypeScript 5 |
-| Styling | Tailwind CSS 4 |
-| AI | Anthropic SDK (`@anthropic-ai/sdk`) via Claude |
+| Styling | Vanilla CSS with design tokens in `src/app/globals.css`; Geist via `next/font`. (Tailwind was installed but never imported, so it generated nothing — removed.) |
+| AI | Anthropic SDK (`@anthropic-ai/sdk`) via Claude by default; OpenRouter / Gemini adapters in `src/lib/claude.ts` for the owner account and for users' own keys |
 | Word output | `docx` v9 |
 | PDF output | `jspdf`, server-side, real text layer — draws directly from the same structured content that builds the .docx, no rasterization (see `src/lib/buildCvPdf.ts`, `src/lib/buildCoverLetterPdf.ts`, `src/lib/pdfText.ts`) |
 | Auth & storage | Supabase (`@supabase/ssr@0.12.0` + `@supabase/supabase-js@2.108.2`) |
@@ -34,50 +35,79 @@ The core product promise: **nothing is invented**. Every claim in the output mus
 
 ```
 src/
+  proxy.ts                    ← Session-refresh middleware entry (Next.js 16: proxy.ts, not middleware.ts). Logic lives in lib/supabase/proxy.ts
   app/
-    page.tsx                  ← Landing page (Server Component)
-    app/
-      page.tsx                ← Main tool UI (Client Component — "use client")
+    layout.tsx                ← Root layout: Geist font, globals.css, <FeedbackWidget/>
+    page.tsx                  ← Landing page ("use client" — scroll-reveal + count-up)
+    error.tsx / not-found.tsx ← Route-level error boundary and 404, in the auth-card style
+    app/page.tsx              ← Main tool: JD → pre-check gate → tailor → results + Applied button
+    customize/page.tsx        ← Master CV (paste or upload), extracted profile fields, section order
+    settings/page.tsx         ← User's own encrypted Gemini/OpenRouter keys
+    applications/page.tsx     ← Application tracker: spreadsheet-style sheet, CV/JD/Notes panels, CSV export
     auth/
-      login/page.tsx          ← Email/password login + Google/GitHub OAuth buttons
-      signup/page.tsx         ← Email/password registration
+      login/page.tsx          ← Email/password login AND signup (mode toggle) + Google/GitHub OAuth
       callback/route.ts       ← OAuth exchange handler (PKCE)
       error/page.tsx          ← On-brand auth error page
-    CvPreview.tsx             ← In-browser CV preview + download logic
-    CoverLetterPreview.tsx    ← In-browser cover letter preview + download
+    CvPreview.tsx             ← Editable CV preview; collectPayload() walks its DOM for both downloads
+    CoverLetterPreview.tsx    ← Editable cover letter preview + downloads
+    CvUpload.tsx              ← Drag/drop or pick a PDF/.docx/.txt → /api/parse-cv → textarea
+    DownloadButton.tsx        ← "Download ▾" disclosure (PDF / Word)
+    FeedbackWidget.tsx        ← Feedback card on the app routes (signed in only)
     api/
-      tailor/route.ts         ← Main AI pipeline (2-wave parallel Claude calls) — auth-gated
-      download/route.ts       ← Generates CV Word .docx from DOM-extracted content
-      download-cover/route.ts ← Generates cover letter Word .docx
-      download-pdf/route.ts       ← Generates CV PDF (real text layer, mirrors download/route.ts)
-      download-cover-pdf/route.ts ← Generates cover letter PDF (real text layer)
-      extract-profile/route.ts← Extracts structured profile (name/contact/edu/projects) — auth-gated
-      analyze/route.ts        ← Standalone JD analysis endpoint — auth-gated
+      tailor/route.ts         ← Main AI pipeline (Step 0 + 2 parallel waves) — auth-gated, DB quota + burst limit
+      analyze/route.ts        ← JD analysis; with cvText doubles as the pre-tailoring ATS gate — auth-gated, burst limit
+      extract-profile/route.ts← Extracts + normalises the structured profile — auth-gated, burst limit
+      parse-cv/route.ts       ← Uploaded PDF/.docx → text via lib/parseCv.ts (unpdf/mammoth) — auth-gated, Node runtime
+      download/route.ts       ← CV Word .docx from the DOM-extracted payload
+      download-pdf/route.ts   ← CV PDF (real text layer, mirrors download/route.ts) — Node runtime
+      download-cover/route.ts ← Cover letter .docx
+      download-cover-pdf/route.ts ← Cover letter PDF — Node runtime
+      applications/route.ts   ← Tracker CRUD (GET list / GET ?id= / POST / PUT / DELETE)
+      applications/export/route.ts ← Tracker CSV export (honours ?status/?from/?to)
+      keys/route.ts           ← Save/delete a user's encrypted provider key
+      section-order/route.ts  ← Read/write profiles.section_order
+      feedback/route.ts       ← Insert-only feedback
+  components/ui/              ← Thin wrappers over the globals.css classes: Button, Card, Input, Textarea,
+                                 FormField, Badge, StatusText, AppHeader, EmptyState, Skeleton. Use these.
   lib/
-    claude.ts                 ← callClaude() wrapper — all AI calls go through here
-    cvStore.ts                ← MasterCV + Profile CRUD — reads/writes Supabase DB (was localStorage)
-    buildCvPdf.ts              ← CV PDF generator — draws real text with jsPDF, mirrors download/route.ts
-    buildCoverLetterPdf.ts     ← Cover letter PDF generator — same approach
-    pdfText.ts                 ← Shared jsPDF text-layout engine (word-wrap, bold/link runs, pagination)
-    rateLimit.ts              ← DEPRECATED — replaced by SECURITY DEFINER RPC; do not use
+    claude.ts                 ← callClaude() / callLLM() — every model call goes through here
+    limits.ts                 ← MAX_JD_CHARS, MAX_CV_CHARS, notes/feedback/cover-letter caps (one definition)
+    profile.ts                ← Profile type + normalizeProfile() (coerces model JSON to the shape renderers assume)
+    cvStore.ts                ← Master CV + profile CRUD against Supabase (browser client)
+    workspace.ts              ← Per-user localStorage envelope: JD, result, provider, tailor session id
+    applicationSnapshot.ts    ← Applied-button helpers: local dates, strict salary extraction, notes, second-person rewrite
+    safeNext.ts               ← Same-origin-only `?next=` path (open-redirect guard)
+    sectionOrder.ts / sections.ts ← Section order resolution; reserved section titles
+    atsMatch.ts               ← Deterministic keyword match for the pre-check gate
+    cvDensity.ts / projectDate.ts / saveBlob.ts / pastePlainText.ts
+    parseCv.ts                ← PDF/DOCX/TXT → text (byte sniffing, scanned-image detection)
+    keyEncryption.ts          ← AES-256-GCM for users' provider keys (KEY_ENCRYPTION_SECRET)
+    buildCvPdf.ts / buildCoverLetterPdf.ts / pdfText.ts ← jsPDF generators with a real text layer (NotoSans embedded from lib/fonts/)
+    apiRateLimit.ts           ← Burst limiter: Upstash when configured, in-process sliding window otherwise
     supabase/
-      client.ts               ← createBrowserClient() — use in Client Components only
-      server.ts               ← createServerClient() — use in Server Components + Route Handlers
+      env.ts                  ← Fail-loud readers for the two NEXT_PUBLIC_SUPABASE_* vars
+      client.ts               ← createBrowserClient() — Client Components only
+      server.ts               ← createServerClient() — Server Components + Route Handlers
+      proxy.ts                ← updateSession() + PROTECTED_PREFIXES
   prompts/
     rules.ts                  ← ABSOLUTE_RULES constant (the honesty contract)
     steps.ts                  ← All prompt templates (summaryPrompt, skillsPrompt, etc.)
-    masterCV.ts               ← Hardcoded owner CV — DEV FALLBACK ONLY, never for production
-proxy.ts                      ← Session-refresh middleware (Next.js 16: named proxy.ts, not middleware.ts)
+    masterCV.ts               ← Owner's CV — DEV FALLBACK ONLY, never imported by a production path
+supabase/migrations/          ← Checked-in SQL (applications table + tailored_cv column so far); see supabase/schema.md
 ```
 
 ### Routes
 
 - `/` — landing page
 - `/app` — the tool itself (requires auth — redirected to login if unauthenticated)
+- `/customize` — master CV, extracted details, section order (requires auth)
 - `/settings` — API-key management (requires auth)
+- `/applications` — application tracker (requires auth)
 - `/auth/login` — email/password login **and** signup, plus OAuth. One page with a `mode` toggle; there is no separate `/auth/signup` route.
 - `/auth/callback` — OAuth PKCE exchange (must match Supabase redirect allowlist)
 - `/auth/error` — auth error display
+
+Every signed-in page renders `<AppHeader>` (`src/components/ui/AppHeader.tsx`): the sticky bar with the full nav and Sign out, plus the page's `<h1>`. Don't hand-write a header.
 
 Auth-gated pages are listed in `PROTECTED_PREFIXES` in `src/lib/supabase/proxy.ts`. Add new signed-in-only routes there so they redirect before render, rather than mounting and bouncing from the client.
 
@@ -85,14 +115,15 @@ Auth-gated pages are listed in `PROTECTED_PREFIXES` in `src/lib/supabase/proxy.t
 
 ## Data flow
 
-1. User signs in → `proxy.ts` verifies the JWT and refreshes the session cookie
-2. User pastes master CV → `saveMasterCV()` writes to Supabase `master_cvs` table
-3. `POST /api/extract-profile` parses the CV and extracts a `Profile` object → saved to `cv_profiles` table
-4. User pastes JD → clicks "Tailor my CV"
-5. Client sends `{ jobDescription, cvText, projectNames }` to `POST /api/tailor`
-6. Server verifies auth via `getClaims()`, checks per-user rate limit via SECURITY DEFINER RPC, then runs the 2-wave AI pipeline and returns `{ summary, skills, experience, projects, coverLetter, atsScore, analysis, research }`
-7. Results render in `CvPreview` and `CoverLetterPreview` (both are `contentEditable` — user can edit inline)
-8. Download: `CvPreview.downloadWord()` walks the live DOM to capture any inline edits, converts to `@@JOB@@` markers for the experience section, then POSTs to `/api/download` which builds the `.docx` file
+1. User signs in → `src/proxy.ts` verifies the JWT and refreshes the session cookie
+2. On `/customize` the user pastes or uploads their master CV → `saveMasterCV()` writes to Supabase `master_cvs`
+3. `POST /api/extract-profile` extracts a `Profile` object, `normalizeProfile()` coerces it to the expected shape → saved to `cv_profiles`
+4. On `/app` the user pastes a JD → "Tailor my CV" first runs the **pre-check gate**: `POST /api/analyze` with `cvText` returns Step 1's JD analysis plus a deterministic keyword match (`lib/atsMatch.ts`), shown as "X/15" before any paid pipeline runs
+5. "Continue to full tailoring" sends `{ jobDescription, cvText, projectNames, analysis }` (+ `provider` for the owner account) to `POST /api/tailor`; the gate's `analysis` is reused so Step 1 isn't paid for twice
+6. Server verifies auth via `getClaims()`, checks the daily and lifetime quotas via SECURITY DEFINER RPCs (fail-closed), then runs Step 0 + two parallel waves and returns `{ summary, skills, experience, projects, coverLetter, atsScore, analysis, research }`
+7. Results render in `CvPreview` and `CoverLetterPreview` (both `contentEditable`); the JD, result and a per-run `tailorSessionId` are persisted per user in localStorage (`lib/workspace.ts`) so a reload doesn't lose them
+8. Download: `CvPreview.collectPayload()` walks the live DOM to capture inline edits, converts job headers to `@@JOB@@` markers, then POSTs to `/api/download` (.docx) or `/api/download-pdf` (jsPDF, real text layer)
+9. "Applied — save to tracker" POSTs the run to `/api/applications` with the JD, derived notes, a strict-regex salary and a `tailored_cv` snapshot (sections + profile + section order); the session id makes a second click a no-op
 
 **CV text is stored server-side in Supabase** (`master_cvs` table, one row per user). The client reads it from DB on load and sends it per-tailor request. The app is fully multi-user — each user's CV is isolated by `user_id` and Supabase RLS.
 
@@ -123,14 +154,28 @@ const userId = data.claims.sub as string;
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `profiles` | `id` (FK → `auth.users`), `tailor_count`, `tailor_count_reset_at`, `is_unlimited`, `claude_tailors_used`, `anthropic_api_key` | Auto-created by trigger on signup. `authenticated` role has table-level UPDATE revoked; only `anthropic_api_key` column is re-granted. |
-| `master_cvs` | `user_id`, `text`, `updated_at` | One row per user, upserted on save. The CV column is `text` — **not** `cv_text`. |
-| `cv_profiles` | `user_id`, `data`, `updated_at` | Extracted `Profile` JSON (name/contact/edu/projects). The JSON column is `data` — **not** `profile_json`. |
-| `user_api_keys` | `user_id` + `provider` (PK), `key_enc`, `key_hint`, `updated_at` | Users' own encrypted Gemini/OpenRouter keys. `provider` is CHECK-constrained to `gemini`/`openrouter`. Read server-side via the `get_encrypted_key` RPC, which returns NULL unless `auth.uid()` matches the requested user. |
+| `profiles` | `id` (FK → `auth.users`), `tailor_count`, `tailor_count_reset_at`, `is_unlimited`, `claude_tailors_used`, `anthropic_api_key`, `section_order` | Auto-created by trigger on signup. `authenticated` role has table-level UPDATE revoked; `anthropic_api_key` and `section_order` are re-granted column-wise. |
+| `master_cvs` | `user_id`, `text`, `updated_at` | One row per user, upserted on save (unique `user_id`). The CV column is `text` — **not** `cv_text`. |
+| `cv_profiles` | `user_id`, `data`, `updated_at` | Extracted `Profile` JSON. The JSON column is `data` — **not** `profile_json`. |
+| `user_api_keys` | `user_id` + `provider` (PK), `key_enc`, `key_hint`, `updated_at` | Users' own encrypted Gemini/OpenRouter keys. `provider` is CHECK-constrained. Read server-side via the `get_encrypted_key` RPC. |
+| `applications` | `id`, `user_id`, `company_name`, `role`, `cv_reference`, `tailor_session_id`, `status`, `salary`, `date_applied`, `followup_date`, `notes`, `job_description`, `source`, `tailored_cv` (jsonb), `created_at`, `updated_at` | Tracker rows. Partial unique index on `(user_id, tailor_session_id)`. `tailored_cv` came in a second migration — the routes degrade (save/read without it, with a warning) if it hasn't been applied. |
+| `user_feedback` | `user_id`, `email`, `message` | Insert-only for `authenticated`. |
+| `user_projects`, `user_skills` | — | Exist in the database but have **no code** referencing them since the unwired routes were removed. Safe to drop. |
+
+Full column/constraint/RPC expectations, and how to verify them against the live project, are in `supabase/schema.md`.
 
 **Trigger:** `handle_new_user()` — SECURITY DEFINER function, inserts a `profiles` row on every `auth.users` INSERT. Ensures the rate-limit row always exists.
 
-### Per-user rate limiting
+### Rate limiting — two layers
+
+| Layer | Where | What it protects | Failure mode |
+|---|---|---|---|
+| **Quota** (source of truth) | Postgres SECURITY DEFINER RPCs `check_and_increment_tailor_count` / `check_and_increment_claude_lifetime`, called from `/api/tailor` | How many tailors bill the owner's wallet. Can't be bypassed by the client. Note: they count attempts — a run that fails on a provider 429 still consumed a slot (no refund RPC exists yet). | **Fail-closed**: an RPC error, a null result, or a missing profile row → 503, never an unmetered run. Only `reason === "unlimited"` honours a client-chosen provider. |
+| **Burst** (cheap first gate) | `src/lib/apiRateLimit.ts` → `checkBurstLimit()`, called from `/api/tailor`, `/api/analyze`, `/api/extract-profile`, `/api/parse-cv` | A logged-in user (or script) hammering any Claude-spending endpoint — `analyze` and `extract-profile` have no DB counter at all | Upstash Redis (shared across instances) when `UPSTASH_REDIS_REST_URL`/`TOKEN` are set; otherwise, or on a Redis error, an **in-process sliding window** (10/min per user, per instance, resets on cold start). Never fully open. |
+
+Any new route that calls Claude on the owner's key must call `checkBurstLimit()` first, before auth-heavy DB work or the paid LLM call.
+
+#### Per-user quota RPC
 
 Implemented as a SECURITY DEFINER Postgres function `check_and_increment_tailor_count`. It:
 - Acquires a `FOR UPDATE` row lock to prevent race conditions
@@ -145,7 +190,15 @@ REVOKE UPDATE ON profiles FROM authenticated;
 GRANT UPDATE (anthropic_api_key) ON profiles TO authenticated;
 ```
 
-`lib/rateLimit.ts` (in-memory, per-IP) is now dead code — do not use it.
+The old in-memory per-IP `lib/rateLimit.ts` is gone. The in-process fallback inside `apiRateLimit.ts` is deliberately NOT a replacement for Upstash — it resets on every cold start and isn't shared across instances — it only stops the DB-counter-less routes from being completely unmetered when Redis is absent.
+
+### Schema changes
+
+- Migrations live in `supabase/migrations/*.sql` and are the source of truth for schema. Write the SQL file first, then apply it.
+- Applied by hand in the Supabase SQL editor (this project does not run the CLI migration workflow). The Supabase MCP `apply_migration` / `execute_sql` tools hit the **live remote project** — use them only with explicit approval, and never for anything you haven't also checked into `supabase/migrations/`.
+- Use `$func$` (not `$$`) as the PL/pgSQL delimiter — the SQL editor mangles plain `$$`.
+- Every user-owned table gets RLS with `auth.uid() = user_id` on all four verbs, same as `applications` / `user_projects` / `user_skills`.
+- PostgREST upsert `onConflict` cannot target a partial unique index — check-then-insert and catch `23505` as the backstop.
 
 ---
 
@@ -212,7 +265,7 @@ callClaude({ ... }).catch(() => ({}))   // JSON steps
 callClaude({ ... }).catch(() => null)   // nullable steps (atsScore)
 ```
 
-**Rate limiting** lives only in `/api/tailor` (the expensive endpoint). Download and extract-profile endpoints don't need it.
+**Rate limiting:** the DB quota RPC lives only in `/api/tailor` (the expensive endpoint); the Upstash burst gate wraps every route that calls Claude. Download routes don't spend Claude credits and need neither.
 
 **Profile in request body, always.** The download routes receive `profile` in the POST body. They use it exclusively. If a field is missing, it renders blank. See the fallback-leakage trap below.
 
@@ -236,26 +289,125 @@ callClaude({ ... }).catch(() => null)   // nullable steps (atsScore)
 
 ---
 
+## How to work on this project
+
+**For anything non-trivial (new route, schema change, pipeline change, UI redesign):** understand → clarify → plan in plain English → get approval → build → verify. Don't write code while the requirement is still vague; ask the targeted question instead of assuming. For small, obvious fixes just do it.
+
+**Look for existing code first.** Before adding a helper, a route, or a prompt, check `src/lib/`, `src/app/api/`, and `src/prompts/`. Most things you'd reach for already exist (`callClaude`, `checkBurstLimit`, `parseCvFile`, `pdfText`, the Supabase clients).
+
+**Paid calls cost real money.** `/api/tailor`, `/api/analyze`, `/api/extract-profile`, and `/api/parse-cv` spend Claude credits on the owner's key. When testing locally, one run is a test; a loop is a bill. Before repeatedly re-running a paid step to debug it, ask — and prefer testing prompt changes with `expectJson`/parsing logic isolated from the live call where you can.
+
+**Self-improvement loop.** When you hit a failure that wasn't obvious from the code — a runtime quirk, a Supabase/PostgREST behaviour, a Next.js 16 difference, an OneDrive corruption — after fixing it, add a short entry to *Known gotchas* below so the next session doesn't rediscover it. That is how every entry in that section got there.
+
+**Don't rewrite this file's rules without asking.** Add gotchas and fix stale facts freely; changing the honesty rules, the "done" definition, or the security patterns needs the owner's say-so.
+
+---
+
+## Secrets & environment variables
+
+- **Every secret lives in `.env.local`** (gitignored via `.env*` — verify this is still true before any commit). Never hardcode a key, token, or project ref in source — not temporarily, not in a comment.
+- **Never log secret values.** `console.log("key:", apiKey)` is a security violation. Log presence (`!!process.env.X`) or a hint, never the value. (`user_api_keys.key_hint` exists precisely so the UI never needs the real key.)
+- **Required secrets fail loudly, optional integrations fail open.** `ANTHROPIC_API_KEY` and the Supabase vars missing = throw at module top (`if (!x) throw new Error("X is not set")`). Optional infrastructure like Upstash follows the `apiRateLimit.ts` pattern instead: no-op with a one-time `console.warn`, because a monitoring/limiting outage must never take the app down.
+- **When adding a new env var, do all four:** (1) add it to `.env.local` with a comment saying where to get it, (2) add it to the Vercel dashboard for **Production and Preview**, (3) add it to the list under *Commands* below, (4) tell the owner you did steps 1–3. A var present locally but missing in Vercel is the #1 cause of "works on my machine, 500s in prod".
+- Third-party IDs (Supabase project ref, Upstash URL) are configuration, not code — env vars, never literals.
+
+---
+
+## Deploying
+
+**Never push to `main` without explicit approval.** `main` auto-deploys to production on Vercel. After a change passes the "done" checklist locally, stop and wait for the owner to say "push it" / "deploy" / "ship it". Approval for one change does not carry over to the next.
+
+Pre-deploy checklist:
+- [ ] `npm run build` passes clean (delete `.next/` first if anything looks off — see gotchas)
+- [ ] The "What done means" checklist below is satisfied — browser + Word + PDF verified
+- [ ] Any new env vars are in the Vercel dashboard, not just `.env.local`
+- [ ] Any new schema is in `supabase/migrations/` **and** applied to the live project
+- [ ] New auth-gated pages are in `PROTECTED_PREFIXES`; new OAuth redirect URLs are in the Supabase allowlist
+- [ ] Owner has explicitly approved the deploy
+
+After deploying: confirm the Vercel deployment is `READY`, then smoke-test sign-in → tailor → Word download → PDF download on the production URL. If a step fails, read the Vercel build/runtime logs before touching code.
+
+**When production breaks and local doesn't**, check in this order: (1) env var missing or misnamed in Vercel, (2) Supabase redirect allowlist / key name (`PUBLISHABLE_KEY`, not `ANON_KEY`), (3) a migration applied locally in the SQL editor but not to the project Vercel points at, (4) Edge vs Node runtime on a route that needs `Buffer`/cookies.
+
+---
+
+## MCP tools — prefer them over guessing
+
+When these connectors are available in the session, use them instead of reasoning from memory or shelling out:
+
+| Need | Tool |
+|---|---|
+| Next.js 16 / Supabase / Tailwind 4 API details | Context7 (`resolve-library-id` → `query-docs`) — complements `node_modules/next/dist/docs/` |
+| Inspect live schema, RLS, indexes | Supabase `list_tables`, `execute_sql` (read-only queries) |
+| Security/performance lint on the live DB | Supabase `get_advisors` — run after any schema change |
+| Debug auth/DB errors in prod | Supabase `query_logs` |
+| Apply a migration | Supabase `apply_migration` — **only with explicit approval**, and only for SQL already saved in `supabase/migrations/` |
+| Check a deploy, read build/runtime errors | Vercel `list_deployments`, `get_deployment_build_logs`, `get_runtime_errors`, `get_runtime_logs` |
+
+Anything that writes to the live database or triggers a deploy is an outward-facing action: say what you're about to do and get a yes first.
+
+---
+
+## UI & frontend rules
+
+The app has a deliberate look — a dark, warm, amber-accented interface — and every design decision already lives as a token in `src/app/globals.css`. Use them; don't reinvent.
+
+- **Colors come from tokens only:** `--bg`, `--surface(-2/-3/-glass)`, `--border(-strong)`, `--text` / `--text-subtle` / `--muted`, `--amber` / `--amber-bright` / `--amber-dim` / `--amber-border` / `--amber-ink`, `--success(-dim/-border)`, `--danger(-dim/-border)`, and the `--doc-*` palette for the white CV document. Never ad-hoc hex values in components or rules. If you need a new colour, add a token and derive it from the existing ones.
+- **Type scale, radii, shadows, motion are tokens too:** `--text-xs…3xl`, `--leading-*`, `--tracking-*`, `--space-1…24`, `--radius-xs/sm/md/lg/pill`, `--shadow-xs/sm/md/lg/doc` (layered, not flat), `--surface-inset`, `--focus-ring`, `--ease`, `--duration-fast/--duration/--duration-slow`.
+- **Fonts:** Geist via `next/font/google` in `layout.tsx`, applied through `--font-sans`. Don't add fonts through a `<link>` or CDN. There is no Tailwind in this project; it's plain CSS in `globals.css`.
+- **Shared skins:** every text control (`textarea`, `.textInput`, `.authInput`, `.keyInput`, `.profileGrid input`, selects) shares one `:is()` field rule, and every button-like control shares one base with hover/active/disabled. Add a new control to those lists rather than writing a fresh skin.
+- **Components first:** `<AppHeader>`, `<Card>`, `<Button>`, `<Input>`, `<Textarea>`, `<FormField>`, `<StatusText>`, `<Badge>`, `<EmptyState>`, `<Skeleton>` in `src/components/ui/`. Loading = `<Skeleton>`, not a "Loading…" sentence; empty = `<EmptyState>` inside a `<Card>`.
+- **Animation:** only animate `transform` and `opacity`. Never `transition-all` (the codebase currently has zero — keep it that way). Use `var(--ease)` and `var(--duration)`.
+- **Every clickable element** needs `hover`, `focus-visible`, and `active` states. No exceptions — this is a keyboard-heavy tool.
+- **Depth is a layering system** (base → surface → floating), expressed with the shadow tokens and `--border`/`--border-strong`, not by everything sitting on one plane.
+- **Reference image supplied?** Match its layout, spacing, typography, and colour exactly; don't "improve" it or add sections. No reference? Design from the tokens with the same restraint as the existing screens.
+- **Verify visually, not just by compiling.** Run `npm run dev`, open the page, and look at it (the `/run` skill can drive the app and screenshot it). Compare against the reference or the neighbouring screens, fix mismatches, look again — at least two rounds. Be specific when comparing ("gap is 16px, should be 24px").
+- **`CvPreview` / `CoverLetterPreview` are special.** They're `contentEditable`, wrapped in `React.memo`, and their DOM class names (`cvJobHeader` etc.) are parsed by `downloadWord()`. A "cosmetic" change there can silently break the Word/PDF output — re-run the download checks after touching them.
+
+---
+
 ## Commands
 
 ```bash
-npm run dev       # development server — http://localhost:3000
-npm run build     # production build
-npm run start     # production server (run after build)
-npm run lint      # ESLint
+npm run dev        # development server — http://localhost:3000
+npm run build      # production build (also the full type check)
+npm run typecheck  # tsc --noEmit — faster than a build when you only want types
+npm run start      # production server (run after build)
+npm run lint       # ESLint
 ```
 
-**Deploy:** push to `main` → Vercel auto-deploys.
+**Deploy:** push to `main` → Vercel auto-deploys. See *Deploying* above — never push without approval.
 
-**Env vars required (set in Vercel dashboard and `.env.local` for local dev):**
+**Env vars (set in Vercel dashboard and `.env.local` for local dev):**
 
 ```
+# Required — the app fails loudly without these
 ANTHROPIC_API_KEY=sk-ant-...
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+# Required for /settings and for tailoring on a user's own key: AES-256-GCM key for
+# user_api_keys.key_enc. 64 hex chars (32 bytes) — e.g. `openssl rand -hex 32`.
+# Rotating it makes every saved key unreadable (users see "re-enter your key").
+KEY_ENCRYPTION_SECRET=<64 hex chars>
+
+# Optional — burst rate limiting (src/lib/apiRateLimit.ts). Absent = in-process fallback.
+# Get from a free Upstash Redis DB → REST API section.
+UPSTASH_REDIS_REST_URL=https://<...>.upstash.io
+UPSTASH_REDIS_REST_TOKEN=...
+
+# Optional — owner-account provider routing (src/lib/claude.ts, /api/tailor Path A)
+LLM_PROVIDER=anthropic            # anthropic | openrouter | gemini (default anthropic)
+OPENROUTER_API_KEY=sk-or-v1-...   # env key for the openrouter provider
+OPENROUTER_MODEL=openrouter/free  # pin a specific free model if the auto-router misbehaves
+GEMINI_API_KEY=AIza...            # env key for the gemini provider
+GEMINI_MODEL=gemini-2.5-flash
+
+# Not read by the app. Present locally only for the smoke-test scripts (admin API for a
+# throwaway user) — never reference it from src/.
+SUPABASE_SECRET_KEY=sb_secret_...
 ```
 
-The env var is `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (not the legacy `ANON_KEY` name). Its value starts `sb_publishable_...` — the new Supabase key format. The service role key (`sb_secret_...`) is not used by the app — the only server-side privilege escalation goes through SECURITY DEFINER functions.
+The env var is `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (not the legacy `ANON_KEY` name). Its value starts `sb_publishable_...` — the new Supabase key format. The only server-side privilege escalation in the app goes through SECURITY DEFINER functions.
 
 ---
 
@@ -312,12 +464,13 @@ Consequences for anyone touching this:
   rendering-and-rasterizing again, don't — that trade (visual fidelity for a
   dead text layer) is exactly the bug described above, and it costs users
   real job applications, not just a cosmetic mismatch.
-- Font is Helvetica (a real, embedded, extractable standard font), not
+- Font is NotoSans, embedded from `src/lib/fonts/` (a real, extractable
+  Unicode font; `next.config.ts` traces the files into the deployment), not
   Calibri — Calibri isn't redistributable/embeddable, and text correctness
   matters far more than matching Word's exact typeface.
-- Body text is left-aligned, not justified — true justification needs
-  manual space-stretching per line; this was the honest tradeoff for shipping
-  a correct fix rather than a cosmetic one.
+- Body text and bullets are justified by `pdfText.ts`'s own line layout, to
+  match the .docx's `AlignmentType.JUSTIFIED`; the skills "Label:" lines stay
+  left-aligned on both sides.
 - **Any change to the PDF generators must be verified by actually extracting
   text back out of the generated PDF** (e.g. via `unpdf`, already a
   dependency, used elsewhere for parsing uploaded resumes) and confirming the
@@ -334,15 +487,15 @@ The experience section goes through a two-step rendering pipeline:
 3. When the user clicks "Download Word", `CvPreview.downloadWord()` walks the live DOM and converts each `cvJobHeader` element into `@@JOB@@<role>@@<date>` — this captures any inline edits the user made
 4. `/api/download` receives this string and `textToParagraphs()` parses the `@@JOB@@` markers into bold, tab-aligned Word paragraphs
 
-**If you change the experience format or the DOM class names, you must update both sides** — `CvPreview.downloadWord()` (the emitter) and `textToParagraphs()` in the download route (the parser). A mismatch will silently produce plain-text job headers in the Word output instead of the formatted bold version.
+**If you change the experience format or the DOM class names, you must update all three sides** — `CvPreview.collectPayload()` (the emitter), `textToParagraphs()` in the download route and `drawTextBlock()` in `buildCvPdf.ts` (the parsers). A mismatch will silently produce plain-text job headers in the output instead of the formatted bold version. The emitter strips a literal `@@` from role/date text so an inline edit can't corrupt the marker.
 
 ### Projects are keyed by index, not name
 
-The projects AI step returns `{ "0": [...bullets], "1": [...] }`. The index corresponds to the order of `profile.projects` (extracted from the master CV). If a user's projects change order or count, old tailored project bullets will be mismatched. This is acceptable in the current browser-only design — saving a new master CV clears the old tailoring result.
+The projects AI step returns `{ "0": [...bullets], "1": [...] }`. The index corresponds to the order of `profile.projects` (extracted from the master CV). If a user's projects change order or count, old tailored project bullets will be mismatched. Saving a new master CV on `/customize` clears the tailored result in the workspace for that reason. In the preview, each project wrapper carries `data-proj-index` and `collectPayload()` matches on it — never on DOM position, which a stray `<div>` from contentEditable would shift. `normalizeProfile()` deliberately never filters projects out for the same reason.
 
-### Rate limiter is now in Supabase, not memory
+### Rate limiting is two layers, and one of them is optional
 
-`lib/rateLimit.ts` is dead code — do not call it. Rate limiting moved to a SECURITY DEFINER Postgres function (see Auth & database section). The old in-memory `Map` would reset on every serverless cold start and wasn't shared across instances anyway.
+The DB quota RPC (fail-closed, `/api/tailor` only) and the Upstash burst gate (fail-open, every Claude-spending route) are different things — see *Rate limiting — two layers*. If burst limiting "isn't working", the first check is whether `UPSTASH_REDIS_REST_URL`/`TOKEN` are set in that environment; a one-time `[apiRateLimit] … DISABLED` warning in the logs is the tell. The old in-memory per-IP limiter is gone — don't recreate it.
 
 ### OneDrive .next corruption
 
@@ -352,9 +505,21 @@ The project lives on OneDrive. OneDrive's sync process corrupts `.next/` — sym
 
 Supabase projects now issue `sb_publishable_...` (formerly "anon key") and `sb_secret_...` (formerly "service role key"). The env var in this project is `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — note it is NOT the legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` name. If you see auth failures after a project reset or key rotation, check the env var name and value both.
 
-### proxy.ts runs in Node.js runtime, not Edge
+### proxy.ts runs in the Node.js runtime — and must NOT declare it
 
-Next.js middleware defaults to the Edge runtime. This project's `src/proxy.ts` must run in the **Node.js runtime** because `@supabase/ssr`'s cookie handling relies on Node.js APIs. If you see Edge-runtime-related errors from the middleware (e.g. `crypto` or cookie APIs missing), verify `src/proxy.ts` exports `export const runtime = 'nodejs'` and that `next.config.ts` does not force Edge globally.
+In Next.js 16 the proxy file (`src/proxy.ts`, formerly middleware.ts) runs on the Node.js runtime by default, which is what `@supabase/ssr`'s cookie handling needs. **Do not add `export const runtime = 'nodejs'` to it** — per `node_modules/next/dist/docs/.../proxy.md`, setting the `runtime` option in a proxy file throws at build time. (An earlier version of this note said the opposite.) `next.config.ts` must not force Edge globally either.
+
+### PostgREST resolves an RPC by its argument names
+
+`POST /rest/v1/rpc/<fn>` with the wrong parameter set (or an empty body for a function that has parameters) returns `PGRST202 "Could not find the function"` — which looks exactly like the function not existing. When probing whether an RPC exists, send the real argument names (a zero UUID is safe for the counters: they answer `profile_not_found`/`forbidden` without touching anyone's quota).
+
+### Migrations are manual, so the code tolerates a missing column
+
+`applications.tailored_cv` was added in a second migration. Until it's applied, PostgREST reports the column as `PGRST204` on writes and Postgres as `42703` on reads. `/api/applications` handles both: it inserts without the snapshot (returning a `warning` the UI shows) and reads the row without it. Follow that pattern for any future additive column — the alternative is a tracker that stops working entirely because one statement wasn't pasted into the SQL editor.
+
+### Testing the API without a browser
+
+`SUPABASE_SECRET_KEY` (in `.env.local`, never read by `src/`) lets a local script create a throwaway user through the auth admin API, sign in with the password grant, and build the `sb-<ref>-auth-token` cookie the way `@supabase/ssr` does (`"base64-"` + base64url JSON, chunked at 3180 chars into `.0`, `.1`…). With that cookie every route can be exercised end to end against `npm run dev`, including extracting text back out of the generated PDFs with `unpdf`. Skip the tailor/analyze/extract-profile bodies that would reach a model — test their guards only.
 
 ### Test Postgres permissions via PostgREST, not the SQL editor
 
@@ -372,6 +537,8 @@ Checklist:
 - [ ] The PDF download has a **real, selectable, extractable text layer** — never just "looks right." Confirm by selecting/copying text in a PDF viewer, or by extracting text back out programmatically (`unpdf`, already a dependency). This is non-negotiable: an earlier version of this app shipped a PDF pipeline that looked correct on screen but was actually a JPEG with no text layer, invisible to every ATS — see "PDF must have a real text layer" above.
 - [ ] Inline edits (name, experience text, etc.) made in the contentEditable preview are preserved in both the Word and PDF downloads
 - [ ] No content from one user bleeds into another user's output (profile fields, CV text)
-- [ ] Type check passes (`npm run build`)
+- [ ] UI changes were looked at in the running app and compared against the reference / neighbouring screens (see *UI & frontend rules*) — not just compiled
+- [ ] New env vars are documented under *Commands* and added to Vercel; new SQL is in `supabase/migrations/` and `supabase/schema.md` is updated
+- [ ] Type check passes (`npm run typecheck`, and `npm run build` before a deploy)
 
 TypeScript compiling and ESLint passing are necessary but not sufficient. Feature correctness means verifying the actual output — browser + Word + PDF. For the PDF specifically, "looks right on screen" is not sufficient either — extract the text and check it, every time.
