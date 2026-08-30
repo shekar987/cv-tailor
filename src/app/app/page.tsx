@@ -1,17 +1,19 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { getMasterCV, getProfile, importFromLocalStorageIfNeeded, type Profile } from "@/lib/cvStore";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 import type { AtsMatchResult } from "@/lib/atsMatch";
-import { loadWorkspace, saveWorkspace, clearAllWorkspaces } from "@/lib/workspace";
+import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { extractSalary, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { MAX_JD_CHARS, JD_TOO_LONG } from "@/lib/limits";
+import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import EmptyState from "@/components/ui/EmptyState";
+import Skeleton from "@/components/ui/Skeleton";
 import Textarea from "@/components/ui/Textarea";
 import FormField from "@/components/ui/FormField";
 import StatusText from "@/components/ui/StatusText";
@@ -79,13 +81,11 @@ function buildFileBaseName(profile: Profile | null, analysis: Result["analysis"]
 }
 
 export default function Home() {
-  const router = useRouter();
   const [jobDescription, setJobDescription] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [errorType, setErrorType] = useState<string | null>(null); // "user_limit" | "provider_limit" | null
-  const [userEmail, setUserEmail] = useState<string | null>(null);
 
   // Master CV — read-only here. Uploading/editing/replacing it lives on
   // /customize; this page only needs to know whether one exists.
@@ -130,10 +130,10 @@ export default function Home() {
   // If the DB has nothing but localStorage does, import it once then clear localStorage.
   useEffect(() => {
     async function loadCv() {
-      // Get user email from local session (no network call)
+      // Local session read (no network call) — only the user id is needed here;
+      // the header shows the email itself.
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
-      setUserEmail(session?.user?.email ?? null);
 
       // Restore the pasted JD and tailored result from the last visit, so a
       // refresh — or following a link out of the CV preview — doesn't discard
@@ -207,16 +207,6 @@ export default function Home() {
     if (!workspaceReady || !userId) return;
     saveWorkspace(userId, { jobDescription, result, ranProvider, tailorSessionId });
   }, [workspaceReady, userId, jobDescription, result, ranProvider, tailorSessionId]);
-
-  async function handleSignOut() {
-    // Don't leave any tailored CV in this browser's storage after sign-out —
-    // this account's or a previous one's.
-    clearAllWorkspaces();
-    const supabase = createClient();
-    await supabase.auth.signOut({ scope: 'local' });
-    router.refresh();
-    router.push('/auth/login');
-  }
 
   // Step 1 of the click-through: run ONLY the JD analyzer + a local keyword
   // check against the raw CV, so the user sees a rough fit estimate before the
@@ -397,41 +387,32 @@ export default function Home() {
   return (
     <main className="page">
       <div className="container">
-        <header className="header">
-          <div className="appBar">
-            <div className="wordmark">
-              Jobhuntz
-            </div>
-            {userEmail && (
-              <div className="appBarActions">
-                <span className="appBarEmail" title={userEmail}>{userEmail}</span>
-                <Link href="/applications" className="customizeLink">Applications</Link>
-                <Link href="/customize" className="customizeLink">Customize</Link>
-                <Link href="/settings" className="customizeLink">Settings</Link>
-                <button type="button" onClick={handleSignOut} className="customizeLink">
-                  Sign out
-                </button>
-              </div>
-            )}
-          </div>
-          <p className="tagline">
-            Honest, ATS-ready tailoring. Every claim traces back to your real CV — nothing invented.
-          </p>
-        </header>
+        <AppHeader
+          title="Tailor your CV"
+          tagline="Honest, ATS-ready tailoring. Every claim traces back to your real CV — nothing invented."
+        />
 
         {/* Master CV status — uploading/editing/replacing it lives on /customize now */}
         {cvLoading ? (
           <Card>
-            <p className="cvHelp">Loading your CV…</p>
+            <div className="label">Master CV</div>
+            <Skeleton lines={2} label="Loading your CV" />
           </Card>
         ) : !masterCvText ? (
           <Card>
-            <FormField
-              label="Master CV"
-              help="Add your CV once in Customize, and it's reused for every job you tailor for here."
+            <EmptyState
+              icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+                  <path d="M14 3v6h6" />
+                  <path d="M9 13h6M9 17h6" />
+                </svg>
+              }
+              title="Start with your master CV"
+              actions={<Button href="/customize">Add your CV in Customize →</Button>}
             >
-              <Button href="/customize">Add your CV in Customize →</Button>
-            </FormField>
+              Add it once and it&apos;s reused for every job you tailor for here. Paste it or upload a PDF or Word file.
+            </EmptyState>
           </Card>
         ) : null}
 

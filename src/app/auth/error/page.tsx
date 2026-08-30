@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import Button from '@/components/ui/Button'
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -25,12 +26,10 @@ export default async function AuthErrorPage({
 
   return (
     <main className="authPage">
-      <div style={{ maxWidth: 460, width: '100%' }}>
-        <div className="authWordmark" style={{ marginBottom: 'var(--space-8)' }}>
-          Jobhuntz
-        </div>
+      <div className="authStack">
+        <Link href="/" className="authWordmark authWordmarkLink">Jobhuntz</Link>
 
-        <div className="authCard danger" style={{ maxWidth: 'none' }}>
+        <div className="authCard danger">
           <p className="authEyebrow danger">Sign-in error</p>
           <h1 className="authTitle">We couldn&apos;t sign you in</h1>
           <p className="authMuted">{message}</p>
@@ -39,7 +38,7 @@ export default async function AuthErrorPage({
           </Button>
         </div>
 
-        <p className="cvHelp" style={{ marginTop: 'var(--space-5)', textAlign: 'center' }}>
+        <p className="cvHelp authFootnote">
           If this keeps happening, make sure you&apos;re using the right account.
         </p>
       </div>

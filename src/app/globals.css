@@ -1,59 +1,73 @@
 :root {
   /* ── Palette ──────────────────────────────────────────────────────────────
-     Charcoal + amber, unchanged in character. Two additions: a raised surface
-     for elements that sit ON a card, and a stronger border for interactive
-     edges so a control reads as a control before you hover it.
-
-     Semantic roles (prep for a future light/dark toggle — naming only, no
-     toggle logic or second palette exists yet):
-       --bg            canvas
-       --surface(-2/3) raised surfaces, each one step further off the canvas
-       --border(-strong) resting / interactive-hover edges
-       --text / --muted   primary / secondary content
-       --amber(-bright/-dim) the one accent — actions and meaningful emphasis
-       --success / --danger  status meaning, never decoration */
+     Charcoal + amber. Semantic roles:
+       --bg              canvas
+       --surface(-2/-3)  raised surfaces, each one step further off the canvas
+       --surface-glass   translucent surface for the one overlay + the sticky bar
+       --border(-strong) resting / interactive edges
+       --text / --text-subtle / --muted   primary / body / secondary content
+       --amber(-bright/-dim/-border)      the one accent — actions, meaningful emphasis
+       --success / --danger (+ -dim/-border)  status meaning, never decoration
+       --doc-*           the white CV document — a second, fixed palette */
   --bg: #0E0E10;
   --bg-gradient: radial-gradient(ellipse 1200px 600px at 50% -10%, #17171b, transparent), #0E0E10;
   --surface: #1A1A1D;
   --surface-2: #202024;
   --surface-3: #26262B;
+  --surface-glass: rgba(14, 14, 16, 0.78);
+  /* A hairline top highlight — a glass edge, not a flat card. */
+  --surface-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   --border: #2A2A2E;
   --border-strong: #3A3A41;
   --text: #EDEDED;
-  /* Nudged up from #8A8A8F: that measured ~4.87:1 on --surface, which passes
-     AA but leaves no headroom at 12-13px. This sits comfortably above it. */
+  --text-subtle: #C8C8CC;
+  /* Measured ~5.3:1 on --surface: AA with headroom at 12-14px. Don't regress. */
   --muted: #9B9BA2;
   --amber: #E0A04D;
   --amber-bright: #F5C16C;
   --amber-dim: rgba(224, 160, 77, 0.12);
+  --amber-border: rgba(224, 160, 77, 0.45);
+  --amber-ink: #1A1206;
 
-  /* Semantic — used for meaning (hit/miss/success), never decoration. */
   --success: #6DC48E;
+  --success-dim: rgba(109, 196, 142, 0.12);
+  --success-border: rgba(109, 196, 142, 0.35);
   --danger: #E5896B;
+  --danger-dim: rgba(229, 137, 107, 0.10);
+  --danger-border: rgba(229, 137, 107, 0.32);
 
-  /* ── Type scale ───────────────────────────────────────────────────────────
-     Replaces ad-hoc 11/12.5/13.5/14/15/34/48px values. Roughly 1.15-1.3 steps,
-     rounded to whole pixels so text stays crisp at every size. */
+  --doc-paper: #FFFFFF;
+  --doc-ink: #1A1A1A;
+  --doc-navy: #1F3864;
+  --doc-meta: #595959;
+  --doc-body: #333333;
+  --doc-link: #0563C1;
+  --doc-mark: #7A4F14;
+
+  /* ── Type ─────────────────────────────────────────────────────────────────
+     Geist (loaded by next/font in layout.tsx) with a system fallback. Base
+     body copy is 16px; 14px is the working size for dense UI (tables, help). */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --text-xs:   12px;
-  --text-sm:   13px;
-  --text-base: 15px;
-  --text-md:   17px;
-  --text-lg:   20px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   21px;
   --text-xl:   26px;
   --text-2xl:  34px;
+  --text-3xl:  42px;
 
-  --leading-tight:   1.25;
+  --leading-none:    1;
+  --leading-tight:   1.2;
   --leading-snug:    1.45;
   --leading-normal:  1.6;
   --leading-relaxed: 1.75;
 
-  /* Uppercase micro-labels need looser tracking; display text needs tighter. */
-  --tracking-label: 0.07em;
-  --tracking-tight: -0.02em;
+  --tracking-label:   0.07em;
+  --tracking-tight:  -0.02em;
+  --tracking-display: -0.03em;
 
-  /* ── Spacing: 4px grid ───────────────────────────────────────────────────
-     Every margin/padding below is a step on this scale, so vertical rhythm
-     stays consistent instead of drifting between 10/12/14/16/18px. */
+  /* ── Spacing: 4px grid ──────────────────────────────────────────────────── */
   --space-1:  4px;
   --space-2:  8px;
   --space-3:  12px;
@@ -64,21 +78,37 @@
   --space-10: 40px;
   --space-12: 48px;
   --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
 
+  /* Controls = md, containers = lg, things nested inside a container = xs. */
+  --radius-xs: 6px;
   --radius-sm: 8px;
   --radius-md: 10px;
   --radius-lg: 14px;
+  --radius-pill: 999px;
 
   /* Layered rather than a single blur — reads as depth, not a grey halo. */
+  --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.25);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.25), 0 6px 16px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.4);
+  --shadow-doc: 0 4px 24px rgba(0, 0, 0, 0.3);
+  --focus-ring: 0 0 0 3px var(--amber-dim);
+
+  --measure-prose: 62ch;
+  --container: 760px;
+  --container-wide: 1180px;
+  --container-lp: 1080px;
 
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 100ms;
   --duration: 150ms;
-  /* For card/shadow-level transitions (slower, heavier surfaces) vs. the
-     150ms above, which stays reserved for immediate button feedback. */
   --duration-slow: 240ms;
+
+  /* Native date pickers, selects and checkboxes follow the dark palette. */
+  color-scheme: dark;
+  accent-color: var(--amber);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -86,15 +116,15 @@
 html, body {
   background: var(--bg-gradient);
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 /* One visible focus ring for every interactive element, in one place.
    :focus-visible so it appears for keyboard users without ringing every
-   mouse click. Several controls previously did `outline: none` with only a
-   border-colour change, which is easy to miss and fails on a dark surface. */
+   mouse click. No control anywhere sets `outline: none` without replacing
+   this with something as visible. */
 :where(a, button, input, textarea, select, [tabindex]):focus-visible {
   outline: 2px solid var(--amber);
   outline-offset: 2px;
@@ -106,119 +136,130 @@ html, body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
-.page { min-height: 100vh; padding: var(--space-12) var(--space-6) var(--space-16); }
-.container { max-width: 760px; margin: 0 auto; }
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
-.header { margin-bottom: var(--space-10); }
+/* ── Page shell ────────────────────────────────────────────────────────────── */
+.page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 0 var(--space-6) var(--space-16);
+}
+.container { max-width: var(--container); margin: 0 auto; }
+.appsContainer { max-width: var(--container-wide); }
+
+/* ── App header ────────────────────────────────────────────────────────────
+   One component (AppHeader.tsx) on every signed-in page. The bar is sticky
+   and translucent — the glass treatment that used to live only on the
+   download popover, now with a scrolling page underneath to justify it. The
+   title and tagline sit below the bar in normal flow. */
+.appHeader { margin-bottom: var(--space-8); }
+.appBarSticky {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin: 0 calc(-1 * var(--space-6));
+  padding: var(--space-3) var(--space-6);
+  background: var(--surface-glass);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+.appBar {
+  max-width: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
 .wordmark {
-  font-size: var(--text-2xl);
+  font-size: var(--text-lg);
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: var(--tracking-display);
   line-height: var(--leading-tight);
+  color: var(--text);
+  text-decoration: none;
 }
 .wordmark .dot { color: var(--amber); }
+.appBarActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.appBarEmail {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin-right: var(--space-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22ch;
+  white-space: nowrap;
+}
+.pageTitle {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-display);
+  line-height: var(--leading-tight);
+  margin-top: var(--space-8);
+}
 .tagline {
   margin-top: var(--space-3);
   color: var(--muted);
   font-size: var(--text-base);
   line-height: var(--leading-snug);
-  max-width: 52ch; /* measure-based, so it wraps well at any font size */
+  max-width: 52ch;
 }
-
-.inputCard {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-6);
-  /* Layered shadow plus a hairline top highlight — a glass edge, not a flat card. */
-  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.03);
-}
-/* Cards stack in a consistent rhythm rather than relying on ad-hoc margins. */
-.inputCard + .inputCard { margin-top: var(--space-4); }
-
-.label {
-  display: block;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--muted);
+.header { margin-bottom: var(--space-10); }
+.settingsHeading {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+  margin-top: var(--space-6);
   margin-bottom: var(--space-2);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
 }
-textarea {
-  width: 100%;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text);
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--text-base);
-  line-height: var(--leading-normal);
-  resize: vertical;
-  font-family: inherit;
-  transition:
-    border-color var(--duration) var(--ease),
-    background var(--duration) var(--ease),
-    box-shadow var(--duration) var(--ease);
-}
-textarea::placeholder { color: var(--muted); opacity: 0.7; }
-textarea:hover { border-color: var(--border-strong); }
-textarea:focus-visible {
-  border-color: var(--amber);
-  background: var(--surface);
-  box-shadow: 0 0 0 3px var(--amber-dim);
-}
-
-/* Shared class for bare <input> elements — no bare `input{}` tag rule exists,
-   so inputs outside .profileGrid/.authInput/.keyInput had nowhere to point.
-   Mirrors the textarea rule above. */
-.textInput {
-  width: 100%;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text);
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--text-base);
-  font-family: inherit;
-  transition:
-    border-color var(--duration) var(--ease),
-    background var(--duration) var(--ease),
-    box-shadow var(--duration) var(--ease);
-}
-.textInput::placeholder { color: var(--muted); opacity: 0.7; }
-.textInput:hover { border-color: var(--border-strong); }
-.textInput:focus-visible {
-  border-color: var(--amber);
-  background: var(--surface);
-  box-shadow: 0 0 0 3px var(--amber-dim);
-}
-
-.actions { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-5); flex-wrap: wrap; }
-
-/* Owner-only provider selector (profiles.is_unlimited) — deliberately quiet */
-.providerPick { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.providerPick label {
-  font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;
-}
-.providerPick select {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-  color: var(--text); padding: 5px 8px; font-size: 13px; font-family: inherit;
-}
-.providerPick select:focus { outline: none; border-color: var(--amber); }
-.providerRan { font-size: 12px; color: var(--muted); white-space: nowrap; }
 
 /* ── Buttons ────────────────────────────────────────────────────────────────
    AMBER IS RESERVED. A solid `.cta` marks the single most important action in
-   the current state — Save master CV, then Tailor my CV, then Download. It was
-   previously also carrying secondary buttons, the upload link, notices and
-   data highlights, which left nothing visually dominant. Everything that isn't
-   the primary action now uses a neutral variant.
+   the current state — Save master CV, then Tailor my CV, then Download.
+   Everything that isn't the primary action uses a neutral variant.
 
-   min-height 44px on all variants: comfortable tap target on touch. */
+   Every button-like control below shares one base: inherited font, pointer
+   cursor, the same transition set, a settle on :active and a consistent
+   :disabled. Sizes: .cta 44px (touch floor), pills 36px, table actions 28px. */
+:is(.cta, .customizeLink, .orderBtn, .appsActionBtn, .appsSegBtn, .authSocialBtn, .authToggle button, .dropBrowse, .authLinkBtn, .appsSortBtn) {
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background var(--duration) var(--ease),
+    border-color var(--duration) var(--ease),
+    color var(--duration-fast) var(--ease),
+    box-shadow var(--duration) var(--ease),
+    transform 60ms var(--ease);
+}
+:is(.cta, .customizeLink, .orderBtn, .appsActionBtn, .appsSegBtn, .authSocialBtn):active:not(:disabled) {
+  transform: translateY(1px);
+}
+:is(.cta, .customizeLink, .orderBtn, .appsActionBtn, .appsSegBtn, .authSocialBtn):disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .cta {
   display: inline-flex;
   align-items: center;
@@ -226,33 +267,24 @@ textarea:focus-visible {
   gap: var(--space-2);
   min-height: 44px;
   background: linear-gradient(180deg, var(--amber-bright), var(--amber));
-  color: #1A1206;
+  color: var(--amber-ink);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-5);
   font-size: var(--text-base);
   font-weight: 600;
-  font-family: inherit;
-  line-height: 1;
-  cursor: pointer;
+  line-height: var(--leading-none);
+  text-decoration: none;
   box-shadow: var(--shadow-sm);
-  transition:
-    background var(--duration) var(--ease),
-    box-shadow var(--duration) var(--ease),
-    transform 60ms var(--ease),
-    border-color var(--duration) var(--ease),
-    color var(--duration) var(--ease);
 }
 .cta:hover:not(:disabled) {
   background: var(--amber-bright);
   box-shadow: var(--shadow-md);
 }
 /* Settles rather than just nudging — the shadow drops with the button. */
-.cta:active:not(:disabled) { transform: translateY(1px); box-shadow: var(--shadow-sm); }
-.cta:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.cta:active:not(:disabled) { box-shadow: var(--shadow-sm); }
 
-/* Secondary: neutral outline. Was amber text on an amber border, which read as
-   a second primary action sitting beside the real one. */
+/* Secondary: neutral outline. */
 .cta.secondary {
   background: transparent;
   color: var(--text);
@@ -279,10 +311,244 @@ textarea:focus-visible {
   box-shadow: none;
 }
 
+/* Full-width modifier (Button `block` prop). */
+.cta.ctaBlock { width: 100%; }
+
+/* Header pills: Applications / Customize / Settings / Sign out are peers, so
+   they share one 36px shape. aria-current marks the page you're on. */
+.customizeLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  padding: 0 var(--space-4);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.customizeLink:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+.customizeLink[aria-current="page"] {
+  color: var(--text);
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+.inlineLink { color: var(--amber); text-decoration: underline; text-underline-offset: 3px; }
+.inlineLink:hover { color: var(--amber-bright); }
+
+/* ── Cards & elevation ladder ───────────────────────────────────────────────
+   base (border only) → raised (.inputCard: sm shadow + inset hairline)
+   → floating (.authCard, .feedbackWidget: md shadow) → overlay (.dlMenu). */
+.inputCard,
+.scoreCard,
+.loading {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-sm), var(--surface-inset);
+}
+/* Cards stack in a consistent rhythm rather than relying on ad-hoc margins. */
+.inputCard + .inputCard { margin-top: var(--space-4); }
+
+/* Pre-tailoring ATS gate — a quick, free preview shown before the paid
+   pipeline runs. Dashed border + vertical wash mark it as provisional;
+   .scoreCard (the real, post-tailoring score) is solid and flat so the two
+   read differently even though they show a similar-looking number. */
+.gateCard {
+  background: linear-gradient(180deg, var(--surface), var(--surface-2));
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  margin-top: var(--space-4);
+}
+
+.label {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+/* Helper text sits under a .label and above the control it explains, so it
+   needs to read as guidance, not as another label. */
+.cvHelp {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin-bottom: var(--space-4);
+  line-height: var(--leading-normal);
+  max-width: 68ch;
+}
+.actions { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-5); flex-wrap: wrap; }
+
+/* ── Fields ─────────────────────────────────────────────────────────────────
+   One skin for every text control. Sizes: default 44px; .appsSelect 36px
+   (toolbar); the table's cell inputs are borderless and live in the tracker
+   section below. */
+:is(textarea, .textInput, .authInput, .keyInput, .profileGrid input, .providerPick select, .appsSelect) {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+  font-family: inherit;
+  line-height: var(--leading-normal);
+  transition:
+    border-color var(--duration) var(--ease),
+    background var(--duration) var(--ease),
+    box-shadow var(--duration) var(--ease);
+}
+:is(textarea, .textInput, .authInput, .keyInput, .profileGrid input, .providerPick select, .appsSelect)::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+:is(textarea, .textInput, .authInput, .keyInput, .profileGrid input, .providerPick select, .appsSelect):hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+:is(textarea, .textInput, .authInput, .keyInput, .profileGrid input, .providerPick select, .appsSelect):focus-visible {
+  outline: none;
+  border-color: var(--amber);
+  background: var(--surface);
+  box-shadow: var(--focus-ring);
+}
+:is(textarea, .textInput, .authInput, .keyInput, .profileGrid input, .providerPick select, .appsSelect):disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+textarea { resize: vertical; min-height: 96px; }
+.textInput, .authInput, .keyInput { min-height: 44px; }
+.authInput { text-transform: none; letter-spacing: normal; }
+.keyInput { letter-spacing: 0.04em; }
+.profileGrid input { padding: var(--space-2) var(--space-3); font-size: var(--text-sm); min-height: 40px; }
+.providerPick select,
+.appsSelect {
+  width: auto;
+  min-height: 36px;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+/* Live length counter under a capped textarea. */
+.charCount {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: var(--space-1);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.charCount.over { color: var(--danger); font-weight: 600; }
+
+/* Owner-only provider selector (profiles.is_unlimited) — deliberately quiet */
+.providerPick { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+.providerPick label {
+  font-size: var(--text-xs); color: var(--muted); text-transform: uppercase; letter-spacing: var(--tracking-label);
+}
+.providerRan { font-size: var(--text-xs); color: var(--muted); white-space: nowrap; }
+
+/* ── Status text & notices ─────────────────────────────────────────────────── */
 .error {
   color: var(--danger);
   font-size: var(--text-sm);
   line-height: var(--leading-snug);
+}
+.savedMsg { color: var(--success); font-size: var(--text-sm); }
+.savedBadge { font-size: var(--text-sm); font-weight: 600; color: var(--success); }
+
+/* Caution notices: amber as a left rule on a neutral surface, never a full
+   amber-tinted panel. Danger notices use the same shape in the danger hue. */
+.limitNotice,
+.uploadNotice {
+  margin-top: var(--space-4);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--amber);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--text);
+}
+.uploadNotice { margin-top: 0; margin-bottom: var(--space-4); }
+.limitNotice__title { font-weight: 600; margin-bottom: var(--space-2); font-size: var(--text-base); }
+.limitNotice__body {
+  font-size: var(--text-sm); color: var(--muted);
+  line-height: var(--leading-snug); margin-bottom: var(--space-2);
+}
+.limitNotice__body:last-child { margin-bottom: 0; }
+.limitNotice__body + .limitNotice__cta { margin-top: var(--space-2); }
+.limitNotice__cta { display: inline-flex; }
+
+.keyError {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--danger);
+  background: var(--danger-dim);
+  border: 1px solid var(--danger-border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  overflow-wrap: anywhere;
+}
+.uploadError { margin-top: var(--space-3); }
+
+/* ── Empty state ───────────────────────────────────────────────────────────── */
+.emptyState {
+  text-align: center;
+  padding: var(--space-8) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.emptyStateIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: var(--amber-dim);
+  color: var(--amber-bright);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-4);
+}
+.emptyStateIcon svg { width: 22px; height: 22px; }
+.emptyStateTitle { font-size: var(--text-md); font-weight: 600; color: var(--text); }
+.emptyStateBody {
+  margin-top: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  max-width: 48ch;
+}
+.emptyStateActions { display: flex; gap: var(--space-3); flex-wrap: wrap; justify-content: center; margin-top: var(--space-5); }
+
+/* ── Skeleton ──────────────────────────────────────────────────────────────── */
+.skeleton {
+  display: block;
+  height: 14px;
+  border-radius: var(--radius-xs);
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 40%, var(--surface-2) 80%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s var(--ease) infinite;
+}
+.skeleton + .skeleton { margin-top: var(--space-3); }
+.skeletonStack { display: flex; flex-direction: column; gap: var(--space-3); }
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* ── CV file upload (empty state) ───────────────────────────────────────────
@@ -309,7 +575,6 @@ textarea:focus-visible {
   border-color: var(--amber);
   border-style: solid;
   background: var(--amber-dim);
-  /* A tactile "about to accept" nudge, not just a color swap. */
   transform: scale(1.005);
 }
 .dropZone.busy { border-style: solid; border-color: var(--border-strong); }
@@ -348,11 +613,9 @@ textarea:focus-visible {
   font: inherit;
   font-weight: 600;
   color: var(--text);
-  cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 3px;
   text-decoration-color: var(--border-strong);
-  transition: text-decoration-color var(--duration) var(--ease), color var(--duration) var(--ease);
 }
 .dropBrowse:hover:not(:disabled) { text-decoration-color: var(--amber); color: var(--amber-bright); }
 .dropBrowse:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -386,39 +649,30 @@ textarea:focus-visible {
   background: var(--border);
 }
 
-/* A caution, not a decoration — amber is semantically right here, but as a
-   left rule on a neutral surface rather than a full amber-tinted panel. */
-.uploadNotice {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--amber);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--text-sm);
-  line-height: var(--leading-snug);
-  color: var(--text);
-  margin-bottom: var(--space-4);
-}
-
-/* Download split-menu button (PDF / Word) */
+/* ── Download disclosure (PDF / Word) ──────────────────────────────────────── */
 .dlWrap { position: relative; display: inline-block; }
-.dlBtn { display: inline-flex; align-items: center; gap: 8px; }
-.dlCaret { font-size: 12px; line-height: 1; opacity: 0.8; }
+.dlBtn { display: inline-flex; align-items: center; gap: var(--space-2); }
+.dlCaret { font-size: var(--text-xs); line-height: var(--leading-none); opacity: 0.8; }
 .dlMenu {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
   min-width: 100%;
-  /* The one real popover in the app — glass treatment lives here rather than
-     being invented somewhere without an overlay to justify it. */
-  background: rgba(26, 26, 29, 0.92);
+  background: var(--surface-glass);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 6px;
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
   z-index: 20;
   box-shadow: var(--shadow-lg);
+  /* Fades in rather than popping — the one overlay in the app. */
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity var(--duration) var(--ease), transform var(--duration) var(--ease);
+}
+@starting-style {
+  .dlMenu { opacity: 0; transform: translateY(-4px); }
 }
 .dlItem {
   display: block;
@@ -427,52 +681,27 @@ textarea:focus-visible {
   white-space: nowrap;
   background: transparent;
   border: none;
-  border-radius: 7px;
+  border-radius: var(--radius-xs);
   color: var(--text);
-  padding: 9px 12px;
-  font-size: 14px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
   font-family: inherit;
   cursor: pointer;
+  transition: background var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease);
 }
 .dlItem:hover { background: var(--surface-2); color: var(--amber-bright); }
 
-.limitNotice {
-  margin-top: var(--space-4);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--amber);
-  border-radius: var(--radius-sm);
-  padding: var(--space-4) var(--space-5);
-  font-size: var(--text-sm);
-  line-height: var(--leading-snug);
-  color: var(--text);
-}
-/* The four key/quota notices (needs_keys, needs_openrouter_key,
-   user_key_limit, key_decrypt_failed) previously repeated the same title/body/
-   CTA styling as inline styles at slightly different values each time
-   (13px vs 14px, 6px vs 4px margins). One shared shape now. */
-.limitNotice__title { font-weight: 600; margin-bottom: var(--space-2); font-size: var(--text-base); }
-.limitNotice__body {
-  font-size: var(--text-sm); color: var(--muted);
-  line-height: var(--leading-snug); margin-bottom: var(--space-2);
-}
-.limitNotice__body:last-child { margin-bottom: 0; }
-.limitNotice__body + .limitNotice__cta { margin-top: var(--space-2); }
-.limitNotice__cta { display: inline-flex; }
-
 /* ── Loading ────────────────────────────────────────────────────────────────
    Tailoring takes 20-40s, which is long enough that a single pulsing dot reads
-   as "stuck". Each step now gets its own row with its own marker, so the list
-   itself communicates that real work is happening in stages. */
+   as "stuck". Each step gets its own row with its own marker, and the rows
+   appear one after another, so the list itself communicates that real work is
+   happening in stages. */
 .loading {
   margin-top: var(--space-6);
   display: flex;
   gap: var(--space-4);
   align-items: flex-start;
   color: var(--muted);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
   padding: var(--space-5) var(--space-6);
 }
 .pulse {
@@ -498,9 +727,8 @@ textarea:focus-visible {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
+  animation: stepIn 400ms var(--ease) both;
 }
-/* Staggered so the rows read top-to-bottom as a sequence rather than blinking
-   in unison. Purely decorative — the reduced-motion rule above disables it. */
 .loading li::before {
   content: "";
   width: 4px;
@@ -511,25 +739,28 @@ textarea:focus-visible {
   flex-shrink: 0;
   animation: stepGlow 2.4s var(--ease) infinite;
 }
+.loading li:nth-child(1) { animation-delay: 0s; }
+.loading li:nth-child(2) { animation-delay: 0.6s; }
+.loading li:nth-child(3) { animation-delay: 1.2s; }
+.loading li:nth-child(4) { animation-delay: 1.8s; }
+.loading li:nth-child(5) { animation-delay: 2.4s; }
 .loading li:nth-child(1)::before { animation-delay: 0s; }
 .loading li:nth-child(2)::before { animation-delay: 0.3s; }
 .loading li:nth-child(3)::before { animation-delay: 0.6s; }
 .loading li:nth-child(4)::before { animation-delay: 0.9s; }
 .loading li:nth-child(5)::before { animation-delay: 1.2s; }
+@keyframes stepIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 @keyframes stepGlow {
   0%, 100% { opacity: 0.25; }
   40%      { opacity: 1; }
 }
 
+/* ── Results ────────────────────────────────────────────────────────────────── */
 .results { margin-top: var(--space-8); display: flex; flex-direction: column; gap: var(--space-4); }
 
-.scoreCard {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-6);
-  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.03);
-}
 .scoreLabel {
   font-size: var(--text-xs);
   font-weight: 600;
@@ -537,15 +768,15 @@ textarea:focus-visible {
   text-transform: uppercase;
   letter-spacing: var(--tracking-label);
 }
-/* Was 48px amber. The number is DATA, not an action — rendering it in the
-   accent competed with the Download button directly beneath it. Size and
-   weight carry the emphasis instead, which also lets the semantic hit/miss
-   colours below read clearly. */
+/* The number is DATA, not an action — rendering it in the accent would
+   compete with the Download button directly beneath it. Size and weight
+   carry the emphasis, which also lets the semantic hit/miss colours below
+   read clearly. */
 .scoreValue {
-  font-size: var(--text-2xl);
+  font-size: var(--text-3xl);
   font-weight: 700;
   color: var(--text);
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: var(--tracking-display);
   line-height: var(--leading-tight);
   margin: var(--space-2) 0 var(--space-1);
   font-variant-numeric: tabular-nums;
@@ -554,32 +785,8 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
-  max-width: 60ch;
+  max-width: var(--measure-prose);
 }
-
-.block {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 22px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-}
-.block h2 {
-  font-size: 13px; color: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.06em;
-  margin-bottom: 12px;
-}
-.blockBody {
-  white-space: pre-wrap;
-  font-size: 14px;
-  line-height: 1.65;
-  color: var(--text);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pulse { animation: none; }
-}
-
 .scoreSub {
   font-size: var(--text-sm);
   color: var(--muted);
@@ -621,131 +828,11 @@ textarea:focus-visible {
 .dot.miss { color: var(--danger); }
 .dot.rec { color: var(--muted); }
 
-/* ── App header bar ─────────────────────────────────────────────────────────
-   Customize / Settings / Sign out are peers, so they share one class and one
-   36px-tall shape instead of three sets of inline styles at slightly
-   different paddings. */
-.appBar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  margin-bottom: var(--space-3);
-  flex-wrap: wrap;
-}
-.appBarActions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-.appBarEmail {
-  font-size: var(--text-sm);
-  color: var(--muted);
-  margin-right: var(--space-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 22ch;
-  white-space: nowrap;
-}
+/* "Applied" row on the results view — secondary by design; amber on this
+   view belongs to Download. */
+.appliedRow { margin-top: var(--space-4); margin-bottom: var(--space-2); }
 
-.customizeLink {
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  font-size: var(--text-sm);
-  padding: 0 var(--space-3);
-  text-decoration: none;
-  font-family: inherit;
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    color var(--duration) var(--ease),
-    border-color var(--duration) var(--ease),
-    background var(--duration) var(--ease);
-}
-.customizeLink:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
-  background: var(--surface-2);
-}
-
-.orderList { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 4px 0 4px; }
-.orderItem {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
-  cursor: grab;
-  transition: border-color 0.15s ease, opacity 0.15s ease;
-}
-.orderItem:active { cursor: grabbing; }
-.orderItem.dragging { opacity: 0.45; }
-.orderItem.dropTarget { border-color: var(--amber); }
-
-.orderGrip { color: var(--muted); font-size: 15px; letter-spacing: -2px; flex-shrink: 0; }
-.orderNum {
-  color: var(--muted); font-size: 12px; width: 16px; flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-/* Reuses .cvHead so the list shows the real CV heading style. Reset only the
-   document-layout bits that don't belong in a list row. */
-.orderHead { flex: 1; margin: 0 !important; border: none !important; padding: 0 !important; }
-
-.orderBtns { display: flex; gap: 6px; flex-shrink: 0; }
-.orderBtn {
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-  padding: 6px 9px;
-  font-family: inherit;
-}
-.orderBtn:hover:not(:disabled) { border-color: var(--amber); color: var(--amber-bright); }
-.orderBtn:disabled { opacity: 0.3; cursor: not-allowed; }
-
-.savedMsg { color: var(--success); font-size: 13.5px; }
-
-/* ── Site-wide feedback widget ──────────────────────────────────────────────
-   Deliberately NOT the .uploadNotice/.limitNotice left-amber-rule — that
-   pattern reads as "a caution," and this is an invitation, not a warning.
-   A full-width top accent plus one shadow step up does the "stand out" work
-   instead, so the amber stays meaningful rather than becoming decoration. */
-.feedbackWidget {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--amber);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  padding: var(--space-6);
-  margin: var(--space-10) auto var(--space-8);
-  max-width: 760px; /* matches .container's measure */
-}
-.feedbackWidget textarea { margin-bottom: var(--space-1); }
-
-/* Pre-tailoring ATS gate — a quick, free preview shown before the paid 8-step
-   pipeline runs. Dashed border marks it as provisional; .scoreCard (the real,
-   post-tailoring score) uses a solid border so the two are visually distinct
-   even though they show a similar-looking number. */
-.gateCard {
-  /* Subtle vertical wash, distinct from .scoreCard's flat surface — reinforces
-     "provisional" alongside the dashed border. */
-  background: linear-gradient(180deg, var(--surface), var(--surface-2));
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-lg);
-  padding: var(--space-6);
-  margin-top: var(--space-4);
-}
+/* ── Pre-tailoring gate ────────────────────────────────────────────────────── */
 .gateLabel {
   font-size: var(--text-xs);
   font-weight: 600;
@@ -770,264 +857,71 @@ textarea:focus-visible {
   color: var(--muted);
   line-height: var(--leading-normal);
   margin-bottom: var(--space-5);
-  max-width: 62ch;
+  max-width: var(--measure-prose);
 }
 .gateActions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
-.gateSecondary {
-  background: transparent; border: none; color: var(--muted);
-  font-size: var(--text-sm); cursor: pointer; text-decoration: underline;
-  text-underline-offset: 3px; font-family: inherit; padding: var(--space-2) 0;
-  transition: color var(--duration) var(--ease);
-}
-.gateSecondary:hover { color: var(--text); }
-.cvDocWrap { margin-top: 24px; }
-.editHint { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 
-.cvDoc {
-  background: #ffffff;
-  color: #1a1a1a;
-  border-radius: 10px;
-  padding: 28px 36px;          /* was 32px 40px — tighter */
-  font-family: Calibri, "Segoe UI", system-ui, sans-serif;
-  font-size: 13px;             /* was 14px — slightly smaller, still very readable */
-  line-height: 1.4;            /* was 1.5 — tighter */
-  outline: none;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
-  overflow-wrap: break-word;   /* long unbroken strings (URLs, etc.) wrap instead of overflowing the page */
-  word-break: break-word;
+/* ── Section order list (/customize) ───────────────────────────────────────── */
+.orderList { list-style: none; display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-1) 0; }
+.orderItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  cursor: grab;
+  transition: border-color var(--duration) var(--ease), opacity var(--duration) var(--ease), background var(--duration) var(--ease);
 }
-.cvDoc:focus-within { box-shadow: 0 0 0 2px var(--amber), 0 4px 24px rgba(0,0,0,0.3); }
+.orderItem:hover { border-color: var(--border-strong); background: var(--surface-3); }
+.orderItem:active { cursor: grabbing; }
+.orderItem.dragging { opacity: 0.45; }
+.orderItem.dropTarget { border-color: var(--amber); }
 
-.cvName { font-size: 26px; font-weight: 700; color: #1F3864; text-align: center; margin: 0 0 6px; }
-.cvTagline { text-align: center; color: #595959; font-size: 12.5px; margin: 0 0 4px; }
-.cvContact { text-align: center; color: #333; font-size: 12.5px; margin: 0 0 2px; }
+.orderGrip { color: var(--muted); font-size: var(--text-base); letter-spacing: -2px; flex-shrink: 0; }
+.orderNum {
+  color: var(--muted); font-size: var(--text-xs); width: 16px; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+/* Reuses .cvHead so the list shows the real CV heading style. Reset only the
+   document-layout bits that don't belong in a list row. */
+.orderHead { flex: 1; margin: 0 !important; border: none !important; padding: 0 !important; }
 
-.cvHead {
-  font-size: 13.5px; font-weight: 700; color: #1F3864;
-  text-transform: uppercase; letter-spacing: 0.04em;
-  border-bottom: 1.5px solid #1F3864;
-  margin: 13px 0 5px;          /* was 20px 0 8px — tighter */
-  padding-bottom: 2px;
-}
-.cvText { margin: 0 0 3px; text-align: justify; }     /* was 5px */
-.cvSubhead { font-weight: 700; margin: 6px 0 2px; }   /* was 8px 0 3px */
-.cvProjTitle { font-weight: 700; font-size: 14px; margin: 9px 0 2px; }  /* was 12px 0 3px */
-.cvBullet { margin: 0 0 3px 22px; text-align: justify; }  /* was 5px */
-.cvActions { display: flex; gap: 10px; margin-bottom: 12px; }
-/* (.cta.secondary is defined once, with the other button variants above.) */
-.cvLink { color: #0563C1; text-decoration: underline; }
-
-.clHeading { font-size: 15px; color: var(--amber-bright); margin: 32px 0 12px; font-weight: 600; }
-.clWrap { margin-top: 4px; }
-.clDoc {
-  background: #ffffff;
-  color: #1a1a1a;
-  border-radius: 10px;
-  padding: 36px 44px;
-  font-family: Calibri, "Segoe UI", system-ui, sans-serif;
-  font-size: 12.5px;
-  line-height: 1.4;
-  outline: none;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
-}
-.clDoc:focus-within { box-shadow: 0 0 0 2px var(--amber), 0 4px 24px rgba(0,0,0,0.3); }
-.clLine { margin: 0 0 8px; text-align: justify; }
-/* Keep text intact at page breaks when the user prints the preview directly.
-   The PDF download no longer renders from this DOM — it renders the .docx. */
-.cvDoc p,
-.cvDoc li,
-.cvDoc h2,
-.clDoc p {
-  page-break-inside: avoid;
-  break-inside: avoid;
-}
-.cvDoc h2 {
-  page-break-after: avoid;
-}
-
-/* ---- Landing page ---- */
-.lp { max-width: 1080px; margin: 0 auto; padding: 0 var(--space-6) var(--space-16); }
-.lpNav { display: flex; justify-content: space-between; align-items: center; padding: var(--space-6) 0; flex-wrap: wrap; gap: var(--space-3); }
-.lpNavActions { display: flex; align-items: center; gap: var(--space-4); }
-.lpWordmark { font-size: var(--text-lg); font-weight: 700; letter-spacing: var(--tracking-tight); }
-.lpTagline { font-size: var(--text-xs); color: var(--muted); letter-spacing: var(--tracking-label); margin-top: 1px; }
-.lpDot { color: var(--amber); }
-/* Neutral by default — the real action on this page is "Tailor my CV", not
-   this nav link. Amber stays reserved for the two hero/closing CTAs. */
-.lpNavCta {
-  color: var(--muted);
-  text-decoration: none;
+.orderBtns { display: flex; gap: var(--space-2); flex-shrink: 0; }
+.orderBtn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text);
   font-size: var(--text-sm);
-  font-weight: 600;
-  transition: color var(--duration) var(--ease);
+  line-height: var(--leading-none);
+  padding: var(--space-2) var(--space-3);
+  min-height: 32px;
 }
-.lpNavCta:hover { color: var(--text); text-decoration: underline; }
+.orderBtn:hover:not(:disabled) { border-color: var(--amber); color: var(--amber-bright); }
+.orderBtn:disabled { opacity: 0.3; }
 
-/* ── Scroll-reveal: progressive enhancement ──────────────────────────────────
-   Hidden ONLY under `.js-ready`, which page.tsx adds to <html> on mount —
-   so the server-rendered HTML is visible from first paint and content only
-   starts hidden once the script that will reveal it is actually running.
-   (.reveal--visible is added by IntersectionObserver in page.tsx.)
-   prefers-reduced-motion is handled globally near the top of this file,
-   which zeroes the transition duration here too. */
-.reveal { transition: opacity var(--duration-reveal, 600ms) var(--ease), transform var(--duration-reveal, 600ms) var(--ease); }
-.js-ready .reveal { opacity: 0; transform: translateY(18px); }
-.js-ready .reveal--visible { opacity: 1; transform: translateY(0); }
+/* ── Site-wide feedback widget ──────────────────────────────────────────────
+   Deliberately NOT the .uploadNotice/.limitNotice left-amber-rule — that
+   pattern reads as "a caution," and this is an invitation, not a warning.
+   A full-width top accent plus one shadow step up does the "stand out" work
+   instead, so the amber stays meaningful rather than becoming decoration.
+   Sized against the viewport, not the (unrelated) body, so it never runs
+   edge-to-edge on a phone. */
+.feedbackWidget {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--amber);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md), var(--surface-inset);
+  padding: var(--space-6);
+  margin: var(--space-10) auto var(--space-8);
+  width: min(var(--container), 100% - 2 * var(--space-6));
+}
+.feedbackWidget textarea { margin-bottom: var(--space-1); }
 
-.lpHero { padding: var(--space-16) 0 var(--space-12); max-width: 700px; }
-.lpEyebrow {
-  color: var(--muted); font-size: var(--text-sm); text-transform: uppercase;
-  letter-spacing: var(--tracking-label); margin-bottom: var(--space-5);
-}
-/* A full sentence, not a 2-3 word label — normal case, not letter-spaced
-   like .lpEyebrow/.lpKicker (those are for short uppercase tags and would
-   hurt readability at sentence length). */
-.lpHeroLede { color: var(--muted); font-size: var(--text-base); margin-bottom: var(--space-5); }
-.lpTitle, .lpHero h1 {
-  font-size: clamp(2.25rem, 1.15rem + 4.5vw, 4.25rem);
-  line-height: 1.05;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  margin-bottom: var(--space-5);
-}
-.lpAmber { color: var(--amber-bright); }
-.lpSub { font-size: var(--text-md); line-height: var(--leading-relaxed); color: #C8C8CC; margin-bottom: var(--space-8); max-width: 52ch; }
-.lpHeroCta { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); }
-
-/* Small uppercase label used above a section's H2 — same voice as .lpEyebrow,
-   reused so every section introduces itself the same way. */
-.lpKicker {
-  display: block; color: var(--amber); font-size: var(--text-sm); font-weight: 700;
-  text-transform: uppercase; letter-spacing: var(--tracking-label); margin-bottom: var(--space-3);
-}
-.lpH2 { font-size: var(--text-2xl); font-weight: 700; letter-spacing: var(--tracking-tight); margin-bottom: var(--space-6); }
-
-/* ── The problem ──────────────────────────────────────────────────────────── */
-.lpProblem { padding: var(--space-16) 0; border-top: 1px solid var(--border); }
-.lpProblemGrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); margin-top: var(--space-8); }
-.lpProblemCard {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
-  padding: var(--space-6); transition: border-color var(--duration-slow) var(--ease), transform var(--duration-slow) var(--ease);
-}
-.lpProblemCard:hover { border-color: var(--border-strong); transform: translateY(-2px); }
-.lpProblemIcon {
-  width: 40px; height: 40px; border-radius: var(--radius-md); margin-bottom: var(--space-5);
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(229, 137, 107, 0.12); color: var(--danger);
-}
-.lpProblemIcon svg { width: 20px; height: 20px; }
-.lpProblemTitle { font-size: var(--text-md); font-weight: 700; margin-bottom: var(--space-3); }
-.lpProblemBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: #C8C8CC; }
-
-/* ── How it works ─────────────────────────────────────────────────────────── */
-.lpHow { padding: var(--space-16) 0; border-top: 1px solid var(--border); }
-.lpSteps { display: flex; flex-direction: column; gap: var(--space-6); margin-top: var(--space-8); max-width: 620px; }
-.lpStep { display: flex; gap: var(--space-4); align-items: flex-start; position: relative; }
-.lpStepNum {
-  position: relative; z-index: 1; flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%;
-  background: var(--amber-dim); color: var(--amber-bright); border: 1px solid var(--amber);
-  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-sm);
-}
-/* Connects each numbered circle to the next one, so the list reads as one
-   flow rather than four unrelated bullets. */
-.lpStep:not(:last-child)::before {
-  content: ''; position: absolute; left: 17px; top: 36px; bottom: -24px; width: 1px; background: var(--border-strong);
-}
-.lpStep p { font-size: var(--text-base); line-height: var(--leading-relaxed); color: #C8C8CC; padding-top: 6px; }
-.lpStep p strong { color: var(--text); }
-
-/* ── Product showcase — the most important section on the page ─────────────
-   A hand-built, faithful re-creation of the real CV preview + ATS score
-   card (own scoped classes, not the real .cvDoc/.scoreCard — this page
-   never imports CvPreview.tsx), so it can't drift out of sync with or
-   accidentally affect the real document renderer. */
-.lpShow { padding: var(--space-16) 0; border-top: 1px solid var(--border); }
-.lpShowStage {
-  display: grid; grid-template-columns: 1.3fr 1fr; gap: var(--space-6);
-  margin-top: var(--space-8); align-items: start;
-}
-.lpShowTag {
-  font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: var(--tracking-label);
-  color: var(--muted); margin-bottom: var(--space-3);
-}
-
-.lpShowCv {
-  background: #ffffff; color: #1a1a1a; border-radius: var(--radius-lg);
-  padding: var(--space-6); box-shadow: var(--shadow-lg);
-  transition: transform var(--duration-slow) var(--ease), box-shadow var(--duration-slow) var(--ease);
-}
-.lpShowCv:hover { transform: translateY(-4px); }
-.lpCvName { font-size: 19px; font-weight: 700; color: #1F3864; text-align: center; margin-bottom: 2px; }
-.lpCvContact { font-size: 11px; color: #444; text-align: center; margin-bottom: 14px; }
-.lpCvHead {
-  font-size: 11px; font-weight: 700; color: #1F3864; text-transform: uppercase; letter-spacing: 0.04em;
-  border-bottom: 1.5px solid #1F3864; padding-bottom: 3px; margin-bottom: 8px;
-}
-.lpCvJob { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-weight: 700; font-size: 12.5px; margin-bottom: 6px; }
-.lpCvDate { white-space: nowrap; flex-shrink: 0; margin-left: auto; color: #444; font-weight: 600; }
-.lpCvBullets { list-style: none; display: flex; flex-direction: column; gap: 7px; }
-.lpCvBullets li { font-size: 12px; line-height: 1.55; padding-left: 14px; position: relative; }
-.lpCvBullets li::before { content: '•'; position: absolute; left: 0; color: #1F3864; }
-.lpShowCv mark { background: var(--amber-dim); color: #7a4f14; padding: 0 3px; border-radius: 3px; font-weight: 600; }
-
-.lpShowScore {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
-  padding: var(--space-6); box-shadow: var(--shadow-md);
-  transition: transform var(--duration-slow) var(--ease);
-}
-.lpShowScore:hover { transform: translateY(-4px); }
-.lpShowScoreLabel { font-size: var(--text-xs); font-weight: 600; color: var(--muted); margin-bottom: var(--space-2); }
-.lpShowScoreValue { font-size: var(--text-2xl); font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
-.lpShowScoreSub { font-size: var(--text-sm); color: var(--muted); margin-top: var(--space-1); margin-bottom: var(--space-5); }
-.lpShowScoreGroup { padding-top: var(--space-4); border-top: 1px solid var(--border); margin-top: var(--space-4); }
-.lpShowScoreGroup:first-of-type { margin-top: 0; }
-.lpShowScoreGroupLabel {
-  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-label);
-  font-weight: 600; margin-bottom: var(--space-3);
-}
-.lpShowScoreGroupLabel.hits { color: var(--success); }
-.lpShowScoreGroupLabel.misses { color: var(--danger); }
-.lpShowScoreList { list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
-.lpShowScoreList li { font-size: var(--text-sm); line-height: var(--leading-snug); color: var(--text); display: flex; gap: var(--space-2); }
-.lpShowScoreList .dot { flex-shrink: 0; font-weight: 700; }
-.lpShowScoreList .hit .dot { color: var(--success); }
-.lpShowScoreList .miss .dot { color: var(--danger); }
-
-/* ── What makes it different ──────────────────────────────────────────────── */
-.lpDiff { padding: var(--space-16) 0; border-top: 1px solid var(--border); }
-.lpDiffGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); margin-top: var(--space-8); }
-.lpDiffCard { padding: var(--space-2) 0; }
-.lpDiffIcon {
-  width: 40px; height: 40px; border-radius: var(--radius-md); margin-bottom: var(--space-5);
-  display: flex; align-items: center; justify-content: center;
-  background: var(--amber-dim); color: var(--amber-bright);
-}
-.lpDiffIcon svg { width: 20px; height: 20px; }
-.lpDiffTitle { font-size: var(--text-md); font-weight: 700; margin-bottom: var(--space-3); }
-.lpDiffBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: #C8C8CC; }
-
-.lpClose { text-align: center; padding: var(--space-16) 0 var(--space-12); border-top: 1px solid var(--border); }
-.lpCloseSub { font-size: var(--text-md); color: #C8C8CC; max-width: 520px; margin: 0 auto var(--space-6); line-height: var(--leading-relaxed); }
-
-.lpFooter { text-align: center; color: var(--muted); font-size: var(--text-sm); padding-top: var(--space-8); border-top: 1px solid var(--border); }
-
-@media (max-width: 860px) {
-  .lpShowStage { grid-template-columns: 1fr; }
-}
-@media (max-width: 640px) {
-  .lpProblemGrid { grid-template-columns: 1fr; }
-  .lpDiffGrid { grid-template-columns: 1fr; }
-  .lpHeroCta { align-items: stretch; }
-}
-/* Helper text sits under a .label and above the control it explains, so it
-   needs to read as guidance, not as another label. */
-.cvHelp {
-  font-size: var(--text-sm);
-  color: var(--muted);
-  margin-bottom: var(--space-4);
-  line-height: var(--leading-normal);
-  max-width: 68ch;
-}
+/* ── Master CV status row (/customize) ─────────────────────────────────────── */
 .cvSavedRow {
   display: flex; justify-content: space-between; align-items: center;
   gap: var(--space-4); flex-wrap: wrap;
@@ -1038,20 +932,15 @@ textarea:focus-visible {
 }
 .cvSavedMeta { font-size: var(--text-xs); color: var(--muted); margin-top: var(--space-1); }
 .cvSavedActions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-/* (.cta.ghost is defined once, with the other button variants above.) */
+
+.profileGrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); margin-top: var(--space-2); }
+.profileGrid label { display: flex; flex-direction: column; font-size: var(--text-xs); color: var(--muted); gap: var(--space-1); }
+@media (max-width: 640px) { .profileGrid { grid-template-columns: 1fr; } }
 
 /* ── /settings — API key cards ──────────────────────────────────────────── */
-.settingsHeading {
-  font-size: var(--text-xl);
-  font-weight: 700;
-  letter-spacing: var(--tracking-tight);
-  margin-top: var(--space-6);
-  margin-bottom: var(--space-2);
-}
 .keyList { display: flex; flex-direction: column; gap: var(--space-4); }
 .keyCardHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-1); }
 .keyLabel { font-size: var(--text-base); font-weight: 600; color: var(--text); }
-.savedBadge { font-size: var(--text-sm); font-weight: 600; color: var(--success); }
 
 .keyDetails { margin-top: var(--space-1); }
 .keySummary {
@@ -1059,7 +948,7 @@ textarea:focus-visible {
   color: var(--amber);
   cursor: pointer;
   user-select: none;
-  transition: color var(--duration) var(--ease);
+  transition: color var(--duration-fast) var(--ease);
 }
 .keySummary::-webkit-details-marker { color: var(--muted); }
 .keySummary:hover { color: var(--amber-bright); }
@@ -1068,56 +957,113 @@ textarea:focus-visible {
   margin-top: var(--space-3);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   padding: var(--space-4);
 }
 .howToList { padding-left: var(--space-4); margin-bottom: var(--space-3); display: flex; flex-direction: column; gap: var(--space-1); }
 .howToItem { font-size: var(--text-sm); color: var(--muted); line-height: var(--leading-normal); }
-.howToLink { font-size: var(--text-sm); color: var(--amber); text-decoration: none; }
+.howToLink { font-size: var(--text-sm); color: var(--amber); text-decoration: none; transition: color var(--duration-fast) var(--ease); }
 .howToLink:hover { color: var(--amber-bright); text-decoration: underline; }
 
 .keyInputRow { margin-top: var(--space-4); }
-.keyInput {
-  width: 100%;
-  background: var(--bg);
-  border: 1px solid var(--border);
+.keyRemove { color: var(--danger); border-color: var(--danger-border); }
+.keyRemove:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); background: var(--danger-dim); }
+
+/* ── The CV document ────────────────────────────────────────────────────────
+   The white paper. Its class names are a wire format: CvPreview.collectPayload()
+   parses .cvJobRole / .cvJobDate / .cvProjTitle / .cvSubhead / .cvText /
+   .cvBullet out of the live DOM to build the .docx and PDF. Never rename them. */
+.cvDocWrap { margin-top: var(--space-6); }
+.editHint { font-size: var(--text-xs); color: var(--muted); margin-bottom: var(--space-3); }
+.cvActions { display: flex; gap: var(--space-3); margin-bottom: var(--space-3); }
+
+.cvDoc {
+  background: var(--doc-paper);
+  color: var(--doc-ink);
   border-radius: var(--radius-md);
-  color: var(--text);
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--text-base);
-  font-family: inherit;
-  letter-spacing: 0.04em;
-  min-height: 44px;
-  transition:
-    border-color var(--duration) var(--ease),
-    background var(--duration) var(--ease),
-    box-shadow var(--duration) var(--ease);
+  padding: 28px 36px;
+  font-family: Calibri, "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+  box-shadow: var(--shadow-doc);
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
-.keyInput::placeholder { color: var(--muted); opacity: 0.7; }
-.keyInput:hover { border-color: var(--border-strong); }
-.keyInput:focus-visible {
-  border-color: var(--amber);
-  background: var(--surface);
-  box-shadow: 0 0 0 3px var(--amber-dim);
+.cvDoc:focus-within { box-shadow: 0 0 0 2px var(--amber), var(--shadow-doc); }
+
+.cvName { font-size: 26px; font-weight: 700; color: var(--doc-navy); text-align: center; margin: 0 0 6px; }
+.cvTagline { text-align: center; color: var(--doc-meta); font-size: 12.5px; margin: 0 0 4px; }
+.cvContact { text-align: center; color: var(--doc-body); font-size: 12.5px; margin: 0 0 2px; }
+
+.cvHead {
+  font-size: 13.5px; font-weight: 700; color: var(--doc-navy);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  border-bottom: 1.5px solid var(--doc-navy);
+  margin: 13px 0 5px;
+  padding-bottom: 2px;
 }
+.cvText { margin: 0 0 3px; text-align: justify; }
+.cvSubhead { font-weight: 700; margin: 6px 0 2px; }
+.cvProjTitle { font-weight: 700; font-size: 14px; margin: 9px 0 2px; }
+.cvBullet { margin: 0 0 3px 22px; text-align: justify; }
+.cvLink { color: var(--doc-link); text-decoration: underline; }
 
-.keyRemove { color: var(--danger); border-color: rgba(229, 137, 107, 0.3); }
-.keyRemove:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); background: rgba(229, 137, 107, 0.08); }
+.cvJobHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  font-weight: 700;
+  margin: 10px 0 4px;
+  gap: 12px;
+}
+/* No min-width:0 on the role: it must never shrink indefinitely on the same
+   line as the date — flex-wrap is meant to drop the date to its own line
+   when the role/title is too long to share one with it. */
+.cvJobRole { font-weight: 700; }
+/* margin-left:auto pushes the date flush right on whichever line it lands on. */
+.cvJobDate { font-weight: 700; white-space: nowrap; flex-shrink: 0; margin-left: auto; text-align: right; }
 
-.keyError {
-  margin-top: var(--space-3);
-  font-size: var(--text-sm);
-  line-height: var(--leading-snug);
-  color: var(--danger);
-  background: rgba(229, 137, 107, 0.08);
-  border: 1px solid rgba(229, 137, 107, 0.25);
-  border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
+/* Ensure bullets are NOT bold even if a parent is */
+.cvDoc ul li,
+.cvDoc li.cvBullet { font-weight: 400 !important; }
+
+.clHeading { font-size: var(--text-base); color: var(--amber-bright); margin: var(--space-8) 0 var(--space-3); font-weight: 600; }
+.clWrap { margin-top: var(--space-1); }
+.clDoc {
+  background: var(--doc-paper);
+  color: var(--doc-ink);
+  border-radius: var(--radius-md);
+  padding: 36px 44px;
+  font-family: Calibri, "Segoe UI", system-ui, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.4;
+  outline: none;
+  box-shadow: var(--shadow-doc);
+}
+.clDoc:focus-within { box-shadow: 0 0 0 2px var(--amber), var(--shadow-doc); }
+.clLine { margin: 0 0 8px; text-align: justify; }
+/* Keep text intact at page breaks when the user prints the preview directly. */
+.cvDoc p,
+.cvDoc li,
+.cvDoc h2,
+.clDoc p {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.cvDoc h2 { page-break-after: avoid; }
+
+/* Narrow screens: a justified 13px measure inside 255px produces rivers. */
+@media (max-width: 640px) {
+  .cvDoc { padding: 20px 18px; }
+  .clDoc { padding: 24px 20px; }
+  .cvText, .cvBullet, .clLine { text-align: left; }
 }
 
 /* ── /auth — login/signup + error page ──────────────────────────────────── */
 .authPage {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1125,21 +1071,24 @@ textarea:focus-visible {
 }
 .authCard {
   width: 100%;
-  max-width: 420px;
+  max-width: 440px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--space-8) var(--space-8) var(--space-6);
-  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-shadow: var(--shadow-md), var(--surface-inset);
 }
 .authCard.danger { border-left: 3px solid var(--danger); }
 .authWordmark {
+  display: inline-block;
   font-size: var(--text-xl);
   font-weight: 700;
-  letter-spacing: var(--tracking-tight);
-  margin-bottom: var(--space-6);
+  letter-spacing: var(--tracking-display);
+  margin-bottom: var(--space-5);
+  color: var(--text);
 }
-.authWordmark .dot { color: var(--amber); }
+.authWordmarkLink { text-decoration: none; transition: color var(--duration-fast) var(--ease); }
+.authWordmarkLink:hover { color: var(--amber-bright); }
 .authEyebrow {
   font-size: var(--text-xs);
   text-transform: uppercase;
@@ -1153,14 +1102,22 @@ textarea:focus-visible {
   font-size: var(--text-lg);
   font-weight: 700;
   letter-spacing: var(--tracking-tight);
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-2);
 }
 .authMuted {
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   color: var(--muted);
   line-height: var(--leading-normal);
   margin-bottom: var(--space-6);
 }
+.authStack { width: 100%; max-width: 460px; }
+.authStack .authCard { max-width: none; }
+.authFootnote { margin-top: var(--space-5); text-align: center; }
+
+/* Spacing helpers for a status line under an .actions row, and a help line
+   that closes a card. */
+.msgBelow { display: block; margin-top: var(--space-3); }
+.cvHelpTight { margin-bottom: 0; }
 
 .authToggle {
   display: flex;
@@ -1180,19 +1137,11 @@ textarea:focus-visible {
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--muted);
-  cursor: pointer;
-  font-family: inherit;
-  transition:
-    background var(--duration) var(--ease),
-    color var(--duration) var(--ease),
-    border-color var(--duration) var(--ease),
-    box-shadow var(--duration) var(--ease);
 }
 .authToggle button.active {
   background: var(--surface-3);
   border-color: var(--border);
   color: var(--text);
-  /* Raised-segment feel in the segmented control. */
   box-shadow: var(--shadow-sm);
 }
 .authToggle button:hover:not(.active) { color: var(--text); }
@@ -1207,30 +1156,6 @@ textarea:focus-visible {
   letter-spacing: var(--tracking-label);
 }
 .authLabel + .authLabel { margin-top: var(--space-4); }
-.authInput {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--text-base);
-  font-family: inherit;
-  width: 100%;
-  min-height: 44px;
-  text-transform: none;
-  letter-spacing: normal;
-  transition:
-    border-color var(--duration) var(--ease),
-    background var(--duration) var(--ease),
-    box-shadow var(--duration) var(--ease);
-}
-.authInput::placeholder { color: var(--muted); opacity: 0.7; }
-.authInput:hover { border-color: var(--border-strong); }
-.authInput:focus-visible {
-  border-color: var(--amber);
-  background: var(--surface);
-  box-shadow: 0 0 0 3px var(--amber-dim);
-}
 
 .authDivider { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-6) 0 var(--space-4); }
 .authDivider .authDividerLine { flex: 1; height: 1px; background: var(--border); }
@@ -1252,84 +1177,256 @@ textarea:focus-visible {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   color: var(--text);
-  font-family: inherit;
-  cursor: pointer;
-  transition: border-color var(--duration) var(--ease), background var(--duration) var(--ease);
 }
 .authSocialBtn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--muted); }
-.authSocialBtn:disabled { opacity: 0.55; cursor: wait; }
+.authSocialBtn:disabled { cursor: wait; }
 
 .authLinkBtn {
   background: none;
   border: none;
   color: var(--amber);
   font-size: var(--text-base);
-  cursor: pointer;
   padding: 0;
-  font-family: inherit;
   text-decoration: underline;
   text-underline-offset: 3px;
-  transition: color var(--duration) var(--ease);
 }
-.authLinkBtn:hover { color: var(--amber-bright); }
+.authLinkBtn:hover:not(:disabled) { color: var(--amber-bright); }
+.authLinkBtn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Full-width modifier for the primary button in a narrow auth card */
-.cta.block { width: 100%; }
-
-.profileGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
-.profileGrid label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 4px; }
-.profileGrid input {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-  color: var(--text); padding: 8px 10px; font-size: 14px; font-family: inherit;
+/* ── Landing page ──────────────────────────────────────────────────────────── */
+.lp { max-width: var(--container-lp); margin: 0 auto; padding: 0 var(--space-6) var(--space-16); }
+.lpNav { display: flex; justify-content: space-between; align-items: center; padding: var(--space-6) 0; flex-wrap: wrap; gap: var(--space-3); }
+.lpNavActions { display: flex; align-items: center; gap: var(--space-4); }
+.lpWordmark { font-size: var(--text-lg); font-weight: 700; letter-spacing: var(--tracking-display); }
+.lpTagline { font-size: var(--text-xs); color: var(--muted); letter-spacing: var(--tracking-label); margin-top: 1px; }
+/* Neutral by default — the real action on this page is "Tailor my CV", not
+   this nav link. Amber stays reserved for the two hero/closing CTAs. */
+.lpNavCta {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  transition: color var(--duration-fast) var(--ease);
 }
-.profileGrid input:focus { outline: none; border-color: var(--amber); }
-@media (max-width: 640px) { .profileGrid { grid-template-columns: 1fr; } }
-.cvJobHeader {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
+.lpNavCta:hover { color: var(--text); text-decoration: underline; }
+
+/* ── Scroll-reveal: progressive enhancement ──────────────────────────────────
+   Hidden ONLY under `.js-ready`, which page.tsx adds to <html> on mount —
+   so the server-rendered HTML is visible from first paint and content only
+   starts hidden once the script that will reveal it is actually running.
+   (.reveal--visible is added by IntersectionObserver in page.tsx.)
+   prefers-reduced-motion is handled globally near the top of this file,
+   which zeroes the transition duration here too. */
+.reveal { transition: opacity 600ms var(--ease), transform 600ms var(--ease); }
+.js-ready .reveal { opacity: 0; transform: translateY(18px); }
+.js-ready .reveal--visible { opacity: 1; transform: translateY(0); }
+
+.lpHero {
+  position: relative;
+  padding: var(--space-20) 0 var(--space-16);
+  max-width: 720px;
+}
+/* A soft amber bloom behind the headline — the same radial technique as the
+   page background, one notch warmer, so the hero has a light source. */
+.lpHero::before {
+  content: "";
+  position: absolute;
+  inset: -80px -160px auto -120px;
+  height: 420px;
+  background: radial-gradient(ellipse 60% 55% at 30% 40%, rgba(224, 160, 77, 0.10), transparent 70%);
+  pointer-events: none;
+  z-index: -1;
+}
+/* A full sentence, not a 2-3 word label — normal case, not letter-spaced
+   like .lpKicker (that's for short uppercase tags). */
+.lpHeroLede { color: var(--muted); font-size: var(--text-base); margin-top: var(--space-4); max-width: 52ch; }
+.lpTitle, .lpHero h1 {
+  font-size: clamp(2.25rem, 1.15rem + 4.5vw, 4.25rem);
+  line-height: 1.05;
   font-weight: 700;
-  margin: 10px 0 4px;
-  gap: 12px;
+  letter-spacing: var(--tracking-display);
+  margin-bottom: var(--space-5);
 }
-/* No min-width:0 here: that would let this item shrink indefinitely on the
-   same line as the date (its text wrapping internally while the date stays
-   pinned top-right) instead of ever triggering the row wrap below — the
-   whole point of flex-wrap here is for the date to drop to its own line
-   when the role/title is too long to share one line with it. Overflow of a
-   single unbreakable token is still handled separately by the
-   overflow-wrap/word-break rules on .cvDoc. */
-.cvJobRole { font-weight: 700; }
-/* margin-left:auto pushes this flush right on whichever line it ends up on
-   — the same line as a short role, or its own line (right-aligned) when a
-   long role/title pushes it there via the container's flex-wrap. */
-.cvJobDate { font-weight: 700; white-space: nowrap; flex-shrink: 0; margin-left: auto; text-align: right; }
+.lpAmber { color: var(--amber-bright); }
+.lpSub { font-size: var(--text-md); line-height: var(--leading-relaxed); color: var(--text-subtle); max-width: 52ch; }
+.lpHeroCta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-top: var(--space-8); }
 
-/* Ensure bullets are NOT bold even if a parent is */
-.cvDoc ul li,
-.cvDoc li.cvBullet {
-  font-weight: 400 !important;
+/* Small uppercase label used above a section's H2, so every section
+   introduces itself the same way. */
+.lpKicker {
+  display: block; color: var(--amber); font-size: var(--text-sm); font-weight: 700;
+  text-transform: uppercase; letter-spacing: var(--tracking-label); margin-bottom: var(--space-3);
 }
+.lpH2 { font-size: var(--text-2xl); font-weight: 700; letter-spacing: var(--tracking-display); line-height: var(--leading-tight); margin-bottom: var(--space-6); max-width: 24ch; }
+
+/* Sections alternate between the canvas and a full-bleed surface band so the
+   page has rhythm instead of five identical hairline-separated blocks. */
+.lpSection { padding: var(--space-20) 0; border-top: 1px solid var(--border); }
+.lpBand {
+  position: relative;
+  border-top: none;
+}
+.lpBand::before {
+  content: "";
+  position: absolute;
+  inset: 0 -100vw;
+  margin: 0 auto;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  z-index: -1;
+}
+
+/* ── The problem ──────────────────────────────────────────────────────────── */
+.lpProblemGrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); margin-top: var(--space-8); }
+.lpProblemCard {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: var(--space-6); box-shadow: var(--shadow-sm), var(--surface-inset);
+  transition: border-color var(--duration-slow) var(--ease), transform var(--duration-slow) var(--ease), box-shadow var(--duration-slow) var(--ease);
+}
+.lpProblemCard:hover { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: var(--shadow-md), var(--surface-inset); }
+.lpProblemIcon {
+  width: 40px; height: 40px; border-radius: var(--radius-md); margin-bottom: var(--space-5);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--danger-dim); color: var(--danger);
+}
+.lpProblemIcon svg { width: 20px; height: 20px; }
+.lpProblemTitle { font-size: var(--text-md); font-weight: 700; margin-bottom: var(--space-3); }
+.lpProblemBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); }
+
+/* ── How it works ─────────────────────────────────────────────────────────── */
+.lpSteps { display: flex; flex-direction: column; gap: var(--space-6); margin-top: var(--space-8); max-width: 620px; }
+.lpStep { display: flex; gap: var(--space-4); align-items: flex-start; position: relative; }
+.lpStepNum {
+  position: relative; z-index: 1; flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%;
+  background: var(--amber-dim); color: var(--amber-bright); border: 1px solid var(--amber);
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-sm);
+}
+/* Connects each numbered circle to the next one, so the list reads as one
+   flow rather than four unrelated bullets. */
+.lpStep:not(:last-child)::before {
+  content: ''; position: absolute; left: 17px; top: 36px; bottom: -24px; width: 1px; background: var(--border-strong);
+}
+.lpStep p { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); padding-top: 6px; }
+.lpStep p strong { color: var(--text); }
+
+/* ── Product showcase — the most important section on the page ─────────────
+   A hand-built, faithful re-creation of the real CV preview + ATS score
+   card (own scoped classes, not the real .cvDoc/.scoreCard — this page
+   never imports CvPreview.tsx), so it can't drift out of sync with or
+   accidentally affect the real document renderer. */
+.lpShowStage {
+  display: grid; grid-template-columns: 1.3fr 1fr; gap: var(--space-6);
+  margin-top: var(--space-8); align-items: start;
+}
+.lpShowTag {
+  font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: var(--tracking-label);
+  color: var(--muted); margin-bottom: var(--space-3);
+}
+
+.lpShowCv {
+  background: var(--doc-paper); color: var(--doc-ink); border-radius: var(--radius-lg);
+  padding: var(--space-6); box-shadow: var(--shadow-lg);
+  overflow-wrap: anywhere;
+  transition: transform var(--duration-slow) var(--ease), box-shadow var(--duration-slow) var(--ease);
+}
+.lpShowCv:hover { transform: translateY(-4px); }
+.lpCvName { font-size: 19px; font-weight: 700; color: var(--doc-navy); text-align: center; margin-bottom: 2px; }
+.lpCvContact { font-size: 11px; color: var(--doc-body); text-align: center; margin-bottom: 14px; overflow-wrap: anywhere; }
+.lpCvHead {
+  font-size: 11px; font-weight: 700; color: var(--doc-navy); text-transform: uppercase; letter-spacing: 0.04em;
+  border-bottom: 1.5px solid var(--doc-navy); padding-bottom: 3px; margin-bottom: 8px;
+}
+.lpCvJob { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-weight: 700; font-size: 12.5px; margin-bottom: 6px; }
+.lpCvDate { white-space: nowrap; flex-shrink: 0; margin-left: auto; color: var(--doc-body); font-weight: 600; }
+.lpCvBullets { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+.lpCvBullets li { font-size: 12px; line-height: 1.55; padding-left: 14px; position: relative; }
+.lpCvBullets li::before { content: '•'; position: absolute; left: 0; color: var(--doc-navy); }
+.lpShowCv mark { background: var(--amber-dim); color: var(--doc-mark); padding: 0 3px; border-radius: 3px; font-weight: 600; }
+
+.lpShowScore {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: var(--space-6); box-shadow: var(--shadow-md), var(--surface-inset);
+  transition: transform var(--duration-slow) var(--ease);
+}
+.lpShowScore:hover { transform: translateY(-4px); }
+.lpShowScoreLabel { font-size: var(--text-xs); font-weight: 600; color: var(--muted); margin-bottom: var(--space-2); text-transform: uppercase; letter-spacing: var(--tracking-label); }
+.lpShowScoreValue { font-size: var(--text-3xl); font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-display); }
+.lpShowScoreSub { font-size: var(--text-sm); color: var(--muted); margin-top: var(--space-1); margin-bottom: var(--space-5); }
+.lpShowScoreGroup { padding-top: var(--space-4); border-top: 1px solid var(--border); margin-top: var(--space-4); }
+.lpShowScoreGroup:first-of-type { margin-top: 0; }
+.lpShowScoreGroupLabel {
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-label);
+  font-weight: 600; margin-bottom: var(--space-3);
+}
+.lpShowScoreGroupLabel.hits { color: var(--success); }
+.lpShowScoreGroupLabel.misses { color: var(--danger); }
+.lpShowScoreList { list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.lpShowScoreList li { font-size: var(--text-sm); line-height: var(--leading-snug); color: var(--text); display: flex; gap: var(--space-2); }
+.lpShowScoreList .dot { flex-shrink: 0; font-weight: 700; }
+.lpShowScoreList .hit .dot { color: var(--success); }
+.lpShowScoreList .miss .dot { color: var(--danger); }
+
+/* ── What makes it different ──────────────────────────────────────────────── */
+.lpDiffGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); margin-top: var(--space-8); }
+.lpDiffCard {
+  padding: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm), var(--surface-inset);
+  transition: border-color var(--duration-slow) var(--ease), transform var(--duration-slow) var(--ease), box-shadow var(--duration-slow) var(--ease);
+}
+.lpDiffCard:hover { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: var(--shadow-md), var(--surface-inset); }
+.lpDiffIcon {
+  width: 40px; height: 40px; border-radius: var(--radius-md); margin-bottom: var(--space-5);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--amber-dim); color: var(--amber-bright);
+}
+.lpDiffIcon svg { width: 20px; height: 20px; }
+.lpDiffTitle { font-size: var(--text-md); font-weight: 700; margin-bottom: var(--space-3); }
+.lpDiffBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); }
+
+.lpClose { text-align: center; padding: var(--space-20) 0 var(--space-16); border-top: 1px solid var(--border); }
+.lpClose .lpH2 { margin-left: auto; margin-right: auto; }
+.lpCloseSub { font-size: var(--text-md); color: var(--text-subtle); max-width: 520px; margin: 0 auto var(--space-6); line-height: var(--leading-relaxed); }
+
+.lpFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  padding-top: var(--space-8);
+  border-top: 1px solid var(--border);
+}
+.lpFooterLinks { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+.lpFooterLinks a { color: var(--muted); text-decoration: none; transition: color var(--duration-fast) var(--ease); }
+.lpFooterLinks a:hover { color: var(--text); text-decoration: underline; }
+
+@media (max-width: 900px) {
+  .lpDiffGrid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 860px) {
+  .lpShowStage { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .lpProblemGrid { grid-template-columns: 1fr; }
+  .lpDiffGrid { grid-template-columns: 1fr; }
+  .lpHero { padding-top: var(--space-12); }
+  .lpHeroCta { align-items: stretch; flex-direction: column; }
+  .lpSection, .lpClose { padding: var(--space-12) 0; }
+  .lpFooter { flex-direction: column; align-items: flex-start; }
+}
+
 /* ── Application tracker (/applications) ────────────────────────────────────
    A spreadsheet, not a report: grid lines, a sticky header row, and every
-   cell a control that edits in place. Desktop is a real <table>; below 640px
+   cell a control that edits in place. Desktop is a real <table>; below 900px
    each row re-lays as a card and every cell prints its own label via
-   data-label. Nine columns don't fit the 760px reading measure, so this page
-   widens the container. */
-.appsContainer { max-width: 1180px; }
-
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
+   data-label (nine columns don't fit a tablet either — the previous 640px
+   cut-off left a horizontally scrolling strip between the two). */
 .appsToolbar {
   display: flex;
   align-items: center;
@@ -1348,25 +1445,31 @@ textarea:focus-visible {
 }
 .appsCount { font-size: var(--text-sm); color: var(--muted); }
 
-/* Toolbar filter — same skin as .providerPick select. */
-.appsSelect {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  padding: 6px 8px;
-  min-height: 36px;
+/* Period filter — a segmented control. The active segment is neutral, not
+   amber: it's a filter state, not the page's primary action. */
+.appsSeg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-pill); overflow: hidden; }
+.appsSegBtn {
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--muted);
   font-size: var(--text-sm);
-  font-family: inherit;
+  padding: 0 var(--space-3);
+  min-height: 34px;
+  white-space: nowrap;
 }
-.appsSelect:focus { outline: none; border-color: var(--amber); }
+.appsSegBtn:last-child { border-right: none; }
+.appsSegBtn:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+.appsSegBtn.active { color: var(--text); background: var(--surface-3); }
+.appsSegBtn:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; border-radius: 0; }
 
 /* ── The sheet ── */
 .appsTableWrap {
   overflow-x: auto;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm), var(--surface-inset);
 }
 .appsTable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--text-sm); }
 .appsTable th {
@@ -1394,6 +1497,8 @@ textarea:focus-visible {
 .appsTable th:last-child,
 .appsTable td:last-child { border-right: none; }
 .appsTable tbody tr:last-child td { border-bottom: none; }
+.appsRow td { transition: background var(--duration-fast) var(--ease); }
+.appsRow:hover td { background: var(--surface-2); }
 .appsRow.open td { background: var(--surface-2); }
 .appsNewRow td { background: var(--amber-dim); }
 
@@ -1405,8 +1510,6 @@ textarea:focus-visible {
   color: inherit;
   text-transform: inherit;
   letter-spacing: inherit;
-  cursor: pointer;
-  transition: color var(--duration) var(--ease);
 }
 .appsSortBtn:hover,
 .appsSortBtn.active { color: var(--text); }
@@ -1430,6 +1533,7 @@ textarea:focus-visible {
   font-size: var(--text-sm);
   line-height: var(--leading-snug);
   text-align: left;
+  transition: background var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease);
 }
 .appsCellBtn { cursor: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .appsCellBtn.empty { color: var(--muted); }
@@ -1438,13 +1542,10 @@ textarea:focus-visible {
 .appsCellSelect:hover { background: var(--surface-3); }
 .appsCellBtn:focus-visible,
 .appsLinkBtn:focus-visible,
-.appsCellSelect:focus { outline: 2px solid var(--amber); outline-offset: -2px; }
+.appsCellSelect:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; border-radius: 0; }
 .appsCellInput { background: var(--bg); box-shadow: inset 0 0 0 2px var(--amber); min-width: 9ch; }
 .appsCellInput:focus { outline: none; }
 .appsCellInput::placeholder { color: var(--muted); opacity: 0.7; }
-/* Native pickers default to a light palette; match the page. */
-.appsCellInput[type="date"],
-.appsCellSelect { color-scheme: dark; }
 .appsCellSelect { cursor: pointer; }
 .appsCellStatic { color: var(--muted); }
 .appsCellError {
@@ -1452,6 +1553,7 @@ textarea:focus-visible {
   padding: 0 var(--space-3) var(--space-2);
   font-size: var(--text-xs);
   color: var(--danger);
+  overflow-wrap: anywhere;
 }
 
 /* View CV / View JD / notes — the cells that open a panel. */
@@ -1468,18 +1570,12 @@ textarea:focus-visible {
 .appsActionBtn {
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   color: var(--muted);
   font-size: var(--text-xs);
-  font-family: inherit;
   padding: 4px 8px;
   min-height: 28px;
   margin-left: var(--space-1);
-  cursor: pointer;
-  transition:
-    color var(--duration) var(--ease),
-    border-color var(--duration) var(--ease),
-    background var(--duration) var(--ease);
 }
 .appsActionBtn:hover:not(:disabled) {
   color: var(--text);
@@ -1487,8 +1583,8 @@ textarea:focus-visible {
   background: var(--surface-3);
 }
 .appsActionBtn.danger { color: var(--danger); }
-.appsActionBtn.primary { color: var(--amber); border-color: rgba(224, 160, 77, 0.45); }
-.appsActionBtn:disabled { opacity: 0.6; cursor: not-allowed; }
+.appsActionBtn.danger:hover:not(:disabled) { border-color: var(--danger-border); background: var(--danger-dim); color: var(--danger); }
+.appsActionBtn.primary { color: var(--amber); border-color: var(--amber-border); }
 .appsConfirm { font-size: var(--text-xs); color: var(--danger); margin-right: var(--space-1); }
 
 /* ── Detail panel under a row (CV / JD / Notes) ── */
@@ -1497,6 +1593,7 @@ textarea:focus-visible {
   background: var(--surface-2);
   border-right: none;
 }
+.appsPanel { display: block; }
 .appsPanelHead {
   display: flex;
   align-items: center;
@@ -1525,15 +1622,13 @@ textarea:focus-visible {
   max-height: 480px;
   overflow-y: auto;
 }
-.appsCharCount { font-size: var(--text-xs); color: var(--muted); margin-top: var(--space-1); text-align: right; }
-.appsCharCount.over { color: var(--danger); }
 
 .appsEmpty { text-align: center; color: var(--text); font-size: var(--text-base); padding: var(--space-6) var(--space-4); }
 .appsEmpty .cvHelp { margin: var(--space-2) auto var(--space-4); }
 .appsEmpty .actions { justify-content: center; margin-top: 0; }
 
-@media (max-width: 640px) {
-  .appsTableWrap { overflow: visible; background: transparent; border: none; }
+@media (max-width: 900px) {
+  .appsTableWrap { overflow: visible; background: transparent; border: none; box-shadow: none; }
   .appsTable thead { display: none; }
   .appsTable,
   .appsTable tbody,
@@ -1543,10 +1638,12 @@ textarea:focus-visible {
   .appsTable tr.appsNewRow {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-lg);
+    padding: var(--space-2) var(--space-4);
     margin-bottom: var(--space-3);
+    box-shadow: var(--shadow-sm), var(--surface-inset);
   }
+  .appsRow:hover td, .appsRow.open td { background: transparent; }
   .appsTable tr.appsNewRow { background: var(--amber-dim); }
   .appsNewRow td { background: transparent; }
   .appsTable tr.appsRow.open {
@@ -1585,37 +1682,20 @@ textarea:focus-visible {
     background: var(--surface);
     border: 1px solid var(--border);
     border-top: none;
-    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
     padding: var(--space-4);
     margin-bottom: var(--space-3);
   }
   .appsTable tr.appsDetail td::before { content: none; }
 }
 
-/* "Applied" row on the results view — secondary by design; amber on this
-   view belongs to Download. */
-.appliedRow { margin-top: var(--space-4); margin-bottom: var(--space-2); }
-
-/* Period filter on the tracker — a segmented control next to the status
-   select. The active segment is neutral, not amber: it's a filter state,
-   not the page's primary action. */
-.appsSeg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
-.appsSegBtn {
-  background: transparent;
-  border: none;
-  border-right: 1px solid var(--border);
-  color: var(--muted);
-  font-size: var(--text-sm);
-  font-family: inherit;
-  padding: 0 var(--space-3);
-  min-height: 34px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    color var(--duration) var(--ease),
-    background var(--duration) var(--ease);
+/* ── Small screens: the header pills and page padding ─────────────────────── */
+@media (max-width: 640px) {
+  .page { padding-left: var(--space-4); padding-right: var(--space-4); }
+  .appBarSticky { margin: 0 calc(-1 * var(--space-4)); padding: var(--space-2) var(--space-4); }
+  .appBarEmail { display: none; }
+  .customizeLink { min-height: 32px; font-size: var(--text-xs); padding: 0 var(--space-3); }
+  .pageTitle { font-size: var(--text-xl); margin-top: var(--space-6); }
+  .inputCard, .scoreCard, .gateCard { padding: var(--space-5); }
+  .feedbackWidget { width: min(var(--container), 100% - 2 * var(--space-4)); }
 }
-.appsSegBtn:last-child { border-right: none; }
-.appsSegBtn:hover { color: var(--text); background: var(--surface-2); }
-.appsSegBtn.active { color: var(--text); background: var(--surface-3); }
-.appsSegBtn:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }

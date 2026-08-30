@@ -35,19 +35,21 @@ function Reveal({
   children,
   className = "",
   delay = 0,
+  id,
 }: {
   as?: "section" | "div";
   children: React.ReactNode;
   className?: string;
   delay?: number;
+  id?: string;
 }) {
   const { ref, inView } = useInView<HTMLDivElement>();
   const cls = `reveal${inView ? " reveal--visible" : ""}${className ? " " + className : ""}`;
   const style = delay ? { transitionDelay: `${delay}ms` } : undefined;
   if (as === "section") {
-    return <section ref={ref} className={cls} style={style}>{children}</section>;
+    return <section ref={ref} id={id} className={cls} style={style}>{children}</section>;
   }
-  return <div ref={ref} className={cls} style={style}>{children}</div>;
+  return <div ref={ref} id={id} className={cls} style={style}>{children}</div>;
 }
 
 // Counts up from 0 to `target` once `active` flips true — used for the score
@@ -154,7 +156,6 @@ export default function Landing() {
 
       {/* ── Hero — no scroll-reveal here, it's above the fold on load ────── */}
       <section className="lpHero">
-        <p className="lpHeroLede">Built for everyone — especially useful if you&apos;re serious about the search.</p>
         <h1 className="lpTitle">
           Every AI CV tool lies for you. This one <span className="lpAmber">won&apos;t</span>.
         </h1>
@@ -162,13 +163,15 @@ export default function Landing() {
           Paste your CV and the job description. Get back a tailored version built only from
           what&apos;s real — every line defensible in the interview.
         </p>
+        <p className="lpHeroLede">Built for everyone — especially useful if you&apos;re serious about the search.</p>
         <div className="lpHeroCta">
           <Button href="/app">Tailor my CV →</Button>
+          <a href="#example" className="cta secondary">See an example ↓</a>
         </div>
       </section>
 
       {/* ── The problem ───────────────────────────────────────────────────── */}
-      <Reveal as="section" className="lpProblem">
+      <Reveal as="section" className="lpSection lpProblem">
         <span className="lpKicker">The problem</span>
         <h2 className="lpH2">You&apos;ve got two options right now, and both cost you something.</h2>
         <div className="lpProblemGrid">
@@ -194,7 +197,7 @@ export default function Landing() {
       </Reveal>
 
       {/* ── How it works ──────────────────────────────────────────────────── */}
-      <Reveal as="section" className="lpHow">
+      <Reveal as="section" className="lpSection lpHow">
         <span className="lpKicker">How it works</span>
         <h2 className="lpH2">Four steps. No wall of settings.</h2>
         <div className="lpSteps">
@@ -218,7 +221,7 @@ export default function Landing() {
       </Reveal>
 
       {/* ── Show the product — the most important section on the page ────── */}
-      <Reveal as="section" className="lpShow">
+      <Reveal as="section" className="lpSection lpBand lpShow" id="example">
         <span className="lpKicker">See it for yourself</span>
         <h2 className="lpH2">This is what comes out the other end.</h2>
         <div className="lpShowStage">
@@ -265,7 +268,7 @@ export default function Landing() {
       </Reveal>
 
       {/* ── What makes it different ───────────────────────────────────────── */}
-      <Reveal as="section" className="lpDiff">
+      <Reveal as="section" className="lpSection lpDiff">
         <span className="lpKicker">Why it&apos;s different</span>
         <h2 className="lpH2">Built around one constraint: nothing invented.</h2>
         <div className="lpDiffGrid">
@@ -308,7 +311,12 @@ export default function Landing() {
       </Reveal>
 
       <footer className="lpFooter">
-        Built by Soma Shekar Keesari · Search smarter. Apply faster.
+        <span>Built by Soma Shekar Keesari · Honest beats impressive.</span>
+        <nav className="lpFooterLinks" aria-label="Footer">
+          <Link href="/auth/login">Sign in</Link>
+          <Link href="/app">Tailor my CV</Link>
+          <a href="#example">See an example</a>
+        </nav>
       </footer>
     </main>
   );

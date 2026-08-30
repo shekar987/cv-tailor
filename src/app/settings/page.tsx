@@ -2,13 +2,17 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
+import Skeleton from "@/components/ui/Skeleton";
 import StatusText from "@/components/ui/StatusText";
+
+const PAGE_TAGLINE =
+  "Add your own AI provider keys to keep tailoring after your free credits run out. Keys are encrypted before storage and are never shown in full after saving.";
 
 type Provider = "gemini" | "openrouter";
 type SlotStatus = "idle" | "saving" | "error";
@@ -177,7 +181,11 @@ export default function SettingsPage() {
     return (
       <main className="page">
         <div className="container">
-          <p className="cvHelp">Loading your keys…</p>
+          <AppHeader title="API Keys" tagline={PAGE_TAGLINE} />
+          <div className="keyList">
+            <Card><Skeleton lines={3} label="Loading your keys" /></Card>
+            <Card><Skeleton lines={3} label="Loading your keys" /></Card>
+          </div>
         </div>
       </main>
     );
@@ -186,17 +194,7 @@ export default function SettingsPage() {
   return (
     <main className="page">
       <div className="container">
-        <header className="header">
-          <div className="appBar">
-            <div className="wordmark">Jobhuntz</div>
-            <Link href="/app" className="customizeLink">← Back to app</Link>
-          </div>
-          <h1 className="settingsHeading">API Keys</h1>
-          <p className="tagline">
-            Add your own AI provider keys to keep tailoring after your free credits run out.
-            Keys are encrypted before storage and are never shown in full after saving.
-          </p>
-        </header>
+        <AppHeader title="API Keys" tagline={PAGE_TAGLINE} />
 
         {pageError && <p role="alert" className="keyError">{pageError}</p>}
 

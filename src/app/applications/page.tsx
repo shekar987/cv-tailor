@@ -7,10 +7,16 @@ import { getProfile, type Profile } from "@/lib/cvStore";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
 import { MAX_JD_CHARS as JD_LIMIT, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
+import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import EmptyState from "@/components/ui/EmptyState";
+import Skeleton from "@/components/ui/Skeleton";
 import Textarea from "@/components/ui/Textarea";
 import StatusText from "@/components/ui/StatusText";
+
+const PAGE_TAGLINE =
+  "Every role you've applied to, in one sheet. Click any cell to edit it; click CV, JD or Notes to open that application's details.";
 
 const STATUSES = ["Applied", "Screening", "Interview", "Offer", "Rejected", "Withdrawn"] as const;
 type Status = (typeof STATUSES)[number];
@@ -752,7 +758,8 @@ export default function ApplicationsPage() {
     return (
       <main className="page">
         <div className="container appsContainer">
-          <p className="cvHelp">Loading your applications…</p>
+          <AppHeader title="Applications" tagline={PAGE_TAGLINE} />
+          <Card><Skeleton lines={4} label="Loading your applications" /></Card>
         </div>
       </main>
     );
@@ -764,17 +771,7 @@ export default function ApplicationsPage() {
   return (
     <main className="page">
       <div className="container appsContainer">
-        <header className="header">
-          <div className="appBar">
-            <div className="wordmark">Jobhuntz</div>
-            <Link href="/app" className="customizeLink">← Back to app</Link>
-          </div>
-          <h1 className="settingsHeading">Applications</h1>
-          <p className="tagline">
-            Every role you&apos;ve applied to, in one sheet. Click any cell to edit it; click CV, JD or
-            Notes to open that application&apos;s details.
-          </p>
-        </header>
+        <AppHeader title="Applications" tagline={PAGE_TAGLINE} />
 
         {pageError && (
           <p role="alert" className="keyError">
@@ -846,29 +843,43 @@ export default function ApplicationsPage() {
 
         {!hasRows && !newRow && !pageError && (
           <Card variant="dashed">
-            <div className="appsEmpty">
-              <p>No applications yet.</p>
-              <p className="cvHelp">
-                Tailor a CV and click <strong>Applied</strong> to track it here, or add a row for one you
-                sent through another channel.
-              </p>
-              <div className="actions">
-                <Button onClick={startNewRow}>+ Add row</Button>
-                <Button variant="secondary" href="/app">Tailor a CV</Button>
-              </div>
-            </div>
+            <EmptyState
+              icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M3 10h18M9 4v16" />
+                </svg>
+              }
+              title="No applications yet"
+              actions={
+                <>
+                  <Button onClick={startNewRow}>+ Add row</Button>
+                  <Button variant="secondary" href="/app">Tailor a CV</Button>
+                </>
+              }
+            >
+              Tailor a CV and click <strong>Applied</strong> to track it here, or add a row for one you sent
+              through another channel.
+            </EmptyState>
           </Card>
         )}
 
         {hasRows && visible.length === 0 && !newRow && (
           <Card variant="dashed">
-            <div className="appsEmpty">
-              <p>
-                No applications
-                {periodFilter !== "all" ? ` ${PERIODS.find((p) => p.key === periodFilter)?.label.toLowerCase()}` : ""}
-                {statusFilter !== "All" ? ` with status “${statusFilter}”` : ""}.
-              </p>
-            </div>
+            <EmptyState
+              title={
+                <>
+                  No applications
+                  {periodFilter !== "all" ? ` ${PERIODS.find((p) => p.key === periodFilter)?.label.toLowerCase()}` : ""}
+                  {statusFilter !== "All" ? ` with status “${statusFilter}”` : ""}
+                </>
+              }
+              actions={
+                <Button variant="secondary" onClick={() => { setPeriodFilter("all"); setStatusFilter("All"); }}>
+                  Clear filters
+                </Button>
+              }
+            />
           </Card>
         )}
 

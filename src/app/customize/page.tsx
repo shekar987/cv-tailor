@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -17,8 +16,10 @@ import {
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { MAX_CV_CHARS } from "@/lib/limits";
 import CvUpload from "../CvUpload";
+import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import Skeleton from "@/components/ui/Skeleton";
 import Input from "@/components/ui/Input";
 import Textarea from "@/components/ui/Textarea";
 import FormField from "@/components/ui/FormField";
@@ -273,19 +274,17 @@ export default function CustomizePage() {
   return (
     <main className="page">
       <div className="container">
-        <header className="header">
-          <div className="appBar" style={{ marginBottom: 8 }}>
-            <div className="wordmark">Jobhuntz</div>
-            <Link href="/app" className="customizeLink">← Back to app</Link>
-          </div>
-          <p className="tagline">
-            Manage your master CV, your details, and how your tailored CV is laid out.
-          </p>
-        </header>
+        <AppHeader
+          title="Customize"
+          tagline="Manage your master CV, your details, and how your tailored CV is laid out."
+        />
 
         <Card>
           {cvLoading ? (
-            <p className="cvHelp">Loading your CV…</p>
+            <>
+              <div className="label">Master CV</div>
+              <Skeleton lines={3} label="Loading your CV" />
+            </>
           ) : editingCv ? (
             <FormField
               label="Master CV"
@@ -359,7 +358,7 @@ export default function CustomizePage() {
           </div>
           {profileError && <p role="alert" className="keyError">{profileError}</p>}
           {profileLoading ? (
-            <p className="cvHelp" style={{ color: "var(--muted)" }}>Loading your details…</p>
+            <Skeleton lines={2} label="Loading your details" />
           ) : profile ? (
             <>
               <p className="cvHelp">Pulled from your CV. Check these are right — they appear in your tailored CV&apos;s header and sections.</p>
@@ -386,7 +385,7 @@ export default function CustomizePage() {
             help="Drag a section, or use the arrows. This changes the order only — how many bullets each section gets is still decided by the tailoring for each specific job."
           >
           {loading ? (
-            <p className="cvHelp" style={{ color: "var(--muted)" }}>Loading your layout…</p>
+            <Skeleton lines={5} label="Loading your layout" />
           ) : (
             <>
               <ul className="orderList">
@@ -455,8 +454,8 @@ export default function CustomizePage() {
                 </Button>
               </div>
 
-              {error && <StatusText style={{ marginTop: 12 }} role="alert">{error}</StatusText>}
-              {savedMsg && <StatusText tone="success" style={{ marginTop: 12 }} role="status">{savedMsg}</StatusText>}
+              {error && <StatusText className="msgBelow" role="alert">{error}</StatusText>}
+              {savedMsg && <StatusText tone="success" className="msgBelow" role="status">{savedMsg}</StatusText>}
             </>
           )}
           </FormField>
@@ -464,7 +463,7 @@ export default function CustomizePage() {
 
         <Card>
           <div className="label">Not affected by this</div>
-          <p className="cvHelp" style={{ marginBottom: 0 }}>
+          <p className="cvHelp cvHelpTight">
             Your name and contact details stay at the top. Certifications, Right to Work and any
             extra sections from your CV stay after the sections above, in that order.
           </p>
