@@ -37,19 +37,21 @@ The core product promise: **nothing is invented**. Every claim in the output mus
 src/
   proxy.ts                    ← Session-refresh middleware entry (Next.js 16: proxy.ts, not middleware.ts). Logic lives in lib/supabase/proxy.ts
   app/
-    layout.tsx                ← Root layout: Geist font, globals.css, <FeedbackWidget/>
-    page.tsx                  ← Landing page ("use client" — scroll-reveal + count-up)
+    layout.tsx                ← Root layout: Geist font, globals.css, <FeedbackWidget/>, metadataBase + OpenGraph/Twitter blocks and the "%s · Jobhuntz" title template
+    icon.svg                  ← Branded favicon (amber "J"), drawn in code
+    opengraph-image.tsx       ← Social-share card via next/og ImageResponse (NotoSans from lib/fonts)
+    page.tsx                  ← Landing page ("use client" — scroll-reveal + count-up; nav adapts to a signed-in session)
     error.tsx / not-found.tsx ← Route-level error boundary and 404, in the auth-card style
-    app/page.tsx              ← Main tool: JD → pre-check gate → tailor → results + Applied button
-    customize/page.tsx        ← Master CV (paste or upload), extracted profile fields, section order
-    settings/page.tsx         ← User's own encrypted Gemini/OpenRouter keys
+    app/page.tsx              ← Main tool: JD → pre-check gate → tailor → results + Applied button; usage chip, stale-result + partial-failure notices (each auth-gated page also has a tiny layout.tsx that only exports its <title>)
+    customize/page.tsx        ← Master CV (paste or upload), extracted profile fields + extracted-content summary + re-run extraction, section order
+    settings/page.tsx         ← Account & usage card + user's own encrypted keys (OpenRouter primary — it runs tailoring; Gemini optional, not used for tailoring yet)
     applications/page.tsx     ← Application tracker: spreadsheet-style sheet, CV/JD/Notes panels, CSV export
     auth/
       login/page.tsx          ← Email/password login AND signup (mode toggle) + Google/GitHub OAuth + forgot-password
       update-password/page.tsx← Set a new password after the recovery link (or while signed in)
       callback/route.ts       ← PKCE code exchange (OAuth, signup confirmation, password recovery)
       error/page.tsx          ← On-brand auth error page
-    CvPreview.tsx             ← Editable CV preview; collectPayload() walks its DOM for both downloads
+    CvPreview.tsx             ← Editable CV preview; collectPayload() walks its DOM for both downloads and, via a forwardRef handle, for the Applied snapshot
     CoverLetterPreview.tsx    ← Editable cover letter preview + downloads
     CvUpload.tsx              ← Drag/drop or pick a PDF/.docx/.txt → /api/parse-cv → textarea
     DownloadButton.tsx        ← "Download ▾" disclosure (PDF / Word)
@@ -72,7 +74,8 @@ src/
                                  FormField, Badge, StatusText, AppHeader, EmptyState, Skeleton. Use these.
   lib/
     claude.ts                 ← callClaude() / callLLM() — every model call goes through here
-    limits.ts                 ← MAX_JD_CHARS, MAX_CV_CHARS, notes/feedback/cover-letter caps (one definition)
+    limits.ts                 ← MAX_JD_CHARS, MAX_CV_CHARS, notes/feedback/cover-letter caps, DAILY_TAILOR_LIMIT + CLAUDE_LIFETIME_LIMIT (one definition — UI and /api/tailor share these)
+    usage.ts                  ← getUsage(): the signed-in user's own quota position from their profiles row; fail-soft null (consumers hide their usage UI). Powers the /app chip and the Settings account card
     profile.ts                ← Profile type + normalizeProfile() (coerces model JSON to the shape renderers assume)
     cvStore.ts                ← Master CV + profile CRUD against Supabase (browser client)
     workspace.ts              ← Per-user localStorage envelope: JD, result, provider, tailor session id
@@ -102,7 +105,7 @@ supabase/migrations/          ← Checked-in SQL (applications table + tailored_
 - `/` — landing page
 - `/app` — the tool itself (requires auth — redirected to login if unauthenticated)
 - `/customize` — master CV, extracted details, section order (requires auth)
-- `/settings` — API-key management (requires auth)
+- `/settings` — account & usage plus API-key management (requires auth). OpenRouter is presented as the key that runs tailoring; Gemini as optional/not used for tailoring yet — keep that framing honest if the tailor route's Path C ever changes.
 - `/applications` — application tracker (requires auth)
 - `/auth/login` — email/password login **and** signup, plus OAuth, plus "Forgot password?" (`resetPasswordForEmail`). One page with a `mode` toggle; there is no separate `/auth/signup` route.
 - `/auth/callback` — PKCE code exchange for OAuth, signup confirmation and password recovery (must match the Supabase redirect allowlist)
@@ -125,7 +128,7 @@ Auth-gated pages are listed in `PROTECTED_PREFIXES` in `src/lib/supabase/proxy.t
 6. Server verifies auth via `getClaims()`, checks the daily and lifetime quotas via SECURITY DEFINER RPCs (fail-closed), then runs Step 0 + two parallel waves and returns `{ summary, skills, experience, projects, coverLetter, atsScore, analysis, research }`
 7. Results render in `CvPreview` and `CoverLetterPreview` (both `contentEditable`); the JD, result and a per-run `tailorSessionId` are persisted per user in localStorage (`lib/workspace.ts`) so a reload doesn't lose them
 8. Download: `CvPreview.collectPayload()` walks the live DOM to capture inline edits, converts job headers to `@@JOB@@` markers, then POSTs to `/api/download` (.docx) or `/api/download-pdf` (jsPDF, real text layer)
-9. "Applied — save to tracker" POSTs the run to `/api/applications` with the JD, derived notes, a strict-regex salary and a `tailored_cv` snapshot (sections + profile + section order); the session id makes a second click a no-op
+9. "Applied — save to tracker" POSTs the run to `/api/applications` with the JD, derived notes, a strict-regex salary and a `tailored_cv` snapshot (sections + profile + section order). The snapshot is read from the preview via CvPreview's forwardRef handle so it captures inline edits, with the `@@JOB@@` markers converted back to plain "Role | Company | Date" lines; it falls back to the raw result if the preview isn't mounted. The session id makes a second click a no-op
 
 **CV text is stored server-side in Supabase** (`master_cvs` table, one row per user). The client reads it from DB on load and sends it per-tailor request. The app is fully multi-user — each user's CV is isolated by `user_id` and Supabase RLS.
 
