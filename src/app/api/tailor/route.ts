@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { callLLM, Provider, ProviderRateLimitError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { decrypt } from "@/lib/keyEncryption";
-import { MAX_CV_CHARS, MAX_JD_CHARS, CV_TOO_LONG, JD_TOO_LONG } from "@/lib/limits";
+import { MAX_CV_CHARS, MAX_JD_CHARS, CV_TOO_LONG, JD_TOO_LONG, DAILY_TAILOR_LIMIT, CLAUDE_LIFETIME_LIMIT } from "@/lib/limits";
 import {
   summaryPrompt,
   skillsPrompt,
@@ -15,9 +15,7 @@ import {
   JD_ANALYZER_PROMPT,
 } from "@/prompts/steps";
 
-const DAILY_TAILOR_LIMIT  = 3;
-const WINDOW_MS            = 24 * 60 * 60 * 1000;
-const CLAUDE_LIFETIME_LIMIT = 3;
+const WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const UNAVAILABLE = { error: "Service temporarily unavailable. Please try again in a moment." };
 

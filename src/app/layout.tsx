@@ -10,9 +10,28 @@ const geistSans = Geist({
   subsets: ["latin"],
 });
 
+const DESCRIPTION =
+  "Honest, ATS-ready CV tailoring. Every claim traces back to your real CV — nothing invented.";
+
 export const metadata: Metadata = {
-  title: "Jobhuntz",
-  description: "Honest, ATS-ready CV tailoring. Every claim traces back to your real CV — nothing invented.",
+  metadataBase: new URL("https://www.jobhuntz.app"),
+  title: {
+    default: "Jobhuntz",
+    template: "%s · Jobhuntz",
+  },
+  description: DESCRIPTION,
+  openGraph: {
+    title: "Jobhuntz",
+    description: DESCRIPTION,
+    url: "/",
+    siteName: "Jobhuntz",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Jobhuntz",
+    description: DESCRIPTION,
+  },
 };
 
 export const viewport: Viewport = {
