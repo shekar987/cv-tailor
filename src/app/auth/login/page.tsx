@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { safeNextPath } from '@/lib/safeNext'
@@ -62,6 +63,9 @@ export default function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    // The submit button is disabled while loading, but Enter in a field still
+    // submits the form — repeated presses were tripping Supabase's rate limit.
+    if (loading || socialLoading) return
     setLoading(true)
     setError(null)
 
@@ -157,13 +161,20 @@ export default function LoginPage() {
     <main className="authPage">
       <div className="authCard">
         <Wordmark />
+        <h1 className="authTitle">{mode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
+        <p className="authMuted">
+          {mode === 'login'
+            ? 'Sign in to pick up your master CV and applications.'
+            : 'Free to start — three tailored CVs on us, then bring your own key.'}
+        </p>
 
         {/* Mode toggle */}
-        <div className="authToggle">
+        <div className="authToggle" role="group" aria-label="Sign in or create an account">
           <button
             className={mode === 'login' ? 'active' : ''}
             onClick={() => switchMode('login')}
             type="button"
+            aria-pressed={mode === 'login'}
           >
             Sign in
           </button>
@@ -171,6 +182,7 @@ export default function LoginPage() {
             className={mode === 'signup' ? 'active' : ''}
             onClick={() => switchMode('signup')}
             type="button"
+            aria-pressed={mode === 'signup'}
           >
             Create account
           </button>
@@ -251,9 +263,10 @@ export default function LoginPage() {
 }
 
 function Wordmark() {
+  // A real link home — the auth screens previously had no way back to "/".
   return (
-    <div className="authWordmark">
+    <Link href="/" className="authWordmark authWordmarkLink">
       Jobhuntz
-    </div>
+    </Link>
   )
 }

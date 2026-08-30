@@ -1,28 +1,34 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { MAX_FEEDBACK_CHARS } from "@/lib/limits";
 import Button from "@/components/ui/Button";
 import Textarea from "@/components/ui/Textarea";
 import FormField from "@/components/ui/FormField";
 import StatusText from "@/components/ui/StatusText";
 
-const MAX_MESSAGE = 2000;
+const MAX_MESSAGE = MAX_FEEDBACK_CHARS;
 const COUNTER_THRESHOLD = MAX_MESSAGE - 200; // only show the counter near the cap
 
-// Mounted once in the root layout, so it appears at the bottom of every page.
-// Self-checks the session (client-side getSession() is fine here — the
-// project's "always getClaims()" rule is for Route Handlers, not client
-// components) rather than threading auth state through layout.tsx, which
-// stays a plain server component with no auth logic. Renders nothing for a
-// signed-out visitor: no route-based special-casing needed, since /auth/*
-// and the pre-login landing page all naturally have no session.
+// Pages that get the widget. The landing page and the auth screens don't:
+// a signed-in visitor to "/" was getting a feedback card under the marketing
+// footer, in a different container width.
+const APP_ROUTES = ["/app", "/customize", "/settings", "/applications"];
+
+// Mounted once in the root layout. Self-checks the session (client-side
+// getSession() is fine here — the project's "always getClaims()" rule is for
+// Route Handlers, not client components) rather than threading auth state
+// through layout.tsx, which stays a plain server component with no auth logic.
 export default function FeedbackWidget() {
+  const pathname = usePathname();
   const [signedIn, setSignedIn] = useState(false);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
+  const sentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -32,7 +38,10 @@ export default function FeedbackWidget() {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setSignedIn(session !== null);
     });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      sub.subscription.unsubscribe();
+      if (sentTimer.current) clearTimeout(sentTimer.current);
+    };
   }, []);
 
   async function handleSubmit() {
@@ -45,14 +54,15 @@ export default function FeedbackWidget() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error || "Could not submit your feedback. Try again.");
         return;
       }
       setMessage("");
       setSent(true);
-      setTimeout(() => setSent(false), 3000);
+      if (sentTimer.current) clearTimeout(sentTimer.current);
+      sentTimer.current = setTimeout(() => setSent(false), 3000);
     } catch {
       setError("Couldn't reach the server. Check your connection and try again.");
     } finally {
@@ -60,12 +70,14 @@ export default function FeedbackWidget() {
     }
   }
 
-  if (!signedIn) return null;
+  const onAppRoute = APP_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
+  if (!signedIn || !onAppRoute) return null;
 
   return (
-    <section className="feedbackWidget">
-      <FormField label="Feedback" help="Bugs, ideas, anything — goes straight to the team.">
+    <section className="feedbackWidget" aria-labelledby="feedback-label">
+      <FormField label={<span id="feedback-label">Feedback</span>} htmlFor="feedback-message" help="Bugs, ideas, anything — goes straight to the team.">
         <Textarea
+          id="feedback-message"
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="What's working, what's not, what you'd like to see…"
@@ -73,7 +85,7 @@ export default function FeedbackWidget() {
           maxLength={MAX_MESSAGE}
         />
         {message.length >= COUNTER_THRESHOLD && (
-          <p className="cvHelp" style={{ marginBottom: 0, marginTop: "var(--space-1)" }}>
+          <p className="charCount" aria-live="polite">
             {message.length}/{MAX_MESSAGE}
           </p>
         )}

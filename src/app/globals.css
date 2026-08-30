@@ -864,14 +864,15 @@ textarea:focus-visible {
 .lpNavCta:hover { color: var(--text); text-decoration: underline; }
 
 /* ── Scroll-reveal: progressive enhancement ──────────────────────────────────
-   Starts hidden only once JS has actually hydrated and observed it (the
-   .reveal--visible class is added by IntersectionObserver in page.tsx). The
-   <noscript> block below forces full visibility when JS never runs, so this
-   never leaves content permanently invisible. prefers-reduced-motion is
-   already handled globally (near the top of this file), which zeroes the
-   transition duration here too. */
-.reveal { opacity: 0; transform: translateY(18px); transition: opacity 600ms var(--ease), transform 600ms var(--ease); }
-.reveal--visible { opacity: 1; transform: translateY(0); }
+   Hidden ONLY under `.js-ready`, which page.tsx adds to <html> on mount —
+   so the server-rendered HTML is visible from first paint and content only
+   starts hidden once the script that will reveal it is actually running.
+   (.reveal--visible is added by IntersectionObserver in page.tsx.)
+   prefers-reduced-motion is handled globally near the top of this file,
+   which zeroes the transition duration here too. */
+.reveal { transition: opacity var(--duration-reveal, 600ms) var(--ease), transform var(--duration-reveal, 600ms) var(--ease); }
+.js-ready .reveal { opacity: 0; transform: translateY(18px); }
+.js-ready .reveal--visible { opacity: 1; transform: translateY(0); }
 
 .lpHero { padding: var(--space-16) 0 var(--space-12); max-width: 700px; }
 .lpEyebrow {

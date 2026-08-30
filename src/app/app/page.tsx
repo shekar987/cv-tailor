@@ -7,8 +7,9 @@ import Link from "next/link";
 import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 import type { AtsMatchResult } from "@/lib/atsMatch";
-import { loadWorkspace, saveWorkspace, clearWorkspace } from "@/lib/workspace";
+import { loadWorkspace, saveWorkspace, clearAllWorkspaces } from "@/lib/workspace";
 import { extractSalary, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
+import { MAX_JD_CHARS, JD_TOO_LONG } from "@/lib/limits";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Textarea from "@/components/ui/Textarea";
@@ -167,9 +168,10 @@ export default function Home() {
           }
         });
 
-      // Section order for rendering. Non-blocking and fail-soft: any problem
-      // leaves it null, which renders the default order.
-      fetch("/api/section-order")
+      // Section order for rendering, resolved BEFORE the results are allowed
+      // to render: a restored CV must not paint in the default order and then
+      // re-lay out. Fail-soft: any problem leaves it null (the default order).
+      const orderLoaded = fetch("/api/section-order")
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => { if (data?.order) setSectionOrder(data.order); })
         .catch(() => { /* default order */ });
@@ -191,6 +193,9 @@ export default function Home() {
         const p = await getProfile();
         setProfile(p);
       }
+      await orderLoaded;
+      // Only now may a restored result render — with the real profile and
+      // order, not a "YOUR NAME" placeholder that re-flows a moment later.
       setCvLoading(false);
     }
     loadCv();
@@ -204,8 +209,9 @@ export default function Home() {
   }, [workspaceReady, userId, jobDescription, result, ranProvider, tailorSessionId]);
 
   async function handleSignOut() {
-    // Don't leave a tailored CV in this browser's storage after sign-out.
-    if (userId) clearWorkspace(userId);
+    // Don't leave any tailored CV in this browser's storage after sign-out —
+    // this account's or a previous one's.
+    clearAllWorkspaces();
     const supabase = createClient();
     await supabase.auth.signOut({ scope: 'local' });
     router.refresh();
@@ -223,6 +229,11 @@ export default function Home() {
     }
     if (!jobDescription.trim()) {
       setError("Paste a job description to get started.");
+      setErrorType(null);
+      return;
+    }
+    if (jobDescription.length > MAX_JD_CHARS) {
+      setError(JD_TOO_LONG);
       setErrorType(null);
       return;
     }
@@ -255,12 +266,18 @@ export default function Home() {
   // Step 1 — otherwise the server runs Step 1 fresh, exactly as before this
   // feature existed.
   async function runFullTailor() {
+    if (loading) return;
+    if (jobDescription.length > MAX_JD_CHARS) {
+      setError(JD_TOO_LONG);
+      setErrorType(null);
+      return;
+    }
     setError("");
     setErrorType(null);
     setLoading(true);
-    setResult(null);
-    setAppliedState("idle");
-    setAppliedError("");
+    // The previous result stays on screen (and in the persisted workspace)
+    // until a new one actually arrives — a failed run must not destroy the
+    // last good CV.
     try {
       const res = await fetch("/api/tailor", {
         method: "POST",
@@ -274,26 +291,35 @@ export default function Home() {
           ...(gateAnalysis ? { analysis: gateAnalysis } : {}),
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error || "Something went wrong. Try again.");
         setErrorType(data.errorType || null);
-      } else {
-        setResult(data);
-        setRanProvider(typeof data.provider === "string" ? data.provider : null);
-        // A fresh id per completed run: re-tailoring the same job is a new
-        // session, and legitimately gets its own tracker row.
-        setTailorSessionId(crypto.randomUUID());
+        return;
       }
+      // A fresh id per completed run: re-tailoring the same job is a new
+      // session, and legitimately gets its own tracker row. Computed before
+      // any state changes so a missing crypto API (non-secure origin) can't
+      // throw after the result has already rendered.
+      const sessionId = typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      setResult(data);
+      setRanProvider(typeof data.provider === "string" ? data.provider : null);
+      setTailorSessionId(sessionId);
+      setAppliedState("idle");
+      setAppliedError("");
+      // The gate applied to this specific run; clear it so a re-tailor of the
+      // same JD starts a fresh pre-check rather than silently reusing a stale
+      // one. Only on success: a failed run keeps the paid-for analysis for the
+      // retry instead of charging for it again.
+      setPreCheck(null);
+      setGateAnalysis(null);
     } catch {
       setError("Couldn't reach the server. Check it's running and try again.");
       setErrorType(null);
     } finally {
       setLoading(false);
-      // The gate applied to this specific run; clear it so a re-tailor of the
-      // same JD starts a fresh pre-check rather than silently reusing a stale one.
-      setPreCheck(null);
-      setGateAnalysis(null);
     }
   }
   // Snapshot the finished run into the application tracker. Reads only what
@@ -340,13 +366,15 @@ export default function Home() {
           },
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setAppliedState("error");
         setAppliedError(data.error || "Couldn't save to the tracker. Try again.");
         return;
       }
       setAppliedState(data.alreadySaved ? "already" : "saved");
+      // Saved, but without the CV snapshot (database migration pending).
+      if (typeof data.warning === "string") setAppliedError(data.warning);
     } catch {
       setAppliedState("error");
       setAppliedError("Couldn't reach the server. Try again.");
@@ -428,6 +456,9 @@ export default function Home() {
                 placeholder="Paste the job description for the role you're applying to…"
                 rows={8}
               />
+              <p className={"charCount" + (jobDescription.length > MAX_JD_CHARS ? " over" : "")} aria-live="polite">
+                {jobDescription.length.toLocaleString()} / {MAX_JD_CHARS.toLocaleString()}
+              </p>
             </FormField>
             {/* Step 1: cheap pre-check (JD analysis only) — shown until a gate
                 result exists. Provider choice doesn't apply here: the gate
@@ -438,7 +469,7 @@ export default function Home() {
                   {gateLoading ? "Checking keyword match…" : "Tailor my CV"}
                 </Button>
                 {error && !hasOwnNotice(errorType) && (
-                  <StatusText as="span">{error}</StatusText>
+                  <StatusText as="span" role="alert">{error}</StatusText>
                 )}
               </div>
             )}
@@ -493,14 +524,14 @@ export default function Home() {
                   )}
                 </div>
                 {error && !hasOwnNotice(errorType) && (
-                  <StatusText style={{ marginTop: 'var(--space-3)' }}>{error}</StatusText>
+                  <StatusText style={{ marginTop: 'var(--space-3)' }} role="alert">{error}</StatusText>
                 )}
               </Card>
             )}
 
             {/* ── Saved key unreadable — re-entry needed (e.g. after KEY_ENCRYPTION_SECRET rotation) ── */}
             {errorType === "key_decrypt_failed" && (
-              <div className="limitNotice">
+              <div className="limitNotice" role="alert">
                 <div className="limitNotice__title">Your API key needs to be re-entered.</div>
                 <div className="limitNotice__body">
                   Your saved key can no longer be read. Please go to Settings and replace it.
@@ -513,7 +544,7 @@ export default function Home() {
 
             {/* ── Free tailors used up — no keys saved yet ── */}
             {errorType === "needs_keys" && (
-              <div className="limitNotice">
+              <div className="limitNotice" role="alert">
                 <div className="limitNotice__title">Your 3 free tailors are used up.</div>
                 <div className="limitNotice__body">
                   Add your own key to keep going — it takes 2 minutes and the tool stays free.
@@ -526,7 +557,7 @@ export default function Home() {
 
             {/* ── Has a Gemini key, but Gemini can't complete a run ── */}
             {errorType === "needs_openrouter_key" && (
-              <div className="limitNotice">
+              <div className="limitNotice" role="alert">
                 <div className="limitNotice__title">Your Gemini key can&apos;t run a tailor.</div>
                 <div className="limitNotice__body">
                   Gemini&apos;s free tier allows 5 requests per minute, and one tailoring run makes 8 —
@@ -541,7 +572,7 @@ export default function Home() {
 
             {/* ── User's own key quota exhausted ── */}
             {errorType === "user_key_limit" && (
-              <div className="limitNotice">
+              <div className="limitNotice" role="alert">
                 <div className="limitNotice__title">Today&apos;s tailoring limit is reached.</div>
                 <div className="limitNotice__body">
                   Your key&apos;s free quota resets daily — come back tomorrow to continue.
@@ -554,7 +585,7 @@ export default function Home() {
 
             {/* ── Other limit states (daily cap, provider quota) ── */}
             {error && (errorType === "user_limit" || errorType === "provider_limit" || errorType === "claude_limit_reached") && (
-              <div className="limitNotice">{error}</div>
+              <div className="limitNotice" role="alert">{error}</div>
             )}
           </Card>
         )}
@@ -572,7 +603,7 @@ export default function Home() {
           </section>
         )}
 
-        {result && (
+        {!cvLoading && result && (
           <section className="results">
             {result.atsScore?.keyword_coverage && (
               <div className="scoreCard">
@@ -644,7 +675,7 @@ export default function Home() {
               {(appliedState === "saved" || appliedState === "already") && (
                 <Link href="/applications" className="customizeLink">View tracker →</Link>
               )}
-              {appliedState === "error" && appliedError && (
+              {appliedError && (
                 <StatusText as="span" role="alert">{appliedError}</StatusText>
               )}
             </div>

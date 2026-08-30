@@ -19,6 +19,7 @@ import { filterExtraSections, isReservedSectionTitle } from "@/lib/sections";
 import { saveBlob } from "@/lib/saveBlob";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
+import { pastePlainText } from "@/lib/pastePlainText";
 
 function CvPreview({
   data,
@@ -55,8 +56,9 @@ function CvPreview({
   const github = p?.github || "";
   const hasContactRow = !!(location || phone || email || linkedin || github);
   const ref = useRef<HTMLDivElement>(null);
-  // Download UX state — surfaces failures instead of a silent dead button
-  const [pdfBusy, setPdfBusy] = useState(false);
+  // Download UX state — one flag for both formats, so the button reads
+  // "Generating…" for a Word build as well as a PDF one.
+  const [busy, setBusy] = useState(false);
   const [docErr, setDocErr] = useState<string | null>(null);
 
   const lines = (text?: string) =>
@@ -182,9 +184,9 @@ function CvPreview({
 
 
   async function downloadPdf() {
-    if (pdfBusy) return;
+    if (busy) return;
     setDocErr(null);
-    setPdfBusy(true);
+    setBusy(true);
     try {
       // Built server-side from the same payload as the Word download, with a
       // real text layer (not a rasterized image) so it's ATS-parseable.
@@ -199,10 +201,10 @@ function CvPreview({
       const blob = await res.blob();
       saveBlob(blob, `${fileBaseName}.pdf`);
     } catch (e) {
-      console.error("PDF generation failed:", e);
+      console.error("PDF generation failed:", e instanceof Error ? e.message : String(e));
       setDocErr("PDF generation failed. Try the Word download, or retry.");
     } finally {
-      setPdfBusy(false);
+      setBusy(false);
     }
   }
 
@@ -249,8 +251,10 @@ function CvPreview({
       const parts: string[] = [];
       for (const el of sectionKids("experience")) {
         if (el.classList.contains("cvJobHeader")) {
-          const role = (el.querySelector(".cvJobRole")?.textContent || "").trim();
-          const date = (el.querySelector(".cvJobDate")?.textContent || "").trim();
+          // "@@" is the marker's own delimiter; a role typed as "SRE @@ Acme"
+          // would otherwise split into the date column on the way out.
+          const role = (el.querySelector(".cvJobRole")?.textContent || "").replace(/@@/g, "").trim();
+          const date = (el.querySelector(".cvJobDate")?.textContent || "").replace(/@@/g, "").trim();
           parts.push(`@@JOB@@${role}@@${date}`);
         } else if (el.tagName === "UL") {
           Array.from(el.querySelectorAll("li")).forEach(li => {
@@ -272,13 +276,18 @@ function CvPreview({
     // contentEditable={false} on those below.
     const domProjects: Record<string, string[]> = {};
     const domProjectNames: Record<string, string> = {};
+    // Matched by the data-proj-index each project wrapper is rendered with,
+    // not by position: pressing Enter inside a contentEditable can insert a
+    // stray top-level <div>, which by position would shift every following
+    // project's bullets under the wrong title in the download.
     sectionKids("projects")
-      .filter(el => el.tagName === "DIV")
-      .forEach((projDiv, idx) => {
+      .filter(el => el.hasAttribute("data-proj-index"))
+      .forEach((projDiv) => {
+        const idx = projDiv.getAttribute("data-proj-index") || "";
         const bullets = Array.from(projDiv.querySelectorAll("li"))
           .map(li => (li.textContent || "").trim())
           .filter(Boolean);
-        if (bullets.length > 0) domProjects[String(idx)] = bullets;
+        if (bullets.length > 0) domProjects[idx] = bullets;
 
         const jobHeader = projDiv.querySelector(".cvJobHeader");
         const title = ((jobHeader
@@ -288,7 +297,7 @@ function CvPreview({
         // expects — always with " | ", regardless of what separator the
         // original name used, since that's re-parsed on every render anyway.
         const date = (jobHeader?.querySelector(".cvJobDate")?.textContent || "").trim();
-        if (title) domProjectNames[String(idx)] = date ? `${title} | ${date}` : title;
+        if (title) domProjectNames[idx] = date ? `${title} | ${date}` : title;
       });
 
     // Education: each div child has either a cvJobHeader (degree + right-aligned
@@ -389,8 +398,8 @@ function CvPreview({
     };
   }
 
-  // Single source of truth for both downloads: the server-built .docx for the
-  // current preview state. PDF is a client-side render of this same file.
+  // The server-built .docx for the current preview state. The PDF route takes
+  // the same collectPayload() output and draws it with jsPDF.
   async function fetchDocx(): Promise<Blob | null> {
     const payload = collectPayload();
     if (!payload) return null;
@@ -404,14 +413,18 @@ function CvPreview({
   }
 
   async function downloadWord() {
+    if (busy) return;
     setDocErr(null);
+    setBusy(true);
     try {
       const blob = await fetchDocx();
       if (!blob) { setDocErr("Word download failed. Please retry."); return; }
       saveBlob(blob, `${fileBaseName}.docx`);
     } catch (e) {
-      console.error("Word generation failed:", e);
+      console.error("Word generation failed:", e instanceof Error ? e.message : String(e));
       setDocErr("Word download failed. Check your connection and retry.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -470,7 +483,7 @@ function CvPreview({
             if (bullets.length === 0 && !proj.name) return null;
             const { title: projTitle, date: projDate } = splitTrailingDate(proj.name || "");
             return (
-              <div key={`proj-${idx}`}>
+              <div key={`proj-${idx}`} data-proj-index={idx}>
                 {projDate ? (
                   <p className="cvJobHeader">
                     <span className="cvJobRole cvProjTitle">{projTitle}</span>
@@ -548,11 +561,11 @@ function CvPreview({
   return (
     <div className="cvDocWrap">
       <div className="cvActions">
-        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={pdfBusy} />
+        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} />
       </div>
       {docErr && <StatusText role="alert">{docErr}</StatusText>}
       <p className="editHint">Click any text to edit it. Your changes are included when you download.</p>
-      <div className="cvDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false}>
+      <div className="cvDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false} onPaste={pastePlainText}>
         <h1 className="cvName">{name}</h1>
         {tagline && <p className="cvTagline">{tagline}</p>}
         {hasContactRow && (

@@ -79,3 +79,20 @@ export function clearWorkspace(userId: string): void {
     // ignore
   }
 }
+
+// Sign-out sweep: on a shared browser every past account's tailored result
+// would otherwise stay in localStorage forever, eventually filling the quota
+// and silently disabling persistence for everyone.
+export function clearAllWorkspaces(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const stale: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key && key.startsWith(KEY_PREFIX)) stale.push(key);
+    }
+    stale.forEach((key) => window.localStorage.removeItem(key));
+  } catch {
+    // ignore
+  }
+}

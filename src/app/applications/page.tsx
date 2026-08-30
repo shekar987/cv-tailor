@@ -5,6 +5,8 @@ import Link from "next/link";
 import CvPreview from "../CvPreview";
 import { getProfile, type Profile } from "@/lib/cvStore";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
+import { saveBlob } from "@/lib/saveBlob";
+import { MAX_JD_CHARS as JD_LIMIT, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Textarea from "@/components/ui/Textarea";
@@ -13,8 +15,8 @@ import StatusText from "@/components/ui/StatusText";
 const STATUSES = ["Applied", "Screening", "Interview", "Offer", "Rejected", "Withdrawn"] as const;
 type Status = (typeof STATUSES)[number];
 
-const MAX_JD_CHARS = 15_000; // matches /api/applications and /api/tailor
-const MAX_NOTES = 2000;
+const MAX_JD_CHARS = JD_LIMIT;
+const MAX_NOTES = MAX_NOTES_CHARS;
 
 type Application = {
   id: string;
@@ -123,7 +125,7 @@ function formatDate(iso: string | null): string {
   return `${Number(d)} ${MONTHS[Number(m) - 1]} ${y}`;
 }
 
-type ApiResult = { ok: boolean; data: { error?: string } & Record<string, unknown> };
+type ApiResult = { ok: boolean; status: number; data: { error?: string } & Record<string, unknown> };
 
 async function api(method: string, body?: unknown, query = ""): Promise<ApiResult> {
   try {
@@ -133,16 +135,28 @@ async function api(method: string, body?: unknown, query = ""): Promise<ApiResul
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const data = (await res.json().catch(() => ({}))) as ApiResult["data"];
-    return { ok: res.ok, data };
+    return { ok: res.ok, status: res.status, data };
   } catch {
-    return { ok: false, data: { error: "Connection error. Please try again." } };
+    return { ok: false, status: 0, data: { error: "Connection error. Please try again." } };
   }
 }
 
-async function fetchApplications(): Promise<{ rows: Application[] } | { error: string }> {
-  const { ok, data } = await api("GET");
+const SESSION_EXPIRED = "Your session has expired — sign in again to see your applications.";
+
+async function fetchApplications(): Promise<{ rows: Application[] } | { error: string; expired?: boolean }> {
+  const { ok, status, data } = await api("GET");
+  if (status === 401) return { error: SESSION_EXPIRED, expired: true };
   if (!ok) return { error: data.error || "Could not load your applications." };
   return { rows: (data.applications as Application[] | undefined) ?? [] };
+}
+
+// Salary is free text ("£65,000", "$120k–$140k", "12 LPA"); sort on the first
+// number in it so "£120,000" no longer lands before "£65,000".
+function salaryNumber(value: string | null): number | null {
+  if (!value) return null;
+  const m = value.replace(/,/g, "").match(/(\d+(?:\.\d+)?)\s*([kK])?/);
+  if (!m) return null;
+  return Number(m[1]) * (m[2] ? 1000 : 1);
 }
 
 function newRowError(d: NewRow): string {
@@ -161,6 +175,7 @@ export default function ApplicationsPage() {
   rowsRef.current = rows;
   const [loaded, setLoaded] = useState(false);
   const [pageError, setPageError] = useState("");
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   // Fallbacks for CV snapshots that were stored without a profile / order.
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -191,16 +206,26 @@ export default function ApplicationsPage() {
   const [newRowErr, setNewRowErr] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const [busy, setBusy] = useState(false);
+  // One flag per kind of action, so deleting a row doesn't relabel an open
+  // panel's Save button "Saving…".
+  const [savingNew, setSavingNew] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [panelBusy, setPanelBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [actionError, setActionError] = useState("");
   const [flash, setFlash] = useState("");
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     fetchApplications().then((result) => {
       if (cancelled) return;
-      if ("error" in result) setPageError(result.error);
-      else setRows(result.rows);
+      if ("error" in result) {
+        setPageError(result.error);
+        if (result.expired) setSessionExpired(true);
+      } else {
+        setRows(result.rows);
+      }
       setLoaded(true);
     });
     getProfile().then((p) => {
@@ -216,12 +241,14 @@ export default function ApplicationsPage() {
       });
     return () => {
       cancelled = true;
+      if (flashTimer.current) clearTimeout(flashTimer.current);
     };
   }, []);
 
   function showFlash(message: string) {
     setFlash(message);
-    setTimeout(() => setFlash(""), 3000);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(""), 3000);
   }
 
   const bounds = periodBounds(periodFilter);
@@ -231,14 +258,24 @@ export default function ApplicationsPage() {
         (statusFilter === "All" || r.status === statusFilter) &&
         (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to))
     );
-    // Empty values always sort last, whichever direction is active.
+    // Empty values always sort last, whichever direction is active. Status
+    // sorts in funnel order (Applied → … → Withdrawn), salary by its number.
+    const compare = (a: Application, b: Application): number => {
+      if (sortKey === "status") return STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status);
+      if (sortKey === "salary") {
+        const an = salaryNumber(a.salary);
+        const bn = salaryNumber(b.salary);
+        if (an !== null && bn !== null && an !== bn) return an - bn;
+      }
+      return (a[sortKey] ?? "").localeCompare(b[sortKey] ?? "", undefined, { sensitivity: "base" });
+    };
     return [...filtered].sort((a, b) => {
       const av = a[sortKey] ?? "";
       const bv = b[sortKey] ?? "";
       if (!av && !bv) return 0;
       if (!av) return 1;
       if (!bv) return -1;
-      const cmp = av.localeCompare(bv, undefined, { sensitivity: "base" });
+      const cmp = compare(a, b);
       if (cmp !== 0) return sortDir === "asc" ? cmp : -cmp;
       return b.created_at.localeCompare(a.created_at);
     });
@@ -281,14 +318,24 @@ export default function ApplicationsPage() {
   }
 
   // Apply locally first, then PUT one field; put it back if the save fails.
+  // Only the keys in this patch are reverted — another cell's edit that
+  // succeeded in the meantime must not be undone with it.
   // Returns the error message, or null on success.
   async function patchRow(id: string, patch: Partial<Application>): Promise<string | null> {
     const previous = rowsRef.current.find((r) => r.id === id);
     if (!previous) return "Application not found";
+    const undo: Partial<Application> = {};
+    for (const key of Object.keys(patch) as (keyof Application)[]) {
+      (undo as Record<string, unknown>)[key] = previous[key];
+    }
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-    const { ok, data } = await api("PUT", { id, ...patch });
+    const { ok, status, data } = await api("PUT", { id, ...patch });
     if (!ok) {
-      setRows((rs) => rs.map((r) => (r.id === id ? previous : r)));
+      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...undo } : r)));
+      if (status === 401) {
+        setSessionExpired(true);
+        return SESSION_EXPIRED;
+      }
       return data.error || "Could not save that change.";
     }
     return null;
@@ -358,9 +405,11 @@ export default function ApplicationsPage() {
       e.preventDefault();
       cancelCell();
     } else if (e.key === "Tab") {
-      e.preventDefault();
       const i = CELL_ORDER.indexOf(field);
       const next = (e.shiftKey ? CELL_ORDER[i - 1] : CELL_ORDER[i + 1]) ?? null;
+      // Past the last (or before the first) editable cell, let the browser
+      // move focus on naturally instead of stranding it on <body>.
+      if (next) e.preventDefault();
       void commitCell(next);
     }
   }
@@ -379,6 +428,7 @@ export default function ApplicationsPage() {
     }
     setPanel({ id: row.id, kind });
     setPanelError("");
+    setCvError(""); // a failure on one row must not mask another row's cached CV
     if (kind === "jd") {
       setJdDraft(row.job_description ?? "");
       setJdEditing(!row.job_description);
@@ -401,13 +451,13 @@ export default function ApplicationsPage() {
   async function saveJd(row: Application) {
     const jd = jdDraft.trim();
     if (jd.length > MAX_JD_CHARS) {
-      setPanelError("Job description is too long (max ~15,000 characters).");
+      setPanelError(JD_TOO_LONG);
       return;
     }
-    setBusy(true);
+    setPanelBusy(true);
     setPanelError("");
     const message = await patchRow(row.id, { job_description: jd || null });
-    setBusy(false);
+    setPanelBusy(false);
     if (message) {
       setPanelError(message);
       return;
@@ -423,16 +473,44 @@ export default function ApplicationsPage() {
       setPanelError(`Notes are too long (max ${MAX_NOTES} characters).`);
       return;
     }
-    setBusy(true);
+    setPanelBusy(true);
     setPanelError("");
     const message = await patchRow(row.id, { notes: notes || null });
-    setBusy(false);
+    setPanelBusy(false);
     if (message) {
       setPanelError(message);
       return;
     }
     setPanel(null);
     showFlash("Saved.");
+  }
+
+  // Download through fetch rather than a plain link: a failed export (expired
+  // session, server error) then shows inline instead of navigating the whole
+  // tracker to a page of raw JSON.
+  async function exportCsv() {
+    setExporting(true);
+    setActionError("");
+    try {
+      const res = await fetch(exportHref);
+      if (res.status === 401) {
+        setSessionExpired(true);
+        setActionError(SESSION_EXPIRED);
+        return;
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setActionError(data.error || "Could not export your applications.");
+        return;
+      }
+      const disposition = res.headers.get("content-disposition") || "";
+      const name = disposition.match(/filename="([^"]+)"/)?.[1] || "applications.csv";
+      saveBlob(await res.blob(), name);
+    } catch {
+      setActionError("Connection error. Please try again.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   // ── New row / delete ──────────────────────────────────────────────────────
@@ -452,29 +530,31 @@ export default function ApplicationsPage() {
   }
 
   async function saveNewRow() {
-    if (!newRow) return;
+    if (!newRow || savingNew) return;
     const err = newRowError(newRow);
     if (err) {
       setNewRowErr(err);
       return;
     }
-    setBusy(true);
+    setSavingNew(true);
     setNewRowErr("");
-    const { ok, data } = await api("POST", {
+    const { ok, status, data } = await api("POST", {
       ...newRow,
       followup_date: newRow.followup_date || null,
       source: "manual",
     });
     if (!ok) {
-      setNewRowErr(data.error || "Could not save that application.");
-      setBusy(false);
+      if (status === 401) setSessionExpired(true);
+      setNewRowErr(status === 401 ? SESSION_EXPIRED : data.error || "Could not save that application.");
+      setSavingNew(false);
       return;
     }
     const result = await fetchApplications();
     if ("rows" in result) setRows(result.rows);
     setNewRow(null);
-    setBusy(false);
+    setSavingNew(false);
     showFlash("Application added.");
+    if (typeof data.warning === "string") setActionError(data.warning);
   }
 
   function handleNewRowKey(e: React.KeyboardEvent<HTMLElement>) {
@@ -492,18 +572,19 @@ export default function ApplicationsPage() {
   }
 
   async function confirmDelete(id: string) {
-    setBusy(true);
+    setDeletingId(id);
     setActionError("");
-    const { ok, data } = await api("DELETE", undefined, `?id=${encodeURIComponent(id)}`);
+    const { ok, status, data } = await api("DELETE", undefined, `?id=${encodeURIComponent(id)}`);
     if (!ok) {
-      setActionError(data.error || "Could not delete that application.");
+      if (status === 401) setSessionExpired(true);
+      setActionError(status === 401 ? SESSION_EXPIRED : data.error || "Could not delete that application.");
     } else {
       setRows((rs) => rs.filter((r) => r.id !== id));
       if (panel?.id === id) setPanel(null);
       if (editingRef.current?.id === id) cancelCell();
       showFlash("Deleted.");
     }
-    setBusy(false);
+    setDeletingId(null);
     setConfirmDeleteId(null);
   }
 
@@ -512,11 +593,12 @@ export default function ApplicationsPage() {
   function textCell(row: Application, field: TextField) {
     const isEditing = editing?.id === row.id && editing.field === field;
     if (isEditing) {
+      const isDate = DATE_FIELDS.has(field);
       return (
         <>
           <input
             className="appsCellInput"
-            type={DATE_FIELDS.has(field) ? "date" : "text"}
+            type={isDate ? "date" : "text"}
             autoFocus
             value={cellDraft}
             onChange={(e) => {
@@ -527,7 +609,8 @@ export default function ApplicationsPage() {
             onBlur={() => {
               if (editingRef.current?.id === row.id && editingRef.current.field === field) void commitCell();
             }}
-            maxLength={field === "salary" ? 100 : 200}
+            {...(isDate ? {} : { maxLength: field === "salary" ? 100 : 200 })}
+            {...(field === "followup_date" && row.date_applied ? { min: row.date_applied } : {})}
             aria-label={CELL_LABELS[field]}
           />
           {cellError && <span className="appsCellError" role="alert">{cellError}</span>}
@@ -542,6 +625,7 @@ export default function ApplicationsPage() {
         className={"appsCellBtn" + (value ? "" : " empty")}
         onClick={() => openCell(row, field)}
         title="Click to edit"
+        aria-label={value ? undefined : `${CELL_LABELS[field]}: empty, click to edit`}
       >
         {display || "—"}
       </button>
@@ -609,20 +693,20 @@ export default function ApplicationsPage() {
                 onChange={(e) => setJdDraft(e.target.value)}
                 placeholder="Paste the job posting — you'll want it for interview prep weeks from now."
                 rows={10}
-                disabled={busy}
+                disabled={panelBusy}
                 aria-label="Job description"
               />
-              <p className={"appsCharCount" + (jdDraft.length > MAX_JD_CHARS ? " over" : "")}>
+              <p className={"charCount" + (jdDraft.length > MAX_JD_CHARS ? " over" : "")} aria-live="polite">
                 {jdDraft.length.toLocaleString()} / {MAX_JD_CHARS.toLocaleString()}
               </p>
               <div className="actions">
-                <Button variant="secondary" onClick={() => saveJd(row)} disabled={busy}>
-                  {busy ? "Saving…" : "Save"}
+                <Button variant="secondary" onClick={() => saveJd(row)} disabled={panelBusy}>
+                  {panelBusy ? "Saving…" : "Save"}
                 </Button>
                 <Button
                   variant="ghost"
                   onClick={() => (row.job_description ? setJdEditing(false) : setPanel(null))}
-                  disabled={busy}
+                  disabled={panelBusy}
                 >
                   Cancel
                 </Button>
@@ -647,17 +731,17 @@ export default function ApplicationsPage() {
           onChange={(e) => setNotesDraft(e.target.value)}
           placeholder="Recruiter name, referral, what you emphasised, next steps…"
           rows={4}
-          disabled={busy}
+          disabled={panelBusy}
           aria-label="Notes"
         />
-        <p className={"appsCharCount" + (notesDraft.length > MAX_NOTES ? " over" : "")}>
+        <p className={"charCount" + (notesDraft.length > MAX_NOTES ? " over" : "")} aria-live="polite">
           {notesDraft.length.toLocaleString()} / {MAX_NOTES.toLocaleString()}
         </p>
         <div className="actions">
-          <Button variant="secondary" onClick={() => saveNotes(row)} disabled={busy}>
-            {busy ? "Saving…" : "Save"}
+          <Button variant="secondary" onClick={() => saveNotes(row)} disabled={panelBusy}>
+            {panelBusy ? "Saving…" : "Save"}
           </Button>
-          <Button variant="ghost" onClick={() => setPanel(null)} disabled={busy}>Cancel</Button>
+          <Button variant="ghost" onClick={() => setPanel(null)} disabled={panelBusy}>Cancel</Button>
           {panelError && <StatusText as="span" role="alert">{panelError}</StatusText>}
         </div>
       </div>
@@ -693,7 +777,15 @@ export default function ApplicationsPage() {
         </header>
 
         {pageError && (
-          <p role="alert" className="keyError">{pageError}</p>
+          <p role="alert" className="keyError">
+            {pageError}
+            {sessionExpired && (
+              <>
+                {" "}
+                <Link href="/auth/login?next=/applications" className="inlineLink">Sign in</Link>
+              </>
+            )}
+          </p>
         )}
 
         <div className="appsToolbar">
@@ -729,17 +821,26 @@ export default function ApplicationsPage() {
               </span>
             )}
             {flash && <StatusText as="span" tone="success" role="status">{flash}</StatusText>}
-            {actionError && <StatusText as="span" role="alert">{actionError}</StatusText>}
+            {actionError && (
+              <StatusText as="span" role="alert">
+                {actionError}
+                {sessionExpired && (
+                  <>
+                    {" "}
+                    <Link href="/auth/login?next=/applications" className="inlineLink">Sign in</Link>
+                  </>
+                )}
+              </StatusText>
+            )}
           </div>
           <div className="appsToolbarGroup">
-            {/* Plain anchor, not next/link: Link would prefetch the download.
-                Only offered when the current filters leave something to export. */}
+            {/* Only offered when the current filters leave something to export. */}
             {visible.length > 0 && (
-              <a href={exportHref} className="customizeLink">
-                Export CSV{periodFilter !== "all" || statusFilter !== "All" ? ` (${visible.length})` : ""}
-              </a>
+              <button type="button" className="customizeLink" onClick={exportCsv} disabled={exporting}>
+                {exporting ? "Exporting…" : `Export CSV${periodFilter !== "all" || statusFilter !== "All" ? ` (${visible.length})` : ""}`}
+              </button>
             )}
-            <Button onClick={startNewRow} disabled={newRow !== null}>+ Add row</Button>
+            <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired}>+ Add row</Button>
           </div>
         </div>
 
@@ -777,13 +878,17 @@ export default function ApplicationsPage() {
               <thead>
                 <tr>
                   {COLUMNS.map((col) => (
-                    <th key={col.key} scope="col">
+                    <th
+                      key={col.key}
+                      scope="col"
+                      // aria-sort belongs on the column header, not the button inside it.
+                      aria-sort={col.sortable ? (sortKey === col.key ? (sortDir === "asc" ? "ascending" : "descending") : "none") : undefined}
+                    >
                       {col.sortable ? (
                         <button
                           type="button"
                           className={"appsSortBtn" + (sortKey === col.key ? " active" : "")}
                           onClick={() => toggleSort(col.key as SortKey)}
-                          aria-sort={sortKey === col.key ? (sortDir === "asc" ? "ascending" : "descending") : undefined}
                         >
                           {col.label}
                           {sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
@@ -812,7 +917,7 @@ export default function ApplicationsPage() {
                           placeholder="Company"
                           maxLength={200}
                           aria-label="Company name"
-                          disabled={busy}
+                          disabled={savingNew}
                         />
                       </td>
                       <td data-label="Role">
@@ -824,7 +929,7 @@ export default function ApplicationsPage() {
                           placeholder="Role"
                           maxLength={200}
                           aria-label="Role"
-                          disabled={busy}
+                          disabled={savingNew}
                         />
                       </td>
                       <td data-label="CV"><span className="appsCellStatic">—</span></td>
@@ -836,7 +941,7 @@ export default function ApplicationsPage() {
                           onChange={(e) => updateNewRow("status", e.target.value as Status)}
                           onKeyDown={handleNewRowKey}
                           aria-label="Status"
-                          disabled={busy}
+                          disabled={savingNew}
                         >
                           {STATUSES.map((s) => (
                             <option key={s} value={s}>{s}</option>
@@ -852,7 +957,7 @@ export default function ApplicationsPage() {
                           placeholder="Optional"
                           maxLength={100}
                           aria-label="Salary"
-                          disabled={busy}
+                          disabled={savingNew}
                         />
                       </td>
                       <td data-label="Date Applied">
@@ -863,7 +968,7 @@ export default function ApplicationsPage() {
                           onChange={(e) => updateNewRow("date_applied", e.target.value)}
                           onKeyDown={handleNewRowKey}
                           aria-label="Date applied"
-                          disabled={busy}
+                          disabled={savingNew}
                         />
                       </td>
                       <td data-label="Follow-up Date">
@@ -875,15 +980,15 @@ export default function ApplicationsPage() {
                           onChange={(e) => updateNewRow("followup_date", e.target.value)}
                           onKeyDown={handleNewRowKey}
                           aria-label="Follow-up date"
-                          disabled={busy}
+                          disabled={savingNew}
                         />
                       </td>
                       <td data-label="Notes"><span className="appsCellStatic">after save</span></td>
                       <td className="appsActions">
-                        <button type="button" className="appsActionBtn primary" onClick={saveNewRow} disabled={busy}>
-                          {busy ? "Saving…" : "Save"}
+                        <button type="button" className="appsActionBtn primary" onClick={saveNewRow} disabled={savingNew}>
+                          {savingNew ? "Saving…" : "Save"}
                         </button>
-                        <button type="button" className="appsActionBtn" onClick={() => setNewRow(null)} disabled={busy}>
+                        <button type="button" className="appsActionBtn" onClick={() => setNewRow(null)} disabled={savingNew}>
                           Cancel
                         </button>
                       </td>
@@ -963,15 +1068,15 @@ export default function ApplicationsPage() {
                                 type="button"
                                 className="appsActionBtn danger"
                                 onClick={() => confirmDelete(row.id)}
-                                disabled={busy}
+                                disabled={deletingId === row.id}
                               >
-                                {busy ? "Deleting…" : "Confirm"}
+                                {deletingId === row.id ? "Deleting…" : "Confirm"}
                               </button>
                               <button
                                 type="button"
                                 className="appsActionBtn"
                                 onClick={() => setConfirmDeleteId(null)}
-                                disabled={busy}
+                                disabled={deletingId === row.id}
                               >
                                 Cancel
                               </button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -81,7 +81,7 @@ export default function CustomizePage() {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        router.replace("/auth/login");
+        router.replace("/auth/login?next=/customize");
         return;
       }
       setUserId(session.user.id);
@@ -124,11 +124,22 @@ export default function CustomizePage() {
     return () => { active = false; };
   }, [router]);
 
+  // One upsert per pause in typing, not per keystroke — the previous version
+  // sent the whole profile on every character, and out-of-order responses
+  // could persist a stale value.
+  const profileSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (profileSaveTimer.current) clearTimeout(profileSaveTimer.current); }, []);
+
   function updateProfileField(field: keyof Profile, value: string) {
     if (!profile) return;
     const updated = { ...profile, [field]: value };
     setProfile(updated);
-    saveProfile(updated); // fire-and-forget: UI state is already correct, DB catches up
+    if (profileSaveTimer.current) clearTimeout(profileSaveTimer.current);
+    profileSaveTimer.current = setTimeout(() => {
+      saveProfile(updated).then((ok) => {
+        setProfileError(ok ? "" : "Couldn't save that change. Check your connection and try again.");
+      });
+    }, 500);
   }
 
   // Drops any tailored result sitting in the /app workspace without touching

@@ -56,6 +56,11 @@ function useCountUp(target: number, active: boolean, duration = 900): number {
   const [value, setValue] = useState(0);
   useEffect(() => {
     if (!active) return;
+    // CSS can't stop a requestAnimationFrame loop; honour reduced motion here.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setValue(target);
+      return;
+    }
     let raf = 0;
     const start = performance.now();
     function tick(now: number) {
@@ -83,7 +88,7 @@ function AnimatedScoreValue({ target, total }: { target: number; total: number }
 // ─── Icons — small hand-drawn line icons, no icon library ──────────────────
 function IconWarning() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 3 2 20h20L12 3Z" />
       <line x1="12" y1="9" x2="12" y2="14" />
       <circle cx="12" cy="17.3" r="0.6" fill="currentColor" stroke="none" />
@@ -92,7 +97,7 @@ function IconWarning() {
 }
 function IconClock() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="9" />
       <polyline points="12 7 12 12 16 14" />
     </svg>
@@ -100,7 +105,7 @@ function IconClock() {
 }
 function IconShieldCheck() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z" />
       <polyline points="9 12 11 14 15 10" />
     </svg>
@@ -108,7 +113,7 @@ function IconShieldCheck() {
 }
 function IconTarget() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="9" />
       <circle cx="12" cy="12" r="5" />
       <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
@@ -117,7 +122,7 @@ function IconTarget() {
 }
 function IconMail() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <polyline points="3 7 12 13 21 7" />
     </svg>
@@ -125,11 +130,16 @@ function IconMail() {
 }
 
 export default function Landing() {
+  // The scroll-reveal hides content ONLY once JS is running: the `.reveal`
+  // hidden state is scoped under `.js-ready` (see globals.css), so the
+  // server-rendered page is fully visible until hydration has actually
+  // happened — slow networks, failed hydration and crawlers all see it all.
+  useEffect(() => {
+    document.documentElement.classList.add("js-ready");
+  }, []);
+
   return (
     <main className="lp">
-      <noscript>
-        <style>{`.reveal { opacity: 1 !important; transform: none !important; }`}</style>
-      </noscript>
 
       <nav className="lpNav">
         <div>

@@ -8,6 +8,7 @@ import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
+import StatusText from "@/components/ui/StatusText";
 
 type Provider = "gemini" | "openrouter";
 type SlotStatus = "idle" | "saving" | "error";
@@ -74,13 +75,17 @@ export default function SettingsPage() {
     gemini: "",
     openrouter: "",
   });
+  // A failed read must not masquerade as "no keys saved" — that invites the
+  // user to overwrite a key they already have.
+  const [pageError, setPageError] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState<Provider | null>(null);
 
   useEffect(() => {
     async function init() {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        router.replace("/auth/login");
+        router.replace("/auth/login?next=/settings");
         return;
       }
       // SELECT only the non-revoked columns — key_enc is blocked at the column level
@@ -88,7 +93,9 @@ export default function SettingsPage() {
         .from("user_api_keys")
         .select("provider, key_hint, updated_at");
 
-      if (!error && data) {
+      if (error) {
+        setPageError("Couldn't load your saved keys. Refresh the page to try again.");
+      } else if (data) {
         const map: Record<Provider, SavedKey | null> = { gemini: null, openrouter: null };
         for (const row of data) {
           if (row.provider === "gemini" || row.provider === "openrouter") {
@@ -135,6 +142,7 @@ export default function SettingsPage() {
   }
 
   async function handleRemove(provider: Provider) {
+    setConfirmRemove(null);
     setStatus(s => ({ ...s, [provider]: "saving" }));
     setSlotErrors(e => ({ ...e, [provider]: "" }));
 
@@ -189,6 +197,8 @@ export default function SettingsPage() {
             Keys are encrypted before storage and are never shown in full after saving.
           </p>
         </header>
+
+        {pageError && <p role="alert" className="keyError">{pageError}</p>}
 
         <div className="keyList">
           {SLOTS.map((slot) => {
@@ -270,21 +280,42 @@ export default function SettingsPage() {
                 {/* Replace / Remove actions — only when key is saved and not replacing */}
                 {saved && !isReplacing && (
                   <div className="actions">
-                    <Button
-                      onClick={() => setShowInput(si => ({ ...si, [slot.provider]: true }))}
-                      disabled={isBusy}
-                      variant="secondary"
-                    >
-                      Replace
-                    </Button>
-                    <Button
-                      onClick={() => handleRemove(slot.provider)}
-                      disabled={isBusy}
-                      variant="ghost"
-                      className="keyRemove"
-                    >
-                      {isBusy ? "Removing…" : "Remove"}
-                    </Button>
+                    {confirmRemove === slot.provider ? (
+                      <>
+                        {/* Two-step: this button sits beside Replace, and a
+                            removed key can't be recovered. */}
+                        <StatusText as="span">Remove this key?</StatusText>
+                        <Button
+                          onClick={() => handleRemove(slot.provider)}
+                          disabled={isBusy}
+                          variant="ghost"
+                          className="keyRemove"
+                        >
+                          {isBusy ? "Removing…" : "Yes, remove"}
+                        </Button>
+                        <Button onClick={() => setConfirmRemove(null)} disabled={isBusy} variant="ghost">
+                          Keep it
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          onClick={() => setShowInput(si => ({ ...si, [slot.provider]: true }))}
+                          disabled={isBusy}
+                          variant="secondary"
+                        >
+                          Replace
+                        </Button>
+                        <Button
+                          onClick={() => setConfirmRemove(slot.provider)}
+                          disabled={isBusy}
+                          variant="ghost"
+                          className="keyRemove"
+                        >
+                          Remove
+                        </Button>
+                      </>
+                    )}
                   </div>
                 )}
 

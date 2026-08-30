@@ -9,6 +9,7 @@ import StatusText from "@/components/ui/StatusText";
 // Parsing happens server-side in /api/parse-cv — nothing is parsed in the browser.
 
 const ACCEPT = ".pdf,.docx,.txt";
+const ACCEPT_RE = /\.(pdf|docx|txt)$/i;
 const MAX_BYTES = 5 * 1024 * 1024;
 
 export default function CvUpload({
@@ -19,6 +20,9 @@ export default function CvUpload({
   disabled?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  // dragenter/dragleave fire for every child element crossed, so a plain
+  // boolean flickers; a depth counter only clears when the pointer truly leaves.
+  const dragDepth = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -26,8 +30,13 @@ export default function CvUpload({
   async function handleFile(file: File) {
     setError(null);
 
-    // Cheap client-side check so an obviously oversized file never leaves the
-    // browser. The server enforces the real limit regardless.
+    // Cheap client-side checks so an obviously wrong file never leaves the
+    // browser (drag-and-drop bypasses the input's accept list). The server
+    // sniffs the real bytes regardless.
+    if (!ACCEPT_RE.test(file.name)) {
+      setError("Upload a PDF, Word (.docx) or .txt file.");
+      return;
+    }
     if (file.size > MAX_BYTES) {
       setError("That file is larger than 5MB. Upload a smaller file.");
       return;
@@ -69,29 +78,42 @@ export default function CvUpload({
     }
   }
 
+  const inert = disabled || busy;
+
   return (
     <div className="uploadBlock">
       <div
         className={`dropZone${dragging ? " dragging" : ""}${busy ? " busy" : ""}`}
-        onDragOver={(e) => {
+        onDragEnter={(e) => {
           e.preventDefault();
-          if (!disabled && !busy) setDragging(true);
+          dragDepth.current += 1;
+          if (!inert) setDragging(true);
         }}
-        onDragLeave={() => setDragging(false)}
+        onDragOver={(e) => e.preventDefault()}
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDragging(false);
+        }}
         onDrop={(e) => {
           e.preventDefault();
+          dragDepth.current = 0;
           setDragging(false);
-          if (disabled || busy) return;
+          if (inert) return;
           const file = e.dataTransfer.files?.[0];
           if (file) handleFile(file);
         }}
       >
+        {/* Covers the zone so a drop anywhere lands on it; tabIndex -1 keeps
+            this invisible control out of the keyboard order — the visible
+            "Upload a file" button is the focusable affordance. */}
         <input
           ref={inputRef}
           type="file"
           accept={ACCEPT}
           className="dropInput"
-          disabled={disabled || busy}
+          tabIndex={-1}
+          aria-hidden="true"
+          disabled={inert}
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) handleFile(file);
@@ -122,7 +144,7 @@ export default function CvUpload({
           )}
         </div>
       </div>
-      {error && <StatusText role="alert" style={{ marginTop: 10 }}>{error}</StatusText>}
+      {error && <StatusText role="alert" className="uploadError">{error}</StatusText>}
     </div>
   );
 }
