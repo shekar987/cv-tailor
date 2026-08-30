@@ -4,6 +4,8 @@ import { filterExtraSections } from "@/lib/sections";
 import { chooseDensity, wrappedLines, PAGE_HEIGHT, type Density } from "@/lib/cvDensity";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
+import { normalizeProfile } from "@/lib/profile";
+import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
 import {
   Document,
   Packer,
@@ -13,6 +15,7 @@ import {
   BorderStyle,
   ExternalHyperlink,
   LevelFormat,
+  TabStopType,
 } from "docx";
 
 const NAVY = "1F3864";
@@ -92,7 +95,7 @@ function datedHeaderParagraph(
   return [
     new Paragraph({
       spacing: { before: opts.spacingBefore, after: opts.spacingAfter },
-      tabStops: [{ type: "right" as any, position: DATE_TAB_POSITION }],
+      tabStops: [{ type: TabStopType.RIGHT, position: DATE_TAB_POSITION }],
       children,
     }),
   ];
@@ -193,7 +196,8 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any, d: Density): P
   const out: Paragraph[] = [];
   if (!Array.isArray(projectsMeta) || projectsMeta.length === 0) return out;
 
-  projectsMeta.forEach((meta, idx) => {
+  projectsMeta.forEach((rawMeta, idx) => {
+    const meta = rawMeta || {};
     const tailored = tailoredBullets?.[String(idx)];
     const bullets: string[] = (Array.isArray(tailored) && tailored.length > 0)
       ? tailored
@@ -259,9 +263,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { summary, skills, experience, projects, projectsMeta, companyName, roleTitle, profile, sectionOrder } = await req.json();
-// Always use profile data exclusively. Missing fields render blank — never fall back to owner data.
-const contactName = profile?.name || "";
+    // docx's Packer runs synchronously; refuse oversized bodies from the
+    // header before reading them into memory.
+    if (Number(req.headers.get("content-length") || 0) > MAX_DOCUMENT_BODY_BYTES) {
+      return NextResponse.json({ error: "Document payload is too large." }, { status: 413 });
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
+    const text = (v: unknown) => (typeof v === "string" ? v : "");
+    const summary = text(body.summary);
+    const skills = text(body.skills);
+    const experience = text(body.experience);
+    const projects = body.projects && typeof body.projects === "object" ? (body.projects as Record<string, unknown>) : {};
+    const projectsMeta = Array.isArray(body.projectsMeta) ? body.projectsMeta : [];
+    const sectionOrder = body.sectionOrder;
+// Always use profile data exclusively. Missing fields render blank — never fall
+// back to owner data. Normalised first so a malformed stored profile (a model
+// returning `"education": {}`) renders blank instead of crashing the download.
+const profile = normalizeProfile(body.profile);
+const contactName = profile.name;
 // A professional headline should never contain contact/social URLs. When the
 // extractor mis-files the CV's contact line into the tagline, the GitHub/LinkedIn
 // URL renders here AND again as the link label below — the "GitHub twice" bug.
@@ -274,33 +299,23 @@ const cleanTagline = (t: string): string =>
     .replace(/^\s*[|•·,\-–—]+\s*|\s*[|•·,\-–—]+\s*$/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
-const contactTagline = cleanTagline(profile?.tagline ?? "");
-const contactEmail = String(profile?.email || "").trim();
-const contactLinkedin = profile?.linkedin
+const contactTagline = cleanTagline(profile.tagline);
+const contactEmail = profile.email;
+const contactLinkedin = profile.linkedin
   ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin)
   : "";
-const contactGithub = profile?.github
+const contactGithub = profile.github
   ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github)
   : "";
-const education = (profile?.education || []).map((e: any) => ({
-  head: e.degree || "",
-  date: e.dates || "",
-  school: e.institution || "",
+const education = profile.education.map((e) => ({
+  head: e.degree,
+  date: e.dates,
+  school: e.institution,
   note: e.note,
 }));
-const certs = profile?.certifications || [];
-const rightToWork = profile?.rightToWork || [];
-const extraSections = filterExtraSections(profile?.extraSections);
-
-    // Build a safe filename: FirstName_CompanyName_RoleName_CV.docx
-    const firstName = (profile?.name || "").trim().split(/\s+/).slice(0, 2).join("_") || "User";
-    const clean = (s: string) =>
-      (s || "")
-        .replace(/[^a-zA-Z0-9]+/g, "_") // non-alphanumeric → underscore
-        .replace(/^_+|_+$/g, "")        // trim leading/trailing underscores
-        .slice(0, 40);                  // keep it reasonable
-    const parts = [firstName, clean(companyName), clean(roleTitle), "CV"].filter(Boolean);
-    const filename = parts.join("_") + ".docx";
+const certs = profile.certifications;
+const rightToWork = profile.rightToWork;
+const extraSections = filterExtraSections(profile.extraSections);
 
     // Size the content before laying it out, so the spacing can be chosen to
     // fill two pages rather than either cramming or leaving page 2 half empty.
@@ -318,7 +333,7 @@ const extraSections = filterExtraSections(profile?.extraSections);
       educationText, certs.join("\n"), rightToWork.join("\n"), extrasText,
     ].filter(Boolean).join("\n");
 
-    const hasContactRow = !!(profile?.location || profile?.phone || contactEmail || contactLinkedin || contactGithub);
+    const hasContactRow = !!(profile.location || profile.phone || contactEmail || contactLinkedin || contactGithub);
     const contactLines = 1 + (contactTagline ? 1 : 0) + (hasContactRow ? 1 : 0);
     const headingCount =
       (summary ? 1 : 0) + (skills ? 1 : 0) + (experience ? 1 : 0) +
@@ -355,8 +370,8 @@ const extraSections = filterExtraSections(profile?.extraSections);
         if (contactRuns.length > 0) contactRuns.push(new TextRun({ text: " · ", size: 20, font: "Calibri" }));
         contactRuns.push(run);
       };
-      if (profile?.location) addContactRun(new TextRun({ text: profile.location, size: 20, font: "Calibri" }));
-      if (profile?.phone) addContactRun(new TextRun({ text: profile.phone, size: 20, font: "Calibri" }));
+      if (profile.location) addContactRun(new TextRun({ text: profile.location, size: 20, font: "Calibri" }));
+      if (profile.phone) addContactRun(new TextRun({ text: profile.phone, size: 20, font: "Calibri" }));
       if (contactEmail) {
         addContactRun(new ExternalHyperlink({
           link: `mailto:${contactEmail}`,
@@ -389,7 +404,7 @@ const extraSections = filterExtraSections(profile?.extraSections);
         experience ? [sectionHeading("Experience", density), ...textToParagraphs(experience, "plain", density)] : [],
 
       projects: () => {
-        const projectParas = buildProjects(projectsMeta || [], projects || {}, density);
+        const projectParas = buildProjects(projectsMeta, projects, density);
         return projectParas.length > 0 ? [sectionHeading("Projects", density), ...projectParas] : [];
       },
 
@@ -408,7 +423,7 @@ const extraSections = filterExtraSections(profile?.extraSections);
           out.push(new Paragraph({ spacing: { after: density.tightAfter }, children: [new TextRun({ text: e.school, size: 21, font: "Calibri" })] }));
           // e.note can hold multiple bullets, one per line — a paragraph per
           // line, not one paragraph for the whole blob.
-          if (e.note?.trim()) {
+          if (e.note.trim()) {
             for (const n of e.note.split("\n")) {
               if (!n.trim()) continue;
               out.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text: n.trim(), size: 20, font: "Calibri" })] }));
@@ -454,11 +469,14 @@ const extraSections = filterExtraSections(profile?.extraSections);
     });
 
     const buffer = await Packer.toBuffer(doc);
+    // The client names the saved file (see saveBlob in CvPreview); this header
+    // is a safe constant so no profile text ever reaches a response header —
+    // a non-Latin name here used to crash the response with ERR_INVALID_CHAR.
     return new Response(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": 'attachment; filename="CV.docx"',
       },
     });
   } catch (error) {

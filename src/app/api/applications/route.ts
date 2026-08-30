@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { MAX_JD_CHARS, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
 
 // CRUD for the application tracker. RLS ("auth.uid() = user_id") is the real
 // boundary; every write is additionally scoped by user id.
@@ -10,10 +11,16 @@ const MAX_APPLICATIONS = 1000;
 const MAX_COMPANY = 200;
 const MAX_ROLE = 200;
 const MAX_SALARY = 100;
-const MAX_NOTES = 2000;
+const MAX_NOTES = MAX_NOTES_CHARS;
 const MAX_CV_REF = 200;
 const MAX_SESSION_ID = 64;
-const MAX_JD_CHARS = 15_000; // matches /api/tailor's cap
+
+// A non-UUID id can only be a typo or a probe; Postgres would answer with a
+// cast error (22P02) that the handlers would otherwise report as a 500.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_RE.test(value);
+}
 
 const STATUSES = ["Applied", "Screening", "Interview", "Offer", "Rejected", "Withdrawn"] as const;
 type Status = (typeof STATUSES)[number];
@@ -36,6 +43,9 @@ const MAX_TAILORED_CV_JSON = 200_000;
 // (the column isn't in its schema cache).
 const MIGRATION_HINT =
   "The database is missing the latest migration (supabase/migrations/20260829120000_applications_tailored_cv.sql). Run it in the Supabase SQL editor, then try again.";
+// Softer variant for the paths that can still succeed without the column.
+const SNAPSHOT_WARNING =
+  "Saved without the CV snapshot: the database is missing migration 20260829120000_applications_tailored_cv.sql. Run it in the Supabase SQL editor to store CVs with applications.";
 function isMissingColumn(err: { code?: string } | null): boolean {
   return err?.code === "42703" || err?.code === "PGRST204";
 }
@@ -90,6 +100,13 @@ type Validation = { fields: Editable } | { error: string };
 // rather than truncated so nothing the user typed is silently lost.
 function validateEditable(body: Record<string, unknown>, partial: boolean): Validation {
   const fields: Editable = {};
+
+  // A present-but-wrong-typed value is a client bug, not "empty": rejecting it
+  // keeps a numeric salary from silently wiping the stored text.
+  const typeProblem = (["company_name", "role", "salary", "notes", "job_description"] as const).find(
+    (key) => key in body && body[key] != null && typeof body[key] !== "string"
+  );
+  if (typeProblem) return { error: `${typeProblem.replace("_", " ")} must be text.` };
 
   if (!partial || "company_name" in body) {
     const company = typeof body.company_name === "string" ? body.company_name.trim() : "";
@@ -148,7 +165,7 @@ function validateEditable(body: Record<string, unknown>, partial: boolean): Vali
   // pasted in later. On create the JD is handled with the snapshot fields.
   if (partial && "job_description" in body) {
     const jd = typeof body.job_description === "string" ? body.job_description.trim() : "";
-    if (jd.length > MAX_JD_CHARS) return { error: "Job description is too long (max ~15,000 characters)." };
+    if (jd.length > MAX_JD_CHARS) return { error: JD_TOO_LONG };
     fields.job_description = jd || null;
   }
 
@@ -173,22 +190,33 @@ export async function GET(req: NextRequest) {
 
     // One full record, snapshot included.
     const id = new URL(req.url).searchParams.get("id");
-    if (id) {
-      const { data: row, error: rowError } = await supabase
+    if (id !== null) {
+      if (!isUuid(id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+      let { data: row, error: rowError } = await supabase
         .from("applications")
         .select(DETAIL_COLUMNS)
         .eq("id", id)
         .eq("user_id", userId)
         .maybeSingle();
+      let warning: string | undefined;
+      if (rowError && isMissingColumn(rowError)) {
+        // The snapshot column hasn't been migrated in yet — the rest of the
+        // record is still perfectly readable.
+        ({ data: row, error: rowError } = await supabase
+          .from("applications")
+          .select(SELECT_COLUMNS)
+          .eq("id", id)
+          .eq("user_id", userId)
+          .maybeSingle());
+        warning = SNAPSHOT_WARNING;
+      }
       if (rowError) {
         console.error("applications detail read error:", rowError.message);
-        if (isMissingColumn(rowError)) {
-          return NextResponse.json({ error: MIGRATION_HINT }, { status: 500 });
-        }
         return NextResponse.json({ error: "Could not load that application" }, { status: 500 });
       }
       if (!row) return NextResponse.json({ error: "Application not found" }, { status: 404 });
-      return NextResponse.json({ application: row });
+      const snapshot = (row as { tailored_cv?: unknown }).tailored_cv ?? null;
+      return NextResponse.json({ application: { ...row, tailored_cv: snapshot }, ...(warning ? { warning } : {}) });
     }
 
     const { data: rows, error: readError } = await supabase
@@ -235,10 +263,7 @@ export async function POST(req: NextRequest) {
 
     const jobDescription = typeof body.job_description === "string" ? body.job_description.trim() : "";
     if (jobDescription.length > MAX_JD_CHARS) {
-      return NextResponse.json(
-        { error: "Job description is too long (max ~15,000 characters)." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: JD_TOO_LONG }, { status: 400 });
     }
 
     // Only a tailoring run carries a session id / CV reference; manual rows
@@ -280,9 +305,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { count } = await supabase
+    // The cap is only enforceable if the count is trusted: a failed count is
+    // an error, not zero.
+    const { count, error: countError } = await supabase
       .from("applications")
-      .select("id", { count: "exact", head: true });
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId);
+    if (countError) {
+      console.error("applications count error:", countError.message);
+      return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
+    }
     if ((count ?? 0) >= MAX_APPLICATIONS) {
       return NextResponse.json(
         { error: `You can track up to ${MAX_APPLICATIONS} applications. Delete some to add more.` },
@@ -290,11 +322,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: inserted, error: insertError } = await supabase
+    let { data: inserted, error: insertError } = await supabase
       .from("applications")
       .insert({ ...record, user_id: userId })
       .select("id")
       .single();
+
+    // The snapshot column hasn't been migrated in yet: save everything else
+    // rather than blocking the tracker, and tell the client why the CV is
+    // missing.
+    let warning: string | undefined;
+    if (insertError && isMissingColumn(insertError)) {
+      const { tailored_cv: _dropped, ...withoutSnapshot } = record;
+      void _dropped;
+      ({ data: inserted, error: insertError } = await supabase
+        .from("applications")
+        .insert({ ...withoutSnapshot, user_id: userId })
+        .select("id")
+        .single());
+      if (!insertError) warning = SNAPSHOT_WARNING;
+    }
 
     if (insertError) {
       // 23505 = the partial unique index fired: two clicks raced past the
@@ -316,7 +363,7 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
     }
-    return NextResponse.json({ ok: true, id: inserted?.id });
+    return NextResponse.json({ ok: true, id: inserted?.id, ...(warning ? { warning } : {}) });
   } catch (err) {
     console.error("applications POST error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
@@ -339,8 +386,11 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    const id = typeof body.id === "string" && body.id ? body.id : null;
-    if (!id) return NextResponse.json({ error: "No application specified" }, { status: 400 });
+    if (body.id === undefined || body.id === null || body.id === "") {
+      return NextResponse.json({ error: "No application specified" }, { status: 400 });
+    }
+    if (!isUuid(body.id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+    const id = body.id;
 
     const validated = validateEditable(body, true);
     if ("error" in validated) {
@@ -411,6 +461,7 @@ export async function DELETE(req: NextRequest) {
 
     const id = new URL(req.url).searchParams.get("id");
     if (!id) return NextResponse.json({ error: "No application specified" }, { status: 400 });
+    if (!isUuid(id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
 
     const { error: deleteError } = await supabase
       .from("applications")

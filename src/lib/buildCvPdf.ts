@@ -218,7 +218,9 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
       .replace(/\s{2,}/g, " ")
       .trim();
   const contactTagline = cleanTagline(profile?.tagline ?? "");
-  const contactEmail = (profile?.email || "").trim();
+  // String() to match the docx route — a non-string email must not make the
+  // PDF fail where the Word download succeeds.
+  const contactEmail = String(profile?.email || "").trim();
   const contactLinkedin = profile?.linkedin ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin) : "";
   const contactGithub = profile?.github ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github) : "";
   const education = (profile?.education || []).map((e: any) => ({
@@ -318,5 +320,5 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
     drawBulletList(doc, cursor, sec.title, sec.bullets, density);
   }
 
-  return doc.output("arraybuffer") as unknown as Uint8Array;
+  return new Uint8Array(doc.output("arraybuffer"));
 }

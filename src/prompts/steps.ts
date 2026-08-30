@@ -223,7 +223,7 @@ export const PROFILE_EXTRACTION_PROMPT = `You extract factual profile details fr
 
 Output ONLY this JSON (no fences, no preamble):
 {
-  "name": "full name as written, e.g. SOMA SHEKAR KEESARI",
+  "name": "full name as written, e.g. JANE DOE",
   "tagline": "the professional headline/title line under the name (e.g. 'Full-Stack Engineer') if present, else empty string. Do NOT put contact details here — no email, phone, location, or LinkedIn/GitHub URLs; those belong in their own fields.",
   "location": "city/country if present, else empty",
   "phone": "phone number if present, else empty",

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { safeNextPath } from '@/lib/safeNext'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import StatusText from '@/components/ui/StatusText'
@@ -54,9 +55,9 @@ export default function LoginPage() {
   // Read directly from window.location rather than useSearchParams() so this
   // page can stay statically prerendered (useSearchParams needs a Suspense
   // boundary; this value is only needed inside event handlers, not on render).
+  // Only a same-origin path is honoured — anyone can craft this link.
   function getSafeNext(): string {
-    const next = new URLSearchParams(window.location.search).get('next')
-    return next && next.startsWith('/') ? next : '/app'
+    return safeNextPath(new URLSearchParams(window.location.search).get('next'))
   }
 
   async function handleSubmit(e: React.FormEvent) {

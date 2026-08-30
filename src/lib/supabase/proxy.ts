@@ -1,12 +1,24 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { supabaseUrl, supabasePublishableKey } from './env'
+
+// Signed-in-only pages. /settings is included because it hosts the API-key
+// form: guarding it here redirects before render, instead of letting the page
+// mount and bounce from the client (which flashes the UI to a stranger).
+// Matched per path segment, so '/app' guards /app and /app/… but not a future
+// /apply or /appearance.
+const PROTECTED_PREFIXES = ['/app', '/settings', '/customize', '/applications']
+
+function isProtectedPath(pathname: string): boolean {
+  return PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    supabaseUrl(),
+    supabasePublishableKey(),
     {
       cookies: {
         getAll() {
@@ -32,12 +44,7 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Signed-in-only pages. /settings is included because it hosts the API-key
-  // form: guarding it here redirects before render, instead of letting the page
-  // mount and bounce from the client (which flashes the UI to a stranger).
-  const PROTECTED_PREFIXES = ['/app', '/settings', '/customize', '/applications']
-
-  if (PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix)) && !user) {
+  if (isProtectedPath(pathname) && !user) {
     const url = request.nextUrl.clone()
     // Preserve where the user was headed so login can send them back there
     // instead of always dropping them on /app.

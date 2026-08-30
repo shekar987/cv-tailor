@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { callClaude } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { PROFILE_EXTRACTION_PROMPT } from "@/prompts/steps";
+import { MAX_CV_CHARS, CV_TOO_LONG } from "@/lib/limits";
+import { normalizeProfile } from "@/lib/profile";
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,12 +24,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { cvText } = await req.json();
-    if (!cvText || !cvText.trim()) {
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
+
+    const cvText = typeof body.cvText === "string" ? body.cvText.trim() : "";
+    if (!cvText) {
       return NextResponse.json({ error: "No CV text provided" }, { status: 400 });
     }
-    if (cvText.length > 20_000) {
-      return NextResponse.json({ error: "CV is too long (max ~5 pages / 20,000 characters)." }, { status: 400 });
+    if (cvText.length > MAX_CV_CHARS) {
+      return NextResponse.json({ error: CV_TOO_LONG }, { status: 400 });
     }
     // Unlike the tailoring prompts (which each carry an explicit length
     // budget), this prompt demands full verbatim capture of every section —
@@ -40,12 +49,15 @@ export async function POST(req: NextRequest) {
     // per-call cost cap (see checkBurstLimit above), so this raises the
     // theoretical max cost per call — in practice Claude only spends the
     // tokens it needs, so a typical CV's actual cost shouldn't change.
-    const profile = await callClaude({
+    const raw = await callClaude({
       system: PROFILE_EXTRACTION_PROMPT,
       userInput: cvText,
       expectJson: true,
       maxTokens: 8000,
     });
+    // Valid JSON is not the same as the right shape: coerce every field to
+    // what the preview and download routes assume before it is stored.
+    const profile = normalizeProfile(raw);
     return NextResponse.json({ profile });
   } catch (error) {
     console.error("Profile extraction error:", error instanceof Error ? error.message : "Unknown error");

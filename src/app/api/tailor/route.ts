@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { callLLM, Provider, ProviderRateLimitError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { decrypt } from "@/lib/keyEncryption";
+import { MAX_CV_CHARS, MAX_JD_CHARS, CV_TOO_LONG, JD_TOO_LONG } from "@/lib/limits";
 import {
   summaryPrompt,
   skillsPrompt,
@@ -17,6 +18,8 @@ import {
 const DAILY_TAILOR_LIMIT  = 3;
 const WINDOW_MS            = 24 * 60 * 60 * 1000;
 const CLAUDE_LIFETIME_LIMIT = 3;
+
+const UNAVAILABLE = { error: "Service temporarily unavailable. Please try again in a moment." };
 
 // Minimal shape check for a client-supplied analysis object (from the
 // pre-tailoring ATS gate — see runPipeline's precomputedAnalysis param). Not a
@@ -54,10 +57,10 @@ function formatDuration(ms: number): string {
   return `${hours} hour${hours === 1 ? "" : "s"} ${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
-// Re-throws ProviderRateLimitError so fallback logic above can catch it;
-// swallows everything else and returns the given empty value.
-// This keeps the existing "one bad step doesn't kill the whole response"
-// behaviour while letting provider quota errors propagate for retry/fallback.
+// Re-throws ProviderRateLimitError so the route can answer with a specific
+// 429; swallows everything else and returns the given empty value. This keeps
+// the "one bad step doesn't kill the whole response" behaviour while letting a
+// provider quota error surface as itself rather than as a blank section.
 function swallowStep<T>(fallback: T) {
   return (err: unknown): T => {
     if (err instanceof ProviderRateLimitError) throw err;
@@ -65,9 +68,10 @@ function swallowStep<T>(fallback: T) {
   };
 }
 
-// Runs the complete 9-call tailoring pipeline (JD analysis + wave 1 + wave 2)
-// for one provider + optional key override. Throws ProviderRateLimitError if
-// any step hits a quota, so the caller can catch and retry on another provider.
+// Runs the complete tailoring pipeline — JD analysis, then wave 1 (five calls
+// in parallel), then wave 2 (two calls) — for one provider + optional key
+// override. Eight model calls, or seven when the pre-check gate's analysis is
+// reused. Throws ProviderRateLimitError if any step hits the provider's quota.
 async function runPipeline(opts: {
   provider: Provider;
   apiKeyOverride: string | undefined;
@@ -86,9 +90,11 @@ async function runPipeline(opts: {
   // well-formed; otherwise run fresh (this is also the fallback for a caller
   // that never ran the gate, or a JD edited after the gate ran).
   const reusedAnalysis = looksLikeJdAnalysis(precomputedAnalysis);
-  // Decision only, never content — confirms in server logs whether the
-  // pre-tailoring gate's Step 1 call is actually being reused, not re-paid-for.
-  console.log(reusedAnalysis ? "[tailor] Step 0: reused analysis from pre-check gate" : "[tailor] Step 0: ran JD analyzer fresh");
+  if (process.env.NODE_ENV !== "production") {
+    // Decision only, never content — confirms locally whether the gate's
+    // Step 1 call is actually being reused, not re-paid-for.
+    console.log(reusedAnalysis ? "[tailor] Step 0: reused analysis from pre-check gate" : "[tailor] Step 0: ran JD analyzer fresh");
+  }
   const analysis = reusedAnalysis
     ? precomputedAnalysis
     : await callLLM({
@@ -101,7 +107,7 @@ async function runPipeline(opts: {
   const analysisStr = JSON.stringify(analysis);
 
   // Wave 1 — parallel; individual step failures produce empty values,
-  // but ProviderRateLimitError propagates so the caller can retry.
+  // but ProviderRateLimitError propagates.
   const [research, summary, skills, experience, projects] = await Promise.all([
     callLLM({ provider, apiKeyOverride, system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
       .catch(swallowStep({})),
@@ -155,29 +161,36 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Input validation ──────────────────────────────────────────────────────
-    const MAX_CV_CHARS = 20_000;
-    const MAX_JD_CHARS = 15_000;
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
 
-    const { jobDescription, cvText, projectNames, provider: bodyProvider, analysis: bodyAnalysis } = await req.json();
-
-    if (!jobDescription) {
+    const jd = typeof body.jobDescription === "string" ? body.jobDescription.trim() : "";
+    const cv = typeof body.cvText === "string" ? body.cvText.trim() : "";
+    if (!jd) {
       return NextResponse.json({ error: "No job description provided" }, { status: 400 });
     }
-    if (!cvText || !cvText.trim()) {
+    if (!cv) {
       return NextResponse.json({ error: "No CV text provided" }, { status: 400 });
     }
-    if (cvText.length > MAX_CV_CHARS) {
-      return NextResponse.json({ error: "CV is too long (max ~5 pages / 20,000 characters)." }, { status: 400 });
+    if (cv.length > MAX_CV_CHARS) {
+      return NextResponse.json({ error: CV_TOO_LONG }, { status: 400 });
     }
-    if (jobDescription.length > MAX_JD_CHARS) {
-      return NextResponse.json({ error: "Job description is too long (max ~15,000 characters)." }, { status: 400 });
+    if (jd.length > MAX_JD_CHARS) {
+      return NextResponse.json({ error: JD_TOO_LONG }, { status: 400 });
     }
-
-    const jd              = jobDescription as string;
-    const cv              = (cvText as string).trim();
-    const safeProjectNames: string[] = Array.isArray(projectNames) ? projectNames : [];
+    const safeProjectNames = Array.isArray(body.projectNames)
+      ? body.projectNames.filter((n): n is string => typeof n === "string" && n.trim() !== "").slice(0, 50)
+      : [];
+    const bodyProvider = body.provider;
+    const bodyAnalysis = body.analysis;
 
     // ── Daily rate limit (all users, all providers) ───────────────────────────
+    // The quota is the wallet's last line of defence, so it fails CLOSED: if
+    // the counter can't be read, no paid pipeline runs.
     const { data: rpcResult, error: rpcError } = await supabase.rpc(
       "check_and_increment_tailor_count",
       {
@@ -186,9 +199,11 @@ export async function POST(req: NextRequest) {
         window_seconds: Math.floor(WINDOW_MS / 1000),
       }
     );
-    if (rpcError) {
-      console.error("Rate limit RPC error:", rpcError.message);
-    } else if (rpcResult && !rpcResult.allowed) {
+    if (rpcError || !rpcResult) {
+      console.error("Rate limit RPC error:", rpcError?.message ?? "no result");
+      return NextResponse.json(UNAVAILABLE, { status: 503 });
+    }
+    if (!rpcResult.allowed) {
       if (rpcResult.reason === "limit_reached") {
         const resetAt   = rpcResult.reset_at as string;
         const remaining = formatDuration(new Date(resetAt).getTime() - Date.now());
@@ -201,34 +216,35 @@ export async function POST(req: NextRequest) {
           { status: 429 }
         );
       }
-      console.error("Rate limit: profile not found for user");
+      // profile_not_found / forbidden: the account row the quota lives on is
+      // missing or invisible. Running unmetered would be the wrong default.
+      console.error("Rate limit RPC refused:", rpcResult.reason ?? "unknown reason");
+      return NextResponse.json(
+        { error: "Your account isn't fully set up yet. Sign out and back in, and if this persists, contact support." },
+        { status: 503 }
+      );
     }
 
     // ── Routing brain ─────────────────────────────────────────────────────────
     // Call check_and_increment_claude_lifetime once. Its return tells us everything:
-    //   reason = 'unlimited'           → my account; honor the dropdown; use env keys
+    //   reason = 'unlimited'           → owner account; honour the dropdown; use env keys
     //   reason = 'ok'                  → user has free Claude credits; just incremented
     //   reason = 'claude_limit_reached'→ capped; route to their own saved keys
-    //   reason = 'profile_not_found'   → treat as unlimited (fail open)
-    // DB error                         → treat as unlimited (fail open, same policy)
+    //   anything else / DB error       → fail closed (503)
     const { data: lifetimeResult, error: lifetimeError } = await supabase.rpc(
       "check_and_increment_claude_lifetime",
       { uid: userId, lifetime_limit: CLAUDE_LIFETIME_LIMIT }
     );
 
-    if (lifetimeError) {
-      console.error("Claude lifetime RPC error:", lifetimeError.message);
-      return NextResponse.json(
-        { error: "Service temporarily unavailable. Please try again in a moment." },
-        { status: 503 }
-      );
+    if (lifetimeError || !lifetimeResult) {
+      console.error("Claude lifetime RPC error:", lifetimeError?.message ?? "no result");
+      return NextResponse.json(UNAVAILABLE, { status: 503 });
     }
 
-    const lifetimeReason = lifetimeResult?.reason as string | undefined;
-    const isUnlimited    = !lifetimeResult || lifetimeReason === "unlimited" || lifetimeReason === "profile_not_found";
+    const lifetimeReason = lifetimeResult.reason as string | undefined;
 
-    // ── Path A: unlimited account — existing dropdown behaviour ───────────────
-    if (isUnlimited) {
+    // ── Path A: unlimited account — the only path that honours a client-chosen provider ──
+    if (lifetimeReason === "unlimited") {
       const provider = resolveProvider(bodyProvider);
       const result   = await runPipeline({ provider, apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
       return NextResponse.json({ provider, ...result });
@@ -340,11 +356,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Should not reach here — all reasons are handled above. Log which reason
-    // fell through: 'forbidden' means the rate-limit RPCs did not see the
-    // caller's JWT (auth.uid() was null), which would break every tailor call.
+    // 'profile_not_found', 'forbidden' (auth.uid() was null inside the RPC) or
+    // anything unexpected: fail closed rather than run on the owner's key.
     console.error("Unexpected routing state; lifetime reason:", lifetimeReason ?? "undefined");
-    return NextResponse.json({ error: "Unexpected routing state" }, { status: 500 });
+    return NextResponse.json(UNAVAILABLE, { status: 503 });
 
   } catch (error) {
     if (error instanceof ProviderRateLimitError) {

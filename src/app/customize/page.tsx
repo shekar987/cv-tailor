@@ -15,6 +15,7 @@ import {
   type Profile,
 } from "@/lib/cvStore";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
+import { MAX_CV_CHARS } from "@/lib/limits";
 import CvUpload from "../CvUpload";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -68,6 +69,9 @@ export default function CustomizePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [extracting, setExtracting] = useState(false);
+  // Extraction can fail while the CV itself saved fine; the user needs to
+  // know, because a missing profile means a CV headed "YOUR NAME".
+  const [profileError, setProfileError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -137,35 +141,59 @@ export default function CustomizePage() {
   }
 
   async function handleSaveCv() {
-    if (!cvDraft.trim()) {
+    if (extracting) return; // a second click mid-save would spend a second extraction call
+    const draft = cvDraft.trim();
+    if (!draft) {
       setCvError("Paste your CV before saving.");
       return;
     }
-    const rec = await saveMasterCV(cvDraft);
-    setMasterCvText(rec.text);
-    setCvSavedAt(rec.updatedAt);
+    if (draft.length > MAX_CV_CHARS) {
+      setCvError(
+        `Your CV is ${draft.length.toLocaleString()} characters — the limit is ${MAX_CV_CHARS.toLocaleString()}. Trim it, or keep just the sections that matter.`
+      );
+      return;
+    }
     setCvError("");
-    setUploadNotice(null);
-    invalidateWorkspaceResult();
-
-    // Extract the profile (name/contact/education) from the new CV
     setExtracting(true);
     try {
-      const res = await fetch("/api/extract-profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cvText: rec.text }),
-      });
-      const data = await res.json();
-      if (res.ok && data.profile) {
-        setProfile(data.profile);
-        await saveProfile(data.profile);
+      const rec = await saveMasterCV(draft);
+      if (!rec) {
+        setCvError("Couldn't save your CV. Check your connection and try again.");
+        return;
       }
-    } catch {
-      // extraction failed — user can still proceed; we'll fall back
+      setMasterCvText(rec.text);
+      setCvSavedAt(rec.updatedAt);
+      setUploadNotice(null);
+      invalidateWorkspaceResult();
+
+      // Extract the profile (name/contact/education) from the new CV. The CV
+      // is already saved at this point; a failure here is reported, not hidden.
+      let extractError = "";
+      try {
+        const res = await fetch("/api/extract-profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cvText: rec.text }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.profile) {
+          setProfile(data.profile);
+          const persisted = await saveProfile(data.profile);
+          if (!persisted) {
+            extractError = "Your CV is saved, but your details couldn't be stored. Reload and try Edit → Save again.";
+          }
+        } else {
+          extractError = data.error
+            ? `Your CV is saved, but reading your details out of it failed: ${data.error}`
+            : "Your CV is saved, but your details couldn't be read out of it. Try Edit → Save again.";
+        }
+      } catch {
+        extractError = "Your CV is saved, but the server couldn't be reached to read your details. Try Edit → Save again.";
+      }
+      setProfileError(extractError);
+      setEditingCv(false);
     } finally {
       setExtracting(false);
-      setEditingCv(false);
     }
   }
 
@@ -283,13 +311,19 @@ export default function CustomizePage() {
                 }}
                 placeholder="Paste your full CV here…"
                 rows={10}
+                disabled={extracting}
               />
+              <p className={"charCount" + (cvDraft.length > MAX_CV_CHARS ? " over" : "")} aria-live="polite">
+                {cvDraft.length.toLocaleString()} / {MAX_CV_CHARS.toLocaleString()}
+              </p>
               <div className="actions">
-                <Button onClick={handleSaveCv}>Save master CV</Button>
+                <Button onClick={handleSaveCv} disabled={extracting}>
+                  {extracting ? "Saving…" : "Save master CV"}
+                </Button>
                 {masterCvText && (
-                  <Button variant="secondary" onClick={() => setEditingCv(false)}>Cancel</Button>
+                  <Button variant="secondary" onClick={() => setEditingCv(false)} disabled={extracting}>Cancel</Button>
                 )}
-                {cvError && <StatusText as="span">{cvError}</StatusText>}
+                {cvError && <StatusText as="span" role="alert">{cvError}</StatusText>}
               </div>
             </FormField>
           ) : (
@@ -312,6 +346,7 @@ export default function CustomizePage() {
           <div className="label">
             Your details {extracting && <span className="cvSavedMeta">— extracting…</span>}
           </div>
+          {profileError && <p role="alert" className="keyError">{profileError}</p>}
           {profileLoading ? (
             <p className="cvHelp" style={{ color: "var(--muted)" }}>Loading your details…</p>
           ) : profile ? (
