@@ -74,22 +74,23 @@ Post-apply state (2026-08-31, verified live): `20260830120000` and
 locked out of the four original RPCs, `set_updated_at` pinned, FK indexed,
 every performance WARN cleared.
 
-The post-apply advisor + smoke runs produced two follow-ups, both checked in
-and **awaiting paste**:
+The post-apply advisor + smoke runs produced two follow-ups, both applied
+2026-08-31 (verified — `grants-smoke.mjs` 15/15):
 
-- `20260831160000_restore_key_enc_select.sql` — **URGENT: saving/replacing a
-  key is broken in every environment (production included) until this
-  runs.** The key_enc column revoke breaks PostgREST's upsert, which reads
-  `excluded.key_enc` and therefore needs SELECT on it (42501). The
-  column-block experiment is withdrawn; the anon revoke stays.
+- `20260831160000_restore_key_enc_select.sql` — the key_enc column revoke
+  from the hardening migration had broken PostgREST's key-save upsert
+  everywhere (it reads `excluded.key_enc`, which needs SELECT → 42501).
+  The column-block experiment is withdrawn; the anon revoke stays.
 - `20260831150000_refunds_anon_revoke.sql` — the refund functions were still
   anon-executable: Supabase default privileges grant EXECUTE to `anon`
   explicitly, so quota_refunds' `revoke … from public` alone wasn't enough
   (harmless in effect — their `auth.uid()` guard no-ops — but needless
   surface; see the CLAUDE.md gotcha).
 
-After pasting both, `grants-smoke.mjs` (session scratchpad `smoke/`) asserts
-the intended end state in one run.
+End state verified live: key save/list/delete work, key_enc reads are
+RLS-scoped to the caller's own row, `authenticated` can call the counter and
+refund RPCs, `anon` is refused on all of them, and tracker CRUD passes under
+the rewritten policies.
 
 ## Verifying against the live project
 
