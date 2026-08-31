@@ -29,12 +29,13 @@ revoke all on function public.handle_new_user() from public, anon, authenticated
 
 alter function public.set_updated_at() set search_path = public;
 
--- ── 3. key_enc really is column-blocked now ─────────────────────────────────
--- The docs claimed authenticated couldn't SELECT key_enc; the live grants
--- showed plain table-level SELECT (RLS still limited it to the user's own
--- ciphertext). Make the documented posture true: no app code selects * from
--- this table — the settings page selects explicit columns, and the
--- upsert/delete predicates only touch user_id/provider, both re-granted.
+-- ── 3. key_enc column block — WITHDRAWN by 20260831160000 ───────────────────
+-- The intent: make the documented "key_enc is column-blocked" posture true.
+-- In practice the revoke below BREAKS the app's key-save upsert: PostgREST's
+-- merge-duplicates emits `DO UPDATE SET key_enc = excluded.key_enc`, and
+-- reading excluded.* requires SELECT on the column (42501). The statements
+-- stay because this file was already applied to live; 20260831160000 runs
+-- after it and restores the key_enc grant (the anon revoke stays).
 
 revoke select on public.user_api_keys from authenticated;
 grant select (user_id, provider, key_hint, updated_at) on public.user_api_keys to authenticated;

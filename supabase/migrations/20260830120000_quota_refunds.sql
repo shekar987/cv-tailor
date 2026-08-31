@@ -41,7 +41,11 @@ begin
 end;
 $func$;
 
-revoke all on function public.refund_tailor_count(uuid) from public;
-revoke all on function public.refund_claude_lifetime(uuid) from public;
+-- `from public` alone is NOT enough on Supabase: default privileges also
+-- grant EXECUTE to anon explicitly on function creation. The live project was
+-- first migrated without `anon` here; 20260831150000 carries that fix for it,
+-- and this file includes it so a fresh install is right the first time.
+revoke all on function public.refund_tailor_count(uuid) from public, anon;
+revoke all on function public.refund_claude_lifetime(uuid) from public, anon;
 grant execute on function public.refund_tailor_count(uuid) to authenticated;
 grant execute on function public.refund_claude_lifetime(uuid) to authenticated;

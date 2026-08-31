@@ -518,6 +518,26 @@ In Next.js 16 the proxy file (`src/proxy.ts`, formerly middleware.ts) runs on th
 
 `POST /rest/v1/rpc/<fn>` with the wrong parameter set (or an empty body for a function that has parameters) returns `PGRST202 "Could not find the function"` — which looks exactly like the function not existing. When probing whether an RPC exists, send the real argument names (a zero UUID is safe for the counters: they answer `profile_not_found`/`forbidden` without touching anyone's quota).
 
+### Supabase function grants: revoking from PUBLIC alone is not enough
+
+On Supabase, a newly created function gets EXECUTE granted to `anon`,
+`authenticated` and `service_role` **explicitly** via default privileges — not
+only through the `PUBLIC` pseudo-role. `revoke ... from public` therefore
+still leaves `anon` able to call the RPC over `/rest/v1/rpc/*`. Revoke
+`from public, anon` by name (compare `20260830120000_quota_refunds.sql`,
+which shipped without `anon` and needed `20260831150000` to close it —
+`get_advisors` is what caught it).
+
+Corollary in the other direction: a column-level SELECT revoke can break
+WRITES. PostgREST's upsert (`resolution=merge-duplicates`) emits
+`ON CONFLICT … DO UPDATE SET col = excluded.col` for every supplied column,
+and Postgres requires SELECT privilege on any column read through
+`excluded.*` — so revoking SELECT on a column the app upserts fails the whole
+save with 42501, even though the app never reads that column back. Revoking
+SELECT(key_enc) on `user_api_keys` broke `/api/keys` exactly this way
+(`20260831140000`, withdrawn by `20260831160000`). Test grant changes with a
+real authenticated request through PostgREST, not by reasoning about reads.
+
 ### Migrations are manual, so the code tolerates a missing column
 
 `applications.tailored_cv` was added in a second migration. Until it's applied, PostgREST reports the column as `PGRST204` on writes and Postgres as `42703` on reads. `/api/applications` handles both: it inserts without the snapshot (returning a `warning` the UI shows) and reads the row without it. Follow that pattern for any future additive column — the alternative is a tracker that stops working entirely because one statement wasn't pasted into the SQL editor.

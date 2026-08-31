@@ -14,7 +14,7 @@ this file.
 | `profiles` | `id`, `tailor_count`, `tailor_count_reset_at`, `claude_tailors_used`, `is_unlimited`, `anthropic_api_key`, `section_order` | PK `id` → `auth.users`; RLS `id = auth.uid()`; table-level UPDATE revoked from `authenticated`, re-granted on `anthropic_api_key` and `section_order` | `api/section-order`, `app/page.tsx` (reads `is_unlimited`), the two counter RPCs |
 | `master_cvs` | `user_id`, `text`, `updated_at` | **unique `user_id`** (the `onConflict: 'user_id'` upsert needs it); RLS `auth.uid() = user_id` | `lib/cvStore.ts` |
 | `cv_profiles` | `user_id`, `data` (jsonb), `updated_at` | **unique `user_id`**; RLS | `lib/cvStore.ts` |
-| `user_api_keys` | `user_id`, `provider`, `key_enc`, `key_hint`, `updated_at` | **PK/unique `(user_id, provider)`** (`onConflict: "user_id,provider"`); `provider` CHECK in (`gemini`,`openrouter`); `key_enc` is never selected by the app — the column-level revoke ships in `20260831140000_advisor_hardening.sql` (the 2026-08-31 grants dump showed plain table-level SELECT before it; RLS still limited reads to the user's own ciphertext) | `api/keys`, `settings/page.tsx`, `api/tailor` |
+| `user_api_keys` | `user_id`, `provider`, `key_enc`, `key_hint`, `updated_at` | **PK/unique `(user_id, provider)`** (`onConflict: "user_id,provider"`); `provider` CHECK in (`gemini`,`openrouter`); `key_enc` is never *selected* by the app, but a column-level SELECT revoke was tried (`20260831140000`) and withdrawn (`20260831160000`) — it broke the key-save upsert, which reads `excluded.key_enc`. RLS scoping to the caller's own row is the real guard | `api/keys`, `settings/page.tsx`, `api/tailor` |
 | `applications` | see `migrations/20260826120000_create_applications.sql` + `20260829120000_applications_tailored_cv.sql` | partial unique `(user_id, tailor_session_id) WHERE tailor_session_id IS NOT NULL`; CHECKs on `status`/`source`; `set_updated_at` trigger; RLS on all four verbs | `api/applications`, `api/applications/export` |
 | `user_feedback` | `user_id`, `email`, `message` | RLS insert-only for `authenticated` | `api/feedback` |
 | `user_projects`, `user_skills` | — | — | **Nothing.** The routes that used them were removed (no callers). Droppable. |
@@ -51,7 +51,7 @@ baseline's function bodies and tables.
 
 `get_advisors` (security + performance) against the live project, after the
 Stage 2 schema landed. Everything fixable in SQL is in
-`migrations/20260831140000_advisor_hardening.sql` (**not yet applied**):
+`migrations/20260831140000_advisor_hardening.sql` (applied 2026-08-31):
 
 - The four SECURITY DEFINER functions were executable by `anon` via
   `/rest/v1/rpc/*` (harmless in effect — all carry internal `auth.uid()`
@@ -68,9 +68,28 @@ Stage 2 schema landed. Everything fixable in SQL is in
 Needs the dashboard, not SQL: **leaked-password protection is disabled** —
 Authentication → Providers → Email → "Prevent use of leaked passwords".
 
-Also verified 2026-08-31: `refund_tailor_count` / `refund_claude_lifetime`
-are still **absent** from the live DB (`migrations/20260830120000_quota_refunds.sql`
-unapplied) — failed runs still cost a slot until it's pasted in.
+Post-apply state (2026-08-31, verified live): `20260830120000` and
+`20260831140000` are both applied — refund functions present and callable by
+`authenticated`, all policies on the `(select auth.uid())` form, `anon`
+locked out of the four original RPCs, `set_updated_at` pinned, FK indexed,
+every performance WARN cleared.
+
+The post-apply advisor + smoke runs produced two follow-ups, both checked in
+and **awaiting paste**:
+
+- `20260831160000_restore_key_enc_select.sql` — **URGENT: saving/replacing a
+  key is broken in every environment (production included) until this
+  runs.** The key_enc column revoke breaks PostgREST's upsert, which reads
+  `excluded.key_enc` and therefore needs SELECT on it (42501). The
+  column-block experiment is withdrawn; the anon revoke stays.
+- `20260831150000_refunds_anon_revoke.sql` — the refund functions were still
+  anon-executable: Supabase default privileges grant EXECUTE to `anon`
+  explicitly, so quota_refunds' `revoke … from public` alone wasn't enough
+  (harmless in effect — their `auth.uid()` guard no-ops — but needless
+  surface; see the CLAUDE.md gotcha).
+
+After pasting both, `grants-smoke.mjs` (session scratchpad `smoke/`) asserts
+the intended end state in one run.
 
 ## Verifying against the live project
 
