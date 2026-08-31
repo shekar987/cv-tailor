@@ -124,7 +124,8 @@ export default function SettingsPage() {
       // Fire-and-forget: null just hides the usage numbers.
       getUsage().then(setUsage);
 
-      // SELECT only the non-revoked columns — key_enc is blocked at the column level
+      // SELECT only the non-secret columns; the advisor-hardening migration
+      // additionally revokes key_enc at the column level, so never select *.
       const { data, error } = await supabase
         .from("user_api_keys")
         .select("provider, key_hint, updated_at");
