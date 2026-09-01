@@ -56,7 +56,7 @@ CRITICAL ANTI-EMBELLISHMENT RULES FOR THE SUMMARY:
 - Do not stack trendy technologies to match the JD. Match by emphasizing true strengths that overlap.
 
 NATURAL WRITING RULES: Write the 3 lines in varied structure — do not make all three the same shape. Avoid filler ("at scale", "production-grade", "end-to-end", "hands-on", "leveraging"). But KEEP the exact JD-relevant keywords and real metrics — weave them into natural sentences. Human-readable AND keyword-rich.
-You will receive the JD analysis as JSON. Write exactly 3 lines. Each line must contain one concrete piece of evidence (metric, brand, project, or scale) from the master CV. Match the seniority_level and role_type from the analysis. No "junior" framing unless the analysis says junior.
+You will receive the JD analysis as JSON. Write exactly 3 lines — three SEPARATE lines of text with a real newline between them, never one merged paragraph. Each line must contain one concrete piece of evidence (metric, brand, project, or scale) from the master CV. Match the seniority_level and role_type from the analysis. No "junior" framing unless the analysis says junior.
 
 Output ONLY the 3-line summary as plain text. No headings, no preamble, no integrity check.`;
 
@@ -109,7 +109,7 @@ NATURAL WRITING RULES (write like a human, not an AI):
 
 ${budget}
 
-You will receive the JD analysis as JSON. Keep the same employer, title, and dates exactly as in the master CV. Reorder bullets so the most JD-relevant come first. If a role has a highlight/headline line under its header in the master CV (e.g. "Highlight: …"), do NOT drop it — output it as that role's FIRST bullet, tailored like any other. Bold quantified wins with **. Do not invent bullets — use only what's in the master CV.
+You will receive the JD analysis as JSON. Keep the same employer, title, and dates exactly as in the master CV. Reorder bullets so the most JD-relevant come first. If a role has a highlight/headline line under its header in the master CV (e.g. "Highlight: …"), do NOT drop it — output it directly under that role's header as a plain line with no bullet marker, before the bullets. Bold quantified wins with **. Do not invent bullets — use only what's in the master CV.
 
 OUTPUT FORMAT — follow exactly, no exceptions:
 For each position output its header line first, then the bullets beneath it:

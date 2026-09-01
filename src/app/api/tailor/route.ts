@@ -102,7 +102,10 @@ function reconcileAtsScore(
 
   const modelHits = Array.isArray(score.hits) ? score.hits.filter((h): h is string => typeof h === "string") : [];
   const modelMisses = Array.isArray(score.misses) ? score.misses.filter((m): m is string => typeof m === "string") : [];
-  const entryFor = (list: string[], kw: string) => list.find((e) => e.toLowerCase().includes(kw.toLowerCase()));
+  // Prefix match, not containment: a hit's annotation ("Java — skills and
+  // experience (Spring Boot API)") CONTAINS other keywords, and containment
+  // matching filed the same entry under several of them (duplicate hits).
+  const entryFor = (list: string[], kw: string) => list.find((e) => e.trim().toLowerCase().startsWith(kw.toLowerCase()));
 
   const hits: string[] = [];
   const misses: string[] = [];
@@ -127,12 +130,33 @@ function reconcileAtsScore(
         })()
       : score.required_skill_coverage;
 
+  // The model's prose sometimes quotes different figures than its own lists
+  // ("13 of 15" beside a 15-entry hits array, seen in testing). Sync any
+  // X/N or "X of N" figure it quotes with the reconciled counts.
+  const kwTotal = keywords.length;
+  const reqParts = typeof requiredCoverage === "string" ? requiredCoverage.split("/") : [];
+  const syncProse = (v: unknown): unknown => {
+    if (typeof v !== "string") return v;
+    let s = v.replace(
+      new RegExp(String.raw`\b\d{1,2}(\s*(?:/|of)\s*)${kwTotal}\b`, "g"),
+      (_m, sep: string) => `${hits.length}${sep}${kwTotal}`
+    );
+    if (reqParts.length === 2) {
+      s = s.replace(
+        new RegExp(String.raw`\b\d{1,2}(\s*(?:/|of)\s*)${reqParts[1]}\b`, "g"),
+        (_m, sep: string) => `${reqParts[0]}${sep}${reqParts[1]}`
+      );
+    }
+    return s;
+  };
+
   return {
     ...score,
     hits,
     misses,
     keyword_coverage: `${hits.length}/${keywords.length}`,
     required_skill_coverage: requiredCoverage,
+    overall_assessment: syncProse(score.overall_assessment),
   };
 }
 

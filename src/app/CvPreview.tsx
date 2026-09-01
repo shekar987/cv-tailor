@@ -220,11 +220,13 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
           // Orphaned non-bullet line before first header — skip
           i++;
         } else {
-          // Plain body line without bullet prefix
+          // Plain body line without bullet prefix (e.g. a role's "Highlight:"
+          // line) — a plain justified paragraph, matching how both document
+          // builders render non-bullet lines (they don't add a bullet glyph).
+          // Reads back through readExperience()'s else-branch as a plain
+          // line, so it round-trips unchanged.
           nodes.push(
-            <ul key={`${prefix}-${nodeKey++}`} style={{ fontWeight: 400 }}>
-              <li className="cvBullet" style={{ fontWeight: 400 }}>{renderInline(l)}</li>
-            </ul>
+            <p className="cvText" key={`${prefix}-${nodeKey++}`} style={{ fontWeight: 400 }}>{renderInline(l)}</p>
           );
           i++;
         }
