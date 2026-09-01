@@ -16,6 +16,7 @@ import {
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { MAX_CV_CHARS } from "@/lib/limits";
 import { splitTrailingDate } from "@/lib/projectDate";
+import { stripMarkdown } from "@/lib/markdownText";
 import CvUpload from "../CvUpload";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -161,7 +162,13 @@ export default function CustomizePage() {
 
   async function handleSaveCv() {
     if (extracting) return; // a second click mid-save would spend a second extraction call
-    const draft = cvDraft.trim();
+    // A CV pasted from a markdown file carries **bold** and [label](url)
+    // syntax that would otherwise leak literally into every output — the CV
+    // text is quoted verbatim by the prompts and captured verbatim by
+    // extraction. Clean it here and reflect the cleaned text in the box, so
+    // what's stored is exactly what the user sees.
+    const draft = stripMarkdown(cvDraft).trim();
+    if (draft !== cvDraft) setCvDraft(draft);
     if (!draft) {
       setCvError("Paste your CV before saving.");
       return;
@@ -340,7 +347,9 @@ export default function CustomizePage() {
                 onExtracted={(text, meta) => {
                   // Populate the SAME textarea the paste flow uses. Nothing is
                   // saved yet — the user reviews and edits, then hits Save.
-                  setCvDraft(text);
+                  // Markdown cleanup applies to uploads too (.md files arrive
+                  // through the plain-text path).
+                  setCvDraft(stripMarkdown(text));
                   setCvError("");
                   setUploadNotice(
                     `Text extracted from ${meta.filename} (${meta.characters.toLocaleString()} characters). ` +
