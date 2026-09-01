@@ -14,7 +14,7 @@ import {
   ATS_SCORING_PROMPT,
   JD_ANALYZER_PROMPT,
 } from "@/prompts/steps";
-import { experienceBudget, projectsBudget } from "@/lib/contentBudget";
+import { experienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
 import { matchAtsKeywords } from "@/lib/atsMatch";
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -221,9 +221,15 @@ async function runPipeline(opts: {
       : Promise.resolve({}),
   ]);
 
+  // The model mirrors a bullet-less master CV with plain achievement lines —
+  // repair the markers deterministically so every renderer draws real
+  // bullets. Done BEFORE ATS scoring, so the score sees exactly the text the
+  // user gets.
+  const experienceOut = typeof experience === "string" ? normalizeExperienceOutput(experience) : experience;
+
   // Wave 2 — cover letter + ATS score
   const coverLetterInput = JSON.stringify({ analysis, research });
-  const atsInput         = JSON.stringify({ analysis, summary, skills, experience, projects });
+  const atsInput         = JSON.stringify({ analysis, summary, skills, experience: experienceOut, projects });
 
   const [coverLetter, atsScore] = await Promise.all([
     callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv), userInput: coverLetterInput, maxTokens: 1200 })
@@ -237,10 +243,10 @@ async function runPipeline(opts: {
     research,
     summary,
     skills,
-    experience,
+    experience: experienceOut,
     projects,
     coverLetter,
-    atsScore: reconcileAtsScore(atsScore, analysis, { summary, skills, experience, projects }),
+    atsScore: reconcileAtsScore(atsScore, analysis, { summary, skills, experience: experienceOut, projects }),
   };
 }
 

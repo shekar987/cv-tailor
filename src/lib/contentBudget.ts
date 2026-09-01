@@ -123,6 +123,35 @@ ${perRole}
 ${SHARED_RULES}`;
 }
 
+// The model mirrors the master CV's formatting: a master whose bullet glyphs
+// were lost in PDF extraction (see parseExperienceShape above) comes back
+// with plain achievement lines, which every renderer then faithfully draws
+// WITHOUT bullet points — a real download shipped that way. Deterministic
+// repair at the pipeline boundary: under each role header, the first content
+// line may stay plain (the highlight slot); every later non-bullet line gets
+// a bullet marker. Already-bulleted output passes through unchanged.
+export function normalizeExperienceOutput(text: string): string {
+  if (!text) return text;
+  let contentSinceHeader = -1; // -1 until the first role header is seen
+  return text
+    .split("\n")
+    .map((raw) => {
+      const line = raw.trim();
+      if (!line) return raw;
+      const isBullet = /^[•\-*]\s/.test(line);
+      const isHeader = !isBullet && line.includes("|") && ROLE_HEADER.test(line);
+      if (isHeader) {
+        contentSinceHeader = 0;
+        return raw;
+      }
+      if (contentSinceHeader === -1) return raw; // before any header — leave alone
+      contentSinceHeader += 1;
+      if (isBullet || contentSinceHeader === 1) return raw;
+      return `• ${line}`;
+    })
+    .join("\n");
+}
+
 // Per-project bullet allowance scaled by how many projects there are.
 export function projectsBudget(projectCount: number): string {
   const per = projectCount <= 2 ? 4 : projectCount <= 4 ? 3 : 2;

@@ -120,7 +120,7 @@ For each position output its header line first, then the bullets beneath it:
 • bullet
 ...
 
-Begin directly with the first job header. Never write bullets, summaries, or any text before the first job title. Never repeat bullets outside their own job block.
+Begin directly with the first job header. Never write bullets, summaries, or any text before the first job title. Never repeat bullets outside their own job block. Every achievement line MUST begin with "• " — even when the master CV lists achievements without bullet markers. The ONLY line allowed without a bullet is the single highlight line directly under a header.
 
 CRITICAL SCOPE: Output entries from the EXPERIENCE section only. Do NOT include personal projects, side projects, or portfolio entries — they appear later in the master CV under a separate PROJECTS section and are rendered separately by the application. Stop output at the end of the last employment entry.
 
