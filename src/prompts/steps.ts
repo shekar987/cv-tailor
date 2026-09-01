@@ -88,7 +88,10 @@ If the role is non-technical (marketing, finance, operations, management, teachi
 
 Output ONLY the skills line(s) as plain text. No extra headings, no preamble, no integrity check.`;
 
-export const experiencePrompt = (cv: string) => `You rewrite the CV work experience section, tailored to a specific job.
+// `budget` lets /api/tailor pass an adaptive budget computed from the actual
+// master CV (lib/contentBudget.ts); the fixed LENGTH_BUDGET stays the default
+// so nothing else changes behaviour.
+export const experiencePrompt = (cv: string, budget: string = LENGTH_BUDGET) => `You rewrite the CV work experience section, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
 
@@ -104,9 +107,9 @@ NATURAL WRITING RULES (write like a human, not an AI):
 - ATS BALANCE: While varying your phrasing, you MUST still include the exact technical keywords and skills from the JD analysis that the candidate genuinely has (e.g. "REST API", "Spring Boot", "PostgreSQL", "CI/CD"). Natural phrasing does not mean dropping keywords — weave them into plain sentences. The scanner needs the exact terms; the recruiter needs readable prose. Deliver both.
 - Keep each bullet's core keyword density intact: name the real technology, the real metric, the real action verb. Just vary the SENTENCE STRUCTURE around them, not the keywords themselves.
 
-${LENGTH_BUDGET}
+${budget}
 
-You will receive the JD analysis as JSON. Keep the same employer, title, and dates exactly as in the master CV. Reorder bullets so the most JD-relevant come first. Bold quantified wins with **. Do not invent bullets — use only what's in the master CV.
+You will receive the JD analysis as JSON. Keep the same employer, title, and dates exactly as in the master CV. Reorder bullets so the most JD-relevant come first. If a role has a highlight/headline line under its header in the master CV (e.g. "Highlight: …"), do NOT drop it — output it as that role's FIRST bullet, tailored like any other. Bold quantified wins with **. Do not invent bullets — use only what's in the master CV.
 
 OUTPUT FORMAT — follow exactly, no exceptions:
 For each position output its header line first, then the bullets beneath it:
@@ -122,7 +125,14 @@ Begin directly with the first job header. Never write bullets, summaries, or any
 CRITICAL SCOPE: Output entries from the EXPERIENCE section only. Do NOT include personal projects, side projects, or portfolio entries — they appear later in the master CV under a separate PROJECTS section and are rendered separately by the application. Stop output at the end of the last employment entry.
 
 Output ONLY the work experience section as plain text. No preamble, no integrity check.`;
-export const projectsPrompt = (cv: string, projectNames: string[] = []) => {
+const DEFAULT_PROJECTS_BUDGET = `LENGTH BUDGET — the finished CV must fit on TWO A4 pages, and projects sit after
+experience, so they are what pushes it over. Write 2 bullets per project, not 3,
+whenever there are 3 or more projects. Keep each bullet to a single printed line
+where possible and never more than two. Trim by dropping a whole bullet, never by
+merging two achievements or combining their metrics into one sentence.`;
+
+// `budget` as in experiencePrompt: /api/tailor passes the adaptive version.
+export const projectsPrompt = (cv: string, projectNames: string[] = [], budget?: string) => {
   const projectList = projectNames.length > 0
     ? projectNames.map((n, i) => `${i}: ${n}`).join("\n")
     : "(none)";
@@ -147,11 +157,7 @@ ${projectList}
 
 You will receive the JD analysis as JSON. For EACH project by index, write 2-3 tailored bullets (What + How + Result) emphasizing what's most relevant to this JD. Quantify only where the master CV quantifies for that project.
 
-LENGTH BUDGET — the finished CV must fit on TWO A4 pages, and projects sit after
-experience, so they are what pushes it over. Write 2 bullets per project, not 3,
-whenever there are 3 or more projects. Keep each bullet to a single printed line
-where possible and never more than two. Trim by dropping a whole bullet, never by
-merging two achievements or combining their metrics into one sentence.
+${budget ?? DEFAULT_PROJECTS_BUDGET}
 
 Output ONLY valid JSON — an OBJECT mapping each project index (as a string) to its array of bullet strings. Example shape for 2 projects:
 {

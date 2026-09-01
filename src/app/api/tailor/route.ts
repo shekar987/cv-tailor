@@ -14,6 +14,7 @@ import {
   ATS_SCORING_PROMPT,
   JD_ANALYZER_PROMPT,
 } from "@/prompts/steps";
+import { experienceBudget, projectsBudget } from "@/lib/contentBudget";
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -104,6 +105,12 @@ async function runPipeline(opts: {
       });
   const analysisStr = JSON.stringify(analysis);
 
+  // Adaptive content budget: only ask the model to trim what two pages truly
+  // can't hold (lib/contentBudget.ts). When the CV can't be parsed, the
+  // prompts fall back to their fixed defaults — behaviour as before.
+  const expBudget = experienceBudget(cv) ?? undefined;
+  const projBudget = projectsBudget(projectNames.length);
+
   // Wave 1 — parallel; individual step failures produce empty values,
   // but ProviderRateLimitError propagates.
   const [research, summary, skills, experience, projects] = await Promise.all([
@@ -113,10 +120,10 @@ async function runPipeline(opts: {
       .catch(swallowStep("")),
     callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv), userInput: analysisStr })
       .catch(swallowStep("")),
-    callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget), userInput: analysisStr })
       .catch(swallowStep("")),
     projectNames.length > 0
-      ? callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames), userInput: analysisStr, expectJson: true })
+      ? callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget), userInput: analysisStr, expectJson: true })
           .catch(swallowStep({}))
       : Promise.resolve({}),
   ]);
