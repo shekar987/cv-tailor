@@ -25,7 +25,11 @@ export function addDays(d: Date, n: number): Date {
 const AMOUNT = String.raw`\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?`;
 const CURRENCY = String.raw`(?:[£$€₹]|(?:GBP|USD|EUR|INR|AUD|CAD)\s?)`;
 const RANGE = String.raw`\s?(?:-|–|—|to)\s?`;
-const PERIOD = String.raw`(?:per\s+(?:annum|year|month|hour|day)|p\.?\s?a\.?(?![a-z])|an?\s+(?:year|month|hour)|annually|monthly|hourly|\/\s?(?:year|yr|annum|month|mo|hour|hr)|LPA|lakhs?(?:\s+per\s+annum)?)`;
+// Deliberately NOT bare "daily"/"weekly" here: "2 daily standups" would
+// otherwise become a plausible "2 daily" salary. Bare adverbs only count in
+// the same-sentence period sniff (CTX_PERIOD), which requires an
+// already-validated money figure first.
+const PERIOD = String.raw`(?:per\s+(?:annum|year|month|week|day|hour)|p\.?\s?a\.?(?![a-z])|an?\s+(?:year|month|week|day|hour)|annually|monthly|hourly|\/\s?(?:year|yr|annum|month|mo|week|wk|day|hour|hr)|LPA|lakhs?(?:\s+per\s+annum)?)`;
 const NOT_MAGNITUDE = String.raw`(?!\s?(?:m|mm|million|bn|billion|%)\b)`;
 
 const SALARY_RE = new RegExp(
@@ -56,8 +60,10 @@ function isPlausible(m: RegExpExecArray): Candidate | null {
   const hasPeriod = PERIOD_RE.test(text);
   // A bare currency figure below 10,000 is far more often a bonus, fee or
   // credit than a salary; with a k suffix or a period marker it's explicit.
+  // Small bare figures are still kept as WEAK candidates — a contractor day
+  // rate ("Day rate £450") is a real salary — but a weak candidate is only
+  // ever returned when pay context AND a sniffed unit back it (see finish()).
   const strong = hasK || hasPeriod || value >= 10_000;
-  if (!strong && value < 1_000) return null;
   return { text: text.slice(0, 100), index: m.index, end: m.index + m[0].length, strong };
 }
 
@@ -74,6 +80,26 @@ function contextAfter(text: string, end: number): string {
   return cut >= 0 ? s.slice(0, cut) : s;
 }
 
+// The unit the JD prices the role in, sniffed from the figure's own sentence
+// when the matched text itself doesn't carry one ("Day rate: £450"). Ordered
+// most-specific first; nothing matched leaves the figure exactly as stated.
+const CTX_PERIOD: [RegExp, string][] = [
+  [/\bper\s+day\b|\b(?:day|daily)\s+rate\b|\bdaily\b/i, "per day"],
+  [/\bper\s+hour\b|\bhourly\b/i, "per hour"],
+  [/\bper\s+week\b|\bweekly\b/i, "per week"],
+  [/\bper\s+month\b|\bmonthly\b/i, "per month"],
+  [/\bper\s+(?:annum|year)\b|\bp\.?\s?a\.?(?![a-z])|\bannual(?:ly)?\b|\byearly\b/i, "per annum"],
+];
+
+function withPeriod(jd: string, c: Candidate): string {
+  if (PERIOD_RE.test(c.text)) return c.text; // the JD's own wording already says it
+  const ctx = `${contextBefore(jd, c.index)} ${contextAfter(jd, c.end)}`;
+  for (const [re, label] of CTX_PERIOD) {
+    if (re.test(ctx)) return `${c.text} ${label}`;
+  }
+  return c.text;
+}
+
 export function extractSalary(jd: string): string | null {
   if (!jd) return null;
   const candidates: Candidate[] = [];
@@ -88,6 +114,14 @@ export function extractSalary(jd: string): string | null {
     if (c) candidates.push(c);
   }
 
+  // A weak figure (small, bare) is only usable when its sentence supplies the
+  // unit — "Day rate £450" yes; a lone "£450" (probably a fee) no.
+  const finish = (c: Candidate): string | null => {
+    const text = withPeriod(jd, c);
+    if (!c.strong && !PERIOD_RE.test(text)) return null;
+    return text;
+  };
+
   // First pass: a figure its own sentence calls pay. A pay word before the
   // figure ("Compensation: $120k ... plus equity") settles it; otherwise a
   // bonus/equity/fee word on either side drops the figure entirely.
@@ -95,15 +129,37 @@ export function extractSalary(jd: string): string | null {
   for (const c of candidates) {
     const before = contextBefore(jd, c.index);
     const after = contextAfter(jd, c.end);
-    if (PAY_CONTEXT_RE.test(before)) return c.text;
+    if (PAY_CONTEXT_RE.test(before)) {
+      const t = finish(c);
+      if (t) return t;
+      continue;
+    }
     if (NOT_PAY_CONTEXT_RE.test(before) || NOT_PAY_CONTEXT_RE.test(after)) continue;
-    if (PAY_CONTEXT_RE.test(after)) return c.text;
+    if (PAY_CONTEXT_RE.test(after)) {
+      const t = finish(c);
+      if (t) return t;
+      continue;
+    }
     remaining.push(c);
   }
   // Otherwise the first figure that is unambiguous on its own (k suffix,
   // period marker, or five-plus digits).
   const strong = remaining.find((c) => c.strong);
-  return strong ? strong.text : null;
+  return strong ? withPeriod(jd, strong) : null;
+}
+
+// Postings that price the role in people's time rather than money.
+const VOLUNTEER_RE =
+  /\b(?:volunteer|voluntary|unpaid)\s+(?:role|position|basis|opportunity|work|internship)\b|\bthis\s+(?:role|position|internship)\s+is\s+(?:unpaid|voluntary)\b/i;
+
+// What the tracker's Salary cell gets for a tailored save: the JD's literal
+// figure with its unit, "Voluntary (unpaid)" for volunteer postings, and an
+// explicit "Not Specified" otherwise — never a silent blank.
+export function salaryFromJd(jd: string): string {
+  const found = extractSalary(jd || "");
+  if (found) return found;
+  if (jd && VOLUNTEER_RE.test(jd)) return "Voluntary (unpaid)";
+  return "Not Specified";
 }
 
 // ── Notes ───────────────────────────────────────────────────────────────────

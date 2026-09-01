@@ -7,7 +7,7 @@ import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 import type { AtsMatchResult } from "@/lib/atsMatch";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
-import { extractSalary, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
+import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { MAX_JD_CHARS, JD_TOO_LONG } from "@/lib/limits";
 import { getUsage, type Usage } from "@/lib/usage";
 import AppHeader from "@/components/ui/AppHeader";
@@ -394,8 +394,9 @@ export default function Home() {
           tailor_session_id: sid,
           status: "Applied",
           source: "tailored",
-          // Only a figure the posting literally states; null otherwise.
-          salary: extractSalary(jobDescription),
+          // The JD's literal figure with its unit ("£480 per day"),
+          // "Voluntary (unpaid)", or an explicit "Not Specified".
+          salary: salaryFromJd(jobDescription),
           date_applied: localIsoDate(today),
           followup_date: localIsoDate(addDays(today, 7)),
           notes: buildAppliedNotes(result.atsScore),

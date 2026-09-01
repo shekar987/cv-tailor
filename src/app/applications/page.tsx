@@ -318,12 +318,17 @@ export default function ApplicationsPage() {
       }
       return (a[sortKey] ?? "").localeCompare(b[sortKey] ?? "", undefined, { sensitivity: "base" });
     };
+    // "Empty" for the salary sort means no parsable figure — "Not Specified"
+    // and "Voluntary (unpaid)" sort with the blanks, not alphabetically
+    // in between £45k and £90k.
+    const isEmpty = (r: Application) =>
+      sortKey === "salary" ? salaryNumber(r.salary) === null : !(r[sortKey] ?? "");
     return [...filtered].sort((a, b) => {
-      const av = a[sortKey] ?? "";
-      const bv = b[sortKey] ?? "";
-      if (!av && !bv) return 0;
-      if (!av) return 1;
-      if (!bv) return -1;
+      const aEmpty = isEmpty(a);
+      const bEmpty = isEmpty(b);
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
       const cmp = compare(a, b);
       if (cmp !== 0) return sortDir === "asc" ? cmp : -cmp;
       return b.created_at.localeCompare(a.created_at);
@@ -341,6 +346,19 @@ export default function ApplicationsPage() {
     const qs = params.toString();
     return `/api/applications/export${qs ? `?${qs}` : ""}`;
   }, [statusFilter, bounds?.from, bounds?.to]);
+
+  // What the export FILE will contain: the server honours status/period only,
+  // never the computed follow-ups-due filter — so the count on the button
+  // must match the file, not the (possibly due-filtered) table.
+  const exportCount = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          (statusFilter === "All" || r.status === statusFilter) &&
+          (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to))
+      ).length,
+    [rows, statusFilter, bounds?.from, bounds?.to]
+  );
 
   // The CV shown in the open panel. Memoised so CvPreview's React.memo holds.
   const panelCv = panel?.kind === "cv" ? cvCache[panel.id] : undefined;
@@ -913,9 +931,9 @@ export default function ApplicationsPage() {
           </div>
           <div className="appsToolbarGroup">
             {/* Only offered when the current filters leave something to export. */}
-            {visible.length > 0 && (
+            {exportCount > 0 && (
               <button type="button" className="customizeLink" onClick={exportCsv} disabled={exporting}>
-                {exporting ? "Exporting…" : `Export CSV${periodFilter !== "all" || statusFilter !== "All" ? ` (${visible.length})` : ""}`}
+                {exporting ? "Exporting…" : `Export CSV${periodFilter !== "all" || statusFilter !== "All" ? ` (${exportCount})` : ""}`}
               </button>
             )}
             <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired}>+ Add row</Button>
