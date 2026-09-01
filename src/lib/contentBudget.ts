@@ -127,12 +127,16 @@ ${SHARED_RULES}`;
 // were lost in PDF extraction (see parseExperienceShape above) comes back
 // with plain achievement lines, which every renderer then faithfully draws
 // WITHOUT bullet points — a real download shipped that way. Deterministic
-// repair at the pipeline boundary: under each role header, the first content
-// line may stay plain (the highlight slot); every later non-bullet line gets
-// a bullet marker. Already-bulleted output passes through unchanged.
+// repair at the pipeline boundary: EVERY content line under a role header
+// gets a bullet marker, the highlight included (it becomes the role's first
+// bullet). A "plain highlight slot" was tried and withdrawn: with a
+// bullet-less source there is no way to tell a role's highlight from its
+// first achievement, and a role WITHOUT a highlight had its first real
+// bullet misrendered as a plain line. Already-bulleted output passes
+// through unchanged.
 export function normalizeExperienceOutput(text: string): string {
   if (!text) return text;
-  let contentSinceHeader = -1; // -1 until the first role header is seen
+  let seenHeader = false;
   return text
     .split("\n")
     .map((raw) => {
@@ -141,12 +145,10 @@ export function normalizeExperienceOutput(text: string): string {
       const isBullet = /^[•\-*]\s/.test(line);
       const isHeader = !isBullet && line.includes("|") && ROLE_HEADER.test(line);
       if (isHeader) {
-        contentSinceHeader = 0;
+        seenHeader = true;
         return raw;
       }
-      if (contentSinceHeader === -1) return raw; // before any header — leave alone
-      contentSinceHeader += 1;
-      if (isBullet || contentSinceHeader === 1) return raw;
+      if (!seenHeader || isBullet) return raw;
       return `• ${line}`;
     })
     .join("\n");
