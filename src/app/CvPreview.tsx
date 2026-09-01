@@ -15,7 +15,7 @@ type CvData = {
 import type { Profile } from "@/lib/cvStore";
 import DownloadButton from "./DownloadButton";
 import StatusText from "@/components/ui/StatusText";
-import { filterExtraSections, isReservedSectionTitle } from "@/lib/sections";
+import { filterExtraSections, isReservedSectionTitle, SECTION_HEADING_LINE_RE } from "@/lib/sections";
 import { saveBlob } from "@/lib/saveBlob";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
@@ -116,7 +116,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
     (text || "")
       .split("\n")
       .map((l) => l.trim())
-      .filter((l) => l !== "" && !/^(SKILLS|PROJECTS|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE|EDUCATION|CERTIFICATIONS)\s*:?\s*$/i.test(l));
+      .filter((l) => l !== "" && !SECTION_HEADING_LINE_RE.test(l));
   // Renders mixed subheads and bullet groups, grouping consecutive bullets into <ul>
   // Detects job-header lines (role | company) followed by a date line, and renders
   // them on one bold line (role left, date right). Groups bullets into <ul>.
@@ -553,7 +553,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
                     but silently reverting on download is worse than
                     read-only. The title above IS read back, so it stays
                     editable. */}
-                {proj.tech && <p className="cvText" contentEditable={false}>{proj.tech}</p>}
+                {proj.tech && <p className="cvText" contentEditable={false}>{renderInline(proj.tech)}</p>}
                 {proj.links && proj.links.length > 0 && (
                   <p className="cvText" contentEditable={false}>
                     {proj.links.map((l, li) => {
@@ -567,7 +567,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
                       const showLabel = !!label && label.toLowerCase() !== display.toLowerCase() && label.toLowerCase() !== rawText.toLowerCase();
                       return (
                         <span key={li}>
-                          {li > 0 ? "  |  " : ""}
+                          {li > 0 ? " | " : ""}
                           {showLabel ? `${label}: ` : ""}
                           <a href={href} className="cvLink" target="_blank" rel="noopener noreferrer">{display}</a>
                         </span>
@@ -593,7 +593,9 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
               {e.dates ? (
                 <p className="cvJobHeader">
                   <span className="cvJobRole">{e.degree}</span>
-                  <span className="cvJobDate">{e.dates}</span>
+                  {/* cvDateMeta: grey, non-bold, smaller — matching how both
+                      document builders style education dates. */}
+                  <span className="cvJobDate cvDateMeta">{e.dates}</span>
                 </p>
               ) : (
                 <p className="cvSubhead">{e.degree}</p>

@@ -1027,6 +1027,9 @@ textarea { resize: vertical; min-height: 96px; }
 .cvJobRole { font-weight: 700; }
 /* margin-left:auto pushes the date flush right on whichever line it lands on. */
 .cvJobDate { font-weight: 700; white-space: nowrap; flex-shrink: 0; margin-left: auto; text-align: right; }
+/* Education dates: grey, non-bold, smaller — matching both document builders
+   (dateColor GREY / dateBold false / 10pt vs the 10.5pt body). */
+.cvJobDate.cvDateMeta { color: var(--doc-meta); font-weight: 400; font-size: 12px; }
 
 /* Ensure bullets are NOT bold even if a parent is */
 .cvDoc ul li,

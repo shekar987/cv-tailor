@@ -9,6 +9,7 @@ import { filterExtraSections } from "@/lib/sections";
 import { chooseDensity, wrappedLines, type Density } from "@/lib/cvDensity";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { PdfCursor, parseWords, drawWrapped, drawBullet, drawHeaderLine, hexToRgb, registerFonts, FONT, type Word } from "@/lib/pdfText";
+import { SECTION_HEADING_LINE_RE } from "@/lib/sections";
 import { splitTrailingDate } from "@/lib/projectDate";
 
 const NAVY = hexToRgb("1F3864");
@@ -41,7 +42,7 @@ function drawTextBlock(doc: jsPDF, cursor: PdfCursor, text: string, mode: "plain
   const lines = text
     .split("\n")
     .filter((l) => l.trim() !== "")
-    .filter((l) => !/^(SKILLS|PROJECTS|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE)\s*$/i.test(l.trim()));
+    .filter((l) => !SECTION_HEADING_LINE_RE.test(l.trim()));
 
   for (const raw of lines) {
     const trimmed = raw.trim();
@@ -122,7 +123,7 @@ function drawProjects(doc: jsPDF, cursor: PdfCursor, projectsMeta: any[], tailor
     cursor.advance(pt(d.tightAfter));
 
     if (meta.tech) {
-      drawWrapped(doc, cursor, [{ text: meta.tech }], 10.5, lineOf(10.5));
+      drawWrapped(doc, cursor, parseWords(meta.tech), 10.5, lineOf(10.5));
       cursor.advance(pt(d.tightAfter));
     }
 

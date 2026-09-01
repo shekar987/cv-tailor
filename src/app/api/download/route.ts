@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { filterExtraSections } from "@/lib/sections";
+import { filterExtraSections, SECTION_HEADING_LINE_RE } from "@/lib/sections";
 import { chooseDensity, wrappedLines, PAGE_HEIGHT, type Density } from "@/lib/cvDensity";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
@@ -146,7 +146,7 @@ function textToParagraphs(text: string, mode: "plain" | "skills", d: Density): P
   return text
     .split("\n")
     .filter((line) => line.trim() !== "")
-    .filter((line) => !/^(SKILLS|PROJECTS|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE)\s*$/i.test(line.trim()))
+    .filter((line) => !SECTION_HEADING_LINE_RE.test(line.trim()))
     .flatMap((line): Paragraph[] => {
       const trimmed = line.trim();
       // Job header line: "@@JOB@@role@@date" → bold role left, bold date right
@@ -214,14 +214,14 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any, d: Density): P
     if (meta.tech) {
       out.push(new Paragraph({
         spacing: { after: d.tightAfter },
-        children: [new TextRun({ text: meta.tech, size: 21, font: "Calibri" })],
+        children: buildRuns(meta.tech, { size: 21 }),
       }));
     }
     // Links (clickable)
     if (Array.isArray(meta.links) && meta.links.length > 0) {
       const linkRuns: (TextRun | ExternalHyperlink)[] = [];
       meta.links.forEach((l: any, i: number) => {
-        if (i > 0) linkRuns.push(new TextRun({ text: "   |   ", size: 21, font: "Calibri" }));
+        if (i > 0) linkRuns.push(new TextRun({ text: " | ", size: 21, font: "Calibri" }));
         // label = category prefix ("Code:", "Live"); display = clickable text.
         // The extractor sometimes sets both to the same value (e.g. "GitHub"),
         // which rendered as "GitHubGitHub". Show the label only when it adds
