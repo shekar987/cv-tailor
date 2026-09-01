@@ -54,25 +54,36 @@ export function parseExperienceShape(cvText: string): ExperienceShape | null {
   }
 
   const bulletsPerRole: number[] = [];
+  const contentLinesPerRole: number[] = [];
+  let markedBullets = 0;
   for (let i = start + 1; i < end; i++) {
     const line = lines[i].trim();
     if (!line) continue;
     if (!BULLET.test(lines[i]) && ROLE_HEADER.test(line)) {
       bulletsPerRole.push(0);
+      contentLinesPerRole.push(0);
       continue;
     }
     if (bulletsPerRole.length === 0) continue; // stray line before the first role
-    // A "Highlight:" line under a header is content the tailored CV keeps
-    // (as the role's first bullet), so it counts toward the role's bullets.
+    contentLinesPerRole[contentLinesPerRole.length - 1] += 1;
+    // A "Highlight:" line under a header is content the tailored CV keeps,
+    // so it counts toward the role's bullets.
     if (BULLET.test(lines[i]) || HIGHLIGHT.test(line)) {
       bulletsPerRole[bulletsPerRole.length - 1] += 1;
+      markedBullets += 1;
     }
   }
 
   if (bulletsPerRole.length === 0) return null;
-  const totalBullets = bulletsPerRole.reduce((a, b) => a + b, 0);
+  // A CV uploaded as a PDF often loses its bullet glyphs in text extraction
+  // (the owner's real CV did) — the achievements arrive as plain lines. When
+  // NO marked bullets exist at all, count content lines instead. Wrapped
+  // lines over-count a little, which only errs toward trimming slightly
+  // more — the safe side of the two-page promise.
+  const counts = markedBullets > 0 ? bulletsPerRole : contentLinesPerRole;
+  const totalBullets = counts.reduce((a, b) => a + b, 0);
   if (totalBullets === 0) return null;
-  return { roleCount: bulletsPerRole.length, bulletsPerRole, totalBullets };
+  return { roleCount: counts.length, bulletsPerRole: counts, totalBullets };
 }
 
 const SHARED_RULES = `- Keep every bullet to a maximum of two printed lines (roughly 200 characters).
