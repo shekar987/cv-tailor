@@ -86,7 +86,7 @@ If the role is non-technical (marketing, finance, operations, management, teachi
   Format: skill1 | skill2 | skill3 | ...
   Only include skills genuinely in the master CV that apply to this role.
 
-Output ONLY the skills line(s) as plain text. No extra headings, no preamble, no integrity check.`;
+Output ONLY the skills line(s) as plain text. Never wrap the labels or any skills text in ** or other markdown markers. No extra headings, no preamble, no integrity check.`;
 
 // `budget` lets /api/tailor pass an adaptive budget computed from the actual
 // master CV (lib/contentBudget.ts); the fixed LENGTH_BUDGET stays the default
@@ -236,6 +236,7 @@ Output ONLY this JSON (no fences, no preamble):
   "email": "email if present, else empty",
   "linkedin": "LinkedIn URL or handle if present, else empty",
   "github": "GitHub URL or handle if present, else empty",
+  "website": "personal portfolio or website URL if present (NOT LinkedIn/GitHub — those go in their own fields), else empty",
   "education": [
     { "degree": "degree + any modifier", "dates": "date range", "institution": "school name", "note": "every additional bullet point listed under this entry, verbatim and complete, one per line separated by \\n if there are multiple entries — capture ALL of them, not just the first, else empty string" }
   ],

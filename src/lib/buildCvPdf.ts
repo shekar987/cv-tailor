@@ -10,6 +10,7 @@ import { chooseDensity, wrappedLines, type Density } from "@/lib/cvDensity";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { PdfCursor, parseWords, drawWrapped, drawBullet, drawHeaderLine, hexToRgb, registerFonts, FONT, type Word } from "@/lib/pdfText";
 import { SECTION_HEADING_LINE_RE } from "@/lib/sections";
+import { stripBoldMarkers } from "@/lib/markdownText";
 import { splitTrailingDate } from "@/lib/projectDate";
 
 const NAVY = hexToRgb("1F3864");
@@ -60,10 +61,13 @@ function drawTextBlock(doc: jsPDF, cursor: PdfCursor, text: string, mode: "plain
     const isBullet = trimmed.startsWith("•") || trimmed.startsWith("-");
     const clean = isBullet ? trimmed.replace(/^[•\-]\s*/, "") : trimmed;
 
-    if (mode === "skills" && !isBullet && clean.includes(":")) {
-      const idx = clean.indexOf(":");
-      const label = clean.slice(0, idx + 1);
-      const rest = clean.slice(idx + 1).replace(/^\s+/, "");
+    // Markers flattened first — the label gets its own bold, so a
+    // model-emitted "**Functional Competencies:**" must not leak asterisks.
+    const flatSkills = mode === "skills" && !isBullet ? stripBoldMarkers(clean) : clean;
+    if (mode === "skills" && !isBullet && flatSkills.includes(":")) {
+      const idx = flatSkills.indexOf(":");
+      const label = flatSkills.slice(0, idx + 1);
+      const rest = flatSkills.slice(idx + 1).replace(/^\s+/, "");
       // The space is embedded IN the label's own text run (not left for the
       // renderer to infer from the gap between two separate draw calls) —
       // some PDF text extractors don't reconstruct a space across a run
@@ -226,6 +230,7 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
   const contactEmail = String(profile?.email || "").trim();
   const contactLinkedin = profile?.linkedin ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin) : "";
   const contactGithub = profile?.github ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github) : "";
+  const contactWebsite = profile?.website ? (profile.website.startsWith("http") ? profile.website : "https://" + profile.website) : "";
   const education = (profile?.education || []).map((e: any) => ({
     head: e.degree || "",
     date: e.dates || "",
@@ -248,7 +253,7 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
   const bodyText = [summary, skills, experience, projectText, projectMetaText, educationText, certs.join("\n"), rightToWork.join("\n"), extrasText]
     .filter(Boolean)
     .join("\n");
-  const hasContactRow = !!(profile?.location || profile?.phone || contactEmail || contactLinkedin || contactGithub);
+  const hasContactRow = !!(profile?.location || profile?.phone || contactEmail || contactLinkedin || contactGithub || contactWebsite);
   const contactLines = 1 + (contactTagline ? 1 : 0) + (hasContactRow ? 1 : 0);
   const headingCount =
     (summary ? 1 : 0) + (skills ? 1 : 0) + (experience ? 1 : 0) +
@@ -294,6 +299,7 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
     if (contactEmail) addPiece({ text: contactEmail, link: "mailto:" + contactEmail });
     if (contactLinkedin) addPiece({ text: "LinkedIn", link: contactLinkedin });
     if (contactGithub) addPiece({ text: "GitHub", link: contactGithub });
+    if (contactWebsite) addPiece({ text: "Portfolio", link: contactWebsite });
     drawWrapped(doc, cursor, contactWords, 10, lineOf(10), { align: "center", linkColor: LINK });
     cursor.advance(2);
   }

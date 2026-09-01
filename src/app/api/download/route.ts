@@ -5,7 +5,7 @@ import { chooseDensity, wrappedLines, PAGE_HEIGHT, type Density } from "@/lib/cv
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
 import { normalizeProfile } from "@/lib/profile";
-import { parseBoldSegments } from "@/lib/markdownText";
+import { parseBoldSegments, stripBoldMarkers } from "@/lib/markdownText";
 import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
 import {
   Document,
@@ -160,17 +160,20 @@ function textToParagraphs(text: string, mode: "plain" | "skills", d: Density): P
       const isBullet = trimmed.startsWith("•") || trimmed.startsWith("-");
       const clean = isBullet ? trimmed.replace(/^[•\-]\s*/, "") : trimmed;
 
-      // Skills: bold only the label before the first colon
-      if (mode === "skills" && !isBullet && clean.includes(":")) {
-        const idx = clean.indexOf(":");
-        const label = clean.slice(0, idx + 1);
-        const rest = clean.slice(idx + 1);
+      // Skills: bold only the label before the first colon. Markers are
+      // flattened first — the label gets its own bold, so a model-emitted
+      // "**Functional Competencies:**" must not leak literal asterisks.
+      const flatSkills = mode === "skills" && !isBullet ? stripBoldMarkers(clean) : clean;
+      if (mode === "skills" && !isBullet && flatSkills.includes(":")) {
+        const idx = flatSkills.indexOf(":");
+        const label = flatSkills.slice(0, idx + 1);
+        const rest = flatSkills.slice(idx + 1);
         return [new Paragraph({
           spacing: { after: d.bulletAfter },
           alignment: AlignmentType.LEFT,
           children: [
             new TextRun({ text: label, bold: true, size: 21, font: "Calibri" }),
-            ...buildRuns(rest, { size: 21 }),
+            new TextRun({ text: rest, size: 21, font: "Calibri" }),
           ],
         })];
       }
@@ -303,6 +306,9 @@ const contactLinkedin = profile.linkedin
 const contactGithub = profile.github
   ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github)
   : "";
+const contactWebsite = profile.website
+  ? (profile.website.startsWith("http") ? profile.website : "https://" + profile.website)
+  : "";
 const education = profile.education.map((e) => ({
   head: e.degree,
   date: e.dates,
@@ -329,7 +335,7 @@ const extraSections = filterExtraSections(profile.extraSections);
       educationText, certs.join("\n"), rightToWork.join("\n"), extrasText,
     ].filter(Boolean).join("\n");
 
-    const hasContactRow = !!(profile.location || profile.phone || contactEmail || contactLinkedin || contactGithub);
+    const hasContactRow = !!(profile.location || profile.phone || contactEmail || contactLinkedin || contactGithub || contactWebsite);
     const contactLines = 1 + (contactTagline ? 1 : 0) + (hasContactRow ? 1 : 0);
     const headingCount =
       (summary ? 1 : 0) + (skills ? 1 : 0) + (experience ? 1 : 0) +
@@ -379,6 +385,9 @@ const extraSections = filterExtraSections(profile.extraSections);
       }
       if (contactGithub) {
         addContactRun(new ExternalHyperlink({ link: contactGithub, children: [new TextRun({ text: "GitHub", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
+      }
+      if (contactWebsite) {
+        addContactRun(new ExternalHyperlink({ link: contactWebsite, children: [new TextRun({ text: "Portfolio", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
       }
       children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 }, children: contactRuns }));
     }

@@ -20,7 +20,7 @@ import { saveBlob } from "@/lib/saveBlob";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
 import { pastePlainText } from "@/lib/pastePlainText";
-import { parseBoldSegments } from "@/lib/markdownText";
+import { parseBoldSegments, stripBoldMarkers } from "@/lib/markdownText";
 
 // **span** → <strong> — the render half of the bold contract (see
 // lib/markdownText). readInline() below is its exact inverse, used by
@@ -101,7 +101,8 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
   const email = p?.email || "";
   const linkedin = p?.linkedin || "";
   const github = p?.github || "";
-  const hasContactRow = !!(location || phone || email || linkedin || github);
+  const website = p?.website || "";
+  const hasContactRow = !!(location || phone || email || linkedin || github || website);
   const ref = useRef<HTMLDivElement>(null);
   // Download UX state — one flag for both formats, so the button reads
   // "Generating…" for a Word build as well as a PDF one.
@@ -121,13 +122,21 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
   // Detects job-header lines (role | company) followed by a date line, and renders
   // them on one bold line (role left, date right). Groups bullets into <ul>.
   const isDateLine = (s: string) =>
-    /\b(19|20)\d{2}\b/.test(s) && (s.includes("–") || s.includes("-") || /present/i.test(s)) && s.length < 40;
+    /\b(19|20)\d{2}\b/.test(s) &&
+    (s.includes("–") || s.includes("-") || /\bto\b/i.test(s) || /present/i.test(s)) &&
+    s.length < 40;
 
   // Detects "Role | Company | June 2024 – Present" style headers — date is inline, not on the next line.
   // Works whether or not the line has a leading bullet marker.
   const isInlineJobHeader = (s: string) => {
     const clean = s.replace(/^[•\-]\s*/, "");
-    return clean.includes("|") && /\b(19|20)\d{2}\b/.test(clean) && (clean.includes("–") || /\bPresent\b/i.test(clean));
+    return (
+      clean.includes("|") &&
+      /\b(19|20)\d{2}\b/.test(clean) &&
+      // "Jun 2024 – Present", "07/2022 to 09/2024" — CVs write ranges with an
+      // en-dash, a bare "to", or an open "Present".
+      (clean.includes("–") || /\bto\b/i.test(clean) || /\bPresent\b/i.test(clean))
+    );
   };
 
   // Splits "Role | Company | June 2024 – Present" → { role: "Role | Company", date: "June 2024 – Present" }
@@ -155,6 +164,10 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
         firstHeaderIdx = j; break;
       }
     }
+    // No header recognised at all (an unfamiliar date format used to blank
+    // the ENTIRE section this way): render every line rather than skipping —
+    // the orphan-skip below only makes sense when a header actually exists.
+    if (firstHeaderIdx === ls.length) firstHeaderIdx = 0;
 
     let i = 0;
     let nodeKey = 0; // always-incrementing; prevents key collisions between ul/p nodes
@@ -504,12 +517,16 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
           <h2 className="cvHead">Skills</h2>
           {lines(data.skills).map((l, i) => {
             // Bold the label before the first colon ("Functional Competencies:",
-            // "Technical Tools:") — mirrors textToParagraphs skills mode in /api/download
-            const ci = l.indexOf(":");
+            // "Technical Tools:") — mirrors textToParagraphs skills mode in
+            // /api/download. Markers are flattened FIRST: the label gets its
+            // own bold styling, so "**Functional Competencies:**" from the
+            // model must not leak literal asterisks around it.
+            const flat = stripBoldMarkers(l);
+            const ci = flat.indexOf(":");
             return ci > 0 ? (
               <p className="cvText" key={`sk-${i}`}>
-                <strong>{l.slice(0, ci + 1)}</strong>
-                {renderInline(l.slice(ci + 1))}
+                <strong>{flat.slice(0, ci + 1)}</strong>
+                {flat.slice(ci + 1)}
               </p>
             ) : (
               <p className="cvText" key={`sk-${i}`}>{renderInline(l)}</p>
@@ -645,6 +662,9 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
               ) : null,
               github ? (
                 <a key="gh" href={github.startsWith("http") ? github : "https://" + github} className="cvLink" target="_blank" rel="noopener noreferrer">GitHub</a>
+              ) : null,
+              website ? (
+                <a key="web" href={website.startsWith("http") ? website : "https://" + website} className="cvLink" target="_blank" rel="noopener noreferrer">Portfolio</a>
               ) : null,
             ]
               .filter((piece) => piece !== null && piece !== "")

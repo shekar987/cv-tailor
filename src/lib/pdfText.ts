@@ -15,6 +15,22 @@ import { parseBoldSegments } from "@/lib/markdownText";
 
 export type Word = { text: string; bold?: boolean; link?: string; glued?: boolean };
 
+// The embedded NotoSans Regular/Bold faces lack some symbols people
+// legitimately put in CVs, and jsPDF drops a missing glyph SILENTLY —
+// "GitHub→Vercel" printed as "GitHubVercel" in a real download. Substitute
+// ASCII equivalents rather than lose content.
+const GLYPH_FALLBACKS: [RegExp, string][] = [
+  [/→/g, "->"],
+  [/←/g, "<-"],
+  [/⇒/g, "=>"],
+  [/↔/g, "<->"],
+];
+export function fixGlyphs(text: string): string {
+  let out = text;
+  for (const [re, sub] of GLYPH_FALLBACKS) out = out.replace(re, sub);
+  return out;
+}
+
 // Mirrors buildRuns() in api/download/route.ts: **bold** spans are parsed
 // FIRST (lib/markdownText, before whitespace tokenization) so a multi-word
 // "**cut lead time 40%**" bolds as a phrase instead of leaking literal
@@ -175,6 +191,9 @@ export function drawWrapped(
   maxWidth = cursor.contentWidth
 ): void {
   if (rawWords.length === 0) return;
+  // One choke point for glyph fallbacks — every multi-word draw goes
+  // through here, whether the words came from parseWords or a raw literal.
+  rawWords = rawWords.map((w) => (w.text ? { ...w, text: fixGlyphs(w.text) } : w));
   const color = opts.color ?? [0, 0, 0];
   const linkColor = opts.linkColor ?? [5, 99, 193]; // #0563C1
 
@@ -297,6 +316,8 @@ export function drawHeaderLine(
   const rightSize = opts.rightSize ?? size;
   const rightColor = opts.rightColor ?? [0, 0, 0];
   const rightBold = opts.rightBold ?? true;
+  leftText = fixGlyphs(leftText);
+  rightText = fixGlyphs(rightText);
 
   doc.setFont(FONT, "bold");
   doc.setFontSize(size);

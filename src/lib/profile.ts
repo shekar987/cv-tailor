@@ -14,7 +14,7 @@ export type CvProject = { name: string; tech: string; links: ProjectLink[]; orig
 export type ExtraSection = { title: string; bullets: string[] };
 export type Profile = {
   name: string; tagline: string; location: string; phone: string;
-  email: string; linkedin: string; github: string;
+  email: string; linkedin: string; github: string; website: string;
   education: Education[]; certifications: string[];
   projects: CvProject[]; rightToWork: string[];
   // Pass-through sections not covered by the named fields (e.g. RECOGNITIONS,
@@ -84,6 +84,7 @@ export function normalizeProfile(input: unknown): Profile {
     email: str(p.email, 200),
     linkedin: str(p.linkedin, 300),
     github: str(p.github, 300),
+    website: str(p.website, 300),
     education,
     certifications: strList(p.certifications, 30, 300),
     projects,

@@ -28,11 +28,13 @@ const EXPERIENCE_HEADING = /^\s*(?:WORK\s+|PROFESSIONAL\s+)?EXPERIENCE\s*:?\s*$/
 // Any later ALL-CAPS line ends the section (PROJECTS, EDUCATION, ...).
 const NEXT_HEADING = /^\s*[A-Z][A-Z\s&/-]{2,40}:?\s*$/;
 // A role header: a non-bullet line carrying a year range ("Jul 2022 – Sep
-// 2024", "2019-2023", "Jan 2022 – Present"). Date-only lines (two-line
-// header format) match too, which still counts one role per position.
-const YEAR = String.raw`(?:19|20)\d{2}`;
+// 2024", "2019-2023", "07/2022 to 09/2024", "Jan 2022 – Present"). CVs write
+// ranges with an en-dash OR a bare "to", and dates as "Sep 2024" OR
+// "09/2024". Date-only lines (two-line header format) match too, which
+// still counts one role per position.
+const YEAR = String.raw`(?:\d{1,2}\/)?(?:19|20)\d{2}`;
 const ROLE_HEADER = new RegExp(
-  String.raw`${YEAR}\s*[–—-]\s*(?:(?:[A-Za-z]{3,9}\.?\s+)?${YEAR}|present)`,
+  String.raw`${YEAR}\s*(?:[–—-]|to)\s*(?:(?:[A-Za-z]{3,9}\.?\s+)?${YEAR}|present)`,
   "i"
 );
 const BULLET = /^\s*[-•*]\s+/;

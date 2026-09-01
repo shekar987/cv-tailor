@@ -35,6 +35,14 @@ export function parseBoldSegments(text: string): InlineSegment[] {
   return segments;
 }
 
+// Flatten **markers** to plain text (keeps the words, drops the syntax) —
+// for spots that apply their OWN bold styling, like the skills "Label:" line,
+// where a model-emitted "**Functional Competencies:**" would otherwise leak
+// literal asterisks around the label in every renderer.
+export function stripBoldMarkers(text: string): string {
+  return parseBoldSegments(text).map((s) => s.text).join("");
+}
+
 // [label](target) → readable plain text. mailto targets collapse to the bare
 // address; a label that just repeats the URL collapses to the URL; anything
 // else keeps both as "label: target".

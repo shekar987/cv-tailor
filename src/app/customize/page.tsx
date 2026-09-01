@@ -435,6 +435,7 @@ export default function CustomizePage() {
                 <label>Email<Input value={profile.email} onChange={(e) => updateProfileField("email", e.target.value)} /></label>
                 <label>LinkedIn<Input value={profile.linkedin} onChange={(e) => updateProfileField("linkedin", e.target.value)} /></label>
                 <label>GitHub<Input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} /></label>
+                <label>Website<Input value={profile.website} onChange={(e) => updateProfileField("website", e.target.value)} /></label>
               </div>
 
               {(profile.projects.length > 0 ||
