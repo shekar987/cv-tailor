@@ -83,6 +83,8 @@ src/
     safeNext.ts               ← Same-origin-only `?next=` path (open-redirect guard)
     sectionOrder.ts / sections.ts ← Section order resolution; reserved section titles
     atsMatch.ts               ← Deterministic keyword match for the pre-check gate
+    markdownText.ts           ← parseBoldSegments() — the **bold** contract all three CV renderers share — and stripMarkdown() (master-CV save cleanup)
+    contentBudget.ts          ← adaptive LENGTH BUDGET for the experience/projects prompts, computed from the actual master CV (fixed default on parse failure)
     cvDensity.ts / projectDate.ts / saveBlob.ts / pastePlainText.ts
     parseCv.ts                ← PDF/DOCX/TXT → text (byte sniffing, scanned-image detection)
     keyEncryption.ts          ← AES-256-GCM for users' provider keys (KEY_ENCRYPTION_SECRET)
@@ -121,7 +123,7 @@ Auth-gated pages are listed in `PROTECTED_PREFIXES` in `src/lib/supabase/proxy.t
 ## Data flow
 
 1. User signs in → `src/proxy.ts` verifies the JWT and refreshes the session cookie
-2. On `/customize` the user pastes or uploads their master CV → `saveMasterCV()` writes to Supabase `master_cvs`
+2. On `/customize` the user pastes or uploads their master CV → markdown syntax is cleaned by `stripMarkdown()` (shown back in the textarea) → `saveMasterCV()` writes to Supabase `master_cvs`
 3. `POST /api/extract-profile` extracts a `Profile` object, `normalizeProfile()` coerces it to the expected shape → saved to `cv_profiles`
 4. On `/app` the user pastes a JD → "Tailor my CV" first runs the **pre-check gate**: `POST /api/analyze` with `cvText` returns Step 1's JD analysis plus a deterministic keyword match (`lib/atsMatch.ts`), shown as "X/15" before any paid pipeline runs
 5. "Continue to full tailoring" sends `{ jobDescription, cvText, projectNames, analysis }` (+ `provider` for the owner account) to `POST /api/tailor`; the gate's `analysis` is reused so Step 1 isn't paid for twice
@@ -230,6 +232,10 @@ All fired after the initial JD analysis completes:
 | ATS score | analysis + tailored sections | JSON: hits, misses, recommendations |
 
 Each Promise in both waves has an independent `.catch()`. One step failing does not kill the whole response — it returns empty/null for that field.
+
+Two deterministic pieces wrap the model calls:
+- The experience/projects prompts receive an **adaptive length budget** from `lib/contentBudget.ts` — computed from how many bullets the master CV actually has vs. what two pages hold (~22 experience bullets). A CV that fits keeps every bullet; an oversized one gets per-role caps. Parse failure falls back to the fixed default text in `prompts/steps.ts`.
+- After wave 2, `reconcileAtsScore()` in the tailor route cross-checks the model's hit/miss verdicts against the real tailored text with `lib/atsMatch` — counts and lists always agree with the document the user sees; the model keeps the prose.
 
 ### Models
 
@@ -493,6 +499,19 @@ The experience section goes through a two-step rendering pipeline:
 4. `/api/download` receives this string and `textToParagraphs()` parses the `@@JOB@@` markers into bold, tab-aligned Word paragraphs
 
 **If you change the experience format or the DOM class names, you must update all three sides** — `CvPreview.collectPayload()` (the emitter), `textToParagraphs()` in the download route and `drawTextBlock()` in `buildCvPdf.ts` (the parsers). A mismatch will silently produce plain-text job headers in the output instead of the formatted bold version. The emitter strips a literal `@@` from role/date text so an inline edit can't corrupt the marker.
+
+### The **bold** contract
+
+`**span**` (multi-word allowed) is how bold travels between the pipeline and
+the renderers. `lib/markdownText.ts#parseBoldSegments` is the ONE parser: the
+preview renders spans as `<strong>` (renderInline) and `collectPayload()`
+reads them back to `**…**` (readInline), while `buildRuns` (docx) and
+`parseWords` (PDF) build real bold runs from the same segments. Touch any of
+the three and keep them in lockstep — and never "clean" `**` out of a
+renderer again: stripping it in the preview silently flattened bold for every
+download, because the DOM read IS the wire. A markdown-formatted master CV is
+a separate concern: that is cleaned once, at save time, by `stripMarkdown`
+on /customize.
 
 ### Projects are keyed by index, not name
 

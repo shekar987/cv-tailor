@@ -15,6 +15,7 @@ import {
   JD_ANALYZER_PROMPT,
 } from "@/prompts/steps";
 import { experienceBudget, projectsBudget } from "@/lib/contentBudget";
+import { matchAtsKeywords } from "@/lib/atsMatch";
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -64,6 +65,74 @@ function swallowStep<T>(fallback: T) {
   return (err: unknown): T => {
     if (err instanceof ProviderRateLimitError) throw err;
     return fallback;
+  };
+}
+
+// The ATS scorer is itself a model call, and it occasionally files a keyword
+// on the wrong side — a "hit" the tailored text doesn't actually contain, or
+// a miss that is plainly present. Reconcile its verdicts against the REAL
+// tailored output with the deterministic matcher (no extra model call), so
+// the numbers shown to the user always agree with the document on their
+// screen. Only hits/misses/counts are corrected; the model keeps the prose
+// (recommendations, overall assessment).
+function reconcileAtsScore(
+  atsScore: unknown,
+  analysis: unknown,
+  sections: { summary: unknown; skills: unknown; experience: unknown; projects: unknown }
+): unknown {
+  if (!atsScore || typeof atsScore !== "object") return atsScore;
+  const score = atsScore as Record<string, unknown>;
+  const a = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
+  const keywords = a.top_15_ats_keywords;
+  if (!Array.isArray(keywords) || keywords.length === 0) return atsScore;
+
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const projectText = Object.values(
+    (sections.projects && typeof sections.projects === "object" ? sections.projects : {}) as Record<string, unknown>
+  )
+    .flatMap((v) => (Array.isArray(v) ? v.filter((b): b is string => typeof b === "string") : []))
+    .join("\n");
+  const tailoredText = [str(sections.summary), str(sections.skills), str(sections.experience), projectText]
+    .filter(Boolean)
+    .join("\n");
+  if (!tailoredText.trim()) return atsScore;
+
+  const det = matchAtsKeywords(tailoredText, keywords);
+  const present = new Set(det.matchedKeywords.map((k) => k.toLowerCase()));
+
+  const modelHits = Array.isArray(score.hits) ? score.hits.filter((h): h is string => typeof h === "string") : [];
+  const modelMisses = Array.isArray(score.misses) ? score.misses.filter((m): m is string => typeof m === "string") : [];
+  const entryFor = (list: string[], kw: string) => list.find((e) => e.toLowerCase().includes(kw.toLowerCase()));
+
+  const hits: string[] = [];
+  const misses: string[] = [];
+  for (const kw of keywords) {
+    if (typeof kw !== "string" || !kw.trim()) continue;
+    if (present.has(kw.toLowerCase())) {
+      hits.push(entryFor(modelHits, kw) ?? kw);
+    } else if (entryFor(modelHits, kw)) {
+      // The model claimed a hit the tailored text doesn't back.
+      misses.push(`${kw} — not actually present in the tailored text`);
+    } else {
+      misses.push(entryFor(modelMisses, kw) ?? `${kw} — not present in the tailored text`);
+    }
+  }
+
+  const required = a.required_skills;
+  const requiredCoverage =
+    Array.isArray(required) && required.length > 0
+      ? (() => {
+          const r = matchAtsKeywords(tailoredText, required);
+          return `${r.matched}/${r.total}`;
+        })()
+      : score.required_skill_coverage;
+
+  return {
+    ...score,
+    hits,
+    misses,
+    keyword_coverage: `${hits.length}/${keywords.length}`,
+    required_skill_coverage: requiredCoverage,
   };
 }
 
@@ -139,7 +208,16 @@ async function runPipeline(opts: {
       .catch(swallowStep(null)),
   ]);
 
-  return { analysis, research, summary, skills, experience, projects, coverLetter, atsScore };
+  return {
+    analysis,
+    research,
+    summary,
+    skills,
+    experience,
+    projects,
+    coverLetter,
+    atsScore: reconcileAtsScore(atsScore, analysis, { summary, skills, experience, projects }),
+  };
 }
 
 export async function POST(req: NextRequest) {
