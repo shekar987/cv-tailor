@@ -83,7 +83,9 @@ async function parseJsonWithRepair(
     try {
       return JSON.parse(retryText);
     } catch {
-      throw new Error("Model returned invalid JSON after repair retry: " + retryText.slice(0, 200));
+      // Length only — the text is derived from the user's CV and this message
+      // ends up in server logs.
+      throw new Error(`Model returned invalid JSON after repair retry (${retryText.length} chars)`);
     }
   }
 }
@@ -199,7 +201,7 @@ async function openRouterRaw(options: BaseCallOptions, apiKeyOverride?: string):
         extractRetryAfterSeconds(res, body)
       );
     }
-    throw new Error(`OpenRouter request failed (${res.status}): ${body.slice(0, 300)}`);
+    throw new Error(`OpenRouter request failed (${res.status}, ${body.length}-char body)`);
   }
 
   const data = await res.json();
@@ -266,11 +268,12 @@ async function geminiRaw(options: BaseCallOptions, apiKeyOverride?: string): Pro
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    // Log the FULL error body: for 429s the quota diagnosis (quotaMetric /
-    // quotaId / quotaValue / retryDelay — per-minute vs per-day vs zero-quota)
-    // exists only in the body, which the thrown error deliberately omits.
+    // Log only the quota diagnosis fields (quotaMetric / quotaId / quotaValue /
+    // retryDelay — per-minute vs per-day vs zero-quota), which is what a 429
+    // needs diagnosing from. The full body can echo request content.
+    const quotaHint = (body.match(/"(quotaMetric|quotaId|quotaValue|retryDelay)"\s*:\s*"[^"]*"/g) ?? []).join(", ");
     console.error(
-      `Gemini request failed: status=${res.status} model=${model} keySource=${apiKeyOverride ? "user" : "env"} body=${body}`
+      `Gemini request failed: status=${res.status} model=${model} keySource=${apiKeyOverride ? "user" : "env"}${quotaHint ? ` ${quotaHint}` : ""}`
     );
     if (res.status === 429) {
       throw new ProviderRateLimitError(
@@ -279,7 +282,7 @@ async function geminiRaw(options: BaseCallOptions, apiKeyOverride?: string): Pro
         extractRetryAfterSeconds(res, body)
       );
     }
-    throw new Error(`Gemini request failed (${res.status}): ${body.slice(0, 300)}`);
+    throw new Error(`Gemini request failed (${res.status})`);
   }
 
   const data = await res.json();

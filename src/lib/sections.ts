@@ -20,6 +20,14 @@ export function isReservedSectionTitle(title: string): boolean {
   return RESERVED_SECTION_TITLES.has((title || "").trim().toLowerCase());
 }
 
+// A model sometimes echoes a bare section heading ("SKILLS", "EDUCATION")
+// inside a section's own text; every renderer drops such lines. ONE regex so
+// the three renderers can't drift — the preview used to filter more titles
+// than the two document builders did, which let an echoed "CERTIFICATIONS"
+// line show up in the downloads but not on screen.
+export const SECTION_HEADING_LINE_RE =
+  /^(SKILLS|PROJECTS|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE|EDUCATION|CERTIFICATIONS)\s*:?\s*$/i;
+
 export type ExtraSectionLike = { title?: string; bullets?: string[] };
 export type ExtraSection = { title: string; bullets: string[] };
 

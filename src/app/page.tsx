@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Button from "@/components/ui/Button";
+import { createClient } from "@/lib/supabase/client";
 
 // ─── Scroll-reveal: progressive enhancement ─────────────────────────────────
 // Fires once per element via IntersectionObserver, then disconnects. The
@@ -35,19 +36,21 @@ function Reveal({
   children,
   className = "",
   delay = 0,
+  id,
 }: {
   as?: "section" | "div";
   children: React.ReactNode;
   className?: string;
   delay?: number;
+  id?: string;
 }) {
   const { ref, inView } = useInView<HTMLDivElement>();
   const cls = `reveal${inView ? " reveal--visible" : ""}${className ? " " + className : ""}`;
   const style = delay ? { transitionDelay: `${delay}ms` } : undefined;
   if (as === "section") {
-    return <section ref={ref} className={cls} style={style}>{children}</section>;
+    return <section ref={ref} id={id} className={cls} style={style}>{children}</section>;
   }
-  return <div ref={ref} className={cls} style={style}>{children}</div>;
+  return <div ref={ref} id={id} className={cls} style={style}>{children}</div>;
 }
 
 // Counts up from 0 to `target` once `active` flips true — used for the score
@@ -56,6 +59,11 @@ function useCountUp(target: number, active: boolean, duration = 900): number {
   const [value, setValue] = useState(0);
   useEffect(() => {
     if (!active) return;
+    // CSS can't stop a requestAnimationFrame loop; honour reduced motion here.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setValue(target);
+      return;
+    }
     let raf = 0;
     const start = performance.now();
     function tick(now: number) {
@@ -83,7 +91,7 @@ function AnimatedScoreValue({ target, total }: { target: number; total: number }
 // ─── Icons — small hand-drawn line icons, no icon library ──────────────────
 function IconWarning() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 3 2 20h20L12 3Z" />
       <line x1="12" y1="9" x2="12" y2="14" />
       <circle cx="12" cy="17.3" r="0.6" fill="currentColor" stroke="none" />
@@ -92,7 +100,7 @@ function IconWarning() {
 }
 function IconClock() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="9" />
       <polyline points="12 7 12 12 16 14" />
     </svg>
@@ -100,7 +108,7 @@ function IconClock() {
 }
 function IconShieldCheck() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z" />
       <polyline points="9 12 11 14 15 10" />
     </svg>
@@ -108,7 +116,7 @@ function IconShieldCheck() {
 }
 function IconTarget() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="9" />
       <circle cx="12" cy="12" r="5" />
       <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
@@ -117,19 +125,43 @@ function IconTarget() {
 }
 function IconMail() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <polyline points="3 7 12 13 21 7" />
     </svg>
   );
 }
+function IconClipboard() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="5" y="4" width="14" height="17" rx="2" />
+      <path d="M9 4a3 3 0 0 1 6 0" />
+      <path d="M9 11h6M9 15h6" />
+    </svg>
+  );
+}
 
 export default function Landing() {
+  // The scroll-reveal hides content ONLY once JS is running: the `.reveal`
+  // hidden state is scoped under `.js-ready` (see globals.css), so the
+  // server-rendered page is fully visible until hydration has actually
+  // happened — slow networks, failed hydration and crawlers all see it all.
+  // Adaptive nav: someone already signed in doesn't need "Sign in" — they need
+  // the app. Fail-soft: any error keeps the signed-out pair.
+  const [signedIn, setSignedIn] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.classList.add("js-ready");
+    createClient()
+      .auth.getSession()
+      .then(({ data }) => {
+        if (data.session) setSignedIn(true);
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <main className="lp">
-      <noscript>
-        <style>{`.reveal { opacity: 1 !important; transform: none !important; }`}</style>
-      </noscript>
 
       <nav className="lpNav">
         <div>
@@ -137,14 +169,19 @@ export default function Landing() {
           <p className="lpTagline">Welcome to the jungle.</p>
         </div>
         <div className="lpNavActions">
-          <Link href="/auth/login" className="customizeLink">Sign in</Link>
-          <Link href="/app" className="lpNavCta">Open the tool</Link>
+          {signedIn ? (
+            <Link href="/app" className="lpNavCta">Open the app →</Link>
+          ) : (
+            <>
+              <Link href="/auth/login" className="customizeLink">Sign in</Link>
+              <Link href="/app" className="lpNavCta">Open the tool</Link>
+            </>
+          )}
         </div>
       </nav>
 
       {/* ── Hero — no scroll-reveal here, it's above the fold on load ────── */}
       <section className="lpHero">
-        <p className="lpHeroLede">Built for everyone — especially useful if you&apos;re serious about the search.</p>
         <h1 className="lpTitle">
           Every AI CV tool lies for you. This one <span className="lpAmber">won&apos;t</span>.
         </h1>
@@ -152,13 +189,15 @@ export default function Landing() {
           Paste your CV and the job description. Get back a tailored version built only from
           what&apos;s real — every line defensible in the interview.
         </p>
+        <p className="lpHeroLede">Built for everyone — especially useful if you&apos;re serious about the search.</p>
         <div className="lpHeroCta">
           <Button href="/app">Tailor my CV →</Button>
+          <a href="#example" className="cta secondary">See an example ↓</a>
         </div>
       </section>
 
       {/* ── The problem ───────────────────────────────────────────────────── */}
-      <Reveal as="section" className="lpProblem">
+      <Reveal as="section" className="lpSection lpProblem">
         <span className="lpKicker">The problem</span>
         <h2 className="lpH2">You&apos;ve got two options right now, and both cost you something.</h2>
         <div className="lpProblemGrid">
@@ -184,7 +223,7 @@ export default function Landing() {
       </Reveal>
 
       {/* ── How it works ──────────────────────────────────────────────────── */}
-      <Reveal as="section" className="lpHow">
+      <Reveal as="section" className="lpSection lpHow">
         <span className="lpKicker">How it works</span>
         <h2 className="lpH2">Four steps. No wall of settings.</h2>
         <div className="lpSteps">
@@ -202,13 +241,13 @@ export default function Landing() {
           </div>
           <div className="lpStep">
             <span className="lpStepNum">4</span>
-            <p><strong>Edit anything inline</strong>, then download a matching CV and cover letter — PDF or Word, ready to send.</p>
+            <p><strong>Edit anything inline</strong>, then download a matching CV and cover letter — PDF or Word, ready to send. One click saves the run to your application tracker.</p>
           </div>
         </div>
       </Reveal>
 
       {/* ── Show the product — the most important section on the page ────── */}
-      <Reveal as="section" className="lpShow">
+      <Reveal as="section" className="lpSection lpBand lpShow" id="example">
         <span className="lpKicker">See it for yourself</span>
         <h2 className="lpH2">This is what comes out the other end.</h2>
         <div className="lpShowStage">
@@ -255,7 +294,7 @@ export default function Landing() {
       </Reveal>
 
       {/* ── What makes it different ───────────────────────────────────────── */}
-      <Reveal as="section" className="lpDiff">
+      <Reveal as="section" className="lpSection lpDiff">
         <span className="lpKicker">Why it&apos;s different</span>
         <h2 className="lpH2">Built around one constraint: nothing invented.</h2>
         <div className="lpDiffGrid">
@@ -285,6 +324,37 @@ export default function Landing() {
               honesty, ready to send.
             </p>
           </Reveal>
+          <Reveal className="lpDiffCard" delay={300}>
+            <div className="lpDiffIcon"><IconClipboard /></div>
+            <div className="lpDiffTitle">A tracker built in</div>
+            <p className="lpDiffBody">
+              Click Applied and the run lands in your tracker — the exact CV you sent, the job
+              description you sent it for, and a follow-up date, ready for the week the recruiter
+              calls back.
+            </p>
+          </Reveal>
+        </div>
+      </Reveal>
+
+      {/* ── What it costs — said here, not discovered at the limit ────────── */}
+      <Reveal as="section" className="lpSection lpCost">
+        <span className="lpKicker">What it costs</span>
+        <h2 className="lpH2">Free to start. Honest about what happens after.</h2>
+        <div className="lpCostGrid">
+          <div className="lpCostCard">
+            <div className="lpCostTitle">Your first 3 tailors are on us</div>
+            <p className="lpCostBody">
+              Full runs on Claude — tailored CV, cover letter and ATS score — with a cap of 3
+              tailors a day. No card, ever.
+            </p>
+          </div>
+          <div className="lpCostCard">
+            <div className="lpCostTitle">Then bring your own key</div>
+            <p className="lpCostBody">
+              Add a free OpenRouter API key in Settings — it takes about two minutes — and keep
+              tailoring at no cost. The tool itself stays free.
+            </p>
+          </div>
         </div>
       </Reveal>
 
@@ -295,10 +365,18 @@ export default function Landing() {
           A CV with ten skills you can defend beats one with twenty that fall apart under questioning.
         </p>
         <Button href="/app">Tailor my CV →</Button>
+        <p className="lpPrivacy">
+          Your CV stays in your account and is processed only by the AI provider that runs your tailoring.
+        </p>
       </Reveal>
 
       <footer className="lpFooter">
-        Built by Soma Shekar Keesari · Search smarter. Apply faster.
+        <span>Built by Soma Shekar Keesari · Honest beats impressive.</span>
+        <nav className="lpFooterLinks" aria-label="Footer">
+          <Link href="/auth/login">Sign in</Link>
+          <Link href="/app">Tailor my CV</Link>
+          <a href="#example">See an example</a>
+        </nav>
       </footer>
     </main>
   );

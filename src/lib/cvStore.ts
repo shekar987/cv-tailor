@@ -11,20 +11,10 @@ export type MasterCV = {
   updatedAt: number  // milliseconds since epoch
 }
 
-export type Education    = { degree: string; dates: string; institution: string; note: string }
-export type ProjectLink  = { label: string; url: string; text: string }
-export type CvProject    = { name: string; tech: string; links: ProjectLink[]; originalBullets: string[] }
-export type ExtraSection = { title: string; bullets: string[] }
-export type Profile = {
-  name: string; tagline: string; location: string; phone: string
-  email: string; linkedin: string; github: string
-  education: Education[]; certifications: string[]
-  projects: CvProject[]; rightToWork: string[]
-  // Pass-through sections not covered by the named fields (e.g. RECOGNITIONS,
-  // AWARDS, PUBLICATIONS). Never tailored — rendered verbatim after Right to Work.
-  // Optional: profiles extracted before this field existed won't have it.
-  extraSections?: ExtraSection[]
-}
+// The profile shape and its normaliser live in @/lib/profile (shared with the
+// server routes, which must not import the browser client from this file).
+export type { Education, ProjectLink, CvProject, ExtraSection, Profile } from '@/lib/profile'
+import { normalizeProfile, type Profile } from '@/lib/profile'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -51,12 +41,15 @@ export async function getMasterCV(): Promise<MasterCV | null> {
   }
 }
 
-export async function saveMasterCV(text: string): Promise<MasterCV> {
+// Returns the saved record, or null when the write did NOT happen (signed
+// out, RLS refusal, network). Callers must treat null as a failure and say
+// so — a previous version returned an optimistic record on every path, which
+// let the Customize page show "Saved" for a CV that was never persisted.
+export async function saveMasterCV(text: string): Promise<MasterCV | null> {
   const trimmed = text.trim()
-  const optimistic: MasterCV = { text: trimmed, updatedAt: Date.now() }
   try {
     const userId = await getUserId()
-    if (!userId) return optimistic  // not signed in — UI still works, just not persisted
+    if (!userId) return null
 
     const supabase = createClient()
     const { data, error } = await supabase
@@ -68,10 +61,14 @@ export async function saveMasterCV(text: string): Promise<MasterCV> {
       .select('text, updated_at')
       .single()
 
-    if (error || !data) return optimistic
+    if (error || !data) {
+      if (error) console.error('master_cvs upsert error:', error.message)
+      return null
+    }
     return { text: data.text, updatedAt: new Date(data.updated_at).getTime() }
-  } catch {
-    return optimistic
+  } catch (err) {
+    console.error('master_cvs upsert error:', err instanceof Error ? err.message : 'Unknown error')
+    return null
   }
 }
 
@@ -97,25 +94,37 @@ export async function getProfile(): Promise<Profile | null> {
       .from('cv_profiles')
       .select('data')
       .maybeSingle()
-    if (error || !data) return null
-    return data.data as Profile
+    if (error || !data || !data.data) return null
+    // Profiles saved before normalisation existed may carry model-shaped
+    // surprises; coerce on the way out so every consumer sees the real shape.
+    return normalizeProfile(data.data)
   } catch {
     return null
   }
 }
 
-export async function saveProfile(profile: Profile): Promise<void> {
+// True when the write happened. False = not persisted; the caller decides
+// whether that needs surfacing (it does for a user-initiated save).
+export async function saveProfile(profile: Profile): Promise<boolean> {
   try {
     const userId = await getUserId()
-    if (!userId) return
+    if (!userId) return false
     const supabase = createClient()
-    await supabase
+    const { error } = await supabase
       .from('cv_profiles')
       .upsert(
         { user_id: userId, data: profile, updated_at: new Date().toISOString() },
         { onConflict: 'user_id' }
       )
-  } catch { /* ignore */ }
+    if (error) {
+      console.error('cv_profiles upsert error:', error.message)
+      return false
+    }
+    return true
+  } catch (err) {
+    console.error('cv_profiles upsert error:', err instanceof Error ? err.message : 'Unknown error')
+    return false
+  }
 }
 
 export async function clearProfile(): Promise<void> {
@@ -142,14 +151,15 @@ export async function importFromLocalStorageIfNeeded(): Promise<MasterCV | null>
     const parsed = JSON.parse(rawCv) as { text: string; updatedAt: number }
     if (!parsed?.text) return null
 
-    // Save CV to DB
+    // Save CV to DB. If that fails, leave localStorage alone so the import
+    // is retried next time rather than the CV being lost.
     const saved = await saveMasterCV(parsed.text)
+    if (!saved) return null
 
     // Also migrate profile if present
     const rawProfile = window.localStorage.getItem(LS_PROFILE_KEY)
     if (rawProfile) {
-      const profile = JSON.parse(rawProfile) as Profile
-      await saveProfile(profile)
+      await saveProfile(normalizeProfile(JSON.parse(rawProfile)))
     }
 
     // Clear localStorage after successful import so we never re-import

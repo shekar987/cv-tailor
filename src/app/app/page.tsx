@@ -1,15 +1,20 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { getMasterCV, getProfile, importFromLocalStorageIfNeeded, type Profile } from "@/lib/cvStore";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
-import CvPreview from "../CvPreview";
+import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 import type { AtsMatchResult } from "@/lib/atsMatch";
-import { loadWorkspace, saveWorkspace, clearWorkspace } from "@/lib/workspace";
+import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
+import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
+import { MAX_JD_CHARS, JD_TOO_LONG } from "@/lib/limits";
+import { getUsage, type Usage } from "@/lib/usage";
+import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import EmptyState from "@/components/ui/EmptyState";
+import Skeleton from "@/components/ui/Skeleton";
 import Textarea from "@/components/ui/Textarea";
 import FormField from "@/components/ui/FormField";
 import StatusText from "@/components/ui/StatusText";
@@ -48,6 +53,12 @@ type Result = {
   experience?: string;
   projects?: any;
   coverLetter?: string;
+  // Step 1's JD analysis, echoed back by /api/tailor. Only the fields the
+  // client reads are typed here.
+  analysis?: {
+    company_name?: string;
+    role_title?: string;
+  };
   atsScore?: {
     keyword_coverage?: string;
     required_skill_coverage?: string;
@@ -58,14 +69,35 @@ type Result = {
   };
 };
 
+type AppliedState = "idle" | "saving" | "saved" | "already" | "error";
+
+// Step 1 sometimes answers a missing company or role with a placeholder
+// phrase ("Not specified", "Unknown", "N/A") instead of an empty string.
+// Treat those as absent everywhere — a filename, the gate card, or a tracker
+// row must never carry "Not_specified" as if it were a company.
+const PLACEHOLDER_RE = /^(not\s+(specified|mentioned|provided|stated|available|found|given|applicable)|unspecified|unknown( company| role)?|n\/?a|none|-+)$/i;
+function realValue(text: string | undefined): string {
+  const t = (text || "").trim();
+  return PLACEHOLDER_RE.test(t) ? "" : t;
+}
+
+// Download filename, e.g. Jane_Doe_Acme_Backend_Engineer_CV. Also stored as
+// the tracker row's cv_reference, so the two always name the same document.
+// CvPreview is memoised on this string — keep it deterministic. Missing
+// pieces are simply left out (filter(Boolean) below).
+function buildFileBaseName(profile: Profile | null, analysis: Result["analysis"], suffix: string): string {
+  const first = (profile?.name || "User").trim().split(/\s+/).slice(0, 2).join("_");
+  const cn = realValue(analysis?.company_name).replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  const rt = realValue(analysis?.role_title).replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  return [first, cn, rt, suffix].filter(Boolean).join("_");
+}
+
 export default function Home() {
-  const router = useRouter();
   const [jobDescription, setJobDescription] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [errorType, setErrorType] = useState<string | null>(null); // "user_limit" | "provider_limit" | null
-  const [userEmail, setUserEmail] = useState<string | null>(null);
 
   // Master CV — read-only here. Uploading/editing/replacing it lives on
   // /customize; this page only needs to know whether one exists.
@@ -99,14 +131,34 @@ export default function Home() {
   const [userId, setUserId] = useState<string | null>(null);
   const [workspaceReady, setWorkspaceReady] = useState(false);
 
+  // Identity of the current tailoring run — minted when a run completes and
+  // persisted with the workspace. The tracker keys "Applied" saves on it, so
+  // clicking twice (even across a reload) can't create two rows.
+  const [tailorSessionId, setTailorSessionId] = useState<string | null>(null);
+  const [appliedState, setAppliedState] = useState<AppliedState>("idle");
+  const [appliedError, setAppliedError] = useState("");
+  // Saved, but the API had something to tell us (e.g. no CV snapshot column yet).
+  const [appliedNotice, setAppliedNotice] = useState("");
+
+  // Free-tier position for the usage chip. Null (load failed, signed out,
+  // column blocked) hides the chip — quota display must never break the page.
+  const [usage, setUsage] = useState<Usage | null>(null);
+  // The JD the current result was generated from, so editing the textarea can
+  // flag the results below as stale. Null for results saved before this field.
+  const [resultJd, setResultJd] = useState<string | null>(null);
+  // Seconds since the full pipeline started — honest feedback during the wait.
+  const [elapsed, setElapsed] = useState(0);
+  // Reaches into CvPreview for the EDITED document when saving to the tracker.
+  const previewRef = useRef<CvPreviewHandle>(null);
+
   // On load: fetch CV + profile from Supabase.
   // If the DB has nothing but localStorage does, import it once then clear localStorage.
   useEffect(() => {
     async function loadCv() {
-      // Get user email from local session (no network call)
+      // Local session read (no network call) — only the user id is needed here;
+      // the header shows the email itself.
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
-      setUserEmail(session?.user?.email ?? null);
 
       // Restore the pasted JD and tailored result from the last visit, so a
       // refresh — or following a link out of the CV preview — doesn't discard
@@ -120,6 +172,8 @@ export default function Home() {
           if (saved.jobDescription) setJobDescription(saved.jobDescription);
           if (saved.result) setResult(saved.result as Result);
           if (saved.ranProvider) setRanProvider(saved.ranProvider);
+          if (saved.tailorSessionId) setTailorSessionId(saved.tailorSessionId);
+          if (typeof saved.resultJd === "string") setResultJd(saved.resultJd);
         }
       }
       // Only now may the save effect run — writing before this point would
@@ -140,9 +194,13 @@ export default function Home() {
           }
         });
 
-      // Section order for rendering. Non-blocking and fail-soft: any problem
-      // leaves it null, which renders the default order.
-      fetch("/api/section-order")
+      // The usage chip. Fire-and-forget: null just hides it.
+      getUsage().then(setUsage);
+
+      // Section order for rendering, resolved BEFORE the results are allowed
+      // to render: a restored CV must not paint in the default order and then
+      // re-lay out. Fail-soft: any problem leaves it null (the default order).
+      const orderLoaded = fetch("/api/section-order")
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => { if (data?.order) setSectionOrder(data.order); })
         .catch(() => { /* default order */ });
@@ -164,6 +222,9 @@ export default function Home() {
         const p = await getProfile();
         setProfile(p);
       }
+      await orderLoaded;
+      // Only now may a restored result render — with the real profile and
+      // order, not a "YOUR NAME" placeholder that re-flows a moment later.
       setCvLoading(false);
     }
     loadCv();
@@ -173,17 +234,16 @@ export default function Home() {
   // workspaceReady so the initial empty state never overwrites saved work.
   useEffect(() => {
     if (!workspaceReady || !userId) return;
-    saveWorkspace(userId, { jobDescription, result, ranProvider });
-  }, [workspaceReady, userId, jobDescription, result, ranProvider]);
+    saveWorkspace(userId, { jobDescription, result, ranProvider, tailorSessionId, resultJd });
+  }, [workspaceReady, userId, jobDescription, result, ranProvider, tailorSessionId, resultJd]);
 
-  async function handleSignOut() {
-    // Don't leave a tailored CV in this browser's storage after sign-out.
-    if (userId) clearWorkspace(userId);
-    const supabase = createClient();
-    await supabase.auth.signOut({ scope: 'local' });
-    router.refresh();
-    router.push('/auth/login');
-  }
+  // Tick once a second while the pipeline runs; resets to 0 on each new run.
+  useEffect(() => {
+    if (!loading) return;
+    setElapsed(0);
+    const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, [loading]);
 
   // Step 1 of the click-through: run ONLY the JD analyzer + a local keyword
   // check against the raw CV, so the user sees a rough fit estimate before the
@@ -196,6 +256,11 @@ export default function Home() {
     }
     if (!jobDescription.trim()) {
       setError("Paste a job description to get started.");
+      setErrorType(null);
+      return;
+    }
+    if (jobDescription.length > MAX_JD_CHARS) {
+      setError(JD_TOO_LONG);
       setErrorType(null);
       return;
     }
@@ -228,10 +293,18 @@ export default function Home() {
   // Step 1 — otherwise the server runs Step 1 fresh, exactly as before this
   // feature existed.
   async function runFullTailor() {
+    if (loading) return;
+    if (jobDescription.length > MAX_JD_CHARS) {
+      setError(JD_TOO_LONG);
+      setErrorType(null);
+      return;
+    }
     setError("");
     setErrorType(null);
     setLoading(true);
-    setResult(null);
+    // The previous result stays on screen (and in the persisted workspace)
+    // until a new one actually arrives — a failed run must not destroy the
+    // last good CV.
     try {
       const res = await fetch("/api/tailor", {
         method: "POST",
@@ -245,25 +318,118 @@ export default function Home() {
           ...(gateAnalysis ? { analysis: gateAnalysis } : {}),
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error || "Something went wrong. Try again.");
         setErrorType(data.errorType || null);
-      } else {
-        setResult(data);
-        setRanProvider(typeof data.provider === "string" ? data.provider : null);
+        return;
       }
+      // A fresh id per completed run: re-tailoring the same job is a new
+      // session, and legitimately gets its own tracker row. Computed before
+      // any state changes so a missing crypto API (non-secure origin) can't
+      // throw after the result has already rendered.
+      const sessionId = typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      setResult(data);
+      setRanProvider(typeof data.provider === "string" ? data.provider : null);
+      setTailorSessionId(sessionId);
+      setResultJd(jobDescription);
+      setAppliedState("idle");
+      setAppliedError("");
+      setAppliedNotice("");
+      // The gate applied to this specific run; clear it so a re-tailor of the
+      // same JD starts a fresh pre-check rather than silently reusing a stale
+      // one. Only on success: a failed run keeps the paid-for analysis for the
+      // retry instead of charging for it again.
+      setPreCheck(null);
+      setGateAnalysis(null);
     } catch {
       setError("Couldn't reach the server. Check it's running and try again.");
       setErrorType(null);
     } finally {
       setLoading(false);
-      // The gate applied to this specific run; clear it so a re-tailor of the
-      // same JD starts a fresh pre-check rather than silently reusing a stale one.
-      setPreCheck(null);
-      setGateAnalysis(null);
+      // Success or limit error, the counters may have moved — refresh the chip.
+      getUsage().then(setUsage);
     }
   }
+  // Snapshot the finished run into the application tracker. Reads only what
+  // the run already produced — the pipeline itself is untouched. The server
+  // owns the duplicate rule (one row per session id) and reports a repeat
+  // click back as alreadySaved, without touching the existing row.
+  async function handleApplied() {
+    if (!result) return;
+    // Workspaces saved before session ids existed restore without one; mint
+    // it now so the save effect persists it and a second click still dedupes.
+    const sid = tailorSessionId ?? crypto.randomUUID();
+    if (sid !== tailorSessionId) setTailorSessionId(sid);
+    const analysis = result.analysis;
+    const today = new Date();
+
+    // Snapshot the document AS EDITED in the preview — the tracker should hold
+    // the CV that was actually sent, not the raw pipeline output. The @@JOB@@
+    // wire markers go back to plain "Role | Company | Date" lines, the format
+    // every renderer of this snapshot expects.
+    const edited = previewRef.current?.collectPayload() ?? null;
+    const editedExperience = edited
+      ? edited.experience
+          .split("\n")
+          .map((line) => {
+            const m = /^@@JOB@@(.*)@@(.*)$/.exec(line);
+            return m ? [m[1].trim(), m[2].trim()].filter(Boolean).join(" | ") : line;
+          })
+          .join("\n")
+      : null;
+
+    setAppliedState("saving");
+    setAppliedError("");
+    try {
+      const res = await fetch("/api/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company_name: realValue(analysis?.company_name) || "Unknown company",
+          role: realValue(analysis?.role_title) || "Unknown role",
+          cv_reference: buildFileBaseName(profile, analysis, "CV"),
+          tailor_session_id: sid,
+          status: "Applied",
+          source: "tailored",
+          // The JD's literal figure with its unit ("£480 per day"),
+          // "Voluntary (unpaid)", or an explicit "Not Specified".
+          salary: salaryFromJd(jobDescription),
+          date_applied: localIsoDate(today),
+          followup_date: localIsoDate(addDays(today, 7)),
+          notes: buildAppliedNotes(result.atsScore),
+          job_description: jobDescription.slice(0, 15_000),
+          // The CV as generated, with the profile and section order it was
+          // rendered with, so the tracker shows this exact document later.
+          tailored_cv: {
+            summary: edited?.summary || result.summary || "",
+            skills: edited?.skills || result.skills || "",
+            experience: editedExperience || result.experience || "",
+            projects: edited?.projects ?? result.projects ?? {},
+            profile: edited?.profile
+              ? { ...edited.profile, projects: edited.projectsMeta }
+              : profile,
+            sectionOrder: edited ? edited.sectionOrder : sectionOrder,
+          },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAppliedState("error");
+        setAppliedError(data.error || "Couldn't save to the tracker. Try again.");
+        return;
+      }
+      setAppliedState(data.alreadySaved ? "already" : "saved");
+      // Saved, but without the CV snapshot (database migration pending).
+      setAppliedNotice(typeof data.warning === "string" ? data.warning : "");
+    } catch {
+      setAppliedState("error");
+      setAppliedError("Couldn't reach the server. Try again.");
+    }
+  }
+
   // Stable reference so React.memo on CvPreview can skip re-renders when only the JD
   // textarea or other unrelated state changes. Only rebuilds when result changes.
   const cvData = useMemo(() => ({
@@ -273,6 +439,40 @@ export default function Home() {
     projects: result?.projects as any,
   }), [result]);
 
+  // Step 1's read of the JD, surfaced on the gate card so a mis-pasted JD is
+  // caught before the full run is spent on the wrong job.
+  const gateInfo = useMemo(() => {
+    const a = gateAnalysis as { role_title?: unknown; company_name?: unknown } | null;
+    const role = realValue(typeof a?.role_title === "string" ? a.role_title : "");
+    const company = realValue(typeof a?.company_name === "string" ? a.company_name : "");
+    return role || company ? { role, company } : null;
+  }, [gateAnalysis]);
+
+  // Same placeholder-scrubbed view of the finished run's analysis, for the
+  // results context row.
+  const resultInfo = useMemo(() => {
+    const role = realValue(result?.analysis?.role_title);
+    const company = realValue(result?.analysis?.company_name);
+    return role || company ? { role, company } : null;
+  }, [result]);
+
+  // Steps that quietly failed this run — named honestly instead of rendering
+  // as blank sections the user might not notice until after they've applied.
+  const partialIssues = useMemo(() => {
+    if (!result) return [];
+    const empty: string[] = [];
+    if (!result.summary?.trim()) empty.push("summary");
+    if (!result.skills?.trim()) empty.push("skills");
+    if (!result.experience?.trim()) empty.push("experience");
+    if (!result.coverLetter?.trim()) empty.push("cover letter");
+    const issues: string[] = [];
+    if (empty.length > 0) {
+      issues.push(`The ${empty.join(", ")} ${empty.length > 1 ? "sections" : "section"} came back empty this run.`);
+    }
+    if (!result.atsScore?.keyword_coverage) issues.push("ATS scoring didn't complete.");
+    return issues;
+  }, [result]);
+
   // First name only, for a personal greeting on the results — falls back to
   // nothing (not a placeholder) if no profile name is set yet.
   const firstName = (profile?.name || "").trim().split(/\s+/)[0] || "";
@@ -280,40 +480,32 @@ export default function Home() {
   return (
     <main className="page">
       <div className="container">
-        <header className="header">
-          <div className="appBar">
-            <div className="wordmark">
-              Jobhuntz
-            </div>
-            {userEmail && (
-              <div className="appBarActions">
-                <span className="appBarEmail" title={userEmail}>{userEmail}</span>
-                <Link href="/customize" className="customizeLink">Customize</Link>
-                <Link href="/settings" className="customizeLink">Settings</Link>
-                <button type="button" onClick={handleSignOut} className="customizeLink">
-                  Sign out
-                </button>
-              </div>
-            )}
-          </div>
-          <p className="tagline">
-            Honest, ATS-ready tailoring. Every claim traces back to your real CV — nothing invented.
-          </p>
-        </header>
+        <AppHeader
+          title="Tailor your CV"
+          tagline="Honest, ATS-ready tailoring. Every claim traces back to your real CV — nothing invented."
+        />
 
         {/* Master CV status — uploading/editing/replacing it lives on /customize now */}
         {cvLoading ? (
           <Card>
-            <p className="cvHelp">Loading your CV…</p>
+            <div className="label">Master CV</div>
+            <Skeleton lines={2} label="Loading your CV" />
           </Card>
         ) : !masterCvText ? (
           <Card>
-            <FormField
-              label="Master CV"
-              help="Add your CV once in Customize, and it's reused for every job you tailor for here."
+            <EmptyState
+              icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+                  <path d="M14 3v6h6" />
+                  <path d="M9 13h6M9 17h6" />
+                </svg>
+              }
+              title="Start with your master CV"
+              actions={<Button href="/customize">Add your CV in Customize →</Button>}
             >
-              <Button href="/customize">Add your CV in Customize →</Button>
-            </FormField>
+              Add it once and it&apos;s reused for every job you tailor for here. Paste it or upload a PDF or Word file.
+            </EmptyState>
           </Card>
         ) : null}
 
@@ -338,7 +530,23 @@ export default function Home() {
                 placeholder="Paste the job description for the role you're applying to…"
                 rows={8}
               />
+              <p className={"charCount" + (jobDescription.length > MAX_JD_CHARS ? " over" : "")} aria-live="polite">
+                {jobDescription.length.toLocaleString()} / {MAX_JD_CHARS.toLocaleString()}
+              </p>
             </FormField>
+            {usage && !usage.unlimited && (
+              <p className="usageRow">
+                <span>
+                  Free tailors today:{" "}
+                  <strong>{Math.max(usage.dailyLimit - usage.dailyUsed, 0)} of {usage.dailyLimit}</strong>
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  Claude credits:{" "}
+                  <strong>{Math.max(usage.claudeLimit - usage.claudeUsed, 0)} of {usage.claudeLimit}</strong>
+                </span>
+              </p>
+            )}
             {/* Step 1: cheap pre-check (JD analysis only) — shown until a gate
                 result exists. Provider choice doesn't apply here: the gate
                 always runs on Claude, same as profile extraction. */}
@@ -348,7 +556,7 @@ export default function Home() {
                   {gateLoading ? "Checking keyword match…" : "Tailor my CV"}
                 </Button>
                 {error && !hasOwnNotice(errorType) && (
-                  <StatusText as="span">{error}</StatusText>
+                  <StatusText as="span" role="alert">{error}</StatusText>
                 )}
               </div>
             )}
@@ -369,6 +577,13 @@ export default function Home() {
             {/* Step 2: the gate result. Never blocks below 10/15 — just informs. */}
             {preCheck && (
               <Card variant="dashed">
+                {gateInfo && (
+                  <p className="gateRole">
+                    Looks like: <strong>{gateInfo.role || "this role"}</strong>
+                    {gateInfo.company && <> at <strong>{gateInfo.company}</strong></>}
+                    {" "}— if that&apos;s not the job you meant, fix the JD above before continuing.
+                  </p>
+                )}
                 <div className="gateLabel">Rough keyword match, before tailoring</div>
                 <Badge variant="value" tone={preCheck.matched >= 10 ? "success" : "neutral"}>
                   {preCheck.matched}/{preCheck.total}
@@ -403,14 +618,14 @@ export default function Home() {
                   )}
                 </div>
                 {error && !hasOwnNotice(errorType) && (
-                  <StatusText style={{ marginTop: 'var(--space-3)' }}>{error}</StatusText>
+                  <StatusText style={{ marginTop: 'var(--space-3)' }} role="alert">{error}</StatusText>
                 )}
               </Card>
             )}
 
             {/* ── Saved key unreadable — re-entry needed (e.g. after KEY_ENCRYPTION_SECRET rotation) ── */}
             {errorType === "key_decrypt_failed" && (
-              <div className="limitNotice">
+              <div className="limitNotice" role="alert">
                 <div className="limitNotice__title">Your API key needs to be re-entered.</div>
                 <div className="limitNotice__body">
                   Your saved key can no longer be read. Please go to Settings and replace it.
@@ -423,7 +638,7 @@ export default function Home() {
 
             {/* ── Free tailors used up — no keys saved yet ── */}
             {errorType === "needs_keys" && (
-              <div className="limitNotice">
+              <div className="limitNotice" role="alert">
                 <div className="limitNotice__title">Your 3 free tailors are used up.</div>
                 <div className="limitNotice__body">
                   Add your own key to keep going — it takes 2 minutes and the tool stays free.
@@ -436,7 +651,7 @@ export default function Home() {
 
             {/* ── Has a Gemini key, but Gemini can't complete a run ── */}
             {errorType === "needs_openrouter_key" && (
-              <div className="limitNotice">
+              <div className="limitNotice" role="alert">
                 <div className="limitNotice__title">Your Gemini key can&apos;t run a tailor.</div>
                 <div className="limitNotice__body">
                   Gemini&apos;s free tier allows 5 requests per minute, and one tailoring run makes 8 —
@@ -451,7 +666,7 @@ export default function Home() {
 
             {/* ── User's own key quota exhausted ── */}
             {errorType === "user_key_limit" && (
-              <div className="limitNotice">
+              <div className="limitNotice" role="alert">
                 <div className="limitNotice__title">Today&apos;s tailoring limit is reached.</div>
                 <div className="limitNotice__body">
                   Your key&apos;s free quota resets daily — come back tomorrow to continue.
@@ -464,7 +679,7 @@ export default function Home() {
 
             {/* ── Other limit states (daily cap, provider quota) ── */}
             {error && (errorType === "user_limit" || errorType === "provider_limit" || errorType === "claude_limit_reached") && (
-              <div className="limitNotice">{error}</div>
+              <div className="limitNotice" role="alert">{error}</div>
             )}
           </Card>
         )}
@@ -472,18 +687,52 @@ export default function Home() {
         {loading && (
           <section className="loading">
             <div className="pulse" />
-            <ul>
-              <li>Analysing the job description</li>
-              <li>Researching the company</li>
-              <li>Tailoring summary, skills, experience, projects</li>
-              <li>Writing your cover letter</li>
-              <li>Scoring against ATS keywords</li>
-            </ul>
+            <div className="loadingBody">
+              <ul>
+                <li>Analysing the job description</li>
+                <li>Researching the company</li>
+                <li>Tailoring summary, skills, experience, projects</li>
+                <li>Writing your cover letter</li>
+                <li>Scoring against ATS keywords</li>
+              </ul>
+              <p className="loadingMeta">{elapsed}s — a full run usually takes 20–40 seconds.</p>
+            </div>
           </section>
         )}
 
-        {result && (
+        {!cvLoading && result && (
           <section className="results">
+            {resultInfo && (
+              <div className="resultsContext">
+                <span>
+                  Tailored for <strong>{resultInfo.role || "this role"}</strong>
+                  {resultInfo.company && <> at <strong>{resultInfo.company}</strong></>}
+                </span>
+                <button
+                  type="button"
+                  className="inlineLink"
+                  onClick={() => {
+                    const jd = document.getElementById("jd");
+                    jd?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    (jd as HTMLTextAreaElement | null)?.focus({ preventScroll: true });
+                  }}
+                >
+                  Start a new tailoring ↑
+                </button>
+              </div>
+            )}
+            {resultJd !== null && jobDescription.trim() !== resultJd.trim() && (
+              <div className="limitNotice" role="status">
+                These results were tailored for your previous job description — the text above has
+                changed since. Run another tailor to refresh them.
+              </div>
+            )}
+            {partialIssues.length > 0 && (
+              <div className="limitNotice" role="status">
+                {partialIssues.join(" ")} Re-running the same job description retries those steps
+                (it counts as a new run).
+              </div>
+            )}
             {result.atsScore?.keyword_coverage && (
               <div className="scoreCard">
                 <div className="scoreLabel">
@@ -535,28 +784,46 @@ export default function Home() {
             )}
           
             
+            {/* Applied → snapshot this run into the tracker. Secondary on
+                purpose: amber on this view belongs to Download. */}
+            <div className="actions appliedRow">
+              <Button
+                variant="secondary"
+                onClick={handleApplied}
+                disabled={appliedState === "saving" || appliedState === "saved" || appliedState === "already"}
+              >
+                {appliedState === "saving"
+                  ? "Saving…"
+                  : appliedState === "saved"
+                    ? "Saved to tracker ✓"
+                    : appliedState === "already"
+                      ? "Already in tracker"
+                      : "Applied — save to tracker"}
+              </Button>
+              {(appliedState === "saved" || appliedState === "already") && (
+                <Link href="/applications" className="customizeLink">View tracker →</Link>
+              )}
+              {appliedError && (
+                <StatusText as="span" role="alert">{appliedError}</StatusText>
+              )}
+            </div>
+            {appliedNotice && (
+              <div className="limitNotice" role="status">{appliedNotice}</div>
+            )}
+
             <CvPreview
+              ref={previewRef}
               data={cvData}
               profile={profile}
               sectionOrder={sectionOrder}
-              fileBaseName={(() => {
-                const first = (profile?.name || "User").trim().split(/\s+/).slice(0, 2).join("_");
-                const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-                const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-                return [first, cn, rt, "CV"].filter(Boolean).join("_");
-              })()}
+              fileBaseName={buildFileBaseName(profile, result.analysis, "CV")}
             />
 {result.coverLetter && (
               <>
                 <h2 className="clHeading">Cover Letter</h2>
                 <CoverLetterPreview
                   coverLetter={result.coverLetter}
-                  fileBaseName={(() => {
-                    const first = (profile?.name || "User").trim().split(/\s+/).slice(0, 2).join("_");
-                    const cn = ((result as any).analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-                    const rt = ((result as any).analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-                    return [first, cn, rt, "CoverLetter"].filter(Boolean).join("_");
-                  })()}
+                  fileBaseName={buildFileBaseName(profile, result.analysis, "CoverLetter")}
                 />
               </>
             )}

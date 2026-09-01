@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { filterExtraSections } from "@/lib/sections";
+import { filterExtraSections, SECTION_HEADING_LINE_RE } from "@/lib/sections";
 import { chooseDensity, wrappedLines, PAGE_HEIGHT, type Density } from "@/lib/cvDensity";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
+import { normalizeProfile } from "@/lib/profile";
+import { parseBoldSegments, stripBoldMarkers } from "@/lib/markdownText";
+import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
 import {
   Document,
   Packer,
@@ -13,6 +16,7 @@ import {
   BorderStyle,
   ExternalHyperlink,
   LevelFormat,
+  TabStopType,
 } from "docx";
 
 const NAVY = "1F3864";
@@ -92,49 +96,44 @@ function datedHeaderParagraph(
   return [
     new Paragraph({
       spacing: { before: opts.spacingBefore, after: opts.spacingAfter },
-      tabStops: [{ type: "right" as any, position: DATE_TAB_POSITION }],
+      tabStops: [{ type: TabStopType.RIGHT, position: DATE_TAB_POSITION }],
       children,
     }),
   ];
 }
 
-// Build runs from a line: turns **bold** into bold and bare URLs into clickable links.
+// Build runs from a line: turns **bold** into bold and bare URLs into
+// clickable links. Bold spans are parsed FIRST (lib/markdownText), before
+// whitespace tokenization, so a multi-word "**cut lead time 40%**" bolds as
+// one phrase instead of leaking literal asterisks — matching parseWords()
+// in lib/pdfText.ts and renderInline() in CvPreview exactly.
 function buildRuns(text: string, opts: { size?: number; bold?: boolean } = {}) {
   const size = opts.size ?? 21;
   const baseBold = opts.bold ?? false;
   const children: (TextRun | ExternalHyperlink)[] = [];
 
-  const tokens = text.split(/(\s+)/);
+  for (const seg of parseBoldSegments(text)) {
+    const segBold = seg.bold || baseBold;
+    for (const token of seg.text.split(/(\s+)/)) {
+      if (token === "") continue;
+      if (token.trim() === "") {
+        children.push(new TextRun({ text: token, size, font: "Calibri" }));
+        continue;
+      }
+      const looksLikeUrl =
+        /^https?:\/\//i.test(token) ||
+        /^[a-z0-9-]+\.(vercel\.app|com|io|dev|org|net)(\/\S*)?$/i.test(token);
 
-  for (const token of tokens) {
-    if (token.trim() === "") {
-      children.push(new TextRun({ text: token, size, font: "Calibri" }));
-      continue;
-    }
-    const looksLikeUrl =
-      /^https?:\/\//i.test(token) ||
-      /^[a-z0-9-]+\.(vercel\.app|com|io|dev|org|net)(\/\S*)?$/i.test(token);
-
-    if (looksLikeUrl) {
-      const href = token.startsWith("http") ? token : "https://" + token;
-      children.push(
-        new ExternalHyperlink({
-          link: href,
-          children: [new TextRun({ text: token, size, color: LINK, underline: {}, font: "Calibri" })],
-        })
-      );
-    } else {
-      const boldParts = token.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
-      for (const part of boldParts) {
-        const isBold = part.startsWith("**") && part.endsWith("**");
+      if (looksLikeUrl) {
+        const href = token.startsWith("http") ? token : "https://" + token;
         children.push(
-          new TextRun({
-            text: isBold ? part.slice(2, -2) : part,
-            bold: isBold || baseBold,
-            size,
-            font: "Calibri",
+          new ExternalHyperlink({
+            link: href,
+            children: [new TextRun({ text: token, size, color: LINK, underline: {}, bold: segBold, font: "Calibri" })],
           })
         );
+      } else {
+        children.push(new TextRun({ text: token, bold: segBold, size, font: "Calibri" }));
       }
     }
   }
@@ -147,7 +146,7 @@ function textToParagraphs(text: string, mode: "plain" | "skills", d: Density): P
   return text
     .split("\n")
     .filter((line) => line.trim() !== "")
-    .filter((line) => !/^(SKILLS|PROJECTS|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE)\s*$/i.test(line.trim()))
+    .filter((line) => !SECTION_HEADING_LINE_RE.test(line.trim()))
     .flatMap((line): Paragraph[] => {
       const trimmed = line.trim();
       // Job header line: "@@JOB@@role@@date" → bold role left, bold date right
@@ -161,17 +160,20 @@ function textToParagraphs(text: string, mode: "plain" | "skills", d: Density): P
       const isBullet = trimmed.startsWith("•") || trimmed.startsWith("-");
       const clean = isBullet ? trimmed.replace(/^[•\-]\s*/, "") : trimmed;
 
-      // Skills: bold only the label before the first colon
-      if (mode === "skills" && !isBullet && clean.includes(":")) {
-        const idx = clean.indexOf(":");
-        const label = clean.slice(0, idx + 1);
-        const rest = clean.slice(idx + 1);
+      // Skills: bold only the label before the first colon. Markers are
+      // flattened first — the label gets its own bold, so a model-emitted
+      // "**Functional Competencies:**" must not leak literal asterisks.
+      const flatSkills = mode === "skills" && !isBullet ? stripBoldMarkers(clean) : clean;
+      if (mode === "skills" && !isBullet && flatSkills.includes(":")) {
+        const idx = flatSkills.indexOf(":");
+        const label = flatSkills.slice(0, idx + 1);
+        const rest = flatSkills.slice(idx + 1);
         return [new Paragraph({
           spacing: { after: d.bulletAfter },
           alignment: AlignmentType.LEFT,
           children: [
             new TextRun({ text: label, bold: true, size: 21, font: "Calibri" }),
-            ...buildRuns(rest, { size: 21 }),
+            new TextRun({ text: rest, size: 21, font: "Calibri" }),
           ],
         })];
       }
@@ -193,7 +195,8 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any, d: Density): P
   const out: Paragraph[] = [];
   if (!Array.isArray(projectsMeta) || projectsMeta.length === 0) return out;
 
-  projectsMeta.forEach((meta, idx) => {
+  projectsMeta.forEach((rawMeta, idx) => {
+    const meta = rawMeta || {};
     const tailored = tailoredBullets?.[String(idx)];
     const bullets: string[] = (Array.isArray(tailored) && tailored.length > 0)
       ? tailored
@@ -214,14 +217,14 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any, d: Density): P
     if (meta.tech) {
       out.push(new Paragraph({
         spacing: { after: d.tightAfter },
-        children: [new TextRun({ text: meta.tech, size: 21, font: "Calibri" })],
+        children: buildRuns(meta.tech, { size: 21 }),
       }));
     }
     // Links (clickable)
     if (Array.isArray(meta.links) && meta.links.length > 0) {
       const linkRuns: (TextRun | ExternalHyperlink)[] = [];
       meta.links.forEach((l: any, i: number) => {
-        if (i > 0) linkRuns.push(new TextRun({ text: "   |   ", size: 21, font: "Calibri" }));
+        if (i > 0) linkRuns.push(new TextRun({ text: " | ", size: 21, font: "Calibri" }));
         // label = category prefix ("Code:", "Live"); display = clickable text.
         // The extractor sometimes sets both to the same value (e.g. "GitHub"),
         // which rendered as "GitHubGitHub". Show the label only when it adds
@@ -259,9 +262,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { summary, skills, experience, projects, projectsMeta, companyName, roleTitle, profile, sectionOrder } = await req.json();
-// Always use profile data exclusively. Missing fields render blank — never fall back to owner data.
-const contactName = profile?.name || "";
+    // docx's Packer runs synchronously; refuse oversized bodies from the
+    // header before reading them into memory.
+    if (Number(req.headers.get("content-length") || 0) > MAX_DOCUMENT_BODY_BYTES) {
+      return NextResponse.json({ error: "Document payload is too large." }, { status: 413 });
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
+    const text = (v: unknown) => (typeof v === "string" ? v : "");
+    const summary = text(body.summary);
+    const skills = text(body.skills);
+    const experience = text(body.experience);
+    const projects = body.projects && typeof body.projects === "object" ? (body.projects as Record<string, unknown>) : {};
+    const projectsMeta = Array.isArray(body.projectsMeta) ? body.projectsMeta : [];
+    const sectionOrder = body.sectionOrder;
+// Always use profile data exclusively. Missing fields render blank — never fall
+// back to owner data. Normalised first so a malformed stored profile (a model
+// returning `"education": {}`) renders blank instead of crashing the download.
+const profile = normalizeProfile(body.profile);
+const contactName = profile.name;
 // A professional headline should never contain contact/social URLs. When the
 // extractor mis-files the CV's contact line into the tagline, the GitHub/LinkedIn
 // URL renders here AND again as the link label below — the "GitHub twice" bug.
@@ -274,33 +298,26 @@ const cleanTagline = (t: string): string =>
     .replace(/^\s*[|•·,\-–—]+\s*|\s*[|•·,\-–—]+\s*$/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
-const contactTagline = cleanTagline(profile?.tagline ?? "");
-const contactEmail = String(profile?.email || "").trim();
-const contactLinkedin = profile?.linkedin
+const contactTagline = cleanTagline(profile.tagline);
+const contactEmail = profile.email;
+const contactLinkedin = profile.linkedin
   ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin)
   : "";
-const contactGithub = profile?.github
+const contactGithub = profile.github
   ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github)
   : "";
-const education = (profile?.education || []).map((e: any) => ({
-  head: e.degree || "",
-  date: e.dates || "",
-  school: e.institution || "",
+const contactWebsite = profile.website
+  ? (profile.website.startsWith("http") ? profile.website : "https://" + profile.website)
+  : "";
+const education = profile.education.map((e) => ({
+  head: e.degree,
+  date: e.dates,
+  school: e.institution,
   note: e.note,
 }));
-const certs = profile?.certifications || [];
-const rightToWork = profile?.rightToWork || [];
-const extraSections = filterExtraSections(profile?.extraSections);
-
-    // Build a safe filename: FirstName_CompanyName_RoleName_CV.docx
-    const firstName = (profile?.name || "").trim().split(/\s+/).slice(0, 2).join("_") || "User";
-    const clean = (s: string) =>
-      (s || "")
-        .replace(/[^a-zA-Z0-9]+/g, "_") // non-alphanumeric → underscore
-        .replace(/^_+|_+$/g, "")        // trim leading/trailing underscores
-        .slice(0, 40);                  // keep it reasonable
-    const parts = [firstName, clean(companyName), clean(roleTitle), "CV"].filter(Boolean);
-    const filename = parts.join("_") + ".docx";
+const certs = profile.certifications;
+const rightToWork = profile.rightToWork;
+const extraSections = filterExtraSections(profile.extraSections);
 
     // Size the content before laying it out, so the spacing can be chosen to
     // fill two pages rather than either cramming or leaving page 2 half empty.
@@ -318,7 +335,7 @@ const extraSections = filterExtraSections(profile?.extraSections);
       educationText, certs.join("\n"), rightToWork.join("\n"), extrasText,
     ].filter(Boolean).join("\n");
 
-    const hasContactRow = !!(profile?.location || profile?.phone || contactEmail || contactLinkedin || contactGithub);
+    const hasContactRow = !!(profile.location || profile.phone || contactEmail || contactLinkedin || contactGithub || contactWebsite);
     const contactLines = 1 + (contactTagline ? 1 : 0) + (hasContactRow ? 1 : 0);
     const headingCount =
       (summary ? 1 : 0) + (skills ? 1 : 0) + (experience ? 1 : 0) +
@@ -355,8 +372,8 @@ const extraSections = filterExtraSections(profile?.extraSections);
         if (contactRuns.length > 0) contactRuns.push(new TextRun({ text: " · ", size: 20, font: "Calibri" }));
         contactRuns.push(run);
       };
-      if (profile?.location) addContactRun(new TextRun({ text: profile.location, size: 20, font: "Calibri" }));
-      if (profile?.phone) addContactRun(new TextRun({ text: profile.phone, size: 20, font: "Calibri" }));
+      if (profile.location) addContactRun(new TextRun({ text: profile.location, size: 20, font: "Calibri" }));
+      if (profile.phone) addContactRun(new TextRun({ text: profile.phone, size: 20, font: "Calibri" }));
       if (contactEmail) {
         addContactRun(new ExternalHyperlink({
           link: `mailto:${contactEmail}`,
@@ -368,6 +385,9 @@ const extraSections = filterExtraSections(profile?.extraSections);
       }
       if (contactGithub) {
         addContactRun(new ExternalHyperlink({ link: contactGithub, children: [new TextRun({ text: "GitHub", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
+      }
+      if (contactWebsite) {
+        addContactRun(new ExternalHyperlink({ link: contactWebsite, children: [new TextRun({ text: "Portfolio", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
       }
       children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 }, children: contactRuns }));
     }
@@ -389,7 +409,7 @@ const extraSections = filterExtraSections(profile?.extraSections);
         experience ? [sectionHeading("Experience", density), ...textToParagraphs(experience, "plain", density)] : [],
 
       projects: () => {
-        const projectParas = buildProjects(projectsMeta || [], projects || {}, density);
+        const projectParas = buildProjects(projectsMeta, projects, density);
         return projectParas.length > 0 ? [sectionHeading("Projects", density), ...projectParas] : [];
       },
 
@@ -408,10 +428,10 @@ const extraSections = filterExtraSections(profile?.extraSections);
           out.push(new Paragraph({ spacing: { after: density.tightAfter }, children: [new TextRun({ text: e.school, size: 21, font: "Calibri" })] }));
           // e.note can hold multiple bullets, one per line — a paragraph per
           // line, not one paragraph for the whole blob.
-          if (e.note?.trim()) {
+          if (e.note.trim()) {
             for (const n of e.note.split("\n")) {
               if (!n.trim()) continue;
-              out.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text: n.trim(), size: 20, font: "Calibri" })] }));
+              out.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: buildRuns(n.trim(), { size: 20 }) }));
             }
           }
         }
@@ -427,7 +447,7 @@ const extraSections = filterExtraSections(profile?.extraSections);
     if (certs.length > 0) {
     children.push(sectionHeading("Certifications", density));
     for (const c of certs) {
-      children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, children: [new TextRun({ text: c, size: 21, font: "Calibri" })] }));
+      children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, children: buildRuns(c, { size: 21 }) }));
     }
   }
 
@@ -435,7 +455,7 @@ const extraSections = filterExtraSections(profile?.extraSections);
     if (rightToWork.length > 0) {
     children.push(sectionHeading("Right to Work", density));
     for (const r of rightToWork) {
-      children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, children: [new TextRun({ text: r, size: 21, font: "Calibri" })] }));
+      children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, children: buildRuns(r, { size: 21 }) }));
     }
   }
 
@@ -443,7 +463,7 @@ const extraSections = filterExtraSections(profile?.extraSections);
     for (const sec of extraSections) {
       children.push(sectionHeading(sec.title, density));
       for (const b of sec.bullets) {
-        children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, children: [new TextRun({ text: b, size: 21, font: "Calibri" })] }));
+        children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, children: buildRuns(b, { size: 21 }) }));
       }
     }
 
@@ -454,11 +474,14 @@ const extraSections = filterExtraSections(profile?.extraSections);
     });
 
     const buffer = await Packer.toBuffer(doc);
+    // The client names the saved file (see saveBlob in CvPreview); this header
+    // is a safe constant so no profile text ever reaches a response header —
+    // a non-Latin name here used to crash the response with ERR_INVALID_CHAR.
     return new Response(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": 'attachment; filename="CV.docx"',
       },
     });
   } catch (error) {

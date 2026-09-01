@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -15,9 +14,14 @@ import {
   type Profile,
 } from "@/lib/cvStore";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
+import { MAX_CV_CHARS } from "@/lib/limits";
+import { splitTrailingDate } from "@/lib/projectDate";
+import { stripMarkdown } from "@/lib/markdownText";
 import CvUpload from "../CvUpload";
+import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import Skeleton from "@/components/ui/Skeleton";
 import Input from "@/components/ui/Input";
 import Textarea from "@/components/ui/Textarea";
 import FormField from "@/components/ui/FormField";
@@ -64,10 +68,19 @@ export default function CustomizePage() {
   // check the extraction before saving. Cleared once they edit or save.
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
 
+  // Inline two-step confirms (no blocking window.confirm): replacing the CV is
+  // destructive, and re-running extraction spends an AI call.
+  const [confirmReplace, setConfirmReplace] = useState(false);
+  const [confirmReextract, setConfirmReextract] = useState(false);
+  const [reextracting, setReextracting] = useState(false);
+
   // Profile details — extracted from the master CV, edited here.
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [extracting, setExtracting] = useState(false);
+  // Extraction can fail while the CV itself saved fine; the user needs to
+  // know, because a missing profile means a CV headed "YOUR NAME".
+  const [profileError, setProfileError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -77,7 +90,7 @@ export default function CustomizePage() {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        router.replace("/auth/login");
+        router.replace("/auth/login?next=/customize");
         return;
       }
       setUserId(session.user.id);
@@ -120,11 +133,22 @@ export default function CustomizePage() {
     return () => { active = false; };
   }, [router]);
 
+  // One upsert per pause in typing, not per keystroke — the previous version
+  // sent the whole profile on every character, and out-of-order responses
+  // could persist a stale value.
+  const profileSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (profileSaveTimer.current) clearTimeout(profileSaveTimer.current); }, []);
+
   function updateProfileField(field: keyof Profile, value: string) {
     if (!profile) return;
     const updated = { ...profile, [field]: value };
     setProfile(updated);
-    saveProfile(updated); // fire-and-forget: UI state is already correct, DB catches up
+    if (profileSaveTimer.current) clearTimeout(profileSaveTimer.current);
+    profileSaveTimer.current = setTimeout(() => {
+      saveProfile(updated).then((ok) => {
+        setProfileError(ok ? "" : "Couldn't save that change. Check your connection and try again.");
+      });
+    }, 500);
   }
 
   // Drops any tailored result sitting in the /app workspace without touching
@@ -137,35 +161,65 @@ export default function CustomizePage() {
   }
 
   async function handleSaveCv() {
-    if (!cvDraft.trim()) {
+    if (extracting) return; // a second click mid-save would spend a second extraction call
+    // A CV pasted from a markdown file carries **bold** and [label](url)
+    // syntax that would otherwise leak literally into every output — the CV
+    // text is quoted verbatim by the prompts and captured verbatim by
+    // extraction. Clean it here and reflect the cleaned text in the box, so
+    // what's stored is exactly what the user sees.
+    const draft = stripMarkdown(cvDraft).trim();
+    if (draft !== cvDraft) setCvDraft(draft);
+    if (!draft) {
       setCvError("Paste your CV before saving.");
       return;
     }
-    const rec = await saveMasterCV(cvDraft);
-    setMasterCvText(rec.text);
-    setCvSavedAt(rec.updatedAt);
+    if (draft.length > MAX_CV_CHARS) {
+      setCvError(
+        `Your CV is ${draft.length.toLocaleString()} characters — the limit is ${MAX_CV_CHARS.toLocaleString()}. Trim it, or keep just the sections that matter.`
+      );
+      return;
+    }
     setCvError("");
-    setUploadNotice(null);
-    invalidateWorkspaceResult();
-
-    // Extract the profile (name/contact/education) from the new CV
     setExtracting(true);
     try {
-      const res = await fetch("/api/extract-profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cvText: rec.text }),
-      });
-      const data = await res.json();
-      if (res.ok && data.profile) {
-        setProfile(data.profile);
-        await saveProfile(data.profile);
+      const rec = await saveMasterCV(draft);
+      if (!rec) {
+        setCvError("Couldn't save your CV. Check your connection and try again.");
+        return;
       }
-    } catch {
-      // extraction failed — user can still proceed; we'll fall back
+      setMasterCvText(rec.text);
+      setCvSavedAt(rec.updatedAt);
+      setUploadNotice(null);
+      invalidateWorkspaceResult();
+
+      // Extract the profile (name/contact/education) from the new CV. The CV
+      // is already saved at this point; a failure here is reported, not hidden.
+      let extractError = "";
+      try {
+        const res = await fetch("/api/extract-profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cvText: rec.text }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.profile) {
+          setProfile(data.profile);
+          const persisted = await saveProfile(data.profile);
+          if (!persisted) {
+            extractError = "Your CV is saved, but your details couldn't be stored. Reload and try Edit → Save again.";
+          }
+        } else {
+          extractError = data.error
+            ? `Your CV is saved, but reading your details out of it failed: ${data.error}`
+            : "Your CV is saved, but your details couldn't be read out of it. Try Edit → Save again.";
+        }
+      } catch {
+        extractError = "Your CV is saved, but the server couldn't be reached to read your details. Try Edit → Save again.";
+      }
+      setProfileError(extractError);
+      setEditingCv(false);
     } finally {
       setExtracting(false);
-      setEditingCv(false);
     }
   }
 
@@ -175,11 +229,9 @@ export default function CustomizePage() {
   }
 
   async function handleClearCv() {
-    // Destructive and irreversible — the button sits right next to "Edit",
-    // so a confirmation guards against a misclick wiping the master CV.
-    if (!window.confirm("Replace your master CV? This deletes your saved CV and extracted details — this can't be undone.")) {
-      return;
-    }
+    // Destructive and irreversible — reached only through the inline two-step
+    // confirm below, so no blocking window.confirm here.
+    setConfirmReplace(false);
     // Reset UI immediately so the user doesn't wait for the DB delete
     setProfile(null);
     setMasterCvText("");
@@ -191,6 +243,45 @@ export default function CustomizePage() {
     // Delete from DB in the background
     await clearMasterCV();
     await clearProfile();
+  }
+
+  // Re-runs profile extraction against the SAVED master CV — the recovery path
+  // when extraction failed on save, or when the extracted details look wrong.
+  // Spends one AI call, hence the two-step confirm in the UI.
+  async function handleReextract() {
+    if (!masterCvText || reextracting || extracting) return;
+    setConfirmReextract(false);
+    setReextracting(true);
+    setProfileError("");
+    try {
+      const res = await fetch("/api/extract-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cvText: masterCvText }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.profile) {
+        setProfile(data.profile);
+        const persisted = await saveProfile(data.profile);
+        if (persisted) {
+          // The project list may have changed shape — a tailored result keyed
+          // by the old project indexes must not survive it.
+          invalidateWorkspaceResult();
+        } else {
+          setProfileError("Extraction worked, but the result couldn't be stored. Try again.");
+        }
+      } else {
+        setProfileError(
+          data.error
+            ? `Re-running extraction failed: ${data.error}`
+            : "Re-running extraction failed. Try again."
+        );
+      }
+    } catch {
+      setProfileError("Couldn't reach the server to re-run extraction. Try again.");
+    } finally {
+      setReextracting(false);
+    }
   }
 
   function move(from: number, to: number) {
@@ -234,19 +325,17 @@ export default function CustomizePage() {
   return (
     <main className="page">
       <div className="container">
-        <header className="header">
-          <div className="appBar" style={{ marginBottom: 8 }}>
-            <div className="wordmark">Jobhuntz</div>
-            <Link href="/app" className="customizeLink">← Back to app</Link>
-          </div>
-          <p className="tagline">
-            Manage your master CV, your details, and how your tailored CV is laid out.
-          </p>
-        </header>
+        <AppHeader
+          title="Customize"
+          tagline="Manage your master CV, your details, and how your tailored CV is laid out."
+        />
 
         <Card>
           {cvLoading ? (
-            <p className="cvHelp">Loading your CV…</p>
+            <>
+              <div className="label">Master CV</div>
+              <Skeleton lines={3} label="Loading your CV" />
+            </>
           ) : editingCv ? (
             <FormField
               label="Master CV"
@@ -258,7 +347,9 @@ export default function CustomizePage() {
                 onExtracted={(text, meta) => {
                   // Populate the SAME textarea the paste flow uses. Nothing is
                   // saved yet — the user reviews and edits, then hits Save.
-                  setCvDraft(text);
+                  // Markdown cleanup applies to uploads too (.md files arrive
+                  // through the plain-text path).
+                  setCvDraft(stripMarkdown(text));
                   setCvError("");
                   setUploadNotice(
                     `Text extracted from ${meta.filename} (${meta.characters.toLocaleString()} characters). ` +
@@ -283,13 +374,19 @@ export default function CustomizePage() {
                 }}
                 placeholder="Paste your full CV here…"
                 rows={10}
+                disabled={extracting}
               />
+              <p className={"charCount" + (cvDraft.length > MAX_CV_CHARS ? " over" : "")} aria-live="polite">
+                {cvDraft.length.toLocaleString()} / {MAX_CV_CHARS.toLocaleString()}
+              </p>
               <div className="actions">
-                <Button onClick={handleSaveCv}>Save master CV</Button>
+                <Button onClick={handleSaveCv} disabled={extracting}>
+                  {extracting ? "Saving…" : "Save master CV"}
+                </Button>
                 {masterCvText && (
-                  <Button variant="secondary" onClick={() => setEditingCv(false)}>Cancel</Button>
+                  <Button variant="secondary" onClick={() => setEditingCv(false)} disabled={extracting}>Cancel</Button>
                 )}
-                {cvError && <StatusText as="span">{cvError}</StatusText>}
+                {cvError && <StatusText as="span" role="alert">{cvError}</StatusText>}
               </div>
             </FormField>
           ) : (
@@ -301,8 +398,20 @@ export default function CustomizePage() {
                 )}
               </div>
               <div className="cvSavedActions">
-                <Button variant="secondary" onClick={handleEditCv}>Edit</Button>
-                <Button variant="ghost" onClick={handleClearCv}>Replace</Button>
+                {confirmReplace ? (
+                  <>
+                    <StatusText as="span">Delete your saved CV and extracted details?</StatusText>
+                    <Button variant="ghost" className="keyRemove" onClick={handleClearCv}>
+                      Yes, replace
+                    </Button>
+                    <Button variant="ghost" onClick={() => setConfirmReplace(false)}>Keep it</Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="secondary" onClick={handleEditCv}>Edit</Button>
+                    <Button variant="ghost" onClick={() => setConfirmReplace(true)}>Replace</Button>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -312,8 +421,9 @@ export default function CustomizePage() {
           <div className="label">
             Your details {extracting && <span className="cvSavedMeta">— extracting…</span>}
           </div>
+          {profileError && <p role="alert" className="keyError">{profileError}</p>}
           {profileLoading ? (
-            <p className="cvHelp" style={{ color: "var(--muted)" }}>Loading your details…</p>
+            <Skeleton lines={2} label="Loading your details" />
           ) : profile ? (
             <>
               <p className="cvHelp">Pulled from your CV. Check these are right — they appear in your tailored CV&apos;s header and sections.</p>
@@ -325,12 +435,89 @@ export default function CustomizePage() {
                 <label>Email<Input value={profile.email} onChange={(e) => updateProfileField("email", e.target.value)} /></label>
                 <label>LinkedIn<Input value={profile.linkedin} onChange={(e) => updateProfileField("linkedin", e.target.value)} /></label>
                 <label>GitHub<Input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} /></label>
+                <label>Website<Input value={profile.website} onChange={(e) => updateProfileField("website", e.target.value)} /></label>
               </div>
+
+              {(profile.projects.length > 0 ||
+                profile.education.length > 0 ||
+                profile.certifications.length > 0 ||
+                (profile.extraSections?.length ?? 0) > 0) && (
+                <div className="extractSummary">
+                  <div className="extractLabel">Also extracted from your CV</div>
+                  <dl className="extractGrid">
+                    {profile.projects.length > 0 && (
+                      <div className="extractRow">
+                        <dt>Projects ({profile.projects.length})</dt>
+                        <dd>
+                          {profile.projects
+                            .map((pr) => splitTrailingDate(pr.name || "").title || pr.name)
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </dd>
+                      </div>
+                    )}
+                    {profile.education.length > 0 && (
+                      <div className="extractRow">
+                        <dt>Education ({profile.education.length})</dt>
+                        <dd>
+                          {profile.education
+                            .map((e) => [e.degree, e.institution].filter(Boolean).join(" — "))
+                            .join(" · ")}
+                        </dd>
+                      </div>
+                    )}
+                    {profile.certifications.length > 0 && (
+                      <div className="extractRow">
+                        <dt>Certifications ({profile.certifications.length})</dt>
+                        <dd>{profile.certifications.join(" · ")}</dd>
+                      </div>
+                    )}
+                    {(profile.extraSections?.length ?? 0) > 0 && (
+                      <div className="extractRow">
+                        <dt>Extra sections</dt>
+                        <dd>{(profile.extraSections ?? []).map((s) => s.title).join(" · ")}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  <p className="cvHelp cvHelpTight">
+                    This just shows what was read out of your CV — the wording itself is edited
+                    inline on the tailored CV preview.
+                  </p>
+                </div>
+              )}
             </>
+          ) : masterCvText ? (
+            <p className="cvHelp">
+              Your CV is saved, but no details have been extracted from it yet — run the
+              extraction below.
+            </p>
           ) : (
             <p className="cvHelp">
               No details yet — add your master CV above and these will be extracted automatically.
             </p>
+          )}
+          {!profileLoading && masterCvText && (
+            <div className="actions">
+              {confirmReextract ? (
+                <>
+                  <StatusText as="span">Re-running uses one AI call — continue?</StatusText>
+                  <Button variant="secondary" onClick={handleReextract} disabled={reextracting}>
+                    Yes, re-run
+                  </Button>
+                  <Button variant="ghost" onClick={() => setConfirmReextract(false)} disabled={reextracting}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="secondary"
+                  onClick={() => setConfirmReextract(true)}
+                  disabled={reextracting || extracting || editingCv}
+                >
+                  {reextracting ? "Re-running extraction…" : "Re-run extraction"}
+                </Button>
+              )}
+            </div>
           )}
         </Card>
 
@@ -340,7 +527,7 @@ export default function CustomizePage() {
             help="Drag a section, or use the arrows. This changes the order only — how many bullets each section gets is still decided by the tailoring for each specific job."
           >
           {loading ? (
-            <p className="cvHelp" style={{ color: "var(--muted)" }}>Loading your layout…</p>
+            <Skeleton lines={5} label="Loading your layout" />
           ) : (
             <>
               <ul className="orderList">
@@ -409,8 +596,8 @@ export default function CustomizePage() {
                 </Button>
               </div>
 
-              {error && <StatusText style={{ marginTop: 12 }} role="alert">{error}</StatusText>}
-              {savedMsg && <StatusText tone="success" style={{ marginTop: 12 }} role="status">{savedMsg}</StatusText>}
+              {error && <StatusText className="msgBelow" role="alert">{error}</StatusText>}
+              {savedMsg && <StatusText tone="success" className="msgBelow" role="status">{savedMsg}</StatusText>}
             </>
           )}
           </FormField>
@@ -418,7 +605,7 @@ export default function CustomizePage() {
 
         <Card>
           <div className="label">Not affected by this</div>
-          <p className="cvHelp" style={{ marginBottom: 0 }}>
+          <p className="cvHelp cvHelpTight">
             Your name and contact details stay at the top. Certifications, Right to Work and any
             extra sections from your CV stay after the sections above, in that order.
           </p>

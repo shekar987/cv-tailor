@@ -16,10 +16,15 @@ export async function POST(req: NextRequest) {
     }
     const userId = claimsData.claims.sub as string;
 
-    const body = await req.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
     const { provider, key } = body;
 
-    if (!VALID_PROVIDERS.has(provider)) {
+    if (typeof provider !== "string" || !VALID_PROVIDERS.has(provider)) {
       return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
     }
 

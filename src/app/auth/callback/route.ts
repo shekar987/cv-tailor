@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { safeNextPath } from '@/lib/safeNext'
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
   const oauthError = searchParams.get('error')
-  // 'next' lets the login page say where to send the user after auth
-  const next = searchParams.get('next') ?? '/app'
+  // 'next' lets the login page say where to send the user after auth. Only a
+  // same-origin path is honoured — see safeNextPath.
+  const safeNext = safeNextPath(searchParams.get('next'))
 
   // OAuth provider explicitly sent an error (user denied, app not approved, etc.)
   if (oauthError) {
@@ -19,8 +21,6 @@ export async function GET(request: Request) {
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!exchangeError) {
-      // Only allow redirecting within our own origin to prevent open-redirect attacks
-      const safeNext = next.startsWith('/') ? next : '/app'
       return NextResponse.redirect(`${origin}${safeNext}`)
     }
 

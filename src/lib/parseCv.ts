@@ -7,8 +7,10 @@
 //
 // Nothing here ever logs file bytes or extracted text.
 
+import { MAX_CV_CHARS } from "@/lib/limits";
+
 export const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB
-export const MAX_CV_CHARS = 20_000; // matches the cap on the AI endpoints
+export { MAX_CV_CHARS };
 
 export type CvFileKind = "pdf" | "docx" | "txt";
 

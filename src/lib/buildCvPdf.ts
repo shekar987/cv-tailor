@@ -9,6 +9,8 @@ import { filterExtraSections } from "@/lib/sections";
 import { chooseDensity, wrappedLines, type Density } from "@/lib/cvDensity";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { PdfCursor, parseWords, drawWrapped, drawBullet, drawHeaderLine, hexToRgb, registerFonts, FONT, type Word } from "@/lib/pdfText";
+import { SECTION_HEADING_LINE_RE } from "@/lib/sections";
+import { stripBoldMarkers } from "@/lib/markdownText";
 import { splitTrailingDate } from "@/lib/projectDate";
 
 const NAVY = hexToRgb("1F3864");
@@ -41,7 +43,7 @@ function drawTextBlock(doc: jsPDF, cursor: PdfCursor, text: string, mode: "plain
   const lines = text
     .split("\n")
     .filter((l) => l.trim() !== "")
-    .filter((l) => !/^(SKILLS|PROJECTS|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE)\s*$/i.test(l.trim()));
+    .filter((l) => !SECTION_HEADING_LINE_RE.test(l.trim()));
 
   for (const raw of lines) {
     const trimmed = raw.trim();
@@ -59,10 +61,13 @@ function drawTextBlock(doc: jsPDF, cursor: PdfCursor, text: string, mode: "plain
     const isBullet = trimmed.startsWith("•") || trimmed.startsWith("-");
     const clean = isBullet ? trimmed.replace(/^[•\-]\s*/, "") : trimmed;
 
-    if (mode === "skills" && !isBullet && clean.includes(":")) {
-      const idx = clean.indexOf(":");
-      const label = clean.slice(0, idx + 1);
-      const rest = clean.slice(idx + 1).replace(/^\s+/, "");
+    // Markers flattened first — the label gets its own bold, so a
+    // model-emitted "**Functional Competencies:**" must not leak asterisks.
+    const flatSkills = mode === "skills" && !isBullet ? stripBoldMarkers(clean) : clean;
+    if (mode === "skills" && !isBullet && flatSkills.includes(":")) {
+      const idx = flatSkills.indexOf(":");
+      const label = flatSkills.slice(0, idx + 1);
+      const rest = flatSkills.slice(idx + 1).replace(/^\s+/, "");
       // The space is embedded IN the label's own text run (not left for the
       // renderer to infer from the gap between two separate draw calls) —
       // some PDF text extractors don't reconstruct a space across a run
@@ -122,7 +127,7 @@ function drawProjects(doc: jsPDF, cursor: PdfCursor, projectsMeta: any[], tailor
     cursor.advance(pt(d.tightAfter));
 
     if (meta.tech) {
-      drawWrapped(doc, cursor, [{ text: meta.tech }], 10.5, lineOf(10.5));
+      drawWrapped(doc, cursor, parseWords(meta.tech), 10.5, lineOf(10.5));
       cursor.advance(pt(d.tightAfter));
     }
 
@@ -177,7 +182,7 @@ function drawEducation(doc: jsPDF, cursor: PdfCursor, education: any[], d: Densi
     if (e.note && String(e.note).trim()) {
       for (const n of String(e.note).split("\n")) {
         if (!n.trim()) continue;
-        drawBullet(doc, cursor, [{ text: n.trim() }], 10, lineOf(10), { align: "justify" });
+        drawBullet(doc, cursor, parseWords(n.trim()), 10, lineOf(10), { align: "justify" });
         cursor.advance(pt(d.bulletAfter));
       }
     }
@@ -188,7 +193,9 @@ function drawBulletList(doc: jsPDF, cursor: PdfCursor, title: string, items: str
   if (items.length === 0) return;
   drawSectionHeading(doc, cursor, title, d);
   for (const item of items) {
-    drawBullet(doc, cursor, [{ text: item }], 10.5, lineOf(10.5));
+    // parseWords so **bold** in stored profile content (certs, right to
+    // work, extras) renders as bold — matching the docx route's buildRuns.
+    drawBullet(doc, cursor, parseWords(item), 10.5, lineOf(10.5));
     cursor.advance(pt(d.bulletAfter));
   }
 }
@@ -218,9 +225,12 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
       .replace(/\s{2,}/g, " ")
       .trim();
   const contactTagline = cleanTagline(profile?.tagline ?? "");
-  const contactEmail = (profile?.email || "").trim();
+  // String() to match the docx route — a non-string email must not make the
+  // PDF fail where the Word download succeeds.
+  const contactEmail = String(profile?.email || "").trim();
   const contactLinkedin = profile?.linkedin ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin) : "";
   const contactGithub = profile?.github ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github) : "";
+  const contactWebsite = profile?.website ? (profile.website.startsWith("http") ? profile.website : "https://" + profile.website) : "";
   const education = (profile?.education || []).map((e: any) => ({
     head: e.degree || "",
     date: e.dates || "",
@@ -243,7 +253,7 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
   const bodyText = [summary, skills, experience, projectText, projectMetaText, educationText, certs.join("\n"), rightToWork.join("\n"), extrasText]
     .filter(Boolean)
     .join("\n");
-  const hasContactRow = !!(profile?.location || profile?.phone || contactEmail || contactLinkedin || contactGithub);
+  const hasContactRow = !!(profile?.location || profile?.phone || contactEmail || contactLinkedin || contactGithub || contactWebsite);
   const contactLines = 1 + (contactTagline ? 1 : 0) + (hasContactRow ? 1 : 0);
   const headingCount =
     (summary ? 1 : 0) + (skills ? 1 : 0) + (experience ? 1 : 0) +
@@ -289,6 +299,7 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
     if (contactEmail) addPiece({ text: contactEmail, link: "mailto:" + contactEmail });
     if (contactLinkedin) addPiece({ text: "LinkedIn", link: contactLinkedin });
     if (contactGithub) addPiece({ text: "GitHub", link: contactGithub });
+    if (contactWebsite) addPiece({ text: "Portfolio", link: contactWebsite });
     drawWrapped(doc, cursor, contactWords, 10, lineOf(10), { align: "center", linkColor: LINK });
     cursor.advance(2);
   }
@@ -318,5 +329,5 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
     drawBulletList(doc, cursor, sec.title, sec.bullets, density);
   }
 
-  return doc.output("arraybuffer") as unknown as Uint8Array;
+  return new Uint8Array(doc.output("arraybuffer"));
 }

@@ -2,19 +2,32 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { getUsage, type Usage } from "@/lib/usage";
+import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
+import Skeleton from "@/components/ui/Skeleton";
+import StatusText from "@/components/ui/StatusText";
+
+const PAGE_TAGLINE =
+  "Your account, your usage, and the provider keys that keep tailoring running after the free credits. Keys are encrypted before storage and are never shown in full after saving.";
 
 type Provider = "gemini" | "openrouter";
 type SlotStatus = "idle" | "saving" | "error";
 type SavedKey = { hint: string; updatedAt: string };
 
+// OpenRouter first: it is the key that actually runs tailoring (the tailor
+// route's own-key path is OpenRouter-only). Gemini stays as an optional,
+// visually muted slot so an already-saved key remains manageable, labelled
+// honestly as not used for tailoring yet.
 const SLOTS: {
   label: string;
+  role: string;
+  caveat: string;
+  muted: boolean;
   provider: Provider;
   providerDisplay: string;
   howToSteps: string[];
@@ -22,21 +35,11 @@ const SLOTS: {
   linkText: string;
 }[] = [
   {
-    label: "API Key 1",
-    provider: "gemini",
-    providerDisplay: "Google AI Studio (Gemini)",
-    howToSteps: [
-      "Open Google AI Studio at aistudio.google.com/app/apikey",
-      "Sign in with your Google account",
-      'Click "Create API key" and select a project (or create one)',
-      "Copy the key — it typically starts with AIza… or AQ…",
-      "Paste it in the field below",
-    ],
-    linkUrl: "https://aistudio.google.com/app/apikey",
-    linkText: "Open Google AI Studio →",
-  },
-  {
-    label: "API Key 2",
+    label: "OpenRouter",
+    role: "Runs your tailoring once your free credits are used. A free OpenRouter account is enough — its free tier handles full runs.",
+    caveat:
+      "Heads up: free OpenRouter models may use what you send for training. If that matters for your CV, check the privacy settings in your OpenRouter account.",
+    muted: false,
     provider: "openrouter",
     providerDisplay: "OpenRouter",
     howToSteps: [
@@ -49,11 +52,41 @@ const SLOTS: {
     linkUrl: "https://openrouter.ai/keys",
     linkText: "Open OpenRouter →",
   },
+  {
+    label: "Google Gemini",
+    role: "Optional — not used for tailoring yet. Gemini's free tier allows 5 requests a minute and a full run makes 8, so a run can't finish on it.",
+    caveat: "",
+    muted: true,
+    provider: "gemini",
+    providerDisplay: "Google AI Studio (Gemini)",
+    howToSteps: [
+      "Open Google AI Studio at aistudio.google.com/app/apikey",
+      "Sign in with your Google account",
+      'Click "Create API key" and select a project (or create one)',
+      "Copy the key — it typically starts with AIza… or AQ…",
+      "Paste it in the field below",
+    ],
+    linkUrl: "https://aistudio.google.com/app/apikey",
+    linkText: "Open Google AI Studio →",
+  },
 ];
+
+// "resets in 3h 20m" for the daily window; "" when unknown or already reset.
+function resetsIn(iso: string | null): string {
+  if (!iso) return "";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.max(Math.round((ms % 3_600_000) / 60_000), 1);
+  return h > 0 ? `resets in ${h}h ${m}m` : `resets in ${m}m`;
+}
 
 export default function SettingsPage() {
   const router = useRouter();
   const [loaded, setLoaded] = useState(false);
+  const [email, setEmail] = useState("");
+  // undefined = still loading; null = unavailable (the numbers hide, the page works)
+  const [usage, setUsage] = useState<Usage | null | undefined>(undefined);
   const [savedKeys, setSavedKeys] = useState<Record<Provider, SavedKey | null>>({
     gemini: null,
     openrouter: null,
@@ -74,21 +107,32 @@ export default function SettingsPage() {
     gemini: "",
     openrouter: "",
   });
+  // A failed read must not masquerade as "no keys saved" — that invites the
+  // user to overwrite a key they already have.
+  const [pageError, setPageError] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState<Provider | null>(null);
 
   useEffect(() => {
     async function init() {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        router.replace("/auth/login");
+        router.replace("/auth/login?next=/settings");
         return;
       }
-      // SELECT only the non-revoked columns — key_enc is blocked at the column level
+      setEmail(session.user.email ?? "");
+      // Fire-and-forget: null just hides the usage numbers.
+      getUsage().then(setUsage);
+
+      // SELECT only the non-secret columns; the advisor-hardening migration
+      // additionally revokes key_enc at the column level, so never select *.
       const { data, error } = await supabase
         .from("user_api_keys")
         .select("provider, key_hint, updated_at");
 
-      if (!error && data) {
+      if (error) {
+        setPageError("Couldn't load your saved keys. Refresh the page to try again.");
+      } else if (data) {
         const map: Record<Provider, SavedKey | null> = { gemini: null, openrouter: null };
         for (const row of data) {
           if (row.provider === "gemini" || row.provider === "openrouter") {
@@ -135,6 +179,7 @@ export default function SettingsPage() {
   }
 
   async function handleRemove(provider: Provider) {
+    setConfirmRemove(null);
     setStatus(s => ({ ...s, [provider]: "saving" }));
     setSlotErrors(e => ({ ...e, [provider]: "" }));
 
@@ -169,28 +214,70 @@ export default function SettingsPage() {
     return (
       <main className="page">
         <div className="container">
-          <p className="cvHelp">Loading your keys…</p>
+          <AppHeader title="Settings" tagline={PAGE_TAGLINE} />
+          <div className="keyList">
+            <Card><Skeleton lines={2} label="Loading your account" /></Card>
+            <Card><Skeleton lines={3} label="Loading your keys" /></Card>
+            <Card><Skeleton lines={3} label="Loading your keys" /></Card>
+          </div>
         </div>
       </main>
     );
   }
 
+  // What actually runs a tailor for this account right now — the honest
+  // routing summary the two key cards used to leave implicit.
+  const hasOpenRouter = savedKeys.openrouter !== null;
+  const claudeLeft = usage ? Math.max(usage.claudeLimit - usage.claudeUsed, 0) : null;
+  const routing = usage?.unlimited
+    ? "This account runs without limits."
+    : claudeLeft === null
+      ? hasOpenRouter
+        ? "After the free credits, tailoring runs on your OpenRouter key."
+        : "After the free credits, an OpenRouter key keeps tailoring running."
+      : claudeLeft > 0
+        ? hasOpenRouter
+          ? "Right now tailoring runs on us. When your free credits are used, your OpenRouter key takes over."
+          : "Right now tailoring runs on us — no key needed yet. When your free credits are used, you'll need an OpenRouter key."
+        : hasOpenRouter
+          ? "Your free Claude credits are used — tailoring runs on your OpenRouter key."
+          : "Your free Claude credits are used — add an OpenRouter key below to keep tailoring.";
+
   return (
     <main className="page">
       <div className="container">
-        <header className="header">
-          <div className="appBar">
-            <div className="wordmark">Jobhuntz</div>
-            <Link href="/app" className="customizeLink">← Back to app</Link>
-          </div>
-          <h1 className="settingsHeading">API Keys</h1>
-          <p className="tagline">
-            Add your own AI provider keys to keep tailoring after your free credits run out.
-            Keys are encrypted before storage and are never shown in full after saving.
-          </p>
-        </header>
+        <AppHeader title="Settings" tagline={PAGE_TAGLINE} />
+
+        {pageError && <p role="alert" className="keyError">{pageError}</p>}
 
         <div className="keyList">
+          <Card>
+            <div className="keyCardHeader">
+              <span className="keyLabel">Account &amp; usage</span>
+              {email && <Badge variant="pill">{email}</Badge>}
+            </div>
+            {usage === undefined ? (
+              <Skeleton lines={2} label="Loading your usage" />
+            ) : (
+              <ul className="usageList">
+                {usage && !usage.unlimited && (
+                  <>
+                    <li>
+                      Free tailors today:{" "}
+                      <strong>{Math.max(usage.dailyLimit - usage.dailyUsed, 0)} of {usage.dailyLimit}</strong> left
+                      {resetsIn(usage.resetAt) && <> — {resetsIn(usage.resetAt)}</>}
+                    </li>
+                    <li>
+                      Free Claude credits:{" "}
+                      <strong>{Math.max(usage.claudeLimit - usage.claudeUsed, 0)} of {usage.claudeLimit}</strong> left (lifetime)
+                    </li>
+                  </>
+                )}
+                <li>{routing}</li>
+              </ul>
+            )}
+          </Card>
+
           {SLOTS.map((slot) => {
             const saved = savedKeys[slot.provider];
             const isBusy = status[slot.provider] === "saving";
@@ -199,8 +286,8 @@ export default function SettingsPage() {
             const showInputField = !saved || isReplacing;
 
             return (
-              <Card key={slot.provider}>
-                {/* Card header — slot label + masked badge */}
+              <Card key={slot.provider} className={slot.muted ? "keyCardMuted" : undefined}>
+                {/* Card header — provider name + masked badge */}
                 <div className="keyCardHeader">
                   <span className="keyLabel">{slot.label}</span>
                   {saved && !isReplacing && (
@@ -208,7 +295,10 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                {/* Collapsible how-to — provider name only appears here */}
+                {/* What this key actually does for the account — no mystery slots */}
+                <p className="keyRole">{slot.role}</p>
+
+                {/* Collapsible how-to */}
                 <details className="keyDetails">
                   <summary className="keySummary">
                     How to get this key ({slot.providerDisplay}) →
@@ -270,21 +360,42 @@ export default function SettingsPage() {
                 {/* Replace / Remove actions — only when key is saved and not replacing */}
                 {saved && !isReplacing && (
                   <div className="actions">
-                    <Button
-                      onClick={() => setShowInput(si => ({ ...si, [slot.provider]: true }))}
-                      disabled={isBusy}
-                      variant="secondary"
-                    >
-                      Replace
-                    </Button>
-                    <Button
-                      onClick={() => handleRemove(slot.provider)}
-                      disabled={isBusy}
-                      variant="ghost"
-                      className="keyRemove"
-                    >
-                      {isBusy ? "Removing…" : "Remove"}
-                    </Button>
+                    {confirmRemove === slot.provider ? (
+                      <>
+                        {/* Two-step: this button sits beside Replace, and a
+                            removed key can't be recovered. */}
+                        <StatusText as="span">Remove this key?</StatusText>
+                        <Button
+                          onClick={() => handleRemove(slot.provider)}
+                          disabled={isBusy}
+                          variant="ghost"
+                          className="keyRemove"
+                        >
+                          {isBusy ? "Removing…" : "Yes, remove"}
+                        </Button>
+                        <Button onClick={() => setConfirmRemove(null)} disabled={isBusy} variant="ghost">
+                          Keep it
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          onClick={() => setShowInput(si => ({ ...si, [slot.provider]: true }))}
+                          disabled={isBusy}
+                          variant="secondary"
+                        >
+                          Replace
+                        </Button>
+                        <Button
+                          onClick={() => setConfirmRemove(slot.provider)}
+                          disabled={isBusy}
+                          variant="ghost"
+                          className="keyRemove"
+                        >
+                          Remove
+                        </Button>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -292,6 +403,8 @@ export default function SettingsPage() {
                 {err && (
                   <p role="alert" className="keyError">{err}</p>
                 )}
+
+                {slot.caveat && <p className="keyCaveat">{slot.caveat}</p>}
               </Card>
             );
           })}

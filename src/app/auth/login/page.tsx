@@ -1,8 +1,10 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { safeNextPath } from '@/lib/safeNext'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import StatusText from '@/components/ui/StatusText'
@@ -41,11 +43,37 @@ export default function LoginPage() {
   const [socialLoading, setSocialLoading] = useState<'google' | 'github' | null>(null)
   const [error, setError]             = useState<string | null>(null)
   const [checkInbox, setCheckInbox]   = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetSent, setResetSent]     = useState(false)
 
   function switchMode(next: Mode) {
     setMode(next)
     setError(null)
     setCheckInbox(false)
+    setResetSent(false)
+  }
+
+  // Password recovery. Supabase emails a link that comes back through
+  // /auth/callback (PKCE code exchange) and then lands on /auth/update-password
+  // with a session, where the new password is set.
+  async function handleForgotPassword() {
+    if (loading || resetLoading) return
+    if (!email.trim()) {
+      setError('Enter your email address above first, then choose "Forgot password?".')
+      return
+    }
+    setError(null)
+    setResetLoading(true)
+    const supabase = createClient()
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent('/auth/update-password')}`,
+    })
+    setResetLoading(false)
+    if (err) {
+      setError(friendlyError(err.code, err.message))
+      return
+    }
+    setResetSent(true)
   }
 
   // Where to send the user after a successful sign-in. Set by proxy.ts when it
@@ -54,13 +82,16 @@ export default function LoginPage() {
   // Read directly from window.location rather than useSearchParams() so this
   // page can stay statically prerendered (useSearchParams needs a Suspense
   // boundary; this value is only needed inside event handlers, not on render).
+  // Only a same-origin path is honoured — anyone can craft this link.
   function getSafeNext(): string {
-    const next = new URLSearchParams(window.location.search).get('next')
-    return next && next.startsWith('/') ? next : '/app'
+    return safeNextPath(new URLSearchParams(window.location.search).get('next'))
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    // The submit button is disabled while loading, but Enter in a field still
+    // submits the form — repeated presses were tripping Supabase's rate limit.
+    if (loading || socialLoading) return
     setLoading(true)
     setError(null)
 
@@ -128,6 +159,30 @@ export default function LoginPage() {
     // On success the browser navigates away — no cleanup needed.
   }
 
+  // ─── "Reset link sent" screen ───────────────────────────────────────────────
+  if (resetSent) {
+    return (
+      <main className="authPage">
+        <div className="authCard">
+          <Wordmark />
+          <p className="authEyebrow">Password reset</p>
+          <h1 className="authTitle">Check your inbox</h1>
+          <p className="authMuted">
+            If an account exists for <strong className="authStrong">{email}</strong>, we&apos;ve sent a
+            link to choose a new password. It expires after a short while, so use it soon.
+          </p>
+          <button
+            className="authLinkBtn"
+            type="button"
+            onClick={() => { setResetSent(false); setMode('login') }}
+          >
+            Back to sign in
+          </button>
+        </div>
+      </main>
+    )
+  }
+
   // ─── "Check your inbox" screen ──────────────────────────────────────────────
   if (checkInbox) {
     return (
@@ -137,7 +192,7 @@ export default function LoginPage() {
           <p className="authEyebrow">Almost there</p>
           <h1 className="authTitle">Check your inbox</h1>
           <p className="authMuted">
-            We sent a confirmation link to <strong style={{ color: 'var(--text)' }}>{email}</strong>.
+            We sent a confirmation link to <strong className="authStrong">{email}</strong>.
             Click it to activate your account and sign in.
           </p>
           <button
@@ -156,13 +211,20 @@ export default function LoginPage() {
     <main className="authPage">
       <div className="authCard">
         <Wordmark />
+        <h1 className="authTitle">{mode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
+        <p className="authMuted">
+          {mode === 'login'
+            ? 'Sign in to pick up your master CV and applications.'
+            : 'Free to start — three tailored CVs on us, then bring your own key.'}
+        </p>
 
         {/* Mode toggle */}
-        <div className="authToggle">
+        <div className="authToggle" role="group" aria-label="Sign in or create an account">
           <button
             className={mode === 'login' ? 'active' : ''}
             onClick={() => switchMode('login')}
             type="button"
+            aria-pressed={mode === 'login'}
           >
             Sign in
           </button>
@@ -170,6 +232,7 @@ export default function LoginPage() {
             className={mode === 'signup' ? 'active' : ''}
             onClick={() => switchMode('signup')}
             type="button"
+            aria-pressed={mode === 'signup'}
           >
             Create account
           </button>
@@ -202,15 +265,28 @@ export default function LoginPage() {
             />
           </label>
 
+          {mode === 'login' && (
+            <div className="authForgotRow">
+              <button
+                type="button"
+                className="authLinkBtn authForgot"
+                onClick={handleForgotPassword}
+                disabled={loading || resetLoading}
+              >
+                {resetLoading ? 'Sending reset link…' : 'Forgot password?'}
+              </button>
+            </div>
+          )}
+
           {error && (
-            <StatusText role="alert" style={{ marginTop: 'var(--space-3)' }}>{error}</StatusText>
+            <StatusText role="alert" className="msgBelow">{error}</StatusText>
           )}
 
           <Button
             type="submit"
             disabled={loading || !email || !password}
             block
-            style={{ marginTop: 'var(--space-5)' }}
+            className="authSubmit"
           >
             {loading
               ? (mode === 'login' ? 'Signing in…' : 'Creating account…')
@@ -250,9 +326,10 @@ export default function LoginPage() {
 }
 
 function Wordmark() {
+  // A real link home — the auth screens previously had no way back to "/".
   return (
-    <div className="authWordmark">
+    <Link href="/" className="authWordmark authWordmarkLink">
       Jobhuntz
-    </div>
+    </Link>
   )
 }

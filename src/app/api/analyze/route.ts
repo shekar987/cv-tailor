@@ -4,9 +4,7 @@ import { callClaude } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { JD_ANALYZER_PROMPT } from "@/prompts/steps";
 import { matchAtsKeywords } from "@/lib/atsMatch";
-
-const MAX_JD_CHARS = 15_000;
-const MAX_CV_CHARS = 20_000; // matches /api/tailor's cap
+import { MAX_CV_CHARS, MAX_JD_CHARS, CV_TOO_LONG, JD_TOO_LONG } from "@/lib/limits";
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,10 +16,10 @@ export async function POST(req: NextRequest) {
 
     // Burst limit: this endpoint calls Claude on the owner's key with no DB
     // quota, so an unmetered loop here would drain the wallet. Gate it.
-    // Deliberately NOT the tailor-count/lifetime RPCs below — this call (JD
-    // analysis alone, ~1/9th the cost of a full tailor run) must not consume
-    // one of the paid-tailor quota slots. That RPC only fires inside
-    // /api/tailor when the full 8-step pipeline actually runs.
+    // Deliberately NOT the tailor-count/lifetime RPCs — this call (JD
+    // analysis alone, a fraction of a full tailor run) must not consume one of
+    // the paid-tailor quota slots. Those RPCs only fire inside /api/tailor when
+    // the full pipeline actually runs.
     const burst = await checkBurstLimit(data.claims.sub as string, "analyze");
     if (!burst.ok) {
       return NextResponse.json(
@@ -30,19 +28,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { jobDescription, cvText } = await req.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
 
+    const jobDescription = typeof body.jobDescription === "string" ? body.jobDescription.trim() : "";
     if (!jobDescription) {
       return NextResponse.json({ error: "No job description provided" }, { status: 400 });
     }
     if (jobDescription.length > MAX_JD_CHARS) {
-      return NextResponse.json({ error: "Job description is too long (max ~15,000 characters)." }, { status: 400 });
+      return NextResponse.json({ error: JD_TOO_LONG }, { status: 400 });
     }
     // cvText is optional: when present, this doubles as the pre-tailoring ATS
     // gate (Step 1 only, plus a local keyword check — no extra LLM call).
     // When absent, behaviour is exactly the original standalone JD analysis.
-    if (typeof cvText === "string" && cvText.length > MAX_CV_CHARS) {
-      return NextResponse.json({ error: "CV is too long (max ~5 pages / 20,000 characters)." }, { status: 400 });
+    const cvText = typeof body.cvText === "string" ? body.cvText : "";
+    if (cvText.length > MAX_CV_CHARS) {
+      return NextResponse.json({ error: CV_TOO_LONG }, { status: 400 });
     }
 
     const result = await callClaude({
@@ -51,7 +56,7 @@ export async function POST(req: NextRequest) {
       expectJson: true,
     });
 
-    if (typeof cvText === "string" && cvText.trim()) {
+    if (cvText.trim()) {
       const analysis = result as { top_15_ats_keywords?: unknown };
       const atsPreCheck = matchAtsKeywords(cvText, analysis?.top_15_ats_keywords);
       return NextResponse.json({ result, atsPreCheck });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { Document, Packer, Paragraph, TextRun, AlignmentType } from "docx";
+import { MAX_COVER_LETTER_CHARS, MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,8 +11,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { coverLetter } = await req.json();
-    const text: string = coverLetter || "";
+    if (Number(req.headers.get("content-length") || 0) > MAX_DOCUMENT_BODY_BYTES) {
+      return NextResponse.json({ error: "Document payload is too large." }, { status: 413 });
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
+    if (body.coverLetter !== undefined && typeof body.coverLetter !== "string") {
+      return NextResponse.json({ error: "Cover letter must be text." }, { status: 400 });
+    }
+    const text = (body.coverLetter ?? "") as string;
+    if (text.length > MAX_COVER_LETTER_CHARS) {
+      return NextResponse.json({ error: "Cover letter is too long." }, { status: 400 });
+    }
 
     // Each non-empty line becomes a justified paragraph; blank lines become spacers
     const children: Paragraph[] = [];

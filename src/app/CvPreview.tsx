@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useImperativeHandle, useRef, useState } from "react";
 // projects now arrives keyed by index: { "0": [...bullets], "1": [...bullets] }
 type ProjectsData = Record<string, string[]>;
 
@@ -15,17 +15,44 @@ type CvData = {
 import type { Profile } from "@/lib/cvStore";
 import DownloadButton from "./DownloadButton";
 import StatusText from "@/components/ui/StatusText";
-import { filterExtraSections, isReservedSectionTitle } from "@/lib/sections";
+import { filterExtraSections, isReservedSectionTitle, SECTION_HEADING_LINE_RE } from "@/lib/sections";
 import { saveBlob } from "@/lib/saveBlob";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
+import { pastePlainText } from "@/lib/pastePlainText";
+import { parseBoldSegments, stripBoldMarkers } from "@/lib/markdownText";
 
-function CvPreview({
-  data,
-  profile,
-  fileBaseName = "CV",
-  sectionOrder,
-}: {
+// **span** → <strong> — the render half of the bold contract (see
+// lib/markdownText). readInline() below is its exact inverse, used by
+// collectPayload(), so an edited document round-trips bold instead of
+// silently flattening it the way textContent did.
+function renderInline(text: string): React.ReactNode {
+  const segments = parseBoldSegments(text);
+  if (!segments.some((s) => s.bold)) return text;
+  return segments.map((s, i) =>
+    s.bold ? <strong key={i}>{s.text}</strong> : <React.Fragment key={i}>{s.text}</React.Fragment>
+  );
+}
+
+// DOM → text with <strong>/<b> serialized back to **…**. Everything else
+// (spans, stray divs from contentEditable) contributes its text only.
+function readInline(node: Node | null): string {
+  if (!node) return "";
+  let out = "";
+  node.childNodes.forEach((child) => {
+    if (child.nodeType === Node.TEXT_NODE) {
+      out += child.textContent ?? "";
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      const el = child as HTMLElement;
+      const inner = readInline(el);
+      if (el.tagName === "STRONG" || el.tagName === "B") out += inner.trim() ? `**${inner}**` : inner;
+      else out += inner;
+    }
+  });
+  return out;
+}
+
+type CvPreviewProps = {
   data: CvData;
   profile?: Profile | null;
   fileBaseName?: string;
@@ -33,7 +60,28 @@ function CvPreview({
   // all resolve to the default order, so an untouched account renders exactly
   // as it did before this feature existed.
   sectionOrder?: unknown;
-}) {
+};
+
+// What collectPayload() hands back: the document as currently on screen,
+// inline edits included. Consumed by both downloads and, via the ref, by the
+// /app page's Applied snapshot.
+export type CvPreviewHandle = {
+  collectPayload: () => {
+    summary: string;
+    skills: string;
+    experience: string;
+    projects: ProjectsData;
+    projectsMeta: NonNullable<Profile["projects"]>;
+    profile: Profile | null;
+    fileBaseName: string;
+    sectionOrder: SectionId[];
+  } | null;
+};
+
+const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvPreview(
+  { data, profile, fileBaseName = "CV", sectionOrder },
+  fwdRef
+) {
   const order = resolveSectionOrder(sectionOrder);
   // Fallbacks keep it working if profile is missing
   const p = profile || null;
@@ -53,28 +101,42 @@ function CvPreview({
   const email = p?.email || "";
   const linkedin = p?.linkedin || "";
   const github = p?.github || "";
-  const hasContactRow = !!(location || phone || email || linkedin || github);
+  const website = p?.website || "";
+  const hasContactRow = !!(location || phone || email || linkedin || github || website);
   const ref = useRef<HTMLDivElement>(null);
-  // Download UX state — surfaces failures instead of a silent dead button
-  const [pdfBusy, setPdfBusy] = useState(false);
+  // Download UX state — one flag for both formats, so the button reads
+  // "Generating…" for a Word build as well as a PDF one.
+  const [busy, setBusy] = useState(false);
   const [docErr, setDocErr] = useState<string | null>(null);
+
+  // The /app page snapshots the EDITED document for the tracker through this
+  // handle — the same DOM walk both downloads use, so nothing can drift.
+  useImperativeHandle(fwdRef, () => ({ collectPayload }));
 
   const lines = (text?: string) =>
     (text || "")
       .split("\n")
       .map((l) => l.trim())
-      .filter((l) => l !== "" && !/^(SKILLS|PROJECTS|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE|EDUCATION|CERTIFICATIONS)\s*:?\s*$/i.test(l));
+      .filter((l) => l !== "" && !SECTION_HEADING_LINE_RE.test(l));
   // Renders mixed subheads and bullet groups, grouping consecutive bullets into <ul>
   // Detects job-header lines (role | company) followed by a date line, and renders
   // them on one bold line (role left, date right). Groups bullets into <ul>.
   const isDateLine = (s: string) =>
-    /\b(19|20)\d{2}\b/.test(s) && (s.includes("–") || s.includes("-") || /present/i.test(s)) && s.length < 40;
+    /\b(19|20)\d{2}\b/.test(s) &&
+    (s.includes("–") || s.includes("-") || /\bto\b/i.test(s) || /present/i.test(s)) &&
+    s.length < 40;
 
   // Detects "Role | Company | June 2024 – Present" style headers — date is inline, not on the next line.
   // Works whether or not the line has a leading bullet marker.
   const isInlineJobHeader = (s: string) => {
     const clean = s.replace(/^[•\-]\s*/, "");
-    return clean.includes("|") && /\b(19|20)\d{2}\b/.test(clean) && (clean.includes("–") || /\bPresent\b/i.test(clean));
+    return (
+      clean.includes("|") &&
+      /\b(19|20)\d{2}\b/.test(clean) &&
+      // "Jun 2024 – Present", "07/2022 to 09/2024" — CVs write ranges with an
+      // en-dash, a bare "to", or an open "Present".
+      (clean.includes("–") || /\bto\b/i.test(clean) || /\bPresent\b/i.test(clean))
+    );
   };
 
   // Splits "Role | Company | June 2024 – Present" → { role: "Role | Company", date: "June 2024 – Present" }
@@ -102,6 +164,10 @@ function CvPreview({
         firstHeaderIdx = j; break;
       }
     }
+    // No header recognised at all (an unfamiliar date format used to blank
+    // the ENTIRE section this way): render every line rather than skipping —
+    // the orphan-skip below only makes sense when a header actually exists.
+    if (firstHeaderIdx === ls.length) firstHeaderIdx = 0;
 
     let i = 0;
     let nodeKey = 0; // always-incrementing; prevents key collisions between ul/p nodes
@@ -126,10 +192,10 @@ function CvPreview({
               </p>
             );
           } else if (i >= firstHeaderIdx) {
-            const clean = line.replace(/^[•\-]\s*/, "").replace(/\*\*/g, "");
+            const clean = line.replace(/^[•\-]\s*/, "");
             bullets.push(
               <li className="cvBullet" key={`${prefix}-${i}`} style={{ fontWeight: 400 }}>
-                {clean}
+                {renderInline(clean)}
               </li>
             );
           }
@@ -167,11 +233,13 @@ function CvPreview({
           // Orphaned non-bullet line before first header — skip
           i++;
         } else {
-          // Plain body line without bullet prefix
+          // Plain body line without bullet prefix (e.g. a role's "Highlight:"
+          // line) — a plain justified paragraph, matching how both document
+          // builders render non-bullet lines (they don't add a bullet glyph).
+          // Reads back through readExperience()'s else-branch as a plain
+          // line, so it round-trips unchanged.
           nodes.push(
-            <ul key={`${prefix}-${nodeKey++}`} style={{ fontWeight: 400 }}>
-              <li className="cvBullet" style={{ fontWeight: 400 }}>{l.replace(/\*\*/g, "")}</li>
-            </ul>
+            <p className="cvText" key={`${prefix}-${nodeKey++}`} style={{ fontWeight: 400 }}>{renderInline(l)}</p>
           );
           i++;
         }
@@ -182,9 +250,9 @@ function CvPreview({
 
 
   async function downloadPdf() {
-    if (pdfBusy) return;
+    if (busy) return;
     setDocErr(null);
-    setPdfBusy(true);
+    setBusy(true);
     try {
       // Built server-side from the same payload as the Word download, with a
       // real text layer (not a rasterized image) so it's ATS-parseable.
@@ -199,10 +267,10 @@ function CvPreview({
       const blob = await res.blob();
       saveBlob(blob, `${fileBaseName}.pdf`);
     } catch (e) {
-      console.error("PDF generation failed:", e);
+      console.error("PDF generation failed:", e instanceof Error ? e.message : String(e));
       setDocErr("PDF generation failed. Try the Word download, or retry.");
     } finally {
-      setPdfBusy(false);
+      setBusy(false);
     }
   }
 
@@ -236,10 +304,11 @@ function CvPreview({
       return kids.slice(si + 1, ei);
     }
 
-    // For flat text sections (summary, skills): join textContent of each child.
+    // For flat text sections (summary, skills): join each child's inline
+    // reading (bold preserved as **…**), not its flattened textContent.
     function readText(name: string): string {
       return sectionKids(name)
-        .map(el => (el.textContent || "").trim())
+        .map(el => readInline(el).trim())
         .filter(Boolean)
         .join("\n");
     }
@@ -249,16 +318,18 @@ function CvPreview({
       const parts: string[] = [];
       for (const el of sectionKids("experience")) {
         if (el.classList.contains("cvJobHeader")) {
-          const role = (el.querySelector(".cvJobRole")?.textContent || "").trim();
-          const date = (el.querySelector(".cvJobDate")?.textContent || "").trim();
+          // "@@" is the marker's own delimiter; a role typed as "SRE @@ Acme"
+          // would otherwise split into the date column on the way out.
+          const role = (el.querySelector(".cvJobRole")?.textContent || "").replace(/@@/g, "").trim();
+          const date = (el.querySelector(".cvJobDate")?.textContent || "").replace(/@@/g, "").trim();
           parts.push(`@@JOB@@${role}@@${date}`);
         } else if (el.tagName === "UL") {
           Array.from(el.querySelectorAll("li")).forEach(li => {
-            const txt = (li.textContent || "").trim();
+            const txt = readInline(li).trim();
             if (txt) parts.push(`- ${txt}`);
           });
         } else {
-          const txt = (el.textContent || "").trim();
+          const txt = readInline(el).trim();
           if (txt) parts.push(txt);
         }
       }
@@ -272,13 +343,18 @@ function CvPreview({
     // contentEditable={false} on those below.
     const domProjects: Record<string, string[]> = {};
     const domProjectNames: Record<string, string> = {};
+    // Matched by the data-proj-index each project wrapper is rendered with,
+    // not by position: pressing Enter inside a contentEditable can insert a
+    // stray top-level <div>, which by position would shift every following
+    // project's bullets under the wrong title in the download.
     sectionKids("projects")
-      .filter(el => el.tagName === "DIV")
-      .forEach((projDiv, idx) => {
+      .filter(el => el.hasAttribute("data-proj-index"))
+      .forEach((projDiv) => {
+        const idx = projDiv.getAttribute("data-proj-index") || "";
         const bullets = Array.from(projDiv.querySelectorAll("li"))
-          .map(li => (li.textContent || "").trim())
+          .map(li => readInline(li).trim())
           .filter(Boolean);
-        if (bullets.length > 0) domProjects[String(idx)] = bullets;
+        if (bullets.length > 0) domProjects[idx] = bullets;
 
         const jobHeader = projDiv.querySelector(".cvJobHeader");
         const title = ((jobHeader
@@ -288,7 +364,7 @@ function CvPreview({
         // expects — always with " | ", regardless of what separator the
         // original name used, since that's re-parsed on every render anyway.
         const date = (jobHeader?.querySelector(".cvJobDate")?.textContent || "").trim();
-        if (title) domProjectNames[String(idx)] = date ? `${title} | ${date}` : title;
+        if (title) domProjectNames[idx] = date ? `${title} | ${date}` : title;
       });
 
     // Education: each div child has either a cvJobHeader (degree + right-aligned
@@ -309,19 +385,21 @@ function CvPreview({
         // each) — read all of them back, not just the first, or editing/
         // downloading would silently drop the 2nd and 3rd.
         const note = Array.from(eduDiv.querySelectorAll(".cvBullet"))
-          .map(li => (li.textContent || "").trim())
+          .map(li => readInline(li).trim())
           .filter(Boolean)
           .join("\n");
-        return { degree, dates: dates || undefined, institution: institution || undefined, note: note || undefined };
+        // Plain strings ("" when absent) to match Education — every consumer
+        // gates on truthiness, so "" and undefined behave alike.
+        return { degree, dates, institution, note };
       })
       .filter(e => e.degree);
 
     // Certifications and Right to Work: flat bullet lists.
     const domCerts = sectionKids("certifications")
-      .flatMap(el => Array.from(el.querySelectorAll("li")).map(li => (li.textContent || "").trim()))
+      .flatMap(el => Array.from(el.querySelectorAll("li")).map(li => readInline(li).trim()))
       .filter(Boolean);
     const domRtw = sectionKids("right to work")
-      .flatMap(el => Array.from(el.querySelectorAll("li")).map(li => (li.textContent || "").trim()))
+      .flatMap(el => Array.from(el.querySelectorAll("li")).map(li => readInline(li).trim()))
       .filter(Boolean);
 
     // Pass-through sections: any h2 that isn't one of the known/reserved headings.
@@ -336,11 +414,11 @@ function CvPreview({
         const k = kids[j];
         if (k.tagName === "UL") {
           Array.from(k.querySelectorAll("li")).forEach(li => {
-            const txt = (li.textContent || "").trim();
+            const txt = readInline(li).trim();
             if (txt) bullets.push(txt);
           });
         } else {
-          const txt = (k.textContent || "").trim();
+          const txt = readInline(k).trim();
           if (txt) bullets.push(txt);
         }
       }
@@ -389,8 +467,8 @@ function CvPreview({
     };
   }
 
-  // Single source of truth for both downloads: the server-built .docx for the
-  // current preview state. PDF is a client-side render of this same file.
+  // The server-built .docx for the current preview state. The PDF route takes
+  // the same collectPayload() output and draws it with jsPDF.
   async function fetchDocx(): Promise<Blob | null> {
     const payload = collectPayload();
     if (!payload) return null;
@@ -404,14 +482,18 @@ function CvPreview({
   }
 
   async function downloadWord() {
+    if (busy) return;
     setDocErr(null);
+    setBusy(true);
     try {
       const blob = await fetchDocx();
       if (!blob) { setDocErr("Word download failed. Please retry."); return; }
       saveBlob(blob, `${fileBaseName}.docx`);
     } catch (e) {
-      console.error("Word generation failed:", e);
+      console.error("Word generation failed:", e instanceof Error ? e.message : String(e));
       setDocErr("Word download failed. Check your connection and retry.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -425,7 +507,7 @@ function CvPreview({
       data.summary ? (
         <>
           <h2 className="cvHead">Professional Summary</h2>
-          {lines(data.summary).map((l, i) => (<p className="cvText" key={`sum-${i}`}>{l}</p>))}
+          {lines(data.summary).map((l, i) => (<p className="cvText" key={`sum-${i}`}>{renderInline(l)}</p>))}
         </>
       ) : null,
 
@@ -435,15 +517,19 @@ function CvPreview({
           <h2 className="cvHead">Skills</h2>
           {lines(data.skills).map((l, i) => {
             // Bold the label before the first colon ("Functional Competencies:",
-            // "Technical Tools:") — mirrors textToParagraphs skills mode in /api/download
-            const ci = l.indexOf(":");
+            // "Technical Tools:") — mirrors textToParagraphs skills mode in
+            // /api/download. Markers are flattened FIRST: the label gets its
+            // own bold styling, so "**Functional Competencies:**" from the
+            // model must not leak literal asterisks around it.
+            const flat = stripBoldMarkers(l);
+            const ci = flat.indexOf(":");
             return ci > 0 ? (
               <p className="cvText" key={`sk-${i}`}>
-                <strong>{l.slice(0, ci + 1)}</strong>
-                {l.slice(ci + 1)}
+                <strong>{flat.slice(0, ci + 1)}</strong>
+                {flat.slice(ci + 1)}
               </p>
             ) : (
-              <p className="cvText" key={`sk-${i}`}>{l}</p>
+              <p className="cvText" key={`sk-${i}`}>{renderInline(l)}</p>
             );
           })}
         </>
@@ -470,7 +556,7 @@ function CvPreview({
             if (bullets.length === 0 && !proj.name) return null;
             const { title: projTitle, date: projDate } = splitTrailingDate(proj.name || "");
             return (
-              <div key={`proj-${idx}`}>
+              <div key={`proj-${idx}`} data-proj-index={idx}>
                 {projDate ? (
                   <p className="cvJobHeader">
                     <span className="cvJobRole cvProjTitle">{projTitle}</span>
@@ -486,7 +572,7 @@ function CvPreview({
                     but silently reverting on download is worse than
                     read-only. The title above IS read back, so it stays
                     editable. */}
-                {proj.tech && <p className="cvText" contentEditable={false}>{proj.tech}</p>}
+                {proj.tech && <p className="cvText" contentEditable={false}>{renderInline(proj.tech)}</p>}
                 {proj.links && proj.links.length > 0 && (
                   <p className="cvText" contentEditable={false}>
                     {proj.links.map((l, li) => {
@@ -500,7 +586,7 @@ function CvPreview({
                       const showLabel = !!label && label.toLowerCase() !== display.toLowerCase() && label.toLowerCase() !== rawText.toLowerCase();
                       return (
                         <span key={li}>
-                          {li > 0 ? "  |  " : ""}
+                          {li > 0 ? " | " : ""}
                           {showLabel ? `${label}: ` : ""}
                           <a href={href} className="cvLink" target="_blank" rel="noopener noreferrer">{display}</a>
                         </span>
@@ -509,7 +595,7 @@ function CvPreview({
                   </p>
                 )}
                 <ul>
-                  {bullets.map((b, i) => (<li className="cvBullet" key={`${idx}-${i}`}>{b.replace(/^[-•]\s*/, "")}</li>))}
+                  {bullets.map((b, i) => (<li className="cvBullet" key={`${idx}-${i}`}>{renderInline(b.replace(/^[-•]\s*/, ""))}</li>))}
                 </ul>
               </div>
             );
@@ -526,7 +612,9 @@ function CvPreview({
               {e.dates ? (
                 <p className="cvJobHeader">
                   <span className="cvJobRole">{e.degree}</span>
-                  <span className="cvJobDate">{e.dates}</span>
+                  {/* cvDateMeta: grey, non-bold, smaller — matching how both
+                      document builders style education dates. */}
+                  <span className="cvJobDate cvDateMeta">{e.dates}</span>
                 </p>
               ) : (
                 <p className="cvSubhead">{e.degree}</p>
@@ -535,7 +623,7 @@ function CvPreview({
               {e.note?.trim() && (
                 <ul>
                   {e.note.split("\n").map((n, ni) => n.trim() && (
-                    <li className="cvBullet" key={`edu-${i}-note-${ni}`}>{n.trim()}</li>
+                    <li className="cvBullet" key={`edu-${i}-note-${ni}`}>{renderInline(n.trim())}</li>
                   ))}
                 </ul>
               )}
@@ -548,11 +636,11 @@ function CvPreview({
   return (
     <div className="cvDocWrap">
       <div className="cvActions">
-        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={pdfBusy} />
+        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} />
       </div>
       {docErr && <StatusText role="alert">{docErr}</StatusText>}
       <p className="editHint">Click any text to edit it. Your changes are included when you download.</p>
-      <div className="cvDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false}>
+      <div className="cvDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false} onPaste={pastePlainText}>
         <h1 className="cvName">{name}</h1>
         {tagline && <p className="cvTagline">{tagline}</p>}
         {hasContactRow && (
@@ -574,6 +662,9 @@ function CvPreview({
               ) : null,
               github ? (
                 <a key="gh" href={github.startsWith("http") ? github : "https://" + github} className="cvLink" target="_blank" rel="noopener noreferrer">GitHub</a>
+              ) : null,
+              website ? (
+                <a key="web" href={website.startsWith("http") ? website : "https://" + website} className="cvLink" target="_blank" rel="noopener noreferrer">Portfolio</a>
               ) : null,
             ]
               .filter((piece) => piece !== null && piece !== "")
@@ -599,7 +690,7 @@ function CvPreview({
             <h2 className="cvHead">Certifications</h2>
             <ul>
               {p.certifications.map((c, i) => (
-                <li className="cvBullet" key={`cert-${i}`}>{c}</li>
+                <li className="cvBullet" key={`cert-${i}`}>{renderInline(c)}</li>
               ))}
             </ul>
           </>
@@ -610,7 +701,7 @@ function CvPreview({
             <h2 className="cvHead">Right to Work</h2>
             <ul>
               {p.rightToWork.map((r, i) => (
-                <li className="cvBullet" key={`rtw-${i}`}>{r}</li>
+                <li className="cvBullet" key={`rtw-${i}`}>{renderInline(r)}</li>
               ))}
             </ul>
           </>
@@ -621,7 +712,7 @@ function CvPreview({
             <h2 className="cvHead">{sec.title}</h2>
             <ul>
               {sec.bullets.map((b, i) => (
-                <li className="cvBullet" key={`extra-${si}-${i}`}>{b.replace(/^[-•]\s*/, "")}</li>
+                <li className="cvBullet" key={`extra-${si}-${i}`}>{renderInline(b.replace(/^[-•]\s*/, ""))}</li>
               ))}
             </ul>
           </React.Fragment>
@@ -629,7 +720,7 @@ function CvPreview({
       </div>
     </div>
   );
-}
+});
 
 // Wrap in memo so parent re-renders (e.g. user typing in the JD box) don't reconcile
 // the contentEditable and silently reset user edits. Re-renders only when props change.

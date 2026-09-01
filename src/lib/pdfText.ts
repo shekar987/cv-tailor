@@ -11,45 +11,58 @@
 import type { jsPDF } from "jspdf";
 import fs from "node:fs";
 import path from "node:path";
+import { parseBoldSegments } from "@/lib/markdownText";
 
 export type Word = { text: string; bold?: boolean; link?: string; glued?: boolean };
 
-// Mirrors buildRuns() in api/download/route.ts: splits on whitespace first
-// (so **bold** only ever bolds a single word, matching the Word output
-// exactly), detects bare URLs as links, and marks a word `glued` when it had
-// no whitespace before it in the source (e.g. "**bold**text" with no space)
-// so the layout engine doesn't insert a false space there.
+// The embedded NotoSans Regular/Bold faces lack some symbols people
+// legitimately put in CVs, and jsPDF drops a missing glyph SILENTLY —
+// "GitHub→Vercel" printed as "GitHubVercel" in a real download. Substitute
+// ASCII equivalents rather than lose content.
+const GLYPH_FALLBACKS: [RegExp, string][] = [
+  [/→/g, "->"],
+  [/←/g, "<-"],
+  [/⇒/g, "=>"],
+  [/↔/g, "<->"],
+];
+export function fixGlyphs(text: string): string {
+  let out = text;
+  for (const [re, sub] of GLYPH_FALLBACKS) out = out.replace(re, sub);
+  return out;
+}
+
+// Mirrors buildRuns() in api/download/route.ts: **bold** spans are parsed
+// FIRST (lib/markdownText, before whitespace tokenization) so a multi-word
+// "**cut lead time 40%**" bolds as a phrase instead of leaking literal
+// asterisks. Bare URLs become links, and a word is marked `glued` when it
+// had no whitespace before it in the source (e.g. "**bold**text") so the
+// layout engine doesn't insert a false space there — glue state carries
+// ACROSS segment boundaries for exactly that case.
 export function parseWords(text: string, baseBold = false): Word[] {
-  const tokens = text.split(/(\s+)/);
   const words: Word[] = [];
   let glueNext = false;
 
-  for (const token of tokens) {
-    if (token === "") continue;
-    if (/^\s+$/.test(token)) {
-      glueNext = false;
-      continue;
-    }
+  for (const seg of parseBoldSegments(text)) {
+    const segBold = seg.bold || baseBold;
+    for (const token of seg.text.split(/(\s+)/)) {
+      if (token === "") continue;
+      if (/^\s+$/.test(token)) {
+        glueNext = false;
+        continue;
+      }
 
-    const looksLikeUrl =
-      /^https?:\/\//i.test(token) ||
-      /^[a-z0-9-]+\.(vercel\.app|com|io|dev|org|net)(\/\S*)?$/i.test(token);
+      const looksLikeUrl =
+        /^https?:\/\//i.test(token) ||
+        /^[a-z0-9-]+\.(vercel\.app|com|io|dev|org|net)(\/\S*)?$/i.test(token);
 
-    if (looksLikeUrl) {
-      const href = token.startsWith("http") ? token : "https://" + token;
-      words.push({ text: token, bold: baseBold, link: href, glued: glueNext });
-      glueNext = true;
-      continue;
-    }
+      if (looksLikeUrl) {
+        const href = token.startsWith("http") ? token : "https://" + token;
+        words.push({ text: token, bold: segBold, link: href, glued: glueNext });
+        glueNext = true;
+        continue;
+      }
 
-    const boldParts = token.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
-    for (const part of boldParts) {
-      const isBold = part.startsWith("**") && part.endsWith("**");
-      words.push({
-        text: isBold ? part.slice(2, -2) : part,
-        bold: isBold || baseBold,
-        glued: glueNext,
-      });
+      words.push({ text: token, bold: segBold, glued: glueNext });
       glueNext = true;
     }
   }
@@ -178,6 +191,9 @@ export function drawWrapped(
   maxWidth = cursor.contentWidth
 ): void {
   if (rawWords.length === 0) return;
+  // One choke point for glyph fallbacks — every multi-word draw goes
+  // through here, whether the words came from parseWords or a raw literal.
+  rawWords = rawWords.map((w) => (w.text ? { ...w, text: fixGlyphs(w.text) } : w));
   const color = opts.color ?? [0, 0, 0];
   const linkColor = opts.linkColor ?? [5, 99, 193]; // #0563C1
 
@@ -300,6 +316,8 @@ export function drawHeaderLine(
   const rightSize = opts.rightSize ?? size;
   const rightColor = opts.rightColor ?? [0, 0, 0];
   const rightBold = opts.rightBold ?? true;
+  leftText = fixGlyphs(leftText);
+  rightText = fixGlyphs(rightText);
 
   doc.setFont(FONT, "bold");
   doc.setFontSize(size);

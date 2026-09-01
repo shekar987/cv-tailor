@@ -23,6 +23,14 @@ export type StoredWorkspace = {
   jobDescription: string;
   result: unknown;
   ranProvider: string | null;
+  // Minted once per completed tailoring run. An "Applied" save is keyed on it,
+  // so a reload can't turn a second click into a second tracker row. Optional:
+  // envelopes written before it existed restore fine without one.
+  tailorSessionId?: string | null;
+  // The JD the stored result was tailored from — /app compares it against the
+  // textarea to flag stale results. Optional for the same backwards-compat
+  // reason as tailorSessionId.
+  resultJd?: string | null;
 };
 
 type Envelope = StoredWorkspace & { v: number; savedAt: number };
@@ -42,6 +50,8 @@ export function loadWorkspace(userId: string): StoredWorkspace | null {
       jobDescription: typeof parsed.jobDescription === "string" ? parsed.jobDescription : "",
       result: parsed.result ?? null,
       ranProvider: typeof parsed.ranProvider === "string" ? parsed.ranProvider : null,
+      tailorSessionId: typeof parsed.tailorSessionId === "string" ? parsed.tailorSessionId : null,
+      resultJd: typeof parsed.resultJd === "string" ? parsed.resultJd : null,
     };
   } catch {
     // Corrupt or unreadable — behave as if nothing was saved.
@@ -70,6 +80,23 @@ export function clearWorkspace(userId: string): void {
   if (!userId || typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(keyFor(userId));
+  } catch {
+    // ignore
+  }
+}
+
+// Sign-out sweep: on a shared browser every past account's tailored result
+// would otherwise stay in localStorage forever, eventually filling the quota
+// and silently disabling persistence for everyone.
+export function clearAllWorkspaces(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const stale: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key && key.startsWith(KEY_PREFIX)) stale.push(key);
+    }
+    stale.forEach((key) => window.localStorage.removeItem(key));
   } catch {
     // ignore
   }
