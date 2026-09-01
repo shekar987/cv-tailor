@@ -71,13 +71,24 @@ type Result = {
 
 type AppliedState = "idle" | "saving" | "saved" | "already" | "error";
 
+// Step 1 sometimes answers a missing company or role with a placeholder
+// phrase ("Not specified", "Unknown", "N/A") instead of an empty string.
+// Treat those as absent everywhere — a filename, the gate card, or a tracker
+// row must never carry "Not_specified" as if it were a company.
+const PLACEHOLDER_RE = /^(not\s+(specified|mentioned|provided|stated|available|found|given|applicable)|unspecified|unknown( company| role)?|n\/?a|none|-+)$/i;
+function realValue(text: string | undefined): string {
+  const t = (text || "").trim();
+  return PLACEHOLDER_RE.test(t) ? "" : t;
+}
+
 // Download filename, e.g. Jane_Doe_Acme_Backend_Engineer_CV. Also stored as
 // the tracker row's cv_reference, so the two always name the same document.
-// CvPreview is memoised on this string — keep it deterministic.
+// CvPreview is memoised on this string — keep it deterministic. Missing
+// pieces are simply left out (filter(Boolean) below).
 function buildFileBaseName(profile: Profile | null, analysis: Result["analysis"], suffix: string): string {
   const first = (profile?.name || "User").trim().split(/\s+/).slice(0, 2).join("_");
-  const cn = (analysis?.company_name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-  const rt = (analysis?.role_title || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  const cn = realValue(analysis?.company_name).replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  const rt = realValue(analysis?.role_title).replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
   return [first, cn, rt, suffix].filter(Boolean).join("_");
 }
 
@@ -377,8 +388,8 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          company_name: analysis?.company_name?.trim() || "Unknown company",
-          role: analysis?.role_title?.trim() || "Unknown role",
+          company_name: realValue(analysis?.company_name) || "Unknown company",
+          role: realValue(analysis?.role_title) || "Unknown role",
           cv_reference: buildFileBaseName(profile, analysis, "CV"),
           tailor_session_id: sid,
           status: "Applied",
@@ -431,10 +442,18 @@ export default function Home() {
   // caught before the full run is spent on the wrong job.
   const gateInfo = useMemo(() => {
     const a = gateAnalysis as { role_title?: unknown; company_name?: unknown } | null;
-    const role = typeof a?.role_title === "string" ? a.role_title.trim() : "";
-    const company = typeof a?.company_name === "string" ? a.company_name.trim() : "";
+    const role = realValue(typeof a?.role_title === "string" ? a.role_title : "");
+    const company = realValue(typeof a?.company_name === "string" ? a.company_name : "");
     return role || company ? { role, company } : null;
   }, [gateAnalysis]);
+
+  // Same placeholder-scrubbed view of the finished run's analysis, for the
+  // results context row.
+  const resultInfo = useMemo(() => {
+    const role = realValue(result?.analysis?.role_title);
+    const company = realValue(result?.analysis?.company_name);
+    return role || company ? { role, company } : null;
+  }, [result]);
 
   // Steps that quietly failed this run — named honestly instead of rendering
   // as blank sections the user might not notice until after they've applied.
@@ -682,11 +701,11 @@ export default function Home() {
 
         {!cvLoading && result && (
           <section className="results">
-            {(result.analysis?.role_title || result.analysis?.company_name) && (
+            {resultInfo && (
               <div className="resultsContext">
                 <span>
-                  Tailored for <strong>{result.analysis?.role_title || "this role"}</strong>
-                  {result.analysis?.company_name && <> at <strong>{result.analysis.company_name}</strong></>}
+                  Tailored for <strong>{resultInfo.role || "this role"}</strong>
+                  {resultInfo.company && <> at <strong>{resultInfo.company}</strong></>}
                 </span>
                 <button
                   type="button"
