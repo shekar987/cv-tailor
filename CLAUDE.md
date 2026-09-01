@@ -482,6 +482,16 @@ Consequences for anyone touching this:
 - Body text and bullets are justified by `pdfText.ts`'s own line layout, to
   match the .docx's `AlignmentType.JUSTIFIED`; the skills "Label:" lines stay
   left-aligned on both sides.
+- **jsPDF drops glyphs the embedded font lacks SILENTLY.** NotoSans
+  Regular/Bold has no "→": a real download printed "GitHub→Vercel" as
+  "GitHubVercel" — content loss with no error. `fixGlyphs()` in `pdfText.ts`
+  substitutes ASCII fallbacks at the drawing choke points; extend its map
+  before assuming a new symbol renders. Relatedly, never assume a date
+  format: real CVs write "07/2022 to 09/2024" as readily as "Jul 2022 –
+  Present", and every header/date detector (CvPreview, contentBudget,
+  projectDate) must accept en-dash, "to", month-name and MM/YYYY forms —
+  an unrecognised format used to blank the preview's whole Experience
+  section.
 - **Any change to the PDF generators must be verified by actually extracting
   text back out of the generated PDF** (e.g. via `unpdf`, already a
   dependency, used elsewhere for parsing uploaded resumes) and confirming the
