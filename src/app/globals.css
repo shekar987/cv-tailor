@@ -826,6 +826,9 @@ textarea { resize: vertical; min-height: 96px; }
   display: flex;
   gap: var(--space-2);
   align-items: flex-start;
+  /* Keyword annotations can carry long unbroken tokens — break, don't overflow. */
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .dot { flex-shrink: 0; font-weight: 700; line-height: var(--leading-snug); }
 .dot.hit { color: var(--success); }
@@ -987,6 +990,9 @@ textarea { resize: vertical; min-height: 96px; }
   border-radius: var(--radius-md);
   padding: 28px 36px;
   font-family: Calibri, "Segoe UI", system-ui, sans-serif;
+  /* A long unbroken token (a URL in a project link, a package name) must
+     break inside the document, not push the whole page sideways on mobile. */
+  overflow-wrap: anywhere;
   font-size: 13px;
   line-height: 1.4;
   outline: none;
@@ -1046,6 +1052,7 @@ textarea { resize: vertical; min-height: 96px; }
   border-radius: var(--radius-md);
   padding: 36px 44px;
   font-family: Calibri, "Segoe UI", system-ui, sans-serif;
+  overflow-wrap: anywhere;
   font-size: 12.5px;
   line-height: 1.4;
   outline: none;
@@ -1689,7 +1696,12 @@ textarea { resize: vertical; min-height: 96px; }
   .appsTable td.appsActions::before,
   .appsTable td[colspan]::before { content: none; }
   .appsActions { justify-content: flex-end; padding: var(--space-2) 0 !important; }
-  .appsActions > * { flex: 0 0 auto; }
+  /* td.appsActions needed: the generic `.appsTable td > *` above carries
+     (0,1,1) and its flex: 1 1 0 was stretching the lone ✕ into a full-width
+     bar on the stacked cards. */
+  .appsTable td.appsActions > * { flex: 0 0 auto; }
+  /* Touch targets: the dense desktop action buttons are too small for thumbs. */
+  .appsActionBtn { min-height: 36px; padding: 6px 12px; }
   .appsNotesCell { max-width: none; }
   .appsTable tr.appsDetail td {
     display: block;
