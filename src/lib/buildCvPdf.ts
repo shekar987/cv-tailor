@@ -177,7 +177,7 @@ function drawEducation(doc: jsPDF, cursor: PdfCursor, education: any[], d: Densi
     if (e.note && String(e.note).trim()) {
       for (const n of String(e.note).split("\n")) {
         if (!n.trim()) continue;
-        drawBullet(doc, cursor, [{ text: n.trim() }], 10, lineOf(10), { align: "justify" });
+        drawBullet(doc, cursor, parseWords(n.trim()), 10, lineOf(10), { align: "justify" });
         cursor.advance(pt(d.bulletAfter));
       }
     }
@@ -188,7 +188,9 @@ function drawBulletList(doc: jsPDF, cursor: PdfCursor, title: string, items: str
   if (items.length === 0) return;
   drawSectionHeading(doc, cursor, title, d);
   for (const item of items) {
-    drawBullet(doc, cursor, [{ text: item }], 10.5, lineOf(10.5));
+    // parseWords so **bold** in stored profile content (certs, right to
+    // work, extras) renders as bold — matching the docx route's buildRuns.
+    drawBullet(doc, cursor, parseWords(item), 10.5, lineOf(10.5));
     cursor.advance(pt(d.bulletAfter));
   }
 }

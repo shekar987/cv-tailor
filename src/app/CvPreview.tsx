@@ -20,6 +20,37 @@ import { saveBlob } from "@/lib/saveBlob";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
 import { pastePlainText } from "@/lib/pastePlainText";
+import { parseBoldSegments } from "@/lib/markdownText";
+
+// **span** → <strong> — the render half of the bold contract (see
+// lib/markdownText). readInline() below is its exact inverse, used by
+// collectPayload(), so an edited document round-trips bold instead of
+// silently flattening it the way textContent did.
+function renderInline(text: string): React.ReactNode {
+  const segments = parseBoldSegments(text);
+  if (!segments.some((s) => s.bold)) return text;
+  return segments.map((s, i) =>
+    s.bold ? <strong key={i}>{s.text}</strong> : <React.Fragment key={i}>{s.text}</React.Fragment>
+  );
+}
+
+// DOM → text with <strong>/<b> serialized back to **…**. Everything else
+// (spans, stray divs from contentEditable) contributes its text only.
+function readInline(node: Node | null): string {
+  if (!node) return "";
+  let out = "";
+  node.childNodes.forEach((child) => {
+    if (child.nodeType === Node.TEXT_NODE) {
+      out += child.textContent ?? "";
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      const el = child as HTMLElement;
+      const inner = readInline(el);
+      if (el.tagName === "STRONG" || el.tagName === "B") out += inner.trim() ? `**${inner}**` : inner;
+      else out += inner;
+    }
+  });
+  return out;
+}
 
 type CvPreviewProps = {
   data: CvData;
@@ -148,10 +179,10 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
               </p>
             );
           } else if (i >= firstHeaderIdx) {
-            const clean = line.replace(/^[•\-]\s*/, "").replace(/\*\*/g, "");
+            const clean = line.replace(/^[•\-]\s*/, "");
             bullets.push(
               <li className="cvBullet" key={`${prefix}-${i}`} style={{ fontWeight: 400 }}>
-                {clean}
+                {renderInline(clean)}
               </li>
             );
           }
@@ -192,7 +223,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
           // Plain body line without bullet prefix
           nodes.push(
             <ul key={`${prefix}-${nodeKey++}`} style={{ fontWeight: 400 }}>
-              <li className="cvBullet" style={{ fontWeight: 400 }}>{l.replace(/\*\*/g, "")}</li>
+              <li className="cvBullet" style={{ fontWeight: 400 }}>{renderInline(l)}</li>
             </ul>
           );
           i++;
@@ -258,10 +289,11 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
       return kids.slice(si + 1, ei);
     }
 
-    // For flat text sections (summary, skills): join textContent of each child.
+    // For flat text sections (summary, skills): join each child's inline
+    // reading (bold preserved as **…**), not its flattened textContent.
     function readText(name: string): string {
       return sectionKids(name)
-        .map(el => (el.textContent || "").trim())
+        .map(el => readInline(el).trim())
         .filter(Boolean)
         .join("\n");
     }
@@ -278,11 +310,11 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
           parts.push(`@@JOB@@${role}@@${date}`);
         } else if (el.tagName === "UL") {
           Array.from(el.querySelectorAll("li")).forEach(li => {
-            const txt = (li.textContent || "").trim();
+            const txt = readInline(li).trim();
             if (txt) parts.push(`- ${txt}`);
           });
         } else {
-          const txt = (el.textContent || "").trim();
+          const txt = readInline(el).trim();
           if (txt) parts.push(txt);
         }
       }
@@ -305,7 +337,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
       .forEach((projDiv) => {
         const idx = projDiv.getAttribute("data-proj-index") || "";
         const bullets = Array.from(projDiv.querySelectorAll("li"))
-          .map(li => (li.textContent || "").trim())
+          .map(li => readInline(li).trim())
           .filter(Boolean);
         if (bullets.length > 0) domProjects[idx] = bullets;
 
@@ -338,7 +370,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
         // each) — read all of them back, not just the first, or editing/
         // downloading would silently drop the 2nd and 3rd.
         const note = Array.from(eduDiv.querySelectorAll(".cvBullet"))
-          .map(li => (li.textContent || "").trim())
+          .map(li => readInline(li).trim())
           .filter(Boolean)
           .join("\n");
         // Plain strings ("" when absent) to match Education — every consumer
@@ -349,10 +381,10 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
 
     // Certifications and Right to Work: flat bullet lists.
     const domCerts = sectionKids("certifications")
-      .flatMap(el => Array.from(el.querySelectorAll("li")).map(li => (li.textContent || "").trim()))
+      .flatMap(el => Array.from(el.querySelectorAll("li")).map(li => readInline(li).trim()))
       .filter(Boolean);
     const domRtw = sectionKids("right to work")
-      .flatMap(el => Array.from(el.querySelectorAll("li")).map(li => (li.textContent || "").trim()))
+      .flatMap(el => Array.from(el.querySelectorAll("li")).map(li => readInline(li).trim()))
       .filter(Boolean);
 
     // Pass-through sections: any h2 that isn't one of the known/reserved headings.
@@ -367,11 +399,11 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
         const k = kids[j];
         if (k.tagName === "UL") {
           Array.from(k.querySelectorAll("li")).forEach(li => {
-            const txt = (li.textContent || "").trim();
+            const txt = readInline(li).trim();
             if (txt) bullets.push(txt);
           });
         } else {
-          const txt = (k.textContent || "").trim();
+          const txt = readInline(k).trim();
           if (txt) bullets.push(txt);
         }
       }
@@ -460,7 +492,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
       data.summary ? (
         <>
           <h2 className="cvHead">Professional Summary</h2>
-          {lines(data.summary).map((l, i) => (<p className="cvText" key={`sum-${i}`}>{l}</p>))}
+          {lines(data.summary).map((l, i) => (<p className="cvText" key={`sum-${i}`}>{renderInline(l)}</p>))}
         </>
       ) : null,
 
@@ -475,10 +507,10 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
             return ci > 0 ? (
               <p className="cvText" key={`sk-${i}`}>
                 <strong>{l.slice(0, ci + 1)}</strong>
-                {l.slice(ci + 1)}
+                {renderInline(l.slice(ci + 1))}
               </p>
             ) : (
-              <p className="cvText" key={`sk-${i}`}>{l}</p>
+              <p className="cvText" key={`sk-${i}`}>{renderInline(l)}</p>
             );
           })}
         </>
@@ -544,7 +576,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
                   </p>
                 )}
                 <ul>
-                  {bullets.map((b, i) => (<li className="cvBullet" key={`${idx}-${i}`}>{b.replace(/^[-•]\s*/, "")}</li>))}
+                  {bullets.map((b, i) => (<li className="cvBullet" key={`${idx}-${i}`}>{renderInline(b.replace(/^[-•]\s*/, ""))}</li>))}
                 </ul>
               </div>
             );
@@ -570,7 +602,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
               {e.note?.trim() && (
                 <ul>
                   {e.note.split("\n").map((n, ni) => n.trim() && (
-                    <li className="cvBullet" key={`edu-${i}-note-${ni}`}>{n.trim()}</li>
+                    <li className="cvBullet" key={`edu-${i}-note-${ni}`}>{renderInline(n.trim())}</li>
                   ))}
                 </ul>
               )}
@@ -634,7 +666,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
             <h2 className="cvHead">Certifications</h2>
             <ul>
               {p.certifications.map((c, i) => (
-                <li className="cvBullet" key={`cert-${i}`}>{c}</li>
+                <li className="cvBullet" key={`cert-${i}`}>{renderInline(c)}</li>
               ))}
             </ul>
           </>
@@ -645,7 +677,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
             <h2 className="cvHead">Right to Work</h2>
             <ul>
               {p.rightToWork.map((r, i) => (
-                <li className="cvBullet" key={`rtw-${i}`}>{r}</li>
+                <li className="cvBullet" key={`rtw-${i}`}>{renderInline(r)}</li>
               ))}
             </ul>
           </>
@@ -656,7 +688,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
             <h2 className="cvHead">{sec.title}</h2>
             <ul>
               {sec.bullets.map((b, i) => (
-                <li className="cvBullet" key={`extra-${si}-${i}`}>{b.replace(/^[-•]\s*/, "")}</li>
+                <li className="cvBullet" key={`extra-${si}-${i}`}>{renderInline(b.replace(/^[-•]\s*/, ""))}</li>
               ))}
             </ul>
           </React.Fragment>

@@ -5,6 +5,7 @@ import { chooseDensity, wrappedLines, PAGE_HEIGHT, type Density } from "@/lib/cv
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
 import { normalizeProfile } from "@/lib/profile";
+import { parseBoldSegments } from "@/lib/markdownText";
 import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
 import {
   Document,
@@ -101,43 +102,38 @@ function datedHeaderParagraph(
   ];
 }
 
-// Build runs from a line: turns **bold** into bold and bare URLs into clickable links.
+// Build runs from a line: turns **bold** into bold and bare URLs into
+// clickable links. Bold spans are parsed FIRST (lib/markdownText), before
+// whitespace tokenization, so a multi-word "**cut lead time 40%**" bolds as
+// one phrase instead of leaking literal asterisks — matching parseWords()
+// in lib/pdfText.ts and renderInline() in CvPreview exactly.
 function buildRuns(text: string, opts: { size?: number; bold?: boolean } = {}) {
   const size = opts.size ?? 21;
   const baseBold = opts.bold ?? false;
   const children: (TextRun | ExternalHyperlink)[] = [];
 
-  const tokens = text.split(/(\s+)/);
+  for (const seg of parseBoldSegments(text)) {
+    const segBold = seg.bold || baseBold;
+    for (const token of seg.text.split(/(\s+)/)) {
+      if (token === "") continue;
+      if (token.trim() === "") {
+        children.push(new TextRun({ text: token, size, font: "Calibri" }));
+        continue;
+      }
+      const looksLikeUrl =
+        /^https?:\/\//i.test(token) ||
+        /^[a-z0-9-]+\.(vercel\.app|com|io|dev|org|net)(\/\S*)?$/i.test(token);
 
-  for (const token of tokens) {
-    if (token.trim() === "") {
-      children.push(new TextRun({ text: token, size, font: "Calibri" }));
-      continue;
-    }
-    const looksLikeUrl =
-      /^https?:\/\//i.test(token) ||
-      /^[a-z0-9-]+\.(vercel\.app|com|io|dev|org|net)(\/\S*)?$/i.test(token);
-
-    if (looksLikeUrl) {
-      const href = token.startsWith("http") ? token : "https://" + token;
-      children.push(
-        new ExternalHyperlink({
-          link: href,
-          children: [new TextRun({ text: token, size, color: LINK, underline: {}, font: "Calibri" })],
-        })
-      );
-    } else {
-      const boldParts = token.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
-      for (const part of boldParts) {
-        const isBold = part.startsWith("**") && part.endsWith("**");
+      if (looksLikeUrl) {
+        const href = token.startsWith("http") ? token : "https://" + token;
         children.push(
-          new TextRun({
-            text: isBold ? part.slice(2, -2) : part,
-            bold: isBold || baseBold,
-            size,
-            font: "Calibri",
+          new ExternalHyperlink({
+            link: href,
+            children: [new TextRun({ text: token, size, color: LINK, underline: {}, bold: segBold, font: "Calibri" })],
           })
         );
+      } else {
+        children.push(new TextRun({ text: token, bold: segBold, size, font: "Calibri" }));
       }
     }
   }
@@ -426,7 +422,7 @@ const extraSections = filterExtraSections(profile.extraSections);
           if (e.note.trim()) {
             for (const n of e.note.split("\n")) {
               if (!n.trim()) continue;
-              out.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text: n.trim(), size: 20, font: "Calibri" })] }));
+              out.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, alignment: AlignmentType.JUSTIFIED, children: buildRuns(n.trim(), { size: 20 }) }));
             }
           }
         }
@@ -442,7 +438,7 @@ const extraSections = filterExtraSections(profile.extraSections);
     if (certs.length > 0) {
     children.push(sectionHeading("Certifications", density));
     for (const c of certs) {
-      children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, children: [new TextRun({ text: c, size: 21, font: "Calibri" })] }));
+      children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, children: buildRuns(c, { size: 21 }) }));
     }
   }
 
@@ -450,7 +446,7 @@ const extraSections = filterExtraSections(profile.extraSections);
     if (rightToWork.length > 0) {
     children.push(sectionHeading("Right to Work", density));
     for (const r of rightToWork) {
-      children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, children: [new TextRun({ text: r, size: 21, font: "Calibri" })] }));
+      children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, children: buildRuns(r, { size: 21 }) }));
     }
   }
 
@@ -458,7 +454,7 @@ const extraSections = filterExtraSections(profile.extraSections);
     for (const sec of extraSections) {
       children.push(sectionHeading(sec.title, density));
       for (const b of sec.bullets) {
-        children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, children: [new TextRun({ text: b, size: 21, font: "Calibri" })] }));
+        children.push(new Paragraph({ spacing: { after: density.bulletAfter }, numbering: { reference: "default-bullet", level: 0 }, children: buildRuns(b, { size: 21 }) }));
       }
     }
 

@@ -1031,6 +1031,9 @@ textarea { resize: vertical; min-height: 96px; }
 /* Ensure bullets are NOT bold even if a parent is */
 .cvDoc ul li,
 .cvDoc li.cvBullet { font-weight: 400 !important; }
+/* …but renderInline()'s bold spans (quantified wins) must survive that. */
+.cvDoc li strong,
+.cvDoc p strong { font-weight: 700; }
 
 .clHeading { font-size: var(--text-base); color: var(--amber-bright); margin: var(--space-8) 0 var(--space-3); font-weight: 600; }
 .clWrap { margin-top: var(--space-1); }
