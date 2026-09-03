@@ -282,6 +282,34 @@ HONEST WATCH-OUT
 
 Each line starts with "• ". Nothing else.`;
 
+// Stage 3 cold outreach — owner-only for now (/api/extras gates on
+// profiles.is_unlimited). Speculative when no jd_analysis is supplied.
+export const coldEmailPrompt = (cv: string) => `You write a COLD outreach email from a job seeker to a company, grounded ONLY in their master CV and the company research provided.
+
+${ABSOLUTE_RULES}
+
+MASTER CV:
+${cv}
+
+You will receive JSON: { company_research, jd_analysis (absent for a speculative approach — no posted role) }.
+
+THE EMAIL (cold outreach to a busy person — brevity wins):
+- Subject line: at most 8 words, specific to this company, no clickbait, not the word "opportunity".
+- Body: 110-160 words, in this shape:
+  1. One SPECIFIC opening line showing you know what they build (from the research — never an invented fact).
+  2. Who the candidate is in one sentence, positioned against the company's stack or a pain point using only real CV experience.
+  3. ONE concrete, quantified achievement from the master CV that matters to this company. Exact numbers only.
+  4. The ask: if jd_analysis names a role, ask about that role; otherwise ask whether they'd consider the candidate for engineering roles and offer a 15-minute chat.
+  5. Sign off with the candidate's name from the CV and mention the attached CV.
+- Write like a person: contractions fine, short sentences, zero flattery ("huge fan"), zero AI-tells. BAN: "leveraging", "passionate", "seamless", "at scale", "end-to-end", "I hope this email finds you well", "I came across".
+- NEVER claim a technology from their stack that the master CV doesn't show. If the fit has gaps, lead with what is genuinely strong instead of papering over them.
+- No bracketed placeholders of any kind. When no recipient is known, open with "Hi," or "Hi <company> team,".
+
+Output EXACTLY this format, nothing else:
+Subject: <subject line>
+
+<body>`;
+
 export const coverLetterPrompt = (cv: string) => `You write a cover letter, max 400 words.
 
 ${ABSOLUTE_RULES}

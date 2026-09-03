@@ -59,7 +59,7 @@ src/
     api/
       tailor/route.ts         ← Main AI pipeline (Step 0 + 2 parallel waves) — auth-gated, DB quota + burst limit; accepts optional companyResearch (skips the synthetic research call)
       research/route.ts       ← Stage 3 company research + Fit Score: SSRF-guarded scrape → 2 model calls — auth-gated, burst limit, one tailor credit, per-user 7-day cache
-      extras/route.ts         ← High-fit extras (pitch script / talking points) — auth-gated, burst limit, 1 call each, no DB quota
+      extras/route.ts         ← Research extras (pitch script / talking points / cold email) — auth-gated, burst limit, 1 call each, no DB quota; cold_email additionally gated on profiles.is_unlimited (owner-only)
       analyze/route.ts        ← JD analysis; with cvText doubles as the pre-tailoring ATS gate — auth-gated, burst limit
       extract-profile/route.ts← Extracts + normalises the structured profile — auth-gated, burst limit
       parse-cv/route.ts       ← Uploaded PDF/.docx → text via lib/parseCv.ts (unpdf/mammoth) — auth-gated, Node runtime
@@ -250,7 +250,7 @@ Two deterministic pieces wrap the model calls:
 
 Paste a company URL on `/app` → the route fetches their homepage/about/careers pages through `lib/fetchPage.ts` (**every external fetch goes through `assertSafeUrl()` — never bypass it**), discovers their ATS board and pulls live job ads (`lib/jobBoards.ts`), then makes exactly two model calls: `COMPANY_PROFILE_PROMPT` and `FIT_SCORE_PROMPT`. `reconcileFitScore()` bounds the hard-skill component with the deterministic CV↔stack overlap. Order is deliberate: all free fetching happens BEFORE the quota RPCs, so an unreachable site costs no credit; the two model calls refund on throw. One research = one tailor credit, cached per (user, domain) for 7 days.
 
-Honesty framing that must survive future edits: the website fingerprint is presented as "their website runs on" and the job-ad keywords as the engineering stack — a marketing site's tech is not the hiring stack. When the client forwards the research to `/api/tailor` as `companyResearch`, it is sanitized (`lib/companyResearch.ts`), the wave-1 synthetic research call is skipped, and rule 6 still bounds vocabulary use. High-fit (80+) unlocks `/api/extras` (pitch script, talking points — one burst-limited call each, no DB quota).
+Honesty framing that must survive future edits: the website fingerprint is presented as "their website runs on" and the job-ad keywords as the engineering stack — a marketing site's tech is not the hiring stack. When the client forwards the research to `/api/tailor` as `companyResearch`, it is sanitized (`lib/companyResearch.ts`), the wave-1 synthetic research call is skipped, and rule 6 still bounds vocabulary use. High-fit (80+) unlocks `/api/extras` (pitch script, talking points — one burst-limited call each, no DB quota). Two cold-outreach paths sit on top: **speculative mode** (a button turns the research into a transparent target brief in the JD box, so the normal pipeline tailors the CV/letter against the company's real stack with no posted job) and the **cold email draft** (`/api/extras` kind `cold_email`, owner-only via `profiles.is_unlimited` — Subject + 110-160 word body, speculative when no analysis is supplied, never claims stack items the CV lacks).
 
 ### Models
 

@@ -10,7 +10,7 @@ import { callLLM, ProviderRateLimitError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { MAX_CV_CHARS, CV_TOO_LONG } from "@/lib/limits";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
-import { pitchScriptPrompt, talkingPointsPrompt } from "@/prompts/steps";
+import { pitchScriptPrompt, talkingPointsPrompt, coldEmailPrompt } from "@/prompts/steps";
 
 export async function POST(req: NextRequest) {
   try {
@@ -36,7 +36,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    const kind = body.kind === "pitch" || body.kind === "talking_points" ? body.kind : null;
+    const kind =
+      body.kind === "pitch" || body.kind === "talking_points" || body.kind === "cold_email" ? body.kind : null;
     const cv = typeof body.cvText === "string" ? body.cvText.trim() : "";
     const research = sanitizeCompanyResearch(body.companyResearch);
     if (!kind) return NextResponse.json({ error: "Unknown extra requested" }, { status: 400 });
@@ -44,6 +45,16 @@ export async function POST(req: NextRequest) {
     if (cv.length > MAX_CV_CHARS) return NextResponse.json({ error: CV_TOO_LONG }, { status: 400 });
     if (!research) {
       return NextResponse.json({ error: "Run the company research first — these are built from it." }, { status: 400 });
+    }
+
+    // Cold email drafts are owner-only for now. Same gate as the provider
+    // selector: profiles.is_unlimited, read under RLS (own row only) and
+    // fail-closed — any read problem means not available.
+    if (kind === "cold_email") {
+      const { data: profRow, error: profErr } = await supabase.from("profiles").select("is_unlimited").maybeSingle();
+      if (profErr || profRow?.is_unlimited !== true) {
+        return NextResponse.json({ error: "Cold email drafts aren't available on this account yet." }, { status: 403 });
+      }
     }
 
     // Only the analysis fields the prompts benefit from; ignored if absent.
@@ -61,7 +72,8 @@ export async function POST(req: NextRequest) {
     const text = await callLLM({
       provider: "anthropic",
       apiKeyOverride: undefined,
-      system: kind === "pitch" ? pitchScriptPrompt(cv) : talkingPointsPrompt(cv),
+      system:
+        kind === "pitch" ? pitchScriptPrompt(cv) : kind === "talking_points" ? talkingPointsPrompt(cv) : coldEmailPrompt(cv),
       userInput: JSON.stringify({ company_research: research, jd_analysis: jdAnalysis }),
       maxTokens: 800,
     });

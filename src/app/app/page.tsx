@@ -185,8 +185,14 @@ export default function Home() {
   // state only: cheap to regenerate, and each is one burst-limited call.
   const [pitchScript, setPitchScript] = useState("");
   const [talkingPoints, setTalkingPoints] = useState("");
-  const [extrasLoading, setExtrasLoading] = useState<"" | "pitch" | "talking_points">("");
+  const [extrasLoading, setExtrasLoading] = useState<"" | "pitch" | "talking_points" | "cold_email">("");
   const [extrasError, setExtrasError] = useState("");
+
+  // Cold outreach email — owner-only (the server gates on is_unlimited too).
+  // Its own error slot: the high-fit extras card isn't always mounted.
+  const [coldEmail, setColdEmail] = useState("");
+  const [coldEmailError, setColdEmailError] = useState("");
+  const [emailCopied, setEmailCopied] = useState(false);
 
   // Identity for the persisted workspace, and a flag so we never write back
   // before the restore has run (which would blank out saved work on mount).
@@ -353,6 +359,46 @@ export default function Home() {
     }
   }
 
+  async function copyColdEmail() {
+    try {
+      await navigator.clipboard.writeText(coldEmail);
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
+    } catch {
+      setColdEmailError("Couldn't copy — select the text and copy it manually.");
+    }
+  }
+
+  // Speculative mode: no posted role. The research becomes a transparent
+  // target brief in the JD box, so the NORMAL pipeline tailors the CV and
+  // letter against the company's real stack — the user sees exactly what the
+  // tailoring is aimed at, and can edit it like any JD.
+  function applySpeculativeBrief() {
+    const p = research?.profile;
+    if (!p) return;
+    const stack =
+      research?.stackKeywords?.length
+        ? research.stackKeywords.map((k) => k.keyword).join(", ")
+        : (p.engineering_stack || []).join(", ");
+    const lines = [
+      `Speculative application — no posted job. Target brief from real research of ${p.company_name || "this company"}:`,
+      "",
+      p.what_they_build ? `What they build: ${p.what_they_build}` : "",
+      p.target_audience ? `Audience: ${p.target_audience}` : "",
+      stack ? `Engineering stack (from their live job ads): ${stack}` : "",
+      p.pain_points?.length ? `Engineering problems they're visibly working on: ${p.pain_points.join("; ")}` : "",
+      p.ai_footprint ? `AI footprint: ${p.ai_footprint}` : "",
+      "",
+      "Role target: software engineering roles matching the stack above.",
+    ].filter((l) => l !== "");
+    setJobDescription(lines.join("\n"));
+    setPreCheck(null);
+    setGateAnalysis(null);
+    setGateError("");
+    const el = document.getElementById("jd");
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   // A researched opening becomes the JD with one click — the aggregator made
   // useful. Same invalidation as typing in the JD box: the gate's analysis
   // belonged to the previous text.
@@ -366,10 +412,12 @@ export default function Home() {
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  // High-fit extras: one model call each, built from the research + master CV.
-  async function handleExtra(kind: "pitch" | "talking_points") {
+  // Research-powered extras: one model call each, built from the research +
+  // master CV. "cold_email" additionally requires the owner account.
+  async function handleExtra(kind: "pitch" | "talking_points" | "cold_email") {
     if (extrasLoading) return;
-    setExtrasError("");
+    const setError = kind === "cold_email" ? setColdEmailError : setExtrasError;
+    setError("");
     setExtrasLoading(kind);
     try {
       const res = await fetch("/api/extras", {
@@ -384,13 +432,17 @@ export default function Home() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setExtrasError(data.error || "Couldn't generate that just now. Try again.");
+        setError(data.error || "Couldn't generate that just now. Try again.");
         return;
       }
       if (kind === "pitch") setPitchScript(data.text || "");
-      else setTalkingPoints(data.text || "");
+      else if (kind === "talking_points") setTalkingPoints(data.text || "");
+      else {
+        setColdEmail(data.text || "");
+        setEmailCopied(false);
+      }
     } catch {
-      setExtrasError("Couldn't reach the server. Try again.");
+      setError("Couldn't reach the server. Try again.");
     } finally {
       setExtrasLoading("");
     }
@@ -822,6 +874,54 @@ export default function Home() {
                       >
                         {showAllOpenings ? "Show fewer" : `Show all ${research.openings.length} roles`}
                       </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Speculative mode — the cold-outreach path when no posted
+                    role fits. Builds a transparent target brief into the JD
+                    box; the normal pipeline does the rest. */}
+                {research.profile && (
+                  <div className="atsGroup">
+                    <div className="atsGroupLabel recs">No role that fits?</div>
+                    <p className="gateNote" style={{ marginBottom: "var(--space-3)" }}>
+                      Tailor your CV and cover letter against their real stack anyway — for a speculative
+                      application or cold outreach. The target brief lands in the job-description box so you
+                      can see and edit exactly what you&apos;re aiming at.
+                    </p>
+                    <Button variant="secondary" onClick={applySpeculativeBrief} disabled={loading}>
+                      Create speculative target ↓
+                    </Button>
+                  </div>
+                )}
+
+                {/* Cold email — owner-only (server enforces the same gate). */}
+                {isUnlimited && research.profile && (
+                  <div className="atsGroup">
+                    <div className="atsGroupLabel recs">Cold outreach email</div>
+                    <div className="gateActions">
+                      <Button
+                        variant="secondary"
+                        onClick={() => handleExtra("cold_email")}
+                        disabled={extrasLoading !== ""}
+                      >
+                        {extrasLoading === "cold_email" ? "Writing…" : coldEmail ? "Rewrite cold email" : "Cold email draft"}
+                      </Button>
+                      <span className="fitEvidence">
+                        {result?.analysis ? "References the tailored role." : "No role selected — it will pitch speculatively."}
+                      </span>
+                      {coldEmailError && (
+                        <StatusText as="span" role="alert">{coldEmailError}</StatusText>
+                      )}
+                    </div>
+                    {coldEmail && (
+                      <div className="extraBlock">
+                        <div className="gateLabel">Ready to send — attach your downloaded CV</div>
+                        <p className="extraText">{coldEmail}</p>
+                        <button type="button" className="inlineLink" onClick={copyColdEmail}>
+                          {emailCopied ? "Copied ✓" : "Copy email"}
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
