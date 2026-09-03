@@ -57,6 +57,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Cold-email personalisation — user-typed, size-capped, optional. The
+    // prompt only uses personal_note faithfully and skips the line entirely
+    // when absent (it must never invent a connection).
+    const recipientName = typeof body.recipientName === "string" ? body.recipientName.trim().slice(0, 80) : "";
+    const personalNote = typeof body.personalNote === "string" ? body.personalNote.trim().slice(0, 300) : "";
+
     // Only the analysis fields the prompts benefit from; ignored if absent.
     const a = body.analysis && typeof body.analysis === "object" ? (body.analysis as Record<string, unknown>) : null;
     const jdAnalysis = a
@@ -74,7 +80,12 @@ export async function POST(req: NextRequest) {
       apiKeyOverride: undefined,
       system:
         kind === "pitch" ? pitchScriptPrompt(cv) : kind === "talking_points" ? talkingPointsPrompt(cv) : coldEmailPrompt(cv),
-      userInput: JSON.stringify({ company_research: research, jd_analysis: jdAnalysis }),
+      userInput: JSON.stringify({
+        company_research: research,
+        jd_analysis: jdAnalysis,
+        ...(kind === "cold_email" && recipientName ? { recipient_name: recipientName } : {}),
+        ...(kind === "cold_email" && personalNote ? { personal_note: personalNote } : {}),
+      }),
       maxTokens: 800,
     });
 

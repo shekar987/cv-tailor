@@ -284,26 +284,35 @@ Each line starts with "• ". Nothing else.`;
 
 // Stage 3 cold outreach — owner-only for now (/api/extras gates on
 // profiles.is_unlimited). Speculative when no jd_analysis is supplied.
-export const coldEmailPrompt = (cv: string) => `You write a COLD outreach email from a job seeker to a company, grounded ONLY in their master CV and the company research provided.
+// Structure follows a proven recruiter cold-email template (greeting by name,
+// busy-acknowledgment, company-initiative line, one-skill tie-in, 10-minute
+// ask, diary flexibility) with three deliberate departures: the personal
+// "I've been following you" line only appears when the USER supplied a true
+// one; the begging lines ("life-transforming", "make my day") are replaced
+// with confident brevity; and one quantified proof line from the CV is added,
+// because a template with no evidence doesn't land for engineers.
+export const coldEmailPrompt = (cv: string) => `You write a COLD outreach email from a job seeker, grounded ONLY in their master CV, the company research, and the optional personal note provided.
 
 ${ABSOLUTE_RULES}
 
 MASTER CV:
 ${cv}
 
-You will receive JSON: { company_research, jd_analysis (absent for a speculative approach — no posted role) }.
+You will receive JSON: { company_research, jd_analysis (absent for a speculative approach — no posted role), recipient_name (optional), personal_note (optional — the candidate's own true words about how they know the recipient) }.
 
-THE EMAIL (cold outreach to a busy person — brevity wins):
-- Subject line: at most 8 words, specific to this company, no clickbait, not the word "opportunity".
-- Body: 110-160 words, in this shape:
-  1. One SPECIFIC opening line showing you know what they build (from the research — never an invented fact).
-  2. Who the candidate is in one sentence, positioned against the company's stack or a pain point using only real CV experience.
-  3. ONE concrete, quantified achievement from the master CV that matters to this company. Exact numbers only.
-  4. The ask: if jd_analysis names a role, ask about that role; otherwise ask whether they'd consider the candidate for engineering roles and offer a 15-minute chat.
-  5. Sign off with the candidate's name from the CV and mention the attached CV.
-- Write like a person: contractions fine, short sentences, zero flattery ("huge fan"), zero AI-tells. BAN: "leveraging", "passionate", "seamless", "at scale", "end-to-end", "I hope this email finds you well", "I came across".
-- NEVER claim a technology from their stack that the master CV doesn't show. If the fit has gaps, lead with what is genuinely strong instead of papering over them.
-- No bracketed placeholders of any kind. When no recipient is known, open with "Hi," or "Hi <company> team,".
+THE EMAIL, in exactly this shape:
+1. Greeting: "Hello {recipient_name}," when provided, otherwise "Hi {company} team,".
+2. One line: "I know you're busy, so this will take under a minute to read." (or a close natural variant — no drama, nothing about life-transforming opportunities).
+3. ONLY IF personal_note is provided: one line built faithfully from it — reword lightly for flow but never add anything the note doesn't say. If it is absent, SKIP this line entirely; NEVER invent having followed, met, or admired anyone.
+4. One SPECIFIC line: something the company is building or wrestling with, from the research (product, initiative, or pain point) — never an invented fact.
+5. The tie-in: the candidate's ONE most relevant real skill for exactly that work, plus ONE concrete quantified achievement from the master CV. Exact numbers only.
+6. The ask: a quick 10-minute chat — if jd_analysis names a role, ask about that role; otherwise ask whether they'd consider the candidate for engineering roles. Offer to fit around the recipient's diary in one short clause.
+7. "Best regards," then the candidate's name from the CV, then "(CV attached)".
+
+Subject line: exactly \`Hello, I'm {candidate's first name from the CV}\` — nothing appended.
+
+Body: 100-160 words. Write like a person: contractions fine, short sentences, zero flattery ("huge fan"), zero begging ("it would make my day"), zero AI-tells. BAN: "leveraging", "passionate", "seamless", "at scale", "end-to-end", "I hope this email finds you well", "I came across", "life-transforming".
+NEVER claim a technology from their stack that the master CV doesn't show. No bracketed placeholders of any kind. Never claim a HISTORY of following, watching, or admiring the company or any person ("I've been following…", "long admired") — react to what the research shows in the present ("Your work on X stands out because…"); only personal_note may carry history, because the candidate wrote it.
 
 Output EXACTLY this format, nothing else:
 Subject: <subject line>
