@@ -57,7 +57,9 @@ src/
     DownloadButton.tsx        ← "Download ▾" disclosure (PDF / Word)
     FeedbackWidget.tsx        ← Feedback card on the app routes (signed in only)
     api/
-      tailor/route.ts         ← Main AI pipeline (Step 0 + 2 parallel waves) — auth-gated, DB quota + burst limit
+      tailor/route.ts         ← Main AI pipeline (Step 0 + 2 parallel waves) — auth-gated, DB quota + burst limit; accepts optional companyResearch (skips the synthetic research call)
+      research/route.ts       ← Stage 3 company research + Fit Score: SSRF-guarded scrape → 2 model calls — auth-gated, burst limit, one tailor credit, per-user 7-day cache
+      extras/route.ts         ← High-fit extras (pitch script / talking points) — auth-gated, burst limit, 1 call each, no DB quota
       analyze/route.ts        ← JD analysis; with cvText doubles as the pre-tailoring ATS gate — auth-gated, burst limit
       extract-profile/route.ts← Extracts + normalises the structured profile — auth-gated, burst limit
       parse-cv/route.ts       ← Uploaded PDF/.docx → text via lib/parseCv.ts (unpdf/mammoth) — auth-gated, Node runtime
@@ -82,7 +84,13 @@ src/
     applicationSnapshot.ts    ← Applied-button helpers: local dates, strict salary extraction, notes, second-person rewrite
     safeNext.ts               ← Same-origin-only `?next=` path (open-redirect guard)
     sectionOrder.ts / sections.ts ← Section order resolution; reserved section titles
-    atsMatch.ts               ← Deterministic keyword match for the pre-check gate
+    atsMatch.ts               ← Deterministic keyword match for the pre-check gate (also grounds the Fit Score's hard-skill component)
+    fetchPage.ts              ← Stage 3 page fetcher: assertSafeUrl() SSRF guard (DNS-resolved private/metadata refusal, re-applied per redirect hop), capped bodies, regex HTML helpers
+    techFingerprint.ts        ← Curated website-stack detection — labelled websiteStack, never presented as the engineering stack
+    jobBoards.ts              ← Greenhouse/Lever/Ashby/Workable board discovery + free public JSON APIs; deterministic tech-keyword harvest from job ads
+    fitScore.ts               ← Fit weights/tiers + reconcileFitScore() (caps the model's hard-skill score with the deterministic CV↔stack overlap)
+    llmRouting.ts             ← resolveLlmRoute(): the shared quota + provider routing brain (daily RPC, lifetime RPC, Path C own-key) used by /api/tailor and /api/research
+    companyResearch.ts        ← sanitizeCompanyResearch(): rebuilds client-forwarded research from typed, size-capped fields before it may enter a prompt
     markdownText.ts           ← parseBoldSegments() — the **bold** contract all three CV renderers share — and stripMarkdown() (master-CV save cleanup)
     contentBudget.ts          ← adaptive LENGTH BUDGET for the experience/projects prompts, computed from the actual master CV (fixed default on parse failure)
     cvDensity.ts / projectDate.ts / saveBlob.ts / pastePlainText.ts
@@ -167,6 +175,7 @@ const userId = data.claims.sub as string;
 | `user_api_keys` | `user_id` + `provider` (PK), `key_enc`, `key_hint`, `updated_at` | Users' own encrypted Gemini/OpenRouter keys. `provider` is CHECK-constrained. Read server-side via the `get_encrypted_key` RPC. |
 | `applications` | `id`, `user_id`, `company_name`, `role`, `cv_reference`, `tailor_session_id`, `status`, `salary`, `date_applied`, `followup_date`, `notes`, `job_description`, `source`, `tailored_cv` (jsonb), `created_at`, `updated_at` | Tracker rows. Partial unique index on `(user_id, tailor_session_id)`. `tailored_cv` came in a second migration — the routes degrade (save/read without it, with a warning) if it hasn't been applied. |
 | `user_feedback` | `user_id`, `email`, `message` | Insert-only for `authenticated`. |
+| `company_profiles` | `user_id`, `domain`, `data` (jsonb), `fetched_at` | Stage 3 research cache, one row per (user, domain), unique on that pair, 7-day TTL enforced in the route. Deliberately per-user — a shared cache would let one user's crafted content render for another. `/api/research` degrades to uncached if the migration isn't applied. |
 | `user_projects`, `user_skills` | — | Exist in the database but have **no code** referencing them since the unwired routes were removed. Safe to drop. |
 
 Full column/constraint/RPC expectations, and how to verify them against the live project, are in `supabase/schema.md`.
@@ -178,7 +187,7 @@ Full column/constraint/RPC expectations, and how to verify them against the live
 | Layer | Where | What it protects | Failure mode |
 |---|---|---|---|
 | **Quota** (source of truth) | Postgres SECURITY DEFINER RPCs `check_and_increment_tailor_count` / `check_and_increment_claude_lifetime`, called from `/api/tailor`; `refund_tailor_count` / `refund_claude_lifetime` (migration `20260830120000_quota_refunds.sql`) give the slot back when the pipeline throws after the increment | How many tailors bill the owner's wallet. Can't be bypassed by the client. | **Fail-closed**: an RPC error, a null result, or a missing profile row → 503, never an unmetered run. Only `reason === "unlimited"` honours a client-chosen provider. The refund is best-effort: a missing refund function is logged, never surfaced. |
-| **Burst** (cheap first gate) | `src/lib/apiRateLimit.ts` → `checkBurstLimit()`, called from `/api/tailor`, `/api/analyze`, `/api/extract-profile`, `/api/parse-cv` | A logged-in user (or script) hammering any Claude-spending endpoint — `analyze` and `extract-profile` have no DB counter at all | Upstash Redis (shared across instances) when `UPSTASH_REDIS_REST_URL`/`TOKEN` are set; otherwise, or on a Redis error, an **in-process sliding window** (10/min per user, per instance, resets on cold start). Never fully open. |
+| **Burst** (cheap first gate) | `src/lib/apiRateLimit.ts` → `checkBurstLimit()`, called from `/api/tailor`, `/api/analyze`, `/api/extract-profile`, `/api/parse-cv`, `/api/research`, `/api/extras` | A logged-in user (or script) hammering any Claude-spending endpoint — `analyze` and `extract-profile` have no DB counter at all | Upstash Redis (shared across instances) when `UPSTASH_REDIS_REST_URL`/`TOKEN` are set; otherwise, or on a Redis error, an **in-process sliding window** (10/min per user, per instance, resets on cold start). Never fully open. |
 
 Any new route that calls Claude on the owner's key must call `checkBurstLimit()` first, before auth-heavy DB work or the paid LLM call.
 
@@ -236,6 +245,12 @@ Each Promise in both waves has an independent `.catch()`. One step failing does 
 Two deterministic pieces wrap the model calls:
 - The experience/projects prompts receive an **adaptive length budget** from `lib/contentBudget.ts` — computed from how many bullets the master CV actually has vs. what two pages hold (~22 experience bullets). A CV that fits keeps every bullet; an oversized one gets per-role caps. Parse failure falls back to the fixed default text in `prompts/steps.ts`.
 - After wave 2, `reconcileAtsScore()` in the tailor route cross-checks the model's hit/miss verdicts against the real tailored text with `lib/atsMatch` — counts and lists always agree with the document the user sees; the model keeps the prose.
+
+### Stage 3 — company research (`/api/research`)
+
+Paste a company URL on `/app` → the route fetches their homepage/about/careers pages through `lib/fetchPage.ts` (**every external fetch goes through `assertSafeUrl()` — never bypass it**), discovers their ATS board and pulls live job ads (`lib/jobBoards.ts`), then makes exactly two model calls: `COMPANY_PROFILE_PROMPT` and `FIT_SCORE_PROMPT`. `reconcileFitScore()` bounds the hard-skill component with the deterministic CV↔stack overlap. Order is deliberate: all free fetching happens BEFORE the quota RPCs, so an unreachable site costs no credit; the two model calls refund on throw. One research = one tailor credit, cached per (user, domain) for 7 days.
+
+Honesty framing that must survive future edits: the website fingerprint is presented as "their website runs on" and the job-ad keywords as the engineering stack — a marketing site's tech is not the hiring stack. When the client forwards the research to `/api/tailor` as `companyResearch`, it is sanitized (`lib/companyResearch.ts`), the wave-1 synthetic research call is skipped, and rule 6 still bounds vocabulary use. High-fit (80+) unlocks `/api/extras` (pitch script, talking points — one burst-limited call each, no DB quota).
 
 ### Models
 
