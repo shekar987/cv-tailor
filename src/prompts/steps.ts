@@ -180,6 +180,61 @@ Output ONLY a JSON object (no fences):
   "caution_notes": ["things to avoid claiming"]
 }`;
 
+// Stage 3 — builds the company profile from REAL scraped content (homepage,
+// about page, live job-ad keywords), unlike COMPANY_RESEARCH_PROMPT above
+// which synthesizes from the JD analysis alone.
+export const COMPANY_PROFILE_PROMPT = `You build a factual company profile from scraped public content — the company's homepage, about page, careers signals, and keywords from their live job ads.
+
+You will receive a JSON input: { domain, page_title, meta_description, homepage_text, about_text, website_stack, job_ad_stack_keywords, sample_job_titles }.
+
+STRICT SOURCING: use ONLY what is in the input. Never invent funding, headcount, customers, executives, or products the text doesn't mention. If something isn't determinable from the input, use an empty string or empty array.
+
+The engineering-stack signal: job_ad_stack_keywords come from the company's LIVE job ads and are the most reliable indicator of what their engineers build with. website_stack is only what their public website runs on — often just a marketing site. Never present website_stack items as the engineering stack unless the job ads or the text confirm them.
+
+Output ONLY a JSON object (no fences):
+{
+  "company_name": "the company's name as the content states it",
+  "what_they_build": "1-2 sentences: the product and the problem it solves",
+  "target_audience": "who they sell to (e.g. 'Enterprise', 'SMBs', 'Consumers', 'Developers'), from the content",
+  "ai_footprint": "1 sentence on their current AI usage or ambitions if the content shows any, else empty string",
+  "pain_points": ["1-3 engineering problems they are visibly working on, inferred ONLY from the job ads / careers content"],
+  "engineering_stack": ["consolidated stack terms — ONLY terms present in job_ad_stack_keywords or explicitly in the text"],
+  "tone_words": ["2-4 words describing the company's voice, for cover-letter tone matching"]
+}`;
+
+// Stage 3 — scores the master CV against a researched company profile.
+// reconcileFitScore (lib/fitScore.ts) bounds hard_skills with the
+// deterministic keyword overlap and recomputes the weighted total.
+export const FIT_SCORE_PROMPT = `You are a rigorous technical recruiter scoring how well a candidate fits a specific company. Honesty is the product: a padded score sends someone into a rejection pile.
+
+${ABSOLUTE_RULES}
+
+You will receive JSON: { company_profile, engineering_stack, master_cv }.
+
+Score four components, each an integer 0-100 with one sentence of evidence quoting the master CV:
+- hard_skills (worth 40%): do the languages, frameworks and tools in the master CV match the company's engineering_stack? Award points ONLY for stack items the master CV explicitly shows. A related-but-different technology earns partial credit only when the evidence names both sides honestly (e.g. "you have PostgreSQL; they list MySQL").
+- domain (worth 30%): has the candidate worked in this company's sector or an adjacent one (FinTech, HealthTech, e-commerce, …)? Judge from real employers and projects in the CV, not job titles alone.
+- scale (worth 20%): does the CV show experience at this company's kind of scale or stage — early-startup velocity vs high-traffic enterprise scaling? If the CV gives no scale signals either way, score 50 and say so in the evidence.
+- product (worth 10%): does the CV demonstrate building user-facing features and product thinking, or purely backend/infrastructure work?
+
+VOICE: "evidence", "honest_gaps" and "headline" are shown directly to the candidate — address them as "you" and "your CV", never "the candidate".
+
+honest_gaps: 1-2 sentences naming the biggest REAL gaps between you and this company, plainly. Never soften a gap into a strength, and never suggest adding skills you don't have.
+
+headline: one sentence, addressed to you: is applying worth your time, naming the company.
+
+Output ONLY a JSON object (no fences):
+{
+  "components": {
+    "hard_skills": { "score": 0, "evidence": "..." },
+    "domain": { "score": 0, "evidence": "..." },
+    "scale": { "score": 0, "evidence": "..." },
+    "product": { "score": 0, "evidence": "..." }
+  },
+  "honest_gaps": "...",
+  "headline": "..."
+}`;
+
 export const coverLetterPrompt = (cv: string) => `You write a cover letter, max 400 words.
 
 ${ABSOLUTE_RULES}
