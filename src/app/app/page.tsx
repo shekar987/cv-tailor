@@ -16,6 +16,7 @@ import Card from "@/components/ui/Card";
 import EmptyState from "@/components/ui/EmptyState";
 import Skeleton from "@/components/ui/Skeleton";
 import Textarea from "@/components/ui/Textarea";
+import Input from "@/components/ui/Input";
 import FormField from "@/components/ui/FormField";
 import StatusText from "@/components/ui/StatusText";
 import Badge from "@/components/ui/Badge";
@@ -70,6 +71,51 @@ type Result = {
 };
 
 type AppliedState = "idle" | "saving" | "saved" | "already" | "error";
+
+// ── Stage 3: company research (the /api/research payload, typed loosely — the
+// server owns the shape; the UI renders what's present and skips what isn't).
+type ResearchProfile = {
+  company_name?: string;
+  what_they_build?: string;
+  target_audience?: string;
+  ai_footprint?: string;
+  pain_points?: string[];
+  engineering_stack?: string[];
+  tone_words?: string[];
+};
+type ResearchFit = {
+  total?: number;
+  tier?: "low" | "medium" | "high";
+  components?: Record<string, { score?: number; evidence?: string }>;
+  matched_stack?: string[];
+  missing_stack?: string[];
+  honest_gaps?: string;
+  headline?: string;
+};
+type ResearchOpening = { title?: string; location?: string; url?: string; description?: string };
+type ResearchData = {
+  profile?: ResearchProfile;
+  websiteStack?: string[];
+  stackKeywords?: { keyword: string; count: number }[];
+  openings?: ResearchOpening[];
+  jobBoard?: { provider?: string; count?: number } | null;
+  fitScore?: ResearchFit | null;
+  researchedAt?: string;
+  cached?: boolean;
+};
+
+const FIT_TIER_META = {
+  low: { emoji: "⚠️", label: "Low match" },
+  medium: { emoji: "⚡", label: "Potential match" },
+  high: { emoji: "🔥", label: "Highly positive fit" },
+} as const;
+
+const FIT_COMPONENT_META: { key: string; label: string; weight: number }[] = [
+  { key: "hard_skills", label: "Hard skills", weight: 40 },
+  { key: "domain", label: "Domain experience", weight: 30 },
+  { key: "scale", label: "Complexity & scale", weight: 20 },
+  { key: "product", label: "Product empathy", weight: 10 },
+];
 
 // Step 1 sometimes answers a missing company or role with a placeholder
 // phrase ("Not specified", "Unknown", "N/A") instead of an empty string.
@@ -126,6 +172,15 @@ export default function Home() {
   const [gateLoading, setGateLoading] = useState(false);
   const [gateError, setGateError] = useState("");
 
+  // Stage 3 — company research + Fit Score. Self-contained error state: the
+  // server's limit messages are shown verbatim inside the research card, so
+  // this never crosses wires with the tailor pipeline's notice blocks.
+  const [companyUrl, setCompanyUrl] = useState("");
+  const [research, setResearch] = useState<ResearchData | null>(null);
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [researchError, setResearchError] = useState("");
+  const [showAllOpenings, setShowAllOpenings] = useState(false);
+
   // Identity for the persisted workspace, and a flag so we never write back
   // before the restore has run (which would blank out saved work on mount).
   const [userId, setUserId] = useState<string | null>(null);
@@ -174,6 +229,8 @@ export default function Home() {
           if (saved.ranProvider) setRanProvider(saved.ranProvider);
           if (saved.tailorSessionId) setTailorSessionId(saved.tailorSessionId);
           if (typeof saved.resultJd === "string") setResultJd(saved.resultJd);
+          if (saved.research && typeof saved.research === "object") setResearch(saved.research as ResearchData);
+          if (saved.researchUrl) setCompanyUrl(saved.researchUrl);
         }
       }
       // Only now may the save effect run — writing before this point would
@@ -234,8 +291,8 @@ export default function Home() {
   // workspaceReady so the initial empty state never overwrites saved work.
   useEffect(() => {
     if (!workspaceReady || !userId) return;
-    saveWorkspace(userId, { jobDescription, result, ranProvider, tailorSessionId, resultJd });
-  }, [workspaceReady, userId, jobDescription, result, ranProvider, tailorSessionId, resultJd]);
+    saveWorkspace(userId, { jobDescription, result, ranProvider, tailorSessionId, resultJd, research, researchUrl: companyUrl || null });
+  }, [workspaceReady, userId, jobDescription, result, ranProvider, tailorSessionId, resultJd, research, companyUrl]);
 
   // Tick once a second while the pipeline runs; resets to 0 on each new run.
   useEffect(() => {
@@ -244,6 +301,63 @@ export default function Home() {
     const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
     return () => clearInterval(timer);
   }, [loading]);
+
+  // Stage 3: research the pasted company URL. Costs one tailor credit (the
+  // server refunds it if the model calls fail; a cache hit within 7 days is
+  // free); all the web fetching happens before the credit is touched, so an
+  // unreachable site costs nothing.
+  async function handleResearch(force = false) {
+    if (researchLoading || loading) return;
+    if (!masterCvText.trim()) {
+      setResearchError("Add your master CV in Customize first — the Fit Score compares the company against it.");
+      return;
+    }
+    const url = companyUrl.trim();
+    if (!url) {
+      setResearchError("Paste the company's website URL first.");
+      return;
+    }
+    setResearchError("");
+    setResearchLoading(true);
+    try {
+      const res = await fetch("/api/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          cvText: masterCvText,
+          ...(isUnlimited ? { provider } : {}),
+          ...(force ? { force: true } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setResearchError(data.error || "Research failed. Try again.");
+        return;
+      }
+      setResearch(data as ResearchData);
+      setShowAllOpenings(false);
+    } catch {
+      setResearchError("Couldn't reach the server. Try again.");
+    } finally {
+      setResearchLoading(false);
+      // A credit may have been spent (or refunded) — refresh the chip.
+      getUsage().then(setUsage);
+    }
+  }
+
+  // A researched opening becomes the JD with one click — the aggregator made
+  // useful. Same invalidation as typing in the JD box: the gate's analysis
+  // belonged to the previous text.
+  function applyOpening(o: ResearchOpening) {
+    const jd = [o.title, o.location].filter(Boolean).join("\n") + (o.description ? `\n\n${o.description}` : "");
+    setJobDescription(jd.trim());
+    setPreCheck(null);
+    setGateAnalysis(null);
+    setGateError("");
+    const el = document.getElementById("jd");
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
   // Step 1 of the click-through: run ONLY the JD analyzer + a local keyword
   // check against the raw CV, so the user sees a rough fit estimate before the
@@ -316,6 +430,10 @@ export default function Home() {
           // Only meaningful for unlimited accounts; the server ignores it otherwise
           ...(isUnlimited ? { provider } : {}),
           ...(gateAnalysis ? { analysis: gateAnalysis } : {}),
+          // Real scraped research (Stage 3): the tailor route injects it into
+          // the cover-letter context instead of synthesizing research from the
+          // JD alone. Only sent when it was run for this company.
+          ...(research?.profile ? { companyResearch: research.profile } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -508,6 +626,166 @@ export default function Home() {
             </EmptyState>
           </Card>
         ) : null}
+
+        {/* Stage 3 — company research + Fit Score (optional, before the JD) */}
+        {masterCvText && (
+          <Card>
+            <FormField
+              label="Company research (optional)"
+              htmlFor="companyUrl"
+              help="Paste the company's website and we'll read their site and live job ads, then score how well your real CV fits before you spend a tailor. Uses one tailor credit — repeat lookups of the same company are free for 7 days."
+            >
+              <div className="researchRow">
+                <Input
+                  id="companyUrl"
+                  value={companyUrl}
+                  onChange={(e) => setCompanyUrl(e.target.value)}
+                  placeholder="e.g. deliveroo.co.uk"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <Button variant="secondary" onClick={() => handleResearch()} disabled={researchLoading || loading}>
+                  {researchLoading ? "Researching…" : "Research company"}
+                </Button>
+              </div>
+            </FormField>
+            {researchError && (
+              <StatusText style={{ marginTop: "var(--space-3)" }} role="alert">{researchError}</StatusText>
+            )}
+
+            {research && !researchLoading && (
+              <Card variant="dashed">
+                <div className="researchHead">
+                  <div>
+                    <div className="gateLabel">Company profile</div>
+                    <div className="researchName">{research.profile?.company_name || companyUrl}</div>
+                  </div>
+                  {research.cached && (
+                    <button type="button" className="inlineLink researchRefresh" onClick={() => handleResearch(true)}>
+                      Saved result — research again
+                    </button>
+                  )}
+                </div>
+                {research.profile?.what_they_build && (
+                  <p className="gateNote">
+                    {research.profile.what_they_build}
+                    {research.profile.target_audience && <> Audience: {research.profile.target_audience}.</>}
+                    {research.profile.ai_footprint && <> {research.profile.ai_footprint}</>}
+                  </p>
+                )}
+
+                {research.fitScore && typeof research.fitScore.total === "number" && (
+                  <div className="fitBlock">
+                    <div className="fitHeader">
+                      <span className={`fitTierBadge ${research.fitScore.tier ?? "low"}`}>
+                        {FIT_TIER_META[research.fitScore.tier ?? "low"].emoji}{" "}
+                        {FIT_TIER_META[research.fitScore.tier ?? "low"].label}
+                      </span>
+                      <span className="fitTotal">
+                        {research.fitScore.total}
+                        <span className="fitOutOf">/100</span>
+                      </span>
+                    </div>
+                    {research.fitScore.headline && <p className="gateNote">{research.fitScore.headline}</p>}
+                    <div className="fitBars">
+                      {FIT_COMPONENT_META.map(({ key, label, weight }) => {
+                        const c = research.fitScore?.components?.[key];
+                        if (!c || typeof c.score !== "number") return null;
+                        return (
+                          <div className="fitBar" key={key}>
+                            <div className="fitBarTop">
+                              <span>{label} · weighs {weight}%</span>
+                              <span>{c.score}</span>
+                            </div>
+                            <div className="fitBarTrack" role="img" aria-label={`${label}: ${c.score} out of 100`}>
+                              <div className="fitBarFill" style={{ width: `${c.score}%` }} />
+                            </div>
+                            {c.evidence && <p className="fitEvidence">{c.evidence}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {research.fitScore.honest_gaps && (
+                      <p className="fitGaps">
+                        <strong>Honest gaps:</strong> {research.fitScore.honest_gaps}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {Array.isArray(research.stackKeywords) && research.stackKeywords.length > 0 && (
+                  <div className="atsGroup">
+                    <div className="atsGroupLabel recs">
+                      Engineering stack — from {research.jobBoard?.count ?? research.openings?.length ?? 0} live job ads
+                    </div>
+                    <div className="stackChips">
+                      {research.stackKeywords.map((k) => {
+                        const matched = research.fitScore?.matched_stack?.some(
+                          (m) => m.toLowerCase() === k.keyword.toLowerCase()
+                        );
+                        return (
+                          <span key={k.keyword} className={"stackChip" + (matched ? " matched" : "")}>
+                            {matched ? "✓ " : ""}{k.keyword}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <p className="fitEvidence">✓ = already evidenced in your master CV.</p>
+                  </div>
+                )}
+
+                {Array.isArray(research.websiteStack) && research.websiteStack.length > 0 && (
+                  <div className="atsGroup">
+                    <div className="atsGroupLabel recs">Their website runs on</div>
+                    <div className="stackChips">
+                      {research.websiteStack.map((s) => (
+                        <span key={s} className="stackChip muted">{s}</span>
+                      ))}
+                    </div>
+                    <p className="fitEvidence">
+                      Website tech ≠ engineering stack — the job ads above are the real hiring signal.
+                    </p>
+                  </div>
+                )}
+
+                {Array.isArray(research.openings) && research.openings.length > 0 && (
+                  <div className="atsGroup">
+                    <div className="atsGroupLabel recs">
+                      Open roles ({research.openings.length})
+                      {research.jobBoard?.provider && <> — via {research.jobBoard.provider}</>}
+                    </div>
+                    <ul className="openingsList">
+                      {(showAllOpenings ? research.openings : research.openings.slice(0, 6)).map((o, i) => (
+                        <li key={i}>
+                          <button
+                            type="button"
+                            className="openingBtn"
+                            onClick={() => applyOpening(o)}
+                            disabled={loading}
+                            title="Use this job ad as the job description below"
+                          >
+                            <span className="openingTitle">{o.title}</span>
+                            {o.location && <span className="openingLoc">{o.location}</span>}
+                            <span className="openingUse">Use as JD ↓</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    {research.openings.length > 6 && (
+                      <button
+                        type="button"
+                        className="inlineLink"
+                        onClick={() => setShowAllOpenings((v) => !v)}
+                      >
+                        {showAllOpenings ? "Show fewer" : `Show all ${research.openings.length} roles`}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </Card>
+            )}
+          </Card>
+        )}
 
         {/* JD card — only show once a master CV exists */}
         {masterCvText && (

@@ -31,6 +31,10 @@ export type StoredWorkspace = {
   // textarea to flag stale results. Optional for the same backwards-compat
   // reason as tailorSessionId.
   resultJd?: string | null;
+  // Stage 3 company research (the /api/research payload) and the URL it was
+  // run for. Optional — envelopes written before Stage 3 restore fine.
+  research?: unknown;
+  researchUrl?: string | null;
 };
 
 type Envelope = StoredWorkspace & { v: number; savedAt: number };
@@ -52,6 +56,8 @@ export function loadWorkspace(userId: string): StoredWorkspace | null {
       ranProvider: typeof parsed.ranProvider === "string" ? parsed.ranProvider : null,
       tailorSessionId: typeof parsed.tailorSessionId === "string" ? parsed.tailorSessionId : null,
       resultJd: typeof parsed.resultJd === "string" ? parsed.resultJd : null,
+      research: parsed.research ?? null,
+      researchUrl: typeof parsed.researchUrl === "string" ? parsed.researchUrl : null,
     };
   } catch {
     // Corrupt or unreadable — behave as if nothing was saved.
@@ -64,7 +70,7 @@ export function saveWorkspace(userId: string, data: StoredWorkspace): void {
   try {
     // Nothing worth restoring — clear instead of storing an empty shell, so a
     // stale result can't outlive the JD it belongs to.
-    if (!data.jobDescription.trim() && !data.result) {
+    if (!data.jobDescription.trim() && !data.result && !data.research) {
       window.localStorage.removeItem(keyFor(userId));
       return;
     }
