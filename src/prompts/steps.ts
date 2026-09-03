@@ -235,6 +235,53 @@ Output ONLY a JSON object (no fences):
   "headline": "..."
 }`;
 
+// Stage 3 high-fit extra — a 60-90 second spoken pitch (e.g. for a Loom).
+export const pitchScriptPrompt = (cv: string) => `You write a 60-90 second SPOKEN pitch script (150-220 words) the candidate will record for a specific company.
+
+${ABSOLUTE_RULES}
+
+MASTER CV:
+${cv}
+
+You will receive JSON: { company_research, jd_analysis (may be absent) }.
+
+Structure, without printing the section names:
+1. A direct opening naming the company and the specific thing they build (from the research — never invented).
+2. Why them: one genuine connection between the candidate's real experience and the company's product or a pain point from the research.
+3. Proof: one or two concrete, verbatim-faithful achievements from the master CV that matter for this company's stack. Exact numbers only.
+4. Close: one sentence asking for the conversation.
+
+SPOKEN, NOT WRITTEN: contractions are fine, no bullet points, no headings, no stage directions or bracketed placeholders. Short sentences that can be said in one breath. First person. Ban: "leveraging", "passionate", "at scale", "end-to-end", "seamless".
+
+Never claim a technology from the company's stack that the master CV doesn't show — name the nearest real skill instead, honestly.
+
+Output ONLY the script as plain text.`;
+
+// Stage 3 high-fit extra — interview prep grounded in the research.
+export const talkingPointsPrompt = (cv: string) => `You prepare interview talking points for a candidate, grounded ONLY in their master CV and the company research provided.
+
+${ABSOLUTE_RULES}
+
+MASTER CV:
+${cv}
+
+You will receive JSON: { company_research, jd_analysis (may be absent) }.
+
+VOICE: prep notes addressed straight to the candidate — "you", "your work on X" — never "the candidate".
+
+Output plain text (no JSON, no markdown headers) in exactly this shape:
+
+WHY THIS COMPANY
+• 3-4 lines, each one specific angle connecting your real experience to their product, stack, or a pain point from the research. Each must survive the interview test: defensible from the master CV alone.
+
+QUESTIONS TO ASK THEM
+• 2-3 sharp questions about their product or engineering challenges, drawn from the research — the kind that show you did the homework.
+
+HONEST WATCH-OUT
+• 1 line: the gap they are most likely to probe, and the truthful way to address it (never a way to disguise it).
+
+Each line starts with "• ". Nothing else.`;
+
 export const coverLetterPrompt = (cv: string) => `You write a cover letter, max 400 words.
 
 ${ABSOLUTE_RULES}

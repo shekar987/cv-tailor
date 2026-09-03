@@ -8,7 +8,7 @@ import CoverLetterPreview from "../CoverLetterPreview";
 import type { AtsMatchResult } from "@/lib/atsMatch";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
-import { MAX_JD_CHARS, JD_TOO_LONG } from "@/lib/limits";
+import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS } from "@/lib/limits";
 import { getUsage, type Usage } from "@/lib/usage";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -180,6 +180,13 @@ export default function Home() {
   const [researchLoading, setResearchLoading] = useState(false);
   const [researchError, setResearchError] = useState("");
   const [showAllOpenings, setShowAllOpenings] = useState(false);
+
+  // High-fit (80+) extras — pitch script + interview talking points. Session
+  // state only: cheap to regenerate, and each is one burst-limited call.
+  const [pitchScript, setPitchScript] = useState("");
+  const [talkingPoints, setTalkingPoints] = useState("");
+  const [extrasLoading, setExtrasLoading] = useState<"" | "pitch" | "talking_points">("");
+  const [extrasError, setExtrasError] = useState("");
 
   // Identity for the persisted workspace, and a flag so we never write back
   // before the restore has run (which would blank out saved work on mount).
@@ -359,6 +366,36 @@ export default function Home() {
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  // High-fit extras: one model call each, built from the research + master CV.
+  async function handleExtra(kind: "pitch" | "talking_points") {
+    if (extrasLoading) return;
+    setExtrasError("");
+    setExtrasLoading(kind);
+    try {
+      const res = await fetch("/api/extras", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind,
+          cvText: masterCvText,
+          companyResearch: research?.profile,
+          analysis: result?.analysis,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setExtrasError(data.error || "Couldn't generate that just now. Try again.");
+        return;
+      }
+      if (kind === "pitch") setPitchScript(data.text || "");
+      else setTalkingPoints(data.text || "");
+    } catch {
+      setExtrasError("Couldn't reach the server. Try again.");
+    } finally {
+      setExtrasLoading("");
+    }
+  }
+
   // Step 1 of the click-through: run ONLY the JD analyzer + a local keyword
   // check against the raw CV, so the user sees a rough fit estimate before the
   // paid 8-step pipeline runs. Never blocks on a low score — just informs.
@@ -517,7 +554,13 @@ export default function Home() {
           salary: salaryFromJd(jobDescription),
           date_applied: localIsoDate(today),
           followup_date: localIsoDate(addDays(today, 7)),
-          notes: buildAppliedNotes(result.atsScore),
+          // Generated talking points ride along into the tracker row for
+          // interview prep. The API rejects (not truncates) over-long notes,
+          // so the combined text is sliced to the cap client-side.
+          notes: [buildAppliedNotes(result.atsScore), talkingPoints && `— Interview talking points —\n${talkingPoints}`]
+            .filter(Boolean)
+            .join("\n\n")
+            .slice(0, MAX_NOTES_CHARS),
           job_description: jobDescription.slice(0, 15_000),
           // The CV as generated, with the profile and section order it was
           // rendered with, so the tracker shows this exact document later.
@@ -1062,6 +1105,51 @@ export default function Home() {
             )}
           
             
+            {/* High-fit extras — only when the research scored this company
+                80+ AND a tailored result exists. Secondary buttons: amber on
+                this view still belongs to Download. */}
+            {research?.fitScore?.tier === "high" && research?.profile && (
+              <Card>
+                <div className="label">
+                  🔥 High-fit extras for {research.profile.company_name || "this company"}
+                </div>
+                <p className="cvHelp">
+                  This company scored {research.fitScore.total}/100 against your real CV — worth going
+                  beyond the CV. Both are built only from your master CV and the research; nothing invented.
+                </p>
+                <div className="actions" style={{ marginTop: 0 }}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleExtra("pitch")}
+                    disabled={extrasLoading !== ""}
+                  >
+                    {extrasLoading === "pitch" ? "Writing…" : pitchScript ? "Rewrite pitch script" : "60-second pitch script"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleExtra("talking_points")}
+                    disabled={extrasLoading !== ""}
+                  >
+                    {extrasLoading === "talking_points" ? "Preparing…" : talkingPoints ? "Redo talking points" : "Interview talking points"}
+                  </Button>
+                  {extrasError && <StatusText as="span" role="alert">{extrasError}</StatusText>}
+                </div>
+                {pitchScript && (
+                  <div className="extraBlock">
+                    <div className="gateLabel">Pitch script — 60-90 seconds, spoken</div>
+                    <p className="extraText">{pitchScript}</p>
+                  </div>
+                )}
+                {talkingPoints && (
+                  <div className="extraBlock">
+                    <div className="gateLabel">Interview talking points</div>
+                    <p className="extraText">{talkingPoints}</p>
+                    <p className="fitEvidence">Saved into the tracker row&apos;s notes when you click Applied below.</p>
+                  </div>
+                )}
+              </Card>
+            )}
+
             {/* Applied → snapshot this run into the tracker. Secondary on
                 purpose: amber on this view belongs to Download. */}
             <div className="actions appliedRow">
