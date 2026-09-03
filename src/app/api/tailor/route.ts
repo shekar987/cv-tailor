@@ -31,6 +31,39 @@ function looksLikeJdAnalysis(value: unknown): value is Record<string, unknown> {
   );
 }
 
+// Stage 3: real scraped company research, forwarded by the client after a
+// /api/research run. Client-supplied, so it is REBUILT here from typed,
+// size-capped fields — never passed into a prompt verbatim. Returns null
+// (research ignored, behaviour as before) unless it carries at least a
+// company name or product line.
+const MAX_RESEARCH_CHARS = 6_000;
+function sanitizeCompanyResearch(v: unknown): Record<string, unknown> | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const r = v as Record<string, unknown>;
+  const take = (x: unknown, max = 400) => (typeof x === "string" && x.trim() ? x.slice(0, max) : undefined);
+  const takeList = (x: unknown, count: number, each = 120) =>
+    Array.isArray(x)
+      ? x.filter((s): s is string => typeof s === "string" && s.trim() !== "").slice(0, count).map((s) => s.slice(0, each))
+      : undefined;
+  const out: Record<string, unknown> = {};
+  const name = take(r.company_name, 120);
+  if (name) out.company_name = name;
+  const build = take(r.what_they_build);
+  if (build) out.what_they_build = build;
+  const audience = take(r.target_audience, 120);
+  if (audience) out.target_audience = audience;
+  const ai = take(r.ai_footprint);
+  if (ai) out.ai_footprint = ai;
+  const pains = takeList(r.pain_points, 5, 200);
+  if (pains?.length) out.pain_points = pains;
+  const stack = takeList(r.engineering_stack, 25);
+  if (stack?.length) out.engineering_stack = stack;
+  const tone = takeList(r.tone_words, 6, 40);
+  if (tone?.length) out.tone_words = tone;
+  if (!out.company_name && !out.what_they_build) return null;
+  return JSON.stringify(out).length <= MAX_RESEARCH_CHARS ? out : null;
+}
+
 // Re-throws ProviderRateLimitError so the route can answer with a specific
 // 429; swallows everything else and returns the given empty value. This keeps
 // the "one bad step doesn't kill the whole response" behaviour while letting a
@@ -149,8 +182,14 @@ async function runPipeline(opts: {
   // the whole point of the gate: the user already paid for this exact call
   // when they saw the "X/15 keywords" preview, so it must not run twice.
   precomputedAnalysis?: unknown;
+  // Sanitized Stage 3 research. When present, the wave-1 synthetic
+  // company-research call is SKIPPED (real scraped facts beat a model's
+  // guesses, and the research run already paid for itself by saving this
+  // call) and the profile rides along in every step's context. ABSOLUTE_RULES
+  // still bound what the steps may do with the vocabulary (rule 6).
+  companyResearch?: Record<string, unknown> | null;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch } = opts;
 
   // Step 0 — JD analysis. Reused from the pre-tailoring gate when available and
   // well-formed; otherwise run fresh (this is also the fallback for a caller
@@ -170,7 +209,14 @@ async function runPipeline(opts: {
         userInput: jd,
         expectJson: true,
       });
-  const analysisStr = JSON.stringify(analysis);
+  // The tailoring steps read the analysis JSON; when real research exists it
+  // rides along inside it, grounding emphasis choices in the company's actual
+  // stack and product rather than JD inference alone.
+  const analysisStr = JSON.stringify(
+    companyResearch && analysis && typeof analysis === "object"
+      ? { ...(analysis as Record<string, unknown>), company_research: companyResearch }
+      : analysis
+  );
 
   // Adaptive content budget: only ask the model to trim what two pages truly
   // can't hold (lib/contentBudget.ts). When the CV can't be parsed, the
@@ -181,8 +227,10 @@ async function runPipeline(opts: {
   // Wave 1 — parallel; individual step failures produce empty values,
   // but ProviderRateLimitError propagates.
   const [research, summary, skills, experience, projects] = await Promise.all([
-    callLLM({ provider, apiKeyOverride, system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
-      .catch(swallowStep({})),
+    companyResearch
+      ? Promise.resolve<unknown>(companyResearch) // real scraped research — skip the synthetic call
+      : callLLM({ provider, apiKeyOverride, system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
+          .catch(swallowStep({})),
     callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv), userInput: analysisStr })
       .catch(swallowStep("")),
     callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv), userInput: analysisStr })
@@ -274,6 +322,7 @@ export async function POST(req: NextRequest) {
       : [];
     const bodyProvider = body.provider;
     const bodyAnalysis = body.analysis;
+    const bodyResearch = sanitizeCompanyResearch(body.companyResearch);
 
     // ── Quota + provider routing (shared brain — lib/llmRouting.ts) ───────────
     const route = await resolveLlmRoute(supabase, userId, { bodyProvider });
@@ -299,6 +348,7 @@ export async function POST(req: NextRequest) {
         cv,
         projectNames: safeProjectNames,
         precomputedAnalysis: bodyAnalysis,
+        companyResearch: bodyResearch,
       });
       // The unlimited (owner) path reports which provider ran, for the dropdown.
       return NextResponse.json(route.reason === "unlimited" ? { provider: route.provider, ...result } : result);
