@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callLLM, Provider, ProviderRateLimitError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
-import { decrypt } from "@/lib/keyEncryption";
-import { MAX_CV_CHARS, MAX_JD_CHARS, CV_TOO_LONG, JD_TOO_LONG, DAILY_TAILOR_LIMIT, CLAUDE_LIFETIME_LIMIT } from "@/lib/limits";
+import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
+import { MAX_CV_CHARS, MAX_JD_CHARS, CV_TOO_LONG, JD_TOO_LONG } from "@/lib/limits";
 import {
   summaryPrompt,
   skillsPrompt,
@@ -17,10 +17,6 @@ import {
 import { experienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
 import { matchAtsKeywords } from "@/lib/atsMatch";
 
-const WINDOW_MS = 24 * 60 * 60 * 1000;
-
-const UNAVAILABLE = { error: "Service temporarily unavailable. Please try again in a moment." };
-
 // Minimal shape check for a client-supplied analysis object (from the
 // pre-tailoring ATS gate — see runPipeline's precomputedAnalysis param). Not a
 // security boundary: the JD itself is already fully user-controlled input, so
@@ -33,28 +29,6 @@ function looksLikeJdAnalysis(value: unknown): value is Record<string, unknown> {
     typeof value === "object" &&
     Array.isArray((value as Record<string, unknown>).top_15_ats_keywords)
   );
-}
-
-// For unlimited users only — reads provider from the request body, then env, then defaults.
-function resolveProvider(bodyProvider: unknown): Provider {
-  if (bodyProvider === "anthropic" || bodyProvider === "openrouter" || bodyProvider === "gemini") {
-    return bodyProvider;
-  }
-  const envProvider = process.env.LLM_PROVIDER;
-  if (envProvider === "anthropic" || envProvider === "openrouter" || envProvider === "gemini") {
-    return envProvider;
-  }
-  return "anthropic";
-}
-
-function formatDuration(ms: number): string {
-  if (ms <= 0) return "shortly";
-  const totalMinutes = Math.ceil(ms / 60_000);
-  const hours    = Math.floor(totalMinutes / 60);
-  const minutes  = totalMinutes % 60;
-  if (hours   === 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
-  if (minutes === 0) return `${hours} hour${hours === 1 ? "" : "s"}`;
-  return `${hours} hour${hours === 1 ? "" : "s"} ${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
 // Re-throws ProviderRateLimitError so the route can answer with a specific
@@ -301,200 +275,47 @@ export async function POST(req: NextRequest) {
     const bodyProvider = body.provider;
     const bodyAnalysis = body.analysis;
 
-    // ── Daily rate limit (all users, all providers) ───────────────────────────
-    // The quota is the wallet's last line of defence, so it fails CLOSED: if
-    // the counter can't be read, no paid pipeline runs.
-    const { data: rpcResult, error: rpcError } = await supabase.rpc(
-      "check_and_increment_tailor_count",
-      {
-        uid:            userId,
-        daily_limit:    DAILY_TAILOR_LIMIT,
-        window_seconds: Math.floor(WINDOW_MS / 1000),
-      }
-    );
-    if (rpcError || !rpcResult) {
-      console.error("Rate limit RPC error:", rpcError?.message ?? "no result");
-      return NextResponse.json(UNAVAILABLE, { status: 503 });
+    // ── Quota + provider routing (shared brain — lib/llmRouting.ts) ───────────
+    const route = await resolveLlmRoute(supabase, userId, { bodyProvider });
+    if (!route.ok) {
+      return NextResponse.json(route.body, { status: route.status });
     }
-    if (!rpcResult.allowed) {
-      if (rpcResult.reason === "limit_reached") {
-        const resetAt   = rpcResult.reset_at as string;
-        const remaining = formatDuration(new Date(resetAt).getTime() - Date.now());
+
+    async function runOrRefund(opts: Parameters<typeof runPipeline>[0]) {
+      if (!route.ok) throw new Error("unreachable");
+      try {
+        return await runPipeline(opts);
+      } catch (err) {
+        await route.refund();
+        throw err;
+      }
+    }
+
+    try {
+      const result = await runOrRefund({
+        provider: route.provider,
+        apiKeyOverride: route.apiKeyOverride,
+        jd,
+        cv,
+        projectNames: safeProjectNames,
+        precomputedAnalysis: bodyAnalysis,
+      });
+      // The unlimited (owner) path reports which provider ran, for the dropdown.
+      return NextResponse.json(route.reason === "unlimited" ? { provider: route.provider, ...result } : result);
+    } catch (err) {
+      if (route.reason === "own_key" && err instanceof ProviderRateLimitError) {
+        // OpenRouter's own limit — the app imposes no cap of its own here.
         return NextResponse.json(
           {
-            error: `You've reached your daily tailoring limit (${DAILY_TAILOR_LIMIT} per 24 hours). Resets in ${remaining}.`,
-            errorType: "user_limit",
-            resetAt,
+            limitReached: true,
+            error: "Your OpenRouter key has hit its usage limit. Try again later.",
+            errorType: "user_key_limit",
           },
           { status: 429 }
         );
       }
-      // profile_not_found / forbidden: the account row the quota lives on is
-      // missing or invisible. Running unmetered would be the wrong default.
-      console.error("Rate limit RPC refused:", rpcResult.reason ?? "unknown reason");
-      return NextResponse.json(
-        { error: "Your account isn't fully set up yet. Sign out and back in, and if this persists, contact support." },
-        { status: 503 }
-      );
+      throw err;
     }
-
-    // ── Routing brain ─────────────────────────────────────────────────────────
-    // Call check_and_increment_claude_lifetime once. Its return tells us everything:
-    //   reason = 'unlimited'           → owner account; honour the dropdown; use env keys
-    //   reason = 'ok'                  → user has free Claude credits; just incremented
-    //   reason = 'claude_limit_reached'→ capped; route to their own saved keys
-    //   anything else / DB error       → fail closed (503)
-    const { data: lifetimeResult, error: lifetimeError } = await supabase.rpc(
-      "check_and_increment_claude_lifetime",
-      { uid: userId, lifetime_limit: CLAUDE_LIFETIME_LIMIT }
-    );
-
-    if (lifetimeError || !lifetimeResult) {
-      console.error("Claude lifetime RPC error:", lifetimeError?.message ?? "no result");
-      return NextResponse.json(UNAVAILABLE, { status: 503 });
-    }
-
-    const lifetimeReason = lifetimeResult.reason as string | undefined;
-
-    // Both counters have been incremented at this point. If the pipeline then
-    // fails — provider 429, upstream outage, transport error — give the slot
-    // back; the user got nothing for it. Best effort: a missing refund
-    // function (migration not applied yet) is logged, never surfaced.
-    async function refundQuota() {
-      const calls = [supabase.rpc("refund_tailor_count", { uid: userId })];
-      if (lifetimeReason === "ok") calls.push(supabase.rpc("refund_claude_lifetime", { uid: userId }));
-      const settled = await Promise.allSettled(calls);
-      for (const s of settled) {
-        if (s.status === "rejected") console.error("Quota refund failed:", s.reason instanceof Error ? s.reason.message : String(s.reason));
-        else if (s.value.error) console.error("Quota refund RPC error:", s.value.error.message);
-      }
-    }
-    async function runOrRefund(opts: Parameters<typeof runPipeline>[0]) {
-      try {
-        return await runPipeline(opts);
-      } catch (err) {
-        await refundQuota();
-        throw err;
-      }
-    }
-
-    // ── Path A: unlimited account — the only path that honours a client-chosen provider ──
-    if (lifetimeReason === "unlimited") {
-      const provider = resolveProvider(bodyProvider);
-      const result   = await runOrRefund({ provider, apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
-      return NextResponse.json({ provider, ...result });
-    }
-
-    // ── Path B: user has free Claude credits (counter just incremented) ───────
-    if (lifetimeReason === "ok") {
-      const result = await runOrRefund({ provider: "anthropic", apiKeyOverride: undefined, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
-      return NextResponse.json(result);
-    }
-
-    // ── Path C: Claude credits exhausted — route to the user's own key ────────
-    //
-    // OpenRouter ONLY. Gemini is deliberately not in this rotation: its free
-    // tier allows 5 requests/minute, and one tailoring run makes 8 calls — five
-    // of them fired in parallel in wave 1, after Step 0 has already spent one.
-    // A user on their own Gemini key therefore cannot complete a single run.
-    // That is a structural ceiling, not an occasional rate limit, so attempting
-    // it would only burn ~20 seconds and their quota before failing.
-    //
-    // Saving a Gemini key in Settings is still supported; it just isn't used
-    // for automatic tailoring.
-    if (lifetimeReason === "claude_limit_reached") {
-      // key_enc is column-revoked from `authenticated`; this SECURITY DEFINER
-      // RPC is the only read path. Check BOTH data and error: a failed lookup
-      // previously read as "no key saved", which told a user who had saved a
-      // key that they had none.
-      const [orLookup, geminiLookup] = await Promise.all([
-        supabase.rpc("get_encrypted_key", { p_user_id: userId, p_provider: "openrouter" }),
-        supabase.rpc("get_encrypted_key", { p_user_id: userId, p_provider: "gemini" }),
-      ]);
-
-      if (orLookup.error || geminiLookup.error) {
-        // Never claim "you have no key" when we simply failed to look.
-        console.error(
-          "Key lookup RPC failed:",
-          orLookup.error?.message ?? geminiLookup.error?.message ?? "unknown"
-        );
-        return NextResponse.json(
-          { error: "Couldn't check your saved API key just now. Please try again in a moment." },
-          { status: 503 }
-        );
-      }
-
-      // Decrypt server-side only — keys live only in this request scope, never logged
-      let openrouterKey: string | null = null;
-      let decryptFailed = false;
-      try {
-        if (orLookup.data) openrouterKey = decrypt(orLookup.data);
-      } catch (e) {
-        console.error(
-          "OpenRouter key decryption failed (KEY_ENCRYPTION_SECRET rotation?):",
-          e instanceof Error ? e.message : String(e)
-        );
-        decryptFailed = true;
-      }
-
-      if (!openrouterKey) {
-        if (decryptFailed) {
-          return NextResponse.json(
-            {
-              error: "Your saved API key couldn't be read — it may need to be re-entered. Go to Settings and replace it.",
-              errorType: "key_decrypt_failed",
-            },
-            { status: 422 }
-          );
-        }
-        // Distinguish "saved the wrong kind of key" from "saved nothing at all".
-        // Telling someone who HAS added a key to add a key is the same confusing
-        // message this routing was fixed to avoid.
-        if (geminiLookup.data) {
-          return NextResponse.json(
-            {
-              needsKeys: true,
-              error:
-                "Your Gemini key can't complete a tailoring run — Gemini's free tier allows 5 requests per minute and one run makes 8. Add an OpenRouter key in Settings to continue.",
-              errorType: "needs_openrouter_key",
-            },
-            { status: 402 }
-          );
-        }
-        // Capped and no usable key saved — prompt the Settings page.
-        return NextResponse.json(
-          {
-            needsKeys: true,
-            error: "You've used all free tailors. Add your own API key in Settings to continue.",
-            errorType: "needs_keys",
-          },
-          { status: 402 }
-        );
-      }
-
-      try {
-        const result = await runOrRefund({ provider: "openrouter", apiKeyOverride: openrouterKey, jd, cv, projectNames: safeProjectNames, precomputedAnalysis: bodyAnalysis });
-        return NextResponse.json(result);
-      } catch (err) {
-        if (err instanceof ProviderRateLimitError) {
-          // OpenRouter's own limit — the app imposes no cap of its own here.
-          return NextResponse.json(
-            {
-              limitReached: true,
-              error: "Your OpenRouter key has hit its usage limit. Try again later.",
-              errorType: "user_key_limit",
-            },
-            { status: 429 }
-          );
-        }
-        throw err;
-      }
-    }
-
-    // 'profile_not_found', 'forbidden' (auth.uid() was null inside the RPC) or
-    // anything unexpected: fail closed rather than run on the owner's key.
-    console.error("Unexpected routing state; lifetime reason:", lifetimeReason ?? "undefined");
-    return NextResponse.json(UNAVAILABLE, { status: 503 });
 
   } catch (error) {
     if (error instanceof ProviderRateLimitError) {

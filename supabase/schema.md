@@ -18,6 +18,7 @@ this file.
 | `applications` | see `migrations/20260826120000_create_applications.sql` + `20260829120000_applications_tailored_cv.sql` | partial unique `(user_id, tailor_session_id) WHERE tailor_session_id IS NOT NULL`; CHECKs on `status`/`source`; `set_updated_at` trigger; RLS on all four verbs | `api/applications`, `api/applications/export` |
 | `user_feedback` | `user_id`, `email`, `message` | RLS insert-only for `authenticated` | `api/feedback` |
 | `user_projects`, `user_skills` | — | — | **Nothing.** The routes that used them were removed (no callers). Droppable. |
+| `company_profiles` | `user_id`, `domain`, `data` (jsonb), `fetched_at` | **unique `(user_id, domain)`** (the research route upserts on it); RLS on all four verbs; see `migrations/20260903120000_company_profiles.sql` | `api/research` (Stage 3 company-research cache, 7-day TTL; the route degrades to uncached if the table is missing) |
 
 ## Functions (all SECURITY DEFINER)
 
