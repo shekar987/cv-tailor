@@ -189,7 +189,7 @@ export default function Landing() {
           Paste your CV and the job description. Get back a tailored version built only from
           what&apos;s real — every line defensible in the interview.
         </p>
-        <p className="lpHeroLede">Built for everyone — especially useful if you&apos;re serious about the search.</p>
+        <p className="lpHeroLede">Company research, an honest fit score, and a tracker for every application you send — all built in.</p>
         <div className="lpHeroCta">
           <Button href="/app">Tailor my CV →</Button>
           <a href="#example" className="cta secondary">See an example ↓</a>
