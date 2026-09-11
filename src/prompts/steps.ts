@@ -168,6 +168,59 @@ Output ONLY valid JSON — an OBJECT mapping each project index (as a string) to
 If there are no projects, output {}.
 Each bullet is a plain string with no leading dash.`;
 };
+
+// Advanced customization: the user pasted their FULL project pool as free text
+// (master_cvs.projects_pool). Instead of tailoring the master CV's own
+// projects, this step SELECTS the 2 most relevant pool projects for the JD /
+// company stack and writes their bullets. The pool is the master source for
+// project claims; the CV is context only.
+export const poolProjectsPrompt = (cv: string, pool: string) => `You select and tailor CV projects from the candidate's full project pool.
+
+${ABSOLUTE_RULES}
+
+MASTER CV (context only — the candidate's skills and experience):
+${cv}
+
+PROJECT POOL — the candidate's own complete list of projects, in their own
+words. For project claims THIS POOL IS the master source: every project name,
+technology, metric, date, and outcome you output must appear in the pool
+entry for that project.
+${pool}
+
+You will receive the JD analysis as JSON (for a company-outreach run it
+describes the company's real stack rather than a posted job).
+
+SELECTION:
+- Pick EXACTLY the 2 pool projects most relevant to this JD/stack — judged by
+  genuine overlap of technologies and problem domain, never by name-matching.
+- If the pool contains only one project, pick that one alone.
+- Never invent a project. Never merge two pool entries into one (rule 7): each
+  selected project keeps only its own tech and outcomes.
+
+For each selected project write 2-3 tailored bullets (What + How + Result)
+using ONLY that project's own pool entry. Quantify only where the pool
+quantifies for that project. Bold quantified wins and exact JD-matching
+technologies the pool genuinely shows with **.
+
+NATURAL WRITING RULES:
+- Vary bullet structure; do not end every bullet with an em-dash + "-ing" phrase.
+- Vary bullet length. Ban: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "showcasing".
+
+Output ONLY valid JSON (no fences), exactly this shape:
+{
+  "selected": [
+    {
+      "name": "project name copied verbatim from the pool — never containing ' | '",
+      "date": "the project's date from the pool in a form like 'Jan 2025' or '2024 – 2025', else empty string",
+      "tech": "that project's tech-stack line verbatim from the pool, else empty string",
+      "bullets": ["bullet 1", "bullet 2"]
+    }
+  ]
+}
+
+Each bullet is a plain string with no leading dash. Order "selected" most
+relevant first.`;
+
 export const COMPANY_RESEARCH_PROMPT = `You synthesize company research for a cover letter, working only from the JD analysis provided.
 
 You will receive the JD analysis as JSON. Do NOT fabricate specific facts (funding, exec names, product details) not present in the analysis. Work from what's there plus reasonable general knowledge.
@@ -284,13 +337,15 @@ Each line starts with "• ". Nothing else.`;
 
 // Stage 3 cold outreach — owner-only for now (/api/extras gates on
 // profiles.is_unlimited). Speculative when no jd_analysis is supplied.
-// Structure follows a proven recruiter cold-email template (greeting by name,
-// busy-acknowledgment, company-initiative line, one-skill tie-in, 10-minute
-// ask, diary flexibility) with three deliberate departures: the personal
-// "I've been following you" line only appears when the USER supplied a true
-// one; the begging lines ("life-transforming", "make my day") are replaced
-// with confident brevity; and one quantified proof line from the CV is added,
-// because a template with no evidence doesn't land for engineers.
+// Structure follows the UKJI (UK Jobs Insider) cold-email template the owner
+// supplied — subject "Potential Opportunity at {Company}", interest → genuine
+// initiative paragraph → 3-skill value line → attachment note → courteous
+// close — replacing the earlier coach template wholesale. Two honesty
+// departures from UKJI, both required by ABSOLUTE_RULES: the "I've been
+// following…" history claim may only come from a USER-typed personal_note
+// (never invented), and every skill/metric must be verbatim-defensible from
+// the master CV. The closing mentions BOTH the CV and the cover letter,
+// because the app generates both alongside this email.
 export const coldEmailPrompt = (cv: string) => `You write a COLD outreach email from a job seeker, grounded ONLY in their master CV, the company research, and the optional personal note provided.
 
 ${ABSOLUTE_RULES}
@@ -298,21 +353,21 @@ ${ABSOLUTE_RULES}
 MASTER CV:
 ${cv}
 
-You will receive JSON: { company_research, jd_analysis (absent for a speculative approach — no posted role), recipient_name (optional), personal_note (optional — the candidate's own true words about how they know the recipient) }.
+You will receive JSON: { company_research, jd_analysis (absent for a speculative approach — no posted role), recipient_name (optional), personal_note (optional — the candidate's own true words about how they know the recipient or company) }.
 
-THE EMAIL, in exactly this shape:
-1. Greeting: "Hello {recipient_name}," when provided, otherwise "Hi {company} team,".
-2. One line: "I know you're busy, so this will take under a minute to read." (or a close natural variant — no drama, nothing about life-transforming opportunities).
-3. ONLY IF personal_note is provided: one line built faithfully from it — reword lightly for flow but never add anything the note doesn't say. If it is absent, SKIP this line entirely; NEVER invent having followed, met, or admired anyone.
-4. One SPECIFIC line: something the company is building or wrestling with, from the research (product, initiative, or pain point) — never an invented fact.
-5. The tie-in: the candidate's ONE most relevant real skill for exactly that work, plus ONE concrete quantified achievement from the master CV. Exact numbers only.
-6. The ask: a quick 10-minute chat — if jd_analysis names a role, ask about that role; otherwise ask whether they'd consider the candidate for engineering roles. Offer to fit around the recipient's diary in one short clause.
-7. "Best regards," then the candidate's name from the CV, then "(CV attached)".
+Subject line: exactly \`Potential Opportunity at {Company}\` — the company's name from the research — nothing else appended.
 
-Subject line: exactly \`Hello, I'm {candidate's first name from the CV}\` — nothing appended.
+THE BODY, in exactly this order:
+1. Greeting: "Hello {recipient_name}," when provided, otherwise "Hello {Company} team,".
+2. "I hope this message finds you well. I'm reaching out to express my interest in the {role} role at {Company}." — take the role title from jd_analysis; when jd_analysis is absent or names no specific role, instead express interest in engineering roles at {Company}. NEVER invent a role title.
+3. Genuine interest — at most 2 lines about ONE real, specific company initiative, product, or engineering problem from the research, and why it interests the candidate. If personal_note is provided, build this from it faithfully (it may carry real history like "I've been following…", because the candidate wrote it). Without a note: present-tense reactions only ("Your work on X stands out because…") — NEVER claim a history of following, watching, or admiring the company or any person.
+4. "After diving deeper into {Company}'s work, I'm confident that with my {up to 3 top relevant skills/experience}, I can add substantial value to {the team or department when the research or jd_analysis names one, otherwise "your engineering team"}." — every skill verbatim-defensible from the master CV AND genuinely relevant to their stack; may include ONE quantified achievement from the CV, exact numbers only. Never name a technology from their stack that the master CV doesn't show.
+5. The attachment note: the candidate is applying and has attached their CV and cover letter for convenience, and would love to connect and discuss how they can contribute.
+6. "In case of any questions, please do let me know. Thank you for your time and consideration."
+7. "Best regards," then the candidate's full name from the CV.
 
-Body: 100-160 words. Write like a person: contractions fine, short sentences, zero flattery ("huge fan"), zero begging ("it would make my day"), zero AI-tells. BAN: "leveraging", "passionate", "seamless", "at scale", "end-to-end", "I hope this email finds you well", "I came across", "life-transforming".
-NEVER claim a technology from their stack that the master CV doesn't show. No bracketed placeholders of any kind. Never claim a HISTORY of following, watching, or admiring the company or any person ("I've been following…", "long admired") — react to what the research shows in the present ("Your work on X stands out because…"); only personal_note may carry history, because the candidate wrote it.
+Body: 120-170 words. Write like a person: contractions fine, short sentences, zero flattery ("huge fan"), zero begging ("it would make my day"), zero AI-tells. BAN: "leveraging", "passionate", "seamless", "at scale", "end-to-end", "I came across", "life-transforming", "mutually beneficial synergy".
+No bracketed placeholders of any kind. No invented facts about the company — only what the research shows.
 
 Output EXACTLY this format, nothing else:
 Subject: <subject line>

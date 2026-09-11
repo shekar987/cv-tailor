@@ -3,18 +3,20 @@ import { createClient } from "@/lib/supabase/server";
 import { callLLM, Provider, ProviderRateLimitError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
-import { MAX_CV_CHARS, MAX_JD_CHARS, CV_TOO_LONG, JD_TOO_LONG } from "@/lib/limits";
+import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
 import {
   summaryPrompt,
   skillsPrompt,
   experiencePrompt,
   projectsPrompt,
+  poolProjectsPrompt,
   COMPANY_RESEARCH_PROMPT,
   coverLetterPrompt,
   ATS_SCORING_PROMPT,
   JD_ANALYZER_PROMPT,
 } from "@/prompts/steps";
 import { experienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
+import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { matchAtsKeywords } from "@/lib/atsMatch";
 
@@ -156,8 +158,13 @@ async function runPipeline(opts: {
   // call) and the profile rides along in every step's context. ABSOLUTE_RULES
   // still bound what the steps may do with the vocabulary (rule 6).
   companyResearch?: Record<string, unknown> | null;
+  // Advanced customization: the user's full project pool (free text). When
+  // present, the projects step SELECTS the 2 most relevant pool projects and
+  // writes their bullets — replacing the master-CV projects for this run —
+  // and the response additionally carries `selectedProjects` metadata.
+  projectsPool?: string;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool } = opts;
 
   // Step 0 — JD analysis. Reused from the pre-tailoring gate when available and
   // well-formed; otherwise run fresh (this is also the fallback for a caller
@@ -205,11 +212,24 @@ async function runPipeline(opts: {
       .catch(swallowStep("")),
     callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget), userInput: analysisStr })
       .catch(swallowStep("")),
-    projectNames.length > 0
-      ? callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget), userInput: analysisStr, expectJson: true })
+    projectsPool
+      // Pool mode: select + tailor from the pasted pool. Runs even when the
+      // extracted profile has no projects (projectNames empty) — the pool is
+      // the source, not the profile.
+      ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool), userInput: analysisStr, expectJson: true })
           .catch(swallowStep({}))
-      : Promise.resolve({}),
+      : projectNames.length > 0
+        ? callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget), userInput: analysisStr, expectJson: true })
+            .catch(swallowStep({}))
+        : Promise.resolve({}),
   ]);
+
+  // Pool mode: coerce the selection JSON at the boundary and re-key bullets by
+  // index so every downstream consumer (ATS scoring, renderers, downloads) sees
+  // the exact same shape as the normal path. A failed/empty selection degrades
+  // to {} — the client then falls back to the master-CV projects.
+  const selectedProjects = projectsPool ? normalizeSelectedProjects(projects) : [];
+  const projectsOut = projectsPool ? projectsFromSelected(selectedProjects) : projects;
 
   // The model mirrors a bullet-less master CV with plain achievement lines —
   // repair the markers deterministically so every renderer draws real
@@ -219,7 +239,7 @@ async function runPipeline(opts: {
 
   // Wave 2 — cover letter + ATS score
   const coverLetterInput = JSON.stringify({ analysis, research });
-  const atsInput         = JSON.stringify({ analysis, summary, skills, experience: experienceOut, projects });
+  const atsInput         = JSON.stringify({ analysis, summary, skills, experience: experienceOut, projects: projectsOut });
 
   const [coverLetter, atsScore] = await Promise.all([
     callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv), userInput: coverLetterInput, maxTokens: 1200 })
@@ -234,9 +254,10 @@ async function runPipeline(opts: {
     summary,
     skills,
     experience: experienceOut,
-    projects,
+    projects: projectsOut,
     coverLetter,
-    atsScore: reconcileAtsScore(atsScore, analysis, { summary, skills, experience: experienceOut, projects }),
+    atsScore: reconcileAtsScore(atsScore, analysis, { summary, skills, experience: experienceOut, projects: projectsOut }),
+    ...(projectsPool ? { selectedProjects } : {}),
   };
 }
 
@@ -288,6 +309,10 @@ export async function POST(req: NextRequest) {
     const safeProjectNames = Array.isArray(body.projectNames)
       ? body.projectNames.filter((n): n is string => typeof n === "string" && n.trim() !== "").slice(0, 50)
       : [];
+    const projectsPool = typeof body.projectsPool === "string" ? body.projectsPool.trim() : "";
+    if (projectsPool.length > MAX_POOL_CHARS) {
+      return NextResponse.json({ error: POOL_TOO_LONG }, { status: 400 });
+    }
     const bodyProvider = body.provider;
     const bodyAnalysis = body.analysis;
     const bodyResearch = sanitizeCompanyResearch(body.companyResearch);
@@ -317,6 +342,7 @@ export async function POST(req: NextRequest) {
         projectNames: safeProjectNames,
         precomputedAnalysis: bodyAnalysis,
         companyResearch: bodyResearch,
+        ...(projectsPool ? { projectsPool } : {}),
       });
       // The unlimited (owner) path reports which provider ran, for the dropdown.
       return NextResponse.json(route.reason === "unlimited" ? { provider: route.provider, ...result } : result);

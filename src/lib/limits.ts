@@ -19,5 +19,10 @@ export const MAX_DOCUMENT_BODY_BYTES = 512 * 1024;
 export const DAILY_TAILOR_LIMIT = 3;
 export const CLAUDE_LIFETIME_LIMIT = 3;
 
+// Advanced customization: the pasted pool of ALL the user's projects
+// (master_cvs.projects_pool). Enforced by /api/tailor and the /customize panel.
+export const MAX_POOL_CHARS = 15_000;
+
 export const JD_TOO_LONG = "Job description is too long (max ~15,000 characters).";
 export const CV_TOO_LONG = "CV is too long (max ~5 pages / 20,000 characters).";
+export const POOL_TOO_LONG = "Project pool is too long (max ~15,000 characters).";

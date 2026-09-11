@@ -7,6 +7,7 @@ import {
   getMasterCV,
   saveMasterCV,
   clearMasterCV,
+  saveProjectsPool,
   getProfile,
   saveProfile,
   clearProfile,
@@ -14,7 +15,7 @@ import {
   type Profile,
 } from "@/lib/cvStore";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
-import { MAX_CV_CHARS } from "@/lib/limits";
+import { MAX_CV_CHARS, MAX_POOL_CHARS } from "@/lib/limits";
 import { splitTrailingDate } from "@/lib/projectDate";
 import { stripMarkdown } from "@/lib/markdownText";
 import CvUpload from "../CvUpload";
@@ -82,6 +83,16 @@ export default function CustomizePage() {
   // know, because a missing profile means a CV headed "YOUR NAME".
   const [profileError, setProfileError] = useState("");
 
+  // Advanced customization — the full project pool (master_cvs.projects_pool).
+  // When saved, every tailor run selects the 2 most relevant pool projects
+  // instead of tailoring the master CV's own projects.
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [poolDraft, setPoolDraft] = useState("");
+  const [poolSaved, setPoolSaved] = useState(false);
+  const [poolSaving, setPoolSaving] = useState(false);
+  const [poolMsg, setPoolMsg] = useState("");
+  const [poolError, setPoolError] = useState("");
+
   useEffect(() => {
     let active = true;
     async function load() {
@@ -118,6 +129,10 @@ export default function CustomizePage() {
       if (stored) {
         setMasterCvText(stored.text);
         setCvSavedAt(stored.updatedAt);
+        if (stored.projectsPool) {
+          setPoolDraft(stored.projectsPool);
+          setPoolSaved(true);
+        }
       } else {
         setEditingCv(true); // no CV yet — open the editor so they set one
       }
@@ -158,6 +173,38 @@ export default function CustomizePage() {
     if (!userId) return;
     const existing = loadWorkspace(userId);
     saveWorkspace(userId, { jobDescription: existing?.jobDescription ?? "", result: null, ranProvider: null });
+  }
+
+  // Save (or clear, with empty text) the project pool. A result tailored
+  // against the old pool is stale for the same reason a CV edit makes one
+  // stale, so both paths invalidate the workspace result.
+  async function handleSavePool(clear: boolean) {
+    const pool = clear ? "" : poolDraft.trim();
+    setPoolMsg("");
+    setPoolError("");
+    if (!clear && !pool) {
+      setPoolError("Paste your projects first, or use Remove pool to switch this off.");
+      return;
+    }
+    if (pool.length > MAX_POOL_CHARS) {
+      setPoolError(`Project pool is too long (${pool.length.toLocaleString()} / ${MAX_POOL_CHARS.toLocaleString()} characters).`);
+      return;
+    }
+    setPoolSaving(true);
+    const res = await saveProjectsPool(pool);
+    setPoolSaving(false);
+    if (res.ok) {
+      setPoolDraft(pool);
+      setPoolSaved(!clear);
+      invalidateWorkspaceResult();
+      setPoolMsg(clear
+        ? "Pool removed. Tailoring uses the projects from your master CV again."
+        : "Saved. Every tailor run now picks the 2 most relevant projects from this pool.");
+    } else if (res.missingColumn) {
+      setPoolError("Your database doesn't have this feature's column yet — run supabase/migrations/20260911120000_master_cvs_projects_pool.sql in the Supabase SQL editor, then save again.");
+    } else {
+      setPoolError("Couldn't save the pool. Check your connection and try again.");
+    }
   }
 
   async function handleSaveCv() {
@@ -239,6 +286,12 @@ export default function CustomizePage() {
     setCvDraft("");
     setEditingCv(true);
     setUploadNotice(null);
+    // The row delete below takes projects_pool with it — mirror that in the UI.
+    setPoolDraft("");
+    setPoolSaved(false);
+    setShowAdvanced(false);
+    setPoolMsg("");
+    setPoolError("");
     invalidateWorkspaceResult();
     // Delete from DB in the background
     await clearMasterCV();
@@ -610,6 +663,60 @@ export default function CustomizePage() {
             extra sections from your CV stay after the sections above, in that order.
           </p>
         </Card>
+
+        {/* Advanced customization — the full project pool. Only meaningful
+            once a master CV exists (the pool augments it, and the DB write is
+            an update against that row). */}
+        {masterCvText && (
+          <Card>
+            <div className="label">Advanced customization</div>
+            {!showAdvanced ? (
+              <>
+                <p className="cvHelp cvHelpTight">
+                  {poolSaved
+                    ? "A project pool is saved — every tailor run picks the 2 most relevant projects from it."
+                    : "Paste ALL your projects once; each tailor run then picks the 2 most relevant for that job."}
+                </p>
+                <div className="actions">
+                  <Button variant="secondary" onClick={() => { setShowAdvanced(true); setPoolMsg(""); setPoolError(""); }}>
+                    Advanced customization
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <FormField
+                label="Project pool"
+                help="Paste ALL your projects here, in your own words — names, dates, tech, and what you did. On every tailor run the 2 most relevant to that job (1 if you only add one) are selected and get tailored bullets, replacing the projects from your master CV for that run. Remove the pool to switch back. Replacing your master CV also deletes the pool."
+              >
+                <Textarea
+                  rows={12}
+                  value={poolDraft}
+                  onChange={(e) => { setPoolDraft(e.target.value); setPoolMsg(""); setPoolError(""); }}
+                  placeholder={"Project name | Jan 2025\nTech: React, Node.js, PostgreSQL\n- What you built and the outcome\n\nNext project…"}
+                  disabled={poolSaving}
+                />
+                <p className="charCount">
+                  {poolDraft.length.toLocaleString()} / {MAX_POOL_CHARS.toLocaleString()}
+                </p>
+                <div className="actions">
+                  <Button onClick={() => handleSavePool(false)} disabled={poolSaving}>
+                    {poolSaving ? "Saving…" : "Save project pool"}
+                  </Button>
+                  {poolSaved && (
+                    <Button variant="ghost" className="keyRemove" onClick={() => handleSavePool(true)} disabled={poolSaving}>
+                      Remove pool
+                    </Button>
+                  )}
+                  <Button variant="ghost" onClick={() => setShowAdvanced(false)} disabled={poolSaving}>
+                    Close
+                  </Button>
+                </div>
+                {poolError && <StatusText className="msgBelow" role="alert">{poolError}</StatusText>}
+                {poolMsg && <StatusText tone="success" className="msgBelow" role="status">{poolMsg}</StatusText>}
+              </FormField>
+            )}
+          </Card>
+        )}
       </div>
     </main>
   );

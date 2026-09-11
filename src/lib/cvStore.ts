@@ -9,6 +9,9 @@ import { createClient } from '@/lib/supabase/client'
 export type MasterCV = {
   text: string       // full CV text
   updatedAt: number  // milliseconds since epoch
+  // Advanced customization: the user's full project pool (free text), or null
+  // when unset / the projects_pool migration hasn't been applied yet.
+  projectsPool: string | null
 }
 
 // The profile shape and its normaliser live in @/lib/profile (shared with the
@@ -30,12 +33,25 @@ async function getUserId(): Promise<string | null> {
 export async function getMasterCV(): Promise<MasterCV | null> {
   try {
     const supabase = createClient()
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('master_cvs')
-      .select('text, updated_at')
+      .select('text, updated_at, projects_pool')
       .maybeSingle()            // returns null (not error) when 0 rows exist
+    if (error?.code === '42703') {
+      // projects_pool migration not applied — retry without the column so a
+      // missing pool can never take the whole master CV down with it.
+      ;({ data, error } = await supabase
+        .from('master_cvs')
+        .select('text, updated_at')
+        .maybeSingle())
+    }
     if (error || !data) return null
-    return { text: data.text, updatedAt: new Date(data.updated_at).getTime() }
+    const pool = (data as { projects_pool?: unknown }).projects_pool
+    return {
+      text: data.text,
+      updatedAt: new Date(data.updated_at).getTime(),
+      projectsPool: typeof pool === 'string' && pool.trim() ? pool : null,
+    }
   } catch {
     return null
   }
@@ -65,10 +81,45 @@ export async function saveMasterCV(text: string): Promise<MasterCV | null> {
       if (error) console.error('master_cvs upsert error:', error.message)
       return null
     }
-    return { text: data.text, updatedAt: new Date(data.updated_at).getTime() }
+    // The upsert never sends projects_pool, so an existing pool survives CV
+    // edits — but this result doesn't read it back. Take the pool from
+    // getMasterCV() on load, never from a save result.
+    return { text: data.text, updatedAt: new Date(data.updated_at).getTime(), projectsPool: null }
   } catch (err) {
     console.error('master_cvs upsert error:', err instanceof Error ? err.message : 'Unknown error')
     return null
+  }
+}
+
+// Advanced customization: save (or clear, with '') the user's project pool.
+// An update, not an upsert — a pool without a master CV row is meaningless,
+// and the /customize panel only renders once a CV is saved.
+export async function saveProjectsPool(
+  pool: string
+): Promise<{ ok: boolean; missingColumn?: boolean }> {
+  try {
+    const userId = await getUserId()
+    if (!userId) return { ok: false }
+
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('master_cvs')
+      .update({ projects_pool: pool.trim() || null, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .select('user_id')
+
+    if (error) {
+      // PGRST204: the projects_pool column doesn't exist yet — the migration
+      // hasn't been applied. Surface that specifically so the UI can say so.
+      if (error.code === 'PGRST204') return { ok: false, missingColumn: true }
+      console.error('projects_pool update error:', error.message)
+      return { ok: false }
+    }
+    // Zero rows updated = no master CV row (or RLS refusal) — not a save.
+    return { ok: Array.isArray(data) && data.length > 0 }
+  } catch (err) {
+    console.error('projects_pool update error:', err instanceof Error ? err.message : 'Unknown error')
+    return { ok: false }
   }
 }
 

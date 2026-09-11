@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { getMasterCV, getProfile, importFromLocalStorageIfNeeded, type Profile } from "@/lib/cvStore";
+import { normalizeProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
@@ -68,6 +69,10 @@ type Result = {
     misses?: string[];
     recommendations?: string[];
   };
+  // Pool mode (Advanced customization): the 2 projects the pipeline selected
+  // from the user's project pool. Present only when a pool was sent; the
+  // display profile derives its projects from this instead of the master CV's.
+  selectedProjects?: { name?: string; date?: string; tech?: string; bullets?: string[] }[];
 };
 
 type AppliedState = "idle" | "saving" | "saved" | "already" | "error";
@@ -150,6 +155,10 @@ export default function Home() {
   const [masterCvText, setMasterCvText] = useState("");
   const [profile, setProfile] = useState<Profile | null>(null);
   const [cvLoading, setCvLoading] = useState(true);  // true while initial DB fetch is in-flight
+  // Advanced customization (saved on /customize): the user's full project
+  // pool. Non-empty = every tailor run sends it, and the pipeline selects the
+  // 2 most relevant pool projects instead of tailoring the master CV's own.
+  const [projectsPool, setProjectsPool] = useState("");
 
   // Provider selector — owner accounts only (profiles.is_unlimited).
   // Fails closed: unless the flag reads back true, normal users see nothing.
@@ -293,6 +302,7 @@ export default function Home() {
 
       if (stored) {
         setMasterCvText(stored.text);
+        setProjectsPool(stored.projectsPool ?? "");
         const p = await getProfile();
         setProfile(p);
       }
@@ -413,7 +423,13 @@ export default function Home() {
 
   // Research-powered extras: one model call each, built from the research +
   // master CV. "cold_email" additionally requires the owner account.
-  async function handleExtra(kind: "pitch" | "talking_points" | "cold_email") {
+  // `analysisOverride` exists for the auto-email fired right after a company
+  // tailor: the `result` state in this closure is still the PREVIOUS run's at
+  // that moment, so the fresh analysis must be passed explicitly.
+  async function handleExtra(
+    kind: "pitch" | "talking_points" | "cold_email",
+    analysisOverride?: Result["analysis"]
+  ) {
     if (extrasLoading) return;
     const setError = kind === "cold_email" ? setColdEmailError : setExtrasError;
     setError("");
@@ -426,7 +442,7 @@ export default function Home() {
           kind,
           cvText: masterCvText,
           companyResearch: research?.profile,
-          analysis: result?.analysis,
+          analysis: analysisOverride ?? result?.analysis,
           ...(kind === "cold_email" && recipientName.trim() ? { recipientName: recipientName.trim() } : {}),
           ...(kind === "cold_email" && personalNote.trim() ? { personalNote: personalNote.trim() } : {}),
         }),
@@ -500,12 +516,15 @@ export default function Home() {
   // job-description box (gate analysis reused, stale-JD banner armed);
   // "outreach" tailors an internal research brief (no gate, no banner — the
   // JD box is a separate concern by design).
-  async function executeTailor(jdText: string, source: "jd" | "outreach") {
-    if (loading) return;
+  // Returns the fresh result on success and null on every failure path, so a
+  // caller that chains work (the outreach auto cold-email) can act on the new
+  // run without reading this closure's stale `result` state.
+  async function executeTailor(jdText: string, source: "jd" | "outreach"): Promise<Result | null> {
+    if (loading) return null;
     if (jdText.length > MAX_JD_CHARS) {
       setError(JD_TOO_LONG);
       setErrorType(null);
-      return;
+      return null;
     }
     setError("");
     setErrorType(null);
@@ -521,6 +540,9 @@ export default function Home() {
           jobDescription: jdText,
           cvText: masterCvText,
           projectNames: (profile?.projects || []).map((p) => p.name),
+          // Advanced customization: when a pool is saved, the pipeline selects
+          // the 2 most relevant pool projects instead of the names above.
+          ...(projectsPool ? { projectsPool } : {}),
           // Only meaningful for unlimited accounts; the server ignores it otherwise
           ...(isUnlimited ? { provider } : {}),
           // The gate's analysis belongs to the JD-box text only.
@@ -535,7 +557,7 @@ export default function Home() {
       if (!res.ok) {
         setError(data.error || "Something went wrong. Try again.");
         setErrorType(data.errorType || null);
-        return;
+        return null;
       }
       // A fresh id per completed run: re-tailoring the same job is a new
       // session, and legitimately gets its own tracker row. Computed before
@@ -561,9 +583,11 @@ export default function Home() {
         setPreCheck(null);
         setGateAnalysis(null);
       }
+      return data as Result;
     } catch {
       setError("Couldn't reach the server. Check it's running and try again.");
       setErrorType(null);
+      return null;
     } finally {
       setLoading(false);
       // Success or limit error, the counters may have moved — refresh the chip.
@@ -576,13 +600,19 @@ export default function Home() {
   }
 
   // Cold-outreach tailoring: research → CV + cover letter, no JD involved.
-  function runColdOutreachTailor() {
+  // For the owner account, a successful run also auto-drafts the UKJI cold
+  // email (one extras call — a different burst bucket from "tailor", so the
+  // pair can't rate-limit each other). The email is strictly best-effort:
+  // handleExtra catches every failure into coldEmailError, so a failed email
+  // can never damage the tailored result that just rendered.
+  async function runColdOutreachTailor() {
     const brief = buildOutreachBrief();
     if (!brief) {
       setResearchError("This research came back without company details — use \"research again\" first.");
       return;
     }
-    return executeTailor(brief, "outreach");
+    const fresh = await executeTailor(brief, "outreach");
+    if (fresh && isUnlimited) await handleExtra("cold_email", fresh.analysis);
   }
   // Snapshot the finished run into the application tracker. Reads only what
   // the run already produced — the pipeline itself is untouched. The server
@@ -621,7 +651,7 @@ export default function Home() {
         body: JSON.stringify({
           company_name: realValue(analysis?.company_name) || "Unknown company",
           role: realValue(analysis?.role_title) || "Unknown role",
-          cv_reference: buildFileBaseName(profile, analysis, "CV"),
+          cv_reference: buildFileBaseName(displayProfile, analysis, "CV"),
           tailor_session_id: sid,
           status: "Applied",
           source: "tailored",
@@ -647,7 +677,10 @@ export default function Home() {
             projects: edited?.projects ?? result.projects ?? {},
             profile: edited?.profile
               ? { ...edited.profile, projects: edited.projectsMeta }
-              : profile,
+              // Preview not mounted: fall back to the profile the document
+              // rendered with — in pool mode that carries the selected
+              // projects, not the master CV's.
+              : displayProfile,
             sectionOrder: edited ? edited.sectionOrder : sectionOrder,
           },
         }),
@@ -675,6 +708,36 @@ export default function Home() {
     experience: result?.experience,
     projects: result?.projects as any,
   }), [result]);
+
+  // Pool mode: the profile the document renders with. When the run selected
+  // projects from the user's pool, those replace the master-CV projects —
+  // CvPreview, both downloads (via collectPayload's projectsMeta) and the
+  // Applied snapshot all read from this one derivation. MUST stay a useMemo
+  // keyed on [profile, result]: CvPreview is React.memo-wrapped precisely so
+  // parent re-renders (e.g. typing in the JD box) don't reset contentEditable
+  // edits, and a fresh object per render would defeat that.
+  const displayProfile = useMemo<Profile | null>(() => {
+    const sel = Array.isArray(result?.selectedProjects)
+      ? result.selectedProjects.filter(
+          (s) => s && typeof s.name === "string" && s.name.trim() && Array.isArray(s.bullets) && s.bullets.length > 0
+        )
+      : [];
+    if (sel.length === 0) return profile;
+    // A pool can exist without an extracted profile; render the selection on
+    // an empty-but-well-formed base rather than dropping it.
+    const base = profile ?? normalizeProfile({});
+    return {
+      ...base,
+      projects: sel.map((s) => ({
+        // "Name | Date" is the stored project-name format splitTrailingDate
+        // re-splits on render (date right-aligned, same as master projects).
+        name: s.date?.trim() ? `${s.name!.trim()} | ${s.date.trim()}` : s.name!.trim(),
+        tech: s.tech?.trim() || "",
+        links: [],
+        originalBullets: [],
+      })),
+    };
+  }, [profile, result]);
 
   // Step 1's read of the JD, surfaced on the gate card so a mis-pasted JD is
   // caught before the full run is spent on the wrong job.
@@ -707,6 +770,12 @@ export default function Home() {
       issues.push(`The ${empty.join(", ")} ${empty.length > 1 ? "sections" : "section"} came back empty this run.`);
     }
     if (!result.atsScore?.keyword_coverage) issues.push("ATS scoring didn't complete.");
+    // The server includes selectedProjects (possibly empty) whenever a pool
+    // was sent — an empty array means the selection step failed and the
+    // master-CV projects rendered instead.
+    if (Array.isArray(result.selectedProjects) && result.selectedProjects.length === 0) {
+      issues.push("Project selection from your pool didn't complete this run — showing your master CV's projects instead.");
+    }
     return issues;
   }, [result]);
 
@@ -913,7 +982,11 @@ export default function Home() {
                     </p>
                     <div className="gateActions">
                       <Button variant="secondary" onClick={runColdOutreachTailor} disabled={loading || researchLoading}>
-                        {loading ? "Tailoring…" : "Tailor CV + cover letter for this company"}
+                        {loading
+                          ? "Tailoring…"
+                          : isUnlimited
+                            ? "Tailor CV + cover letter + cold email"
+                            : "Tailor CV + cover letter for this company"}
                       </Button>
                     </div>
 
@@ -1328,16 +1401,16 @@ export default function Home() {
             <CvPreview
               ref={previewRef}
               data={cvData}
-              profile={profile}
+              profile={displayProfile}
               sectionOrder={sectionOrder}
-              fileBaseName={buildFileBaseName(profile, result.analysis, "CV")}
+              fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}
             />
 {result.coverLetter && (
               <>
                 <h2 className="clHeading">Cover Letter</h2>
                 <CoverLetterPreview
                   coverLetter={result.coverLetter}
-                  fileBaseName={buildFileBaseName(profile, result.analysis, "CoverLetter")}
+                  fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CoverLetter")}
                 />
               </>
             )}
