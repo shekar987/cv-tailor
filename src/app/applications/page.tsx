@@ -39,6 +39,9 @@ type Application = {
   source: "tailored" | "manual";
   created_at: string;
   updated_at: string;
+  // Stage 4: set (via a JSON-path alias in the list query) when a prep pack
+  // is cached on the row; absent until the prep_pack migration is applied.
+  prep_generated_at?: string | null;
 };
 
 // What the Applied button stored: the generated sections plus the profile and
@@ -1199,15 +1202,28 @@ export default function ApplicationsPage() {
                               </button>
                             </>
                           ) : (
-                            <button
-                              type="button"
-                              className="appsActionBtn danger"
-                              onClick={() => setConfirmDeleteId(row.id)}
-                              aria-label={`Delete ${row.company_name}`}
-                              title="Delete"
-                            >
-                              ✕
-                            </button>
+                            <>
+                              <Link
+                                href={`/applications/${row.id}/prep`}
+                                className={
+                                  "appsActionBtn" +
+                                  (row.prep_generated_at || row.status === "Screening" || row.status === "Interview" ? " primary" : "")
+                                }
+                                aria-label={`Interview prep for ${row.company_name}`}
+                                title={row.prep_generated_at ? "Open your prep pack" : "Prepare for the interview"}
+                              >
+                                {row.prep_generated_at ? "Prep ✓" : "Prep"}
+                              </Link>
+                              <button
+                                type="button"
+                                className="appsActionBtn danger"
+                                onClick={() => setConfirmDeleteId(row.id)}
+                                aria-label={`Delete ${row.company_name}`}
+                                title="Delete"
+                              >
+                                ✕
+                              </button>
+                            </>
                           )}
                         </td>
                       </tr>
