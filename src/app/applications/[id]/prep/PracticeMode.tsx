@@ -28,15 +28,19 @@ function isTypingTarget(t: EventTarget | null): boolean {
 }
 
 export default function PracticeMode({ pack, ratings, onRate, onExit }: Props) {
-  const [shakyOnly, setShakyOnly] = useState(false);
+  // The shaky deck is SNAPSHOTTED when the toggle is switched on. Filtering
+  // live on ratings would pull a card out from under the user the moment they
+  // rated it better, shrinking the deck mid-session.
+  const [shakyIds, setShakyIds] = useState<string[] | null>(null);
+  const shakyOnly = shakyIds !== null;
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [announce, setAnnounce] = useState("");
   const cardRef = useRef<HTMLDivElement>(null);
 
   const deck: PrepQuestion[] = useMemo(
-    () => (shakyOnly ? pack.questions.filter((q) => ratings[q.id] === 1) : pack.questions),
-    [pack.questions, shakyOnly, ratings]
+    () => (shakyIds ? pack.questions.filter((q) => shakyIds.includes(q.id)) : pack.questions),
+    [pack.questions, shakyIds]
   );
   const finished = index >= deck.length;
   const current = finished ? null : deck[index];
@@ -119,7 +123,7 @@ export default function PracticeMode({ pack, ratings, onRate, onExit }: Props) {
   }, [index, revealed, finished, goTo, reveal, rate, onExit]);
 
   function toggleShaky() {
-    setShakyOnly((v) => !v);
+    setShakyIds((current) => (current ? null : pack.questions.filter((q) => ratings[q.id] === 1).map((q) => q.id)));
     setIndex(0);
     setRevealed(false);
   }
