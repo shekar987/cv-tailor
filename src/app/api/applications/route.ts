@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { MAX_JD_CHARS, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
+import { packFromRow } from "@/lib/prepPack";
 
 // CRUD for the application tracker. RLS ("auth.uid() = user_id") is the real
 // boundary; every write is additionally scoped by user id.
@@ -29,11 +30,14 @@ function isStatus(value: unknown): value is Status {
   return typeof value === "string" && (STATUSES as readonly string[]).includes(value);
 }
 
-// The list omits tailored_cv (a multi-KB snapshot per row); GET ?id= adds it.
+// The list omits tailored_cv and prep_pack (multi-KB JSON per row); GET ?id=
+// adds them. The list does carry one JSON-path alias — whether a prep pack
+// exists — so the tracker can label its Prep action without the payload.
 const SELECT_COLUMNS =
   "id, company_name, role, cv_reference, tailor_session_id, status, salary, date_applied, followup_date, notes, job_description, source, created_at, updated_at";
-const DETAIL_COLUMNS =
-  "id, company_name, role, cv_reference, tailor_session_id, status, salary, date_applied, followup_date, notes, job_description, source, created_at, updated_at, tailored_cv";
+const LIST_COLUMNS = `${SELECT_COLUMNS}, prep_generated_at:prep_pack->>generatedAt`;
+const DETAIL_COLUMNS_NO_PREP = `${SELECT_COLUMNS}, tailored_cv`;
+const DETAIL_COLUMNS = `${DETAIL_COLUMNS_NO_PREP}, prep_pack`;
 
 const MAX_TAILORED_CV_JSON = 200_000;
 
@@ -46,6 +50,9 @@ const MIGRATION_HINT =
 // Softer variant for the paths that can still succeed without the column.
 const SNAPSHOT_WARNING =
   "Saved without the CV snapshot: the database is missing migration 20260829120000_applications_tailored_cv.sql. Run it in the Supabase SQL editor to store CVs with applications.";
+// Stage 4's column is the newer of the two, so it is the first to be missing.
+const PREP_WARNING =
+  "Interview prep packs can't be stored yet: the database is missing migration 20260915120000_applications_prep_pack.sql. Run it in the Supabase SQL editor.";
 function isMissingColumn(err: { code?: string } | null): boolean {
   return err?.code === "42703" || err?.code === "PGRST204";
 }
@@ -192,38 +199,59 @@ export async function GET(req: NextRequest) {
     const id = new URL(req.url).searchParams.get("id");
     if (id !== null) {
       if (!isUuid(id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
-      let { data: row, error: rowError } = await supabase
-        .from("applications")
-        .select(DETAIL_COLUMNS)
-        .eq("id", id)
-        .eq("user_id", userId)
-        .maybeSingle();
+      // Two optional columns, applied by hand in order: try both, then without
+      // prep_pack, then without either — each rung naming the migration it
+      // lacks. The rest of the record is readable at every rung.
+      const ladder: { columns: string; warning?: string }[] = [
+        { columns: DETAIL_COLUMNS },
+        { columns: DETAIL_COLUMNS_NO_PREP, warning: PREP_WARNING },
+        { columns: SELECT_COLUMNS, warning: SNAPSHOT_WARNING },
+      ];
+      let row: Record<string, unknown> | null = null;
       let warning: string | undefined;
-      if (rowError && isMissingColumn(rowError)) {
-        // The snapshot column hasn't been migrated in yet — the rest of the
-        // record is still perfectly readable.
-        ({ data: row, error: rowError } = await supabase
+      for (let rung = 0; rung < ladder.length; rung++) {
+        const { data, error: rowError } = await supabase
           .from("applications")
-          .select(SELECT_COLUMNS)
+          .select(ladder[rung].columns)
           .eq("id", id)
           .eq("user_id", userId)
-          .maybeSingle());
-        warning = SNAPSHOT_WARNING;
-      }
-      if (rowError) {
-        console.error("applications detail read error:", rowError.message);
-        return NextResponse.json({ error: "Could not load that application" }, { status: 500 });
+          .maybeSingle();
+        if (rowError && isMissingColumn(rowError) && rung < ladder.length - 1) continue;
+        if (rowError) {
+          console.error("applications detail read error:", rowError.message);
+          return NextResponse.json({ error: "Could not load that application" }, { status: 500 });
+        }
+        row = (data as Record<string, unknown> | null) ?? null;
+        warning = ladder[rung].warning;
+        break;
       }
       if (!row) return NextResponse.json({ error: "Application not found" }, { status: 404 });
-      const snapshot = (row as { tailored_cv?: unknown }).tailored_cv ?? null;
-      return NextResponse.json({ application: { ...row, tailored_cv: snapshot }, ...(warning ? { warning } : {}) });
+      const snapshot = row.tailored_cv ?? null;
+      const prepPack = packFromRow(row.prep_pack);
+      return NextResponse.json({
+        application: { ...row, tailored_cv: snapshot, prep_pack: prepPack },
+        ...(warning ? { warning } : {}),
+      });
     }
 
-    const { data: rows, error: readError } = await supabase
+    const first = await supabase
       .from("applications")
-      .select(SELECT_COLUMNS)
+      .select(LIST_COLUMNS)
       .order("date_applied", { ascending: false })
       .order("created_at", { ascending: false });
+    let rows = first.data as Record<string, unknown>[] | null;
+    let readError = first.error;
+    if (readError && isMissingColumn(readError)) {
+      // prep_pack not migrated yet — the list must stay quiet about it; the
+      // detail read and /api/prep name the migration when it matters.
+      const second = await supabase
+        .from("applications")
+        .select(SELECT_COLUMNS)
+        .order("date_applied", { ascending: false })
+        .order("created_at", { ascending: false });
+      rows = second.data as Record<string, unknown>[] | null;
+      readError = second.error;
+    }
 
     if (readError) {
       console.error("applications read error:", readError.message);

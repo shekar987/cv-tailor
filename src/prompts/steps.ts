@@ -335,6 +335,59 @@ HONEST WATCH-OUT
 
 Each line starts with "• ". Nothing else.`;
 
+// Stage 4 — the interview prep pack. One JSON call; every answer must be
+// traceable to the master CV, and the route runs a deterministic tracer over
+// the `evidence` lines afterwards (lib/prepPack.ts#verifyEvidence), so the
+// prompt tells the model plainly that paraphrased citations will be flagged.
+// Gap questions exist so the pack is honest about what the CV can't support
+// instead of inventing a story for it.
+export const interviewPrepPrompt = (cv: string) => `You prepare a candidate for a specific interview, grounded ONLY in their master CV and the inputs provided.
+
+${ABSOLUTE_RULES}
+
+MASTER CV:
+${cv}
+
+You will receive JSON: { company, role, status, job_description, tailored_cv_text (the CV they actually sent — may be absent), company_research (may be absent), matched_stack (may be absent), known_stack_gaps (may be absent — deterministic: stack items the CV does NOT show), existing_talking_points (may be absent) }.
+
+VOICE: prep addressed straight to the candidate — "you", "your work on X" — never "the candidate". Inside STAR fields, first person is fine ("I led…") because they will say it aloud.
+
+QUESTIONS — exactly 8 to 10, in this mix:
+- 3 "behavioral": the interviewer's real question; the STAR answer is built from ONE real role or project in the master CV.
+- 3 "technical": ONLY technologies the job_description names AND the master CV shows (prefer matched_stack when present). Never a technology the CV lacks.
+- 1 "role": motivation / why this role — from the job_description and the CV; no invented history with the company.
+- 1 "company": ONLY when company_research is present, built from it. When it is absent, omit this category entirely.
+- 2 "gap": what they are most likely to probe that the CV cannot support (known_stack_gaps first, then the job_description). star MUST be null. points = an honest strategy: acknowledge it plainly, name the nearest REAL adjacent experience from the CV (or say there is none), and how you would close the gap. NEVER a story that implies the experience exists.
+
+STAR rules: situation, task, action and result are each at most 45 words. result carries a number ONLY if that exact figure is in the master CV; otherwise describe the outcome without a number. Never merge two projects (rule 7). Employers, titles and dates verbatim (rule 8).
+
+evidence: 1 to 3 lines per non-gap question, COPIED VERBATIM from the MASTER CV — same words, same numbers, no trimming, no paraphrase. A deterministic checker will search the CV for each line and flag any it cannot find. Gap questions: evidence = [].
+
+whyTheyAsk: at most 25 words on what the interviewer is really checking.
+
+angle.headline: one honest sentence on whether this is a good match and why.
+angle.whyYou: 3-5 bullets, each defensible from the master CV alone.
+angle.honestGaps: 1-4 items { gap, howToAddress } — never softened into strengths.
+questionsToAsk: 3-5 sharp questions about their product or engineering, from the job_description or company_research; none if there is nothing real to draw on.
+opener: a spoken "tell me about yourself" of at most 90 words, from the CV only.
+
+If status is "Screening", weight toward recruiter-screen questions; if "Interview", weight toward depth.
+
+BAN: "leveraging", "passionate", "at scale", "end-to-end", "seamless", "synergy", bracketed placeholders of any kind.
+
+Output ONLY a JSON object (no fences), exactly this shape:
+{
+  "angle": { "headline": "...", "whyYou": ["..."], "honestGaps": [{ "gap": "...", "howToAddress": "..." }] },
+  "questions": [
+    { "category": "behavioral|technical|role|company|gap", "question": "...", "whyTheyAsk": "...",
+      "star": { "situation": "...", "task": "...", "action": "...", "result": "..." },
+      "points": ["..."], "evidence": ["verbatim CV line"] }
+  ],
+  "questionsToAsk": ["..."],
+  "opener": "..."
+}
+For gap questions use "star": null.`;
+
 // Stage 3 cold outreach — owner-only for now (/api/extras gates on
 // profiles.is_unlimited). Speculative when no jd_analysis is supplied.
 // Structure follows the UKJI (UK Jobs Insider) cold-email template the owner
