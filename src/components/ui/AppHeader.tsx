@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { clearAllWorkspaces } from "@/lib/workspace";
+import { clearAllPrepProgress } from "@/lib/prepProgress";
 
 // The one header for every signed-in page. Previously each page hand-wrote
 // its own bar and they drifted: Sign out existed only on /app, Applications
@@ -47,6 +48,7 @@ export default function AppHeader({
     // Don't leave any tailored CV in this browser's storage after sign-out —
     // this account's or a previous one's.
     clearAllWorkspaces();
+    clearAllPrepProgress();
     const supabase = createClient();
     await supabase.auth.signOut({ scope: "local" });
     router.refresh();
