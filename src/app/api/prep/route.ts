@@ -164,11 +164,14 @@ export async function POST(req: NextRequest) {
     let matchedStack: string[] = [];
     let knownGaps: string[] = [];
     {
+      // An active job hunt accumulates a cached row per company researched
+      // (the owner passed 48 within weeks) — read enough to actually find it.
       const { data: rows, error: rError } = await supabase
         .from("company_profiles")
         .select("data")
         .eq("user_id", userId)
-        .limit(50);
+        .order("fetched_at", { ascending: false })
+        .limit(300);
       if (rError) {
         console.warn("prep: research cache unavailable:", rError.message);
       } else if (Array.isArray(rows)) {
@@ -230,7 +233,10 @@ export async function POST(req: NextRequest) {
         system: interviewPrepPrompt(cv),
         userInput,
         expectJson: true,
-        maxTokens: 6000,
+        // A 10-question pack with the prompt's word caps is ~4-5k tokens.
+        // Headroom matters: on a max_tokens stop callLLM re-runs the whole
+        // call at double the budget — a second full generation.
+        maxTokens: 8000,
       });
       const normalized = normalizePrepPack(raw, {
         company: row.company_name,

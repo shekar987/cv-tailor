@@ -49,7 +49,10 @@ export type PrepPack = {
 
 export type PrepMeta = { company: string; role: string; generatedAt: string; sources: PrepSources };
 
-const MAX_SHORT = 300;
+// The prompt asks for ≤40 words per point; the cap is deliberately looser so a
+// long-winded strategy line is kept whole rather than cut mid-sentence. Size
+// stays bounded: 10 questions × 5 points × 600 chars is well under the JSON cap.
+const MAX_SHORT = 600;
 const MAX_STAR_FIELD = 400; // ≈ 45 words
 const MAX_OPENER = 700; // ≈ 90 words
 const MAX_LIST = 5;
@@ -225,7 +228,9 @@ export function verifyEvidence(pack: PrepPack, cvText: string): PrepPack {
 
   const questions = pack.questions.map((q) => {
     const evidence = q.evidence.map((e) => ({ text: e.text, verified: isVerified(e.text) }));
-    const stated = [q.star?.result ?? "", ...q.points].join(" ");
+    // Gap answers are strategy ("ask for a 1–2 week ramp"), not claims about
+    // the candidate's record — their numbers are advice, not metrics.
+    const stated = q.category === "gap" ? "" : [q.star?.result ?? "", ...q.points].join(" ");
     const unverified = new Set<string>();
     for (const d of digitsOf(normalizeForMatch(stated))) {
       if (!cvDigits.has(d)) unverified.add(d);

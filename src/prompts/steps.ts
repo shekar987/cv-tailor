@@ -352,18 +352,18 @@ You will receive JSON: { company, role, status, job_description, tailored_cv_tex
 
 VOICE: prep addressed straight to the candidate — "you", "your work on X" — never "the candidate". Inside STAR fields, first person is fine ("I led…") because they will say it aloud.
 
-QUESTIONS — exactly 8 to 10, in this mix:
-- 3 "behavioral": the interviewer's real question; the STAR answer is built from ONE real role or project in the master CV.
-- 3 "technical": ONLY technologies the job_description names AND the master CV shows (prefer matched_stack when present). Never a technology the CV lacks.
-- 1 "role": motivation / why this role — from the job_description and the CV; no invented history with the company.
-- 1 "company": ONLY when company_research is present, built from it. When it is absent, omit this category entirely.
-- 2 "gap": what they are most likely to probe that the CV cannot support (known_stack_gaps first, then the job_description). star MUST be null. points = an honest strategy: acknowledge it plainly, name the nearest REAL adjacent experience from the CV (or say there is none), and how you would close the gap. NEVER a story that implies the experience exists.
+QUESTIONS — exactly 8 to 10, in this mix, each answered in the form named:
+- 3 "behavioral": the interviewer's real question; answer = a STAR story built from ONE real role or project in the master CV, plus evidence. points = [].
+- 3 "technical": ONLY technologies the job_description names AND the master CV shows (prefer matched_stack when present); never a technology the CV lacks. answer = 2-3 points (what you have actually done with it, then how you would approach their problem), plus evidence. star = null.
+- 1 "role": motivation / why this role — from the job_description and the CV; no invented history with the company. answer = 2-3 points. star = null; evidence optional.
+- 1 "company": ONLY when company_research is present, built from it; omit the category entirely when it is absent. answer = 2-3 points. star = null; evidence = [].
+- 2 "gap": what they are most likely to probe that the CV cannot support (known_stack_gaps first, then the job_description). star = null, evidence = []. points = an honest strategy: acknowledge it plainly, name the nearest REAL adjacent experience from the CV (or say there is none), and how you would close the gap. NEVER a story that implies the experience exists.
 
-STAR rules: situation, task, action and result are each at most 45 words. result carries a number ONLY if that exact figure is in the master CV; otherwise describe the outcome without a number. Never merge two projects (rule 7). Employers, titles and dates verbatim (rule 8).
+LENGTH — this is one pass and it must fit: situation/task/action/result at most 40 words each; every point at most 40 words; whyTheyAsk at most 20 words; at most 2 evidence lines per question; at most 4 questionsToAsk. Short and specific beats long.
 
-evidence: 1 to 3 lines per non-gap question, COPIED VERBATIM from the MASTER CV — same words, same numbers, no trimming, no paraphrase. A deterministic checker will search the CV for each line and flag any it cannot find. Gap questions: evidence = [].
+STAR rules: result carries a number ONLY if that exact figure is in the master CV; otherwise describe the outcome without a number. Never merge two projects (rule 7). Employers, titles and dates verbatim (rule 8).
 
-whyTheyAsk: at most 25 words on what the interviewer is really checking.
+evidence: lines COPIED VERBATIM from the MASTER CV — same words, same numbers, no trimming, no paraphrase. A deterministic checker will search the CV for each line and flag any it cannot find.
 
 angle.headline: one honest sentence on whether this is a good match and why.
 angle.whyYou: 3-5 bullets, each defensible from the master CV alone.
@@ -373,20 +373,19 @@ opener: a spoken "tell me about yourself" of at most 90 words, from the CV only.
 
 If status is "Screening", weight toward recruiter-screen questions; if "Interview", weight toward depth.
 
-BAN: "leveraging", "passionate", "at scale", "end-to-end", "seamless", "synergy", bracketed placeholders of any kind.
+BAN everywhere, including gap descriptions: "leveraging", "passionate", "at scale", "end-to-end", "seamless", "synergy", bracketed placeholders of any kind.
 
 Output ONLY a JSON object (no fences), exactly this shape:
 {
   "angle": { "headline": "...", "whyYou": ["..."], "honestGaps": [{ "gap": "...", "howToAddress": "..." }] },
   "questions": [
     { "category": "behavioral|technical|role|company|gap", "question": "...", "whyTheyAsk": "...",
-      "star": { "situation": "...", "task": "...", "action": "...", "result": "..." },
+      "star": { "situation": "...", "task": "...", "action": "...", "result": "..." } | null,
       "points": ["..."], "evidence": ["verbatim CV line"] }
   ],
   "questionsToAsk": ["..."],
   "opener": "..."
-}
-For gap questions use "star": null.`;
+}`;
 
 // Stage 3 cold outreach — owner-only for now (/api/extras gates on
 // profiles.is_unlimited). Speculative when no jd_analysis is supplied.

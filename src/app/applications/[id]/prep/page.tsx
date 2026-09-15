@@ -254,7 +254,7 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
           <li key={s}>{s}</li>
         ))}
       </ul>
-      <p className="cvHelp">Usually 20–40 seconds · {elapsed}s</p>
+      <p className="cvHelp">Usually 1–2 minutes — it writes and checks every answer · {elapsed}s</p>
     </section>
   );
 
