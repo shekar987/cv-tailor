@@ -23,6 +23,11 @@ export const CLAUDE_LIFETIME_LIMIT = 3;
 // (master_cvs.projects_pool). Enforced by /api/tailor and the /customize panel.
 export const MAX_POOL_CHARS = 15_000;
 
+// Stage 4: an interview prep pack (applications.prep_pack) after normalization.
+// The per-field caps in lib/prepPack.ts keep a full 10-question pack well
+// under this; the routes check the serialized size once as a backstop.
+export const MAX_PREP_PACK_JSON = 80_000;
+
 export const JD_TOO_LONG = "Job description is too long (max ~15,000 characters).";
 export const CV_TOO_LONG = "CV is too long (max ~5 pages / 20,000 characters).";
 export const POOL_TOO_LONG = "Project pool is too long (max ~15,000 characters).";
