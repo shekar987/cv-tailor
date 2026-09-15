@@ -45,7 +45,8 @@ src/
     app/page.tsx              ← Main tool: JD → pre-check gate → tailor → results + Applied button; usage chip, stale-result + partial-failure notices (each auth-gated page also has a tiny layout.tsx that only exports its <title>)
     customize/page.tsx        ← Master CV (paste or upload), extracted profile fields + extracted-content summary + re-run extraction, section order
     settings/page.tsx         ← Account & usage card + user's own encrypted keys (OpenRouter primary — it runs tailoring; Gemini optional, not used for tailoring yet)
-    applications/page.tsx     ← Application tracker: spreadsheet-style sheet, CV/JD/Notes panels, CSV export
+    applications/page.tsx     ← Application tracker: spreadsheet-style sheet, CV/JD/Notes panels, CSV export, per-row Prep link
+    applications/[id]/prep/   ← Stage 4 interview prep (the app's first dynamic route): page.tsx (states + generate/regenerate/PDF), PrepPackView.tsx (reading view with per-answer CV evidence + tracer verdicts), PracticeMode.tsx (keyboard flashcards + self-rating)
     auth/
       login/page.tsx          ← Email/password login AND signup (mode toggle) + Google/GitHub OAuth + forgot-password
       update-password/page.tsx← Set a new password after the recovery link (or while signed in)
@@ -69,6 +70,8 @@ src/
       download-cover-pdf/route.ts ← Cover letter PDF — Node runtime
       applications/route.ts   ← Tracker CRUD (GET list / GET ?id= / POST / PUT / DELETE)
       applications/export/route.ts ← Tracker CSV export (honours ?status/?from/?to)
+      prep/route.ts           ← Stage 4 prep pack: free reads → cached pack (free) → resolveLlmRoute (1 tailor credit) → ONE interviewPrepPrompt call → normalize + evidence tracer → cached on applications.prep_pack; refund on throw / unusable pack
+      prep-pdf/route.ts       ← Prep pack PDF (real text layer, "[traced]"/"[not traced]" as text) — Node runtime
       keys/route.ts           ← Save/delete a user's encrypted provider key
       section-order/route.ts  ← Read/write profiles.section_order
       feedback/route.ts       ← Insert-only feedback
@@ -82,6 +85,9 @@ src/
     cvStore.ts                ← Master CV + profile CRUD against Supabase (browser client)
     workspace.ts              ← Per-user localStorage envelope: JD, result, provider, tailor session id
     applicationSnapshot.ts    ← Applied-button helpers: local dates, strict salary extraction, notes, second-person rewrite
+    prepPack.ts               ← Stage 4 contract: normalizePrepPack (model JSON → bounded shape, ≥4/≤10 questions, gap questions never carry a story), verifyEvidence (deterministic CV-citation tracer + faithful-metrics number check), packFromRow (stored packs re-normalized on read), flattenTailoredCv, extractTalkingPoints, prepPdfFilename
+    prepProgress.ts           ← Practice self-ratings per (user, application, pack generatedAt) in localStorage; swept on sign-out with the workspaces
+    buildPrepPdf.ts           ← Prep pack PDF on the pdfText engine
     safeNext.ts               ← Same-origin-only `?next=` path (open-redirect guard)
     sectionOrder.ts / sections.ts ← Section order resolution; reserved section titles
     atsMatch.ts               ← Deterministic keyword match for the pre-check gate (also grounds the Fit Score's hard-skill component)
@@ -107,7 +113,7 @@ src/
     rules.ts                  ← ABSOLUTE_RULES constant (the honesty contract)
     steps.ts                  ← All prompt templates (summaryPrompt, skillsPrompt, etc.)
     masterCV.ts               ← Owner's CV — DEV FALLBACK ONLY, never imported by a production path
-supabase/migrations/          ← Checked-in SQL (applications table + tailored_cv column so far); see supabase/schema.md
+supabase/migrations/          ← Checked-in SQL (applications table, tailored_cv, company_profiles, projects_pool, prep_pack …); see supabase/schema.md
 ```
 
 ### Routes
@@ -117,6 +123,7 @@ supabase/migrations/          ← Checked-in SQL (applications table + tailored_
 - `/customize` — master CV, extracted details, section order (requires auth)
 - `/settings` — account & usage plus API-key management (requires auth). OpenRouter is presented as the key that runs tailoring; Gemini as optional/not used for tailoring yet — keep that framing honest if the tailor route's Path C ever changes.
 - `/applications` — application tracker (requires auth)
+- `/applications/[id]/prep` — interview prep pack + practice mode for one tracked application (requires auth; covered by the `/applications` prefix in `PROTECTED_PREFIXES`, so deep links round-trip through login)
 - `/auth/login` — email/password login **and** signup, plus OAuth, plus "Forgot password?" (`resetPasswordForEmail`). One page with a `mode` toggle; there is no separate `/auth/signup` route.
 - `/auth/callback` — PKCE code exchange for OAuth, signup confirmation and password recovery (must match the Supabase redirect allowlist)
 - `/auth/update-password` — where the recovery email lands (via the callback with `?next=`); sets the new password with `updateUser`. Requires a session, so it's in `PROTECTED_PREFIXES`, and it's the one `/auth/*` path `safeNextPath()` allows as a destination.
@@ -139,6 +146,7 @@ Auth-gated pages are listed in `PROTECTED_PREFIXES` in `src/lib/supabase/proxy.t
 7. Results render in `CvPreview` and `CoverLetterPreview` (both `contentEditable`); the JD, result and a per-run `tailorSessionId` are persisted per user in localStorage (`lib/workspace.ts`) so a reload doesn't lose them
 8. Download: `CvPreview.collectPayload()` walks the live DOM to capture inline edits, converts job headers to `@@JOB@@` markers, then POSTs to `/api/download` (.docx) or `/api/download-pdf` (jsPDF, real text layer)
 9. "Applied — save to tracker" POSTs the run to `/api/applications` with the JD, derived notes, a strict-regex salary and a `tailored_cv` snapshot (sections + profile + section order). The snapshot is read from the preview via CvPreview's forwardRef handle so it captures inline edits, with the `@@JOB@@` markers converted back to plain "Role | Company | Date" lines; it falls back to the raw result if the preview isn't mounted. The session id makes a second click a no-op
+10. **Interview prep (Stage 4):** the tracker's per-row "Prep" link opens `/applications/[id]/prep`. `POST /api/prep` gathers the row, the master CV, the extracted profile, any cached company research for that company name and the row's saved talking points — all free — then spends **one tailor credit** on a single `interviewPrepPrompt` call, normalizes the JSON, runs the deterministic evidence tracer against the master CV, and caches the pack on `applications.prep_pack` (re-opening is free; `force` regenerates for another credit). The page shows every STAR answer with the CV lines it was built from and a ✓/⚠ per line; practice mode drills the deck with self-ratings kept in localStorage
 
 **CV text is stored server-side in Supabase** (`master_cvs` table, one row per user). The client reads it from DB on load and sends it per-tailor request. The app is fully multi-user — each user's CV is isolated by `user_id` and Supabase RLS.
 
@@ -173,7 +181,7 @@ const userId = data.claims.sub as string;
 | `master_cvs` | `user_id`, `text`, `updated_at`, `projects_pool` | One row per user, upserted on save (unique `user_id`). The CV column is `text` — **not** `cv_text`. `projects_pool` (nullable text, migration `20260911120000`) is the Advanced-customization project pool; reads retry without it and writes hint at the migration when it's missing. |
 | `cv_profiles` | `user_id`, `data`, `updated_at` | Extracted `Profile` JSON. The JSON column is `data` — **not** `profile_json`. |
 | `user_api_keys` | `user_id` + `provider` (PK), `key_enc`, `key_hint`, `updated_at` | Users' own encrypted Gemini/OpenRouter keys. `provider` is CHECK-constrained. Read server-side via the `get_encrypted_key` RPC. |
-| `applications` | `id`, `user_id`, `company_name`, `role`, `cv_reference`, `tailor_session_id`, `status`, `salary`, `date_applied`, `followup_date`, `notes`, `job_description`, `source`, `tailored_cv` (jsonb), `created_at`, `updated_at` | Tracker rows. Partial unique index on `(user_id, tailor_session_id)`. `tailored_cv` came in a second migration — the routes degrade (save/read without it, with a warning) if it hasn't been applied. |
+| `applications` | `id`, `user_id`, `company_name`, `role`, `cv_reference`, `tailor_session_id`, `status`, `salary`, `date_applied`, `followup_date`, `notes`, `job_description`, `source`, `tailored_cv` (jsonb), `prep_pack` (jsonb), `created_at`, `updated_at` | Tracker rows. Partial unique index on `(user_id, tailor_session_id)`. `tailored_cv` (migration `20260829120000`) and `prep_pack` (migration `20260915120000`, Stage 4) are both hand-applied: the detail read walks a three-rung column ladder (both → without `prep_pack` → without either), each rung naming the migration it lacks; writes degrade with a warning. `prep_pack` is written only by `/api/prep` — never via the tracker PUT whitelist. |
 | `user_feedback` | `user_id`, `email`, `message` | Insert-only for `authenticated`. |
 | `company_profiles` | `user_id`, `domain`, `data` (jsonb), `fetched_at` | Stage 3 research cache, one row per (user, domain), unique on that pair, 7-day TTL enforced in the route. Deliberately per-user — a shared cache would let one user's crafted content render for another. `/api/research` degrades to uncached if the migration isn't applied. |
 | `user_projects`, `user_skills` | — | Exist in the database but have **no code** referencing them since the unwired routes were removed. Safe to drop. |
@@ -254,6 +262,12 @@ Paste a company URL on `/app` → the route fetches their homepage/about/careers
 
 Honesty framing that must survive future edits: the website fingerprint is presented as "their website runs on" and the job-ad keywords as the engineering stack — a marketing site's tech is not the hiring stack. When the client forwards the research to `/api/tailor` as `companyResearch`, it is sanitized (`lib/companyResearch.ts`), the wave-1 synthetic research call is skipped, and rule 6 still bounds vocabulary use. High-fit (80+) unlocks `/api/extras` (pitch script, talking points — one burst-limited call each, no DB quota). Two cold-outreach paths sit on top: **speculative mode** (a button turns the research into a transparent target brief in the JD box, so the normal pipeline tailors the CV/letter against the company's real stack with no posted job) and the **cold email draft** (`/api/extras` kind `cold_email`, owner-only via `profiles.is_unlimited`). The email follows the owner's UKJI template: subject exactly "Potential Opportunity at {Company}", interest → real-initiative paragraph → up-to-3-real-skills value line → "applying, CV and cover letter attached" close, 120-170 words, speculative when no analysis is supplied, never claims stack items the CV lacks, and the "I've been following…" history line may ONLY come from a user-typed personal note. For the owner, "Tailor CV + cover letter + cold email" auto-drafts it after a successful company tailor (fresh analysis passed explicitly — the React closure's `result` is stale at that moment); the email is best-effort and can never damage the tailor result.
 
+### Stage 4 — interview prep (`/api/prep`)
+
+One application row → one **prep pack**, generated by a single `interviewPrepPrompt` JSON call and cached on the row. Wallet order is research's: every free read first (row, master CV, profile, cached `company_profiles` matched by normalized company name, talking points parsed from notes), a missing JD or CV answers `400 needs_jd/needs_cv` before any metering, a cached pack returns before any metering; only then `resolveLlmRoute` spends **one tailor credit** and the call fires, refunded when it throws or when the JSON doesn't normalize (`500 bad_pack`). Cap is 10 questions at `maxTokens: 6000` — more STAR answers than that on Haiku risks truncation, and `parseJsonWithRepair` slices to 6 000 chars, so an oversized pack would be "repaired" into a truncated one. **Never set `model` on this call** — `callLLM` forwards it to OpenRouter/Gemini on the own-key path.
+
+The honesty machinery (`lib/prepPack.ts`): `normalizePrepPack` bounds every field, drops question-less/unknown-category entries, forces `gap` questions to carry no STAR story and no evidence (they exist precisely so the pack says what the CV *can't* support), and reassigns ids. `verifyEvidence` is the deterministic tracer — an evidence line is ✓ when it is found in the master CV verbatim after normalization (bold markers, bullets, dashes, quotes and hard wraps neutralised) or as a contiguous run of ≥60% of its tokens with every number intact; separately every number in a STAR result or strategy point must exist in the CV or it is listed under "check these figures" (rule 4). The prompt tells the model the checker exists and to copy lines verbatim. Stored packs are re-normalized on every read (`packFromRow`) because a user can write their own row under RLS. The UI shows the verdicts; the PDF writes them as `[traced]`/`[not traced]` text (no ✓ glyph in the embedded font).
+
 ### Models
 
 - Default: `claude-haiku-4-5-20251001` (fast, cheap — used for all steps)
@@ -323,7 +337,7 @@ callClaude({ ... }).catch(() => null)   // nullable steps (atsScore)
 
 **Look for existing code first.** Before adding a helper, a route, or a prompt, check `src/lib/`, `src/app/api/`, and `src/prompts/`. Most things you'd reach for already exist (`callClaude`, `checkBurstLimit`, `parseCvFile`, `pdfText`, the Supabase clients).
 
-**Paid calls cost real money.** `/api/tailor`, `/api/analyze`, `/api/extract-profile`, and `/api/parse-cv` spend Claude credits on the owner's key. When testing locally, one run is a test; a loop is a bill. Before repeatedly re-running a paid step to debug it, ask — and prefer testing prompt changes with `expectJson`/parsing logic isolated from the live call where you can.
+**Paid calls cost real money.** `/api/tailor`, `/api/analyze`, `/api/extract-profile`, `/api/research`, `/api/extras` and `/api/prep` spend Claude credits on the owner's key (`/api/parse-cv` is burst-limited but makes no model call). When testing locally, one run is a test; a loop is a bill. Before repeatedly re-running a paid step to debug it, ask — and prefer testing prompt changes with `expectJson`/parsing logic isolated from the live call where you can.
 
 **Self-improvement loop.** When you hit a failure that wasn't obvious from the code — a runtime quirk, a Supabase/PostgREST behaviour, a Next.js 16 difference, an OneDrive corruption — after fixing it, add a short entry to *Known gotchas* below so the next session doesn't rediscover it. That is how every entry in that section got there.
 
@@ -543,6 +557,10 @@ on /customize.
 ### Projects are keyed by index, not name
 
 The projects AI step returns `{ "0": [...bullets], "1": [...] }`. The index corresponds to the order of `profile.projects` (extracted from the master CV). If a user's projects change order or count, old tailored project bullets will be mismatched. Saving a new master CV on `/customize` clears the tailored result in the workspace for that reason. In the preview, each project wrapper carries `data-proj-index` and `collectPayload()` matches on it — never on DOM position, which a stray `<div>` from contentEditable would shift. `normalizeProfile()` deliberately never filters projects out for the same reason.
+
+### Dynamic route segments: `params` is a Promise, and `.next/types` goes stale
+
+`/applications/[id]/prep` is the app's first dynamic segment. In Next 16 a page's `params` prop is a `Promise` — a client page reads it with `use(params)` from React, not by destructuring. After adding a new route, `npm run typecheck` can fail inside `.next/dev/types/validator.ts` with "Type '"/applications/[id]/prep"' is not assignable to type 'LayoutRoutes'": the dev server regenerated `.next/dev/types` but the last production build's `.next/types` predates the route. `npm run build` (or deleting `.next/`) regenerates it; the app source is fine.
 
 ### Rate limiting is two layers, and one of them is optional
 
