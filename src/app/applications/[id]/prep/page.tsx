@@ -74,7 +74,8 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
       }
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
-      if (active) setUserId(session?.user?.id ?? null);
+      const uid = session?.user?.id ?? null;
+      if (active) setUserId(uid);
       try {
         const res = await fetch(`/api/applications?id=${encodeURIComponent(id)}`);
         const data = await res.json().catch(() => ({}));
@@ -83,8 +84,11 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
         if (res.status === 404) { setLoad("missing"); return; }
         if (!res.ok) { setError(data.error || "Couldn't load this application."); setLoad("error"); return; }
         const app = data.application as Row & { prep_pack?: unknown };
+        const stored = packFromRow(app.prep_pack);
         setRow({ id: app.id, company_name: app.company_name, role: app.role, status: app.status, job_description: app.job_description });
-        setPack(packFromRow(app.prep_pack));
+        setPack(stored);
+        // Ratings belong to a specific pack (keyed on its generatedAt).
+        setRatings(uid && stored ? loadPrepProgress(uid, id, stored.generatedAt) : {});
         if (typeof data.warning === "string") setWarning(data.warning);
         setLoad("ready");
       } catch {
@@ -97,12 +101,6 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
     run();
     return () => { active = false; };
   }, [id]);
-
-  // Ratings belong to a specific pack; a regenerated pack starts clean.
-  useEffect(() => {
-    if (!userId || !pack) return;
-    setRatings(loadPrepProgress(userId, id, pack.generatedAt));
-  }, [userId, id, pack]);
 
   const onRate = useCallback(
     (questionId: string, rating: PrepRating) => {
@@ -123,9 +121,9 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
     }
   }, [practicing]);
 
+  // Ticks while the pipeline runs; the counter is reset where a run starts.
   useEffect(() => {
     if (!generating) return;
-    setElapsed(0);
     const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
     return () => clearInterval(timer);
   }, [generating]);
@@ -136,6 +134,7 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
     setError("");
     setErrorType(null);
     setWarning("");
+    setElapsed(0);
     setGenerating(true);
     try {
       const res = await fetch("/api/prep", {
@@ -153,6 +152,8 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
       const fresh = packFromRow(data.pack);
       if (!fresh) { setError("The prep pack came back in an unexpected shape. Try again."); return; }
       setPack(fresh);
+      // A regenerated pack has different questions — it starts unrated.
+      setRatings(userId ? loadPrepProgress(userId, id, fresh.generatedAt) : {});
       setPracticing(false);
       if (typeof data.warning === "string") setWarning(data.warning);
     } catch {

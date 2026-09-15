@@ -11,7 +11,6 @@ const MARGIN_PT = 56;
 const BODY = 10.5;
 const BODY_LH = BODY * 1.3;
 const SMALL = 9.5;
-const SMALL_LH = SMALL * 1.3;
 const NAVY: Rgb = hexToRgb("#1F3A5F");
 const MUTED: Rgb = [110, 110, 118];
 const AMBER: Rgb = hexToRgb("#8A5A12");
