@@ -18,7 +18,7 @@ import {
 import { experienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
-import { matchAtsKeywords } from "@/lib/atsMatch";
+import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 
 // Minimal shape check for a client-supplied analysis object (from the
 // pre-tailoring ATS gate — see runPipeline's precomputedAnalysis param). Not a
@@ -63,15 +63,8 @@ function reconcileAtsScore(
   const keywords = a.top_15_ats_keywords;
   if (!Array.isArray(keywords) || keywords.length === 0) return atsScore;
 
-  const str = (v: unknown) => (typeof v === "string" ? v : "");
-  const projectText = Object.values(
-    (sections.projects && typeof sections.projects === "object" ? sections.projects : {}) as Record<string, unknown>
-  )
-    .flatMap((v) => (Array.isArray(v) ? v.filter((b): b is string => typeof b === "string") : []))
-    .join("\n");
-  const tailoredText = [str(sections.summary), str(sections.skills), str(sections.experience), projectText]
-    .filter(Boolean)
-    .join("\n");
+  // The same text assembly the tracker scores when an application is saved.
+  const tailoredText = tailoredSectionsText(sections);
   if (!tailoredText.trim()) return atsScore;
 
   const det = matchAtsKeywords(tailoredText, keywords);
