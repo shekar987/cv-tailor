@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import CvPreview from "../CvPreview";
+import CoverLetterPreview from "../CoverLetterPreview";
 import { getProfile, type Profile } from "@/lib/cvStore";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
@@ -53,7 +54,43 @@ type TailoredCv = {
   projects?: Record<string, string[]>;
   profile?: Profile | null;
   sectionOrder?: unknown;
+  // Newer rows also carry the cover letter as sent and the server-scored
+  // keyword analysis of this exact snapshot; older rows have neither.
+  coverLetter?: string;
+  ats?: unknown;
 };
+
+type StoredAts = {
+  keywords: { hits: string[]; misses: string[] };
+  required: { hits: string[]; misses: string[] };
+};
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((x): x is string => typeof x === "string" && x.trim() !== "") : [];
+}
+
+// A user can write their own row under RLS, so the stored analysis is read
+// defensively: only well-formed string lists count, and an empty result is
+// treated as "not scored" rather than "0/0".
+function readStoredAts(value: unknown): StoredAts | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  const lists = (x: unknown) => {
+    const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
+    return { hits: stringList(o.hits), misses: stringList(o.misses) };
+  };
+  const keywords = lists(v.keywords);
+  const required = lists(v.required);
+  const total = keywords.hits.length + keywords.misses.length + required.hits.length + required.misses.length;
+  return total === 0 ? null : { keywords, required };
+}
+
+// The CV reference is "First_Last_Company_Role_CV"; the letter downloads
+// under the same stem.
+function letterFileName(cvReference: string | null): string {
+  const stem = (cvReference ?? "").replace(/_?CV$/, "");
+  return stem ? `${stem}_CoverLetter` : "CoverLetter";
+}
 
 // Cells that edit in place. Tab walks them in this order.
 type TextField = "company_name" | "role" | "salary" | "date_applied" | "followup_date";
@@ -709,6 +746,9 @@ export default function ApplicationsPage() {
 
     if (panel.kind === "cv") {
       const snap = cvCache[row.id];
+      const storedAts = readStoredAts(snap?.ats);
+      const kwTotal = storedAts ? storedAts.keywords.hits.length + storedAts.keywords.misses.length : 0;
+      const reqTotal = storedAts ? storedAts.required.hits.length + storedAts.required.misses.length : 0;
       return (
         <div className="appsPanel">
           <div className="appsPanelHead">
@@ -726,12 +766,56 @@ export default function ApplicationsPage() {
               No CV snapshot is stored for this application — it was saved before CV snapshots existed.
             </p>
           ) : (
-            <CvPreview
-              data={panelCvData}
-              profile={snap.profile ?? profile}
-              sectionOrder={snap.sectionOrder ?? sectionOrder}
-              fileBaseName={row.cv_reference ?? "CV"}
-            />
+            <>
+              <CvPreview
+                data={panelCvData}
+                profile={snap.profile ?? profile}
+                sectionOrder={snap.sectionOrder ?? sectionOrder}
+                fileBaseName={row.cv_reference ?? "CV"}
+              />
+              {storedAts && (
+                <div className="atsGroup">
+                  <div className="atsGroupLabel recs">Recruiter search visibility · saved CV</div>
+                  <p className="scoreNote" style={{ marginBottom: "var(--space-2)" }}>
+                    {kwTotal > 0 && (
+                      <>
+                        <strong>{storedAts.keywords.hits.length}/{kwTotal}</strong> of the role&apos;s terms
+                      </>
+                    )}
+                    {kwTotal > 0 && reqTotal > 0 && " · "}
+                    {reqTotal > 0 && (
+                      <>
+                        <strong>{storedAts.required.hits.length}/{reqTotal}</strong> required skills
+                      </>
+                    )}
+                  </p>
+                  <p className="fitEvidence" style={{ marginBottom: "var(--space-3)" }}>
+                    How likely a recruiter searching their pipeline for this role&apos;s terms is to surface your CV.
+                    Scored from this saved document when you clicked Applied.
+                  </p>
+                  {kwTotal > 0 && (
+                    <div className="stackChips">
+                      {storedAts.keywords.hits.map((k, i) => (
+                        <span key={`h${i}`} className="stackChip matched">{k}</span>
+                      ))}
+                      {storedAts.keywords.misses.map((k, i) => (
+                        <span key={`m${i}`} className="stackChip muted">{k}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {snap.coverLetter && (
+                <div className="atsGroup">
+                  <div className="atsGroupLabel recs">Cover letter · as sent</div>
+                  <CoverLetterPreview
+                    coverLetter={snap.coverLetter}
+                    withDateLine={false}
+                    fileBaseName={letterFileName(row.cv_reference)}
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
       );

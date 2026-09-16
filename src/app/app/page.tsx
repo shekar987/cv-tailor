@@ -6,7 +6,7 @@ import { companyNamesMatch } from "@/lib/companyMatch";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
-import CoverLetterPreview from "../CoverLetterPreview";
+import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
 import type { AtsMatchResult } from "@/lib/atsMatch";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
@@ -61,6 +61,9 @@ type Result = {
   analysis?: {
     company_name?: string;
     role_title?: string;
+    // The role's terms; the Applied snapshot is scored against them server-side.
+    top_15_ats_keywords?: string[];
+    required_skills?: string[];
   };
   atsScore?: {
     keyword_coverage?: string;
@@ -242,6 +245,7 @@ export default function Home() {
   const [elapsed, setElapsed] = useState(0);
   // Reaches into CvPreview for the EDITED document when saving to the tracker.
   const previewRef = useRef<CvPreviewHandle>(null);
+  const coverRef = useRef<CoverLetterPreviewHandle>(null);
 
   // On load: fetch CV + profile from Supabase.
   // If the DB has nothing but localStorage does, import it once then clear localStorage.
@@ -744,6 +748,15 @@ export default function Home() {
               // projects, not the master CV's.
               : displayProfile,
             sectionOrder: edited ? edited.sectionOrder : sectionOrder,
+            // The letter as it stands in the preview — edits included, date
+            // line first — so the tracker holds it as sent. And the role's
+            // terms: the server scores this exact snapshot against them, so
+            // the stored figures are re-derivable from the stored document.
+            coverLetter: coverRef.current?.collectText() ?? result.coverLetter ?? "",
+            ats: {
+              keywords: analysis?.top_15_ats_keywords ?? [],
+              required: analysis?.required_skills ?? [],
+            },
           },
         }),
       });
@@ -1492,6 +1505,7 @@ export default function Home() {
               <>
                 <h2 className="clHeading">Cover Letter</h2>
                 <CoverLetterPreview
+                  ref={coverRef}
                   coverLetter={result.coverLetter}
                   fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CoverLetter")}
                 />

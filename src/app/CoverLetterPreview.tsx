@@ -1,18 +1,30 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
 import DownloadButton from "./DownloadButton";
 import { saveBlob } from "@/lib/saveBlob";
 import { pastePlainText } from "@/lib/pastePlainText";
 import StatusText from "@/components/ui/StatusText";
 
-export default function CoverLetterPreview({
-  coverLetter,
-  fileBaseName = "CoverLetter",
-}: {
+// What a parent can read back through the ref: the letter as it stands in
+// the editable DOM (the Applied button snapshots it into the tracker).
+export type CoverLetterPreviewHandle = {
+  collectText: () => string | null;
+};
+
+type Props = {
   coverLetter: string;
   fileBaseName?: string;
-}) {
+  // The date line is added by the app for a letter being written today. A
+  // stored letter already carries the date it was sent as its first line, so
+  // the tracker renders it without a second one.
+  withDateLine?: boolean;
+};
+
+const CoverLetterPreview = forwardRef<CoverLetterPreviewHandle, Props>(function CoverLetterPreview(
+  { coverLetter, fileBaseName = "CoverLetter", withDateLine = true },
+  handleRef
+) {
   const ref = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [docErr, setDocErr] = useState<string | null>(null);
@@ -41,6 +53,10 @@ export default function CoverLetterPreview({
       .map((p) => (p.textContent || "").trim())
       .join("\n");
   }
+
+  // Hooks stay above the early return below, so the handle exists whether or
+  // not there is a letter to show (collectText answers null in that case).
+  useImperativeHandle(handleRef, () => ({ collectText }));
 
   // Server-built .docx for the current letter — shared source for both downloads.
   async function fetchDocx(): Promise<Blob | null> {
@@ -106,11 +122,13 @@ export default function CoverLetterPreview({
       {docErr && <StatusText role="alert">{docErr}</StatusText>}
       <p className="editHint">Click any text to edit your cover letter. Changes are included when you download.</p>
       <div className="clDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false} onPaste={pastePlainText}>
-        <p className="clLine">{todayLine}</p>
+        {withDateLine && <p className="clLine">{todayLine}</p>}
         {paragraphs.filter((line) => line !== "").map((line, i) => (
           <p key={i} className="clLine">{line.replace(/\*\*/g, "")}</p>
         ))}
       </div>
     </div>
   );
-}
+});
+
+export default CoverLetterPreview;

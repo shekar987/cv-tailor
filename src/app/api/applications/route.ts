@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { MAX_JD_CHARS, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
+import { MAX_JD_CHARS, MAX_NOTES_CHARS, MAX_COVER_LETTER_CHARS, JD_TOO_LONG } from "@/lib/limits";
 import { packFromRow } from "@/lib/prepPack";
+import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 
 // CRUD for the application tracker. RLS ("auth.uid() = user_id") is the real
 // boundary; every write is additionally scoped by user id.
@@ -56,18 +57,73 @@ const PREP_WARNING =
 function isMissingColumn(err: { code?: string } | null): boolean {
   return err?.code === "42703" || err?.code === "PGRST204";
 }
-const TAILORED_CV_KEYS = ["summary", "skills", "experience", "projects", "profile", "sectionOrder"] as const;
+const SECTION_KEYS = ["summary", "skills", "experience", "projects", "profile", "sectionOrder"] as const;
+
+// The role's terms the client asks to be scored against the snapshot: the
+// analyser's keyword list and required skills. Bounded so a hand-written row
+// can't store an arbitrary list; verdicts are never accepted from the client.
+const MAX_ATS_TERMS = 25;
+const MAX_ATS_TERM_CHARS = 120;
+
+function termList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const term of value) {
+    if (typeof term !== "string") continue;
+    const t = term.trim().slice(0, MAX_ATS_TERM_CHARS);
+    if (!t) continue;
+    out.push(t);
+    if (out.length >= MAX_ATS_TERMS) break;
+  }
+  return out;
+}
+
+// The stored keyword analysis is computed HERE, from the snapshot text, with
+// the same matcher and the same text assembly the tailor route reconciles
+// with — so the tracker's figures are re-derivable from the stored document
+// rather than being whatever a client claimed. Only the lists are stored;
+// counts are derived on read.
+function scoreSnapshot(snapshot: Record<string, unknown>, atsInput: unknown) {
+  if (!atsInput || typeof atsInput !== "object" || Array.isArray(atsInput)) return null;
+  const a = atsInput as Record<string, unknown>;
+  const keywords = termList(a.keywords);
+  const required = termList(a.required);
+  if (keywords.length === 0 && required.length === 0) return null;
+  const text = tailoredSectionsText({
+    summary: snapshot.summary,
+    skills: snapshot.skills,
+    experience: snapshot.experience,
+    projects: snapshot.projects,
+  });
+  const verdict = (terms: string[]) => {
+    const r = matchAtsKeywords(text, terms);
+    return { hits: r.matchedKeywords, misses: r.missedKeywords };
+  };
+  return { keywords: verdict(keywords), required: verdict(required), computedAt: new Date().toISOString() };
+}
 
 // The CV snapshot comes from our own client, so this only pins the shape and
-// size: a plain object, known keys only, bounded JSON.
+// size: a plain object, known keys only, bounded JSON. Two keys ride along
+// with the sections — the cover letter as sent (text, capped, rejected rather
+// than truncated) and the server-scored keyword analysis above.
 function cleanTailoredCv(value: unknown): { snapshot: Record<string, unknown> | null } | { error: string } {
   if (value == null) return { snapshot: null };
   if (typeof value !== "object" || Array.isArray(value)) return { error: "Invalid tailored CV snapshot." };
   const input = value as Record<string, unknown>;
   const snapshot: Record<string, unknown> = {};
-  for (const key of TAILORED_CV_KEYS) {
+  for (const key of SECTION_KEYS) {
     if (input[key] !== undefined) snapshot[key] = input[key];
   }
+  if (input.coverLetter != null) {
+    if (typeof input.coverLetter !== "string") return { error: "Cover letter must be text." };
+    const letter = input.coverLetter.trim();
+    if (letter.length > MAX_COVER_LETTER_CHARS) {
+      return { error: `Cover letter is too long to store (max ${MAX_COVER_LETTER_CHARS.toLocaleString("en-GB")} characters).` };
+    }
+    if (letter) snapshot.coverLetter = letter;
+  }
+  const ats = scoreSnapshot(snapshot, input.ats);
+  if (ats) snapshot.ats = ats;
   if (JSON.stringify(snapshot).length > MAX_TAILORED_CV_JSON) {
     return { error: "Tailored CV snapshot is too large to store." };
   }
