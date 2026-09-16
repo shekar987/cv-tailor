@@ -237,7 +237,7 @@ export default function Landing() {
           </div>
           <div className="lpStep">
             <span className="lpStepNum">3</span>
-            <p><strong>See exactly how you score</strong> against the job&apos;s top ATS keywords — what hits, what&apos;s missing, and why.</p>
+            <p><strong>See exactly how visible you are</strong> to a recruiter searching for the job&apos;s top terms — what hits, what&apos;s missing, and why.</p>
           </div>
           <div className="lpStep">
             <span className="lpStepNum">4</span>
@@ -269,9 +269,9 @@ export default function Landing() {
             </div>
           </Reveal>
           <Reveal delay={120}>
-            <div className="lpShowTag">ATS score</div>
+            <div className="lpShowTag">Search visibility</div>
             <div className="lpShowScore">
-              <div className="lpShowScoreLabel">Hey Jordan, here&apos;s your ATS keyword match</div>
+              <div className="lpShowScoreLabel">Hey Jordan, here&apos;s your recruiter search visibility</div>
               <AnimatedScoreValue target={12} total={15} />
               <div className="lpShowScoreSub">Required skills covered: 8/10</div>
               <div className="lpShowScoreGroup">
@@ -309,7 +309,7 @@ export default function Landing() {
           </Reveal>
           <Reveal className="lpDiffCard" delay={100}>
             <div className="lpDiffIcon"><IconTarget /></div>
-            <div className="lpDiffTitle">An honest ATS score</div>
+            <div className="lpDiffTitle">An honest visibility score</div>
             <p className="lpDiffBody">
               See exactly which of the job&apos;s top keywords you hit and which you&apos;re
               missing, and why — not an inflated 95% match designed to make you feel good and get
@@ -344,7 +344,7 @@ export default function Landing() {
           <div className="lpCostCard">
             <div className="lpCostTitle">Your first 3 tailors are on us</div>
             <p className="lpCostBody">
-              Full runs on Claude — tailored CV, cover letter and ATS score — with a cap of 3
+              Full runs on Claude — tailored CV, cover letter and search-visibility score — with a cap of 3
               tailors a day. No card, ever.
             </p>
           </div>

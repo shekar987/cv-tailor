@@ -8,7 +8,7 @@ Jobhuntz (the codebase is still named `cv-tailor`; the product was renamed) is a
 
 - A tailored CV (summary, skills, experience, projects) emphasising the most relevant real experience
 - A cover letter matched to the company's tone and values
-- An ATS keyword score showing exactly which keywords matched and which genuinely didn't
+- A recruiter-search-visibility score — a deterministic keyword match against the role's terms — showing exactly which terms matched and which genuinely didn't. User-facing copy calls it "Recruiter search visibility" ("Search visibility" for short), never "ATS": the metric is how likely a recruiter searching their pipeline for the role's terms is to surface the CV, not a machine gate. Internal names (`atsScore`, `atsMatch`, CSS classes) keep the old word
 - An application tracker (`/applications`) that snapshots each tailored CV they applied with, plus rows they add by hand
 
 The core product promise: **nothing is invented**. Every claim in the output must trace back to the master CV verbatim. The tool will surface honest gaps rather than fabricate keywords to match a JD.
@@ -45,7 +45,7 @@ src/
     app/page.tsx              ← Main tool: JD → pre-check gate → tailor → results + Applied button; usage chip, stale-result + partial-failure notices (each auth-gated page also has a tiny layout.tsx that only exports its <title>)
     customize/page.tsx        ← Master CV (paste or upload), extracted profile fields + extracted-content summary + re-run extraction, section order
     settings/page.tsx         ← Account & usage card + user's own encrypted keys (OpenRouter primary — it runs tailoring; Gemini optional, not used for tailoring yet)
-    applications/page.tsx     ← Application tracker: spreadsheet-style sheet, CV/JD/Notes panels, CSV export, per-row Prep link
+    applications/page.tsx     ← Application tracker: spreadsheet-style sheet, CV/JD/Notes panels (the CV panel also shows the snapshot's search-visibility breakdown and the cover letter as sent for rows that stored them), CSV export, per-row Prep link
     applications/[id]/prep/   ← Stage 4 interview prep (the app's first dynamic route): page.tsx (states + generate/regenerate/PDF), PrepPackView.tsx (reading view with per-answer CV evidence + tracer verdicts), PracticeMode.tsx (keyboard flashcards + self-rating)
     auth/
       login/page.tsx          ← Email/password login AND signup (mode toggle) + Google/GitHub OAuth + forgot-password
@@ -53,7 +53,7 @@ src/
       callback/route.ts       ← PKCE code exchange (OAuth, signup confirmation, password recovery)
       error/page.tsx          ← On-brand auth error page
     CvPreview.tsx             ← Editable CV preview; collectPayload() walks its DOM for both downloads and, via a forwardRef handle, for the Applied snapshot
-    CoverLetterPreview.tsx    ← Editable cover letter preview + downloads
+    CoverLetterPreview.tsx    ← Editable cover letter preview + downloads; forwardRef handle collectText() feeds the Applied snapshot; withDateLine={false} renders a stored letter under its own first-line date (tracker)
     CvUpload.tsx              ← Drag/drop or pick a PDF/.docx/.txt → /api/parse-cv → textarea
     DownloadButton.tsx        ← "Download ▾" disclosure (PDF / Word)
     FeedbackWidget.tsx        ← Feedback card on the app routes (signed in only)
@@ -68,7 +68,7 @@ src/
       download-pdf/route.ts   ← CV PDF (real text layer, mirrors download/route.ts) — Node runtime
       download-cover/route.ts ← Cover letter .docx
       download-cover-pdf/route.ts ← Cover letter PDF — Node runtime
-      applications/route.ts   ← Tracker CRUD (GET list / GET ?id= / POST / PUT / DELETE)
+      applications/route.ts   ← Tracker CRUD (GET list / GET ?id= / POST / PUT / DELETE); POST scores the snapshot's `ats` lists server-side from the stored text (never trusts client verdicts)
       applications/export/route.ts ← Tracker CSV export (honours ?status/?from/?to)
       prep/route.ts           ← Stage 4 prep pack: free reads → cached pack (free) → resolveLlmRoute (1 tailor credit) → ONE interviewPrepPrompt call → normalize + evidence tracer → cached on applications.prep_pack; refund on throw / unusable pack
       prep-pdf/route.ts       ← Prep pack PDF (real text layer, "[traced]"/"[not traced]" as text) — Node runtime
@@ -83,14 +83,15 @@ src/
     usage.ts                  ← getUsage(): the signed-in user's own quota position from their profiles row; fail-soft null (consumers hide their usage UI). Powers the /app chip and the Settings account card
     profile.ts                ← Profile type + normalizeProfile() (coerces model JSON to the shape renderers assume)
     cvStore.ts                ← Master CV + profile CRUD against Supabase (browser client)
-    workspace.ts              ← Per-user localStorage envelope: JD, result, provider, tailor session id
+    workspace.ts              ← Per-user localStorage envelope: JD, result, provider, tailor session id, the text the result was tailored from + its source (jd/outreach), research
     applicationSnapshot.ts    ← Applied-button helpers: local dates, strict salary extraction, notes, second-person rewrite
     prepPack.ts               ← Stage 4 contract: normalizePrepPack (model JSON → bounded shape, ≥4/≤10 questions, gap questions never carry a story), verifyEvidence (deterministic CV-citation tracer + faithful-metrics number check), packFromRow (stored packs re-normalized on read), flattenTailoredCv, extractTalkingPoints, prepPdfFilename
     prepProgress.ts           ← Practice self-ratings per (user, application, pack generatedAt) in localStorage; swept on sign-out with the workspaces
     buildPrepPdf.ts           ← Prep pack PDF on the pdfText engine
     safeNext.ts               ← Same-origin-only `?next=` path (open-redirect guard)
     sectionOrder.ts / sections.ts ← Section order resolution; reserved section titles
-    atsMatch.ts               ← Deterministic keyword match for the pre-check gate (also grounds the Fit Score's hard-skill component)
+    atsMatch.ts               ← THE deterministic keyword matcher (import-free, unit-tested in tests/): canonical naming variants (C#, .NET, Node.js, Postgres, k8s…), every specific token of a multi-word term within a tight window, "X and Y" = both / "X/Y" = either. Used by the pre-check gate, reconcileAtsScore, the tracker snapshot score and the Fit Score's hard-skill component; tailoredSectionsText() is the one text assembly they all score
+    companyMatch.ts           ← normalizeCompanyName() / companyNamesMatch(): the one company-name matcher — binds research to a run on /app and finds cached research in /api/prep
     fetchPage.ts              ← Stage 3 page fetcher: assertSafeUrl() SSRF guard (DNS-resolved private/metadata refusal, re-applied per redirect hop), capped bodies, regex HTML helpers
     techFingerprint.ts        ← Curated website-stack detection — labelled websiteStack, never presented as the engineering stack
     jobBoards.ts              ← Greenhouse/Lever/Ashby/Workable board discovery + free public JSON APIs; deterministic tech-keyword harvest from job ads
@@ -114,6 +115,7 @@ src/
     steps.ts                  ← All prompt templates (summaryPrompt, skillsPrompt, etc.)
     masterCV.ts               ← Owner's CV — DEV FALLBACK ONLY, never imported by a production path
 supabase/migrations/          ← Checked-in SQL (applications table, tailored_cv, company_profiles, projects_pool, prep_pack …); see supabase/schema.md
+tests/                        ← node:test unit suites (atsMatch, companyMatch) — `npm test`, zero dependencies
 ```
 
 ### Routes
@@ -145,7 +147,7 @@ Auth-gated pages are listed in `PROTECTED_PREFIXES` in `src/lib/supabase/proxy.t
 6. Server verifies auth via `getClaims()`, checks the daily and lifetime quotas via SECURITY DEFINER RPCs (fail-closed), then runs Step 0 + two parallel waves and returns `{ summary, skills, experience, projects, coverLetter, atsScore, analysis, research }`
 7. Results render in `CvPreview` and `CoverLetterPreview` (both `contentEditable`); the JD, result and a per-run `tailorSessionId` are persisted per user in localStorage (`lib/workspace.ts`) so a reload doesn't lose them
 8. Download: `CvPreview.collectPayload()` walks the live DOM to capture inline edits, converts job headers to `@@JOB@@` markers, then POSTs to `/api/download` (.docx) or `/api/download-pdf` (jsPDF, real text layer)
-9. "Applied — save to tracker" POSTs the run to `/api/applications` with the JD, derived notes, a strict-regex salary and a `tailored_cv` snapshot (sections + profile + section order). The snapshot is read from the preview via CvPreview's forwardRef handle so it captures inline edits, with the `@@JOB@@` markers converted back to plain "Role | Company | Date" lines; it falls back to the raw result if the preview isn't mounted. The session id makes a second click a no-op
+9. "Applied — save to tracker" POSTs the run to `/api/applications` with the text it was tailored from (the JD box for a JD run, the research brief for an outreach run), derived notes, a strict-regex salary and a `tailored_cv` snapshot: sections + profile + section order, plus `coverLetter` (the letter as it stands in the preview, date line first) and `ats` — the client sends only the role's terms (`analysis.top_15_ats_keywords` / `required_skills`) and the server scores the snapshot text against them with `lib/atsMatch`, storing hit/miss lists only (counts derived on read). The CV is read from the preview via CvPreview's forwardRef handle so it captures inline edits, with the `@@JOB@@` markers converted back to plain "Role | Company | Date" lines; it falls back to the raw result if the preview isn't mounted. The session id makes a second click a no-op
 10. **Interview prep (Stage 4):** the tracker's per-row "Prep" link opens `/applications/[id]/prep`. `POST /api/prep` gathers the row, the master CV, the extracted profile, any cached company research for that company name and the row's saved talking points — all free — then spends **one tailor credit** on a single `interviewPrepPrompt` call, normalizes the JSON, runs the deterministic evidence tracer against the master CV, and caches the pack on `applications.prep_pack` (re-opening is free; `force` regenerates for another credit). The page shows every STAR answer with the CV lines it was built from and a ✓/⚠ per line; practice mode drills the deck with self-ratings kept in localStorage
 
 **CV text is stored server-side in Supabase** (`master_cvs` table, one row per user). The client reads it from DB on load and sends it per-tailor request. The app is fully multi-user — each user's CV is isolated by `user_id` and Supabase RLS.
@@ -181,7 +183,7 @@ const userId = data.claims.sub as string;
 | `master_cvs` | `user_id`, `text`, `updated_at`, `projects_pool` | One row per user, upserted on save (unique `user_id`). The CV column is `text` — **not** `cv_text`. `projects_pool` (nullable text, migration `20260911120000`) is the Advanced-customization project pool; reads retry without it and writes hint at the migration when it's missing. |
 | `cv_profiles` | `user_id`, `data`, `updated_at` | Extracted `Profile` JSON. The JSON column is `data` — **not** `profile_json`. |
 | `user_api_keys` | `user_id` + `provider` (PK), `key_enc`, `key_hint`, `updated_at` | Users' own encrypted Gemini/OpenRouter keys. `provider` is CHECK-constrained. Read server-side via the `get_encrypted_key` RPC. |
-| `applications` | `id`, `user_id`, `company_name`, `role`, `cv_reference`, `tailor_session_id`, `status`, `salary`, `date_applied`, `followup_date`, `notes`, `job_description`, `source`, `tailored_cv` (jsonb), `prep_pack` (jsonb), `created_at`, `updated_at` | Tracker rows. Partial unique index on `(user_id, tailor_session_id)`. `tailored_cv` (migration `20260829120000`) and `prep_pack` (migration `20260915120000`, Stage 4) are both hand-applied: the detail read walks a three-rung column ladder (both → without `prep_pack` → without either), each rung naming the migration it lacks; writes degrade with a warning. `prep_pack` is written only by `/api/prep` — never via the tracker PUT whitelist. |
+| `applications` | `id`, `user_id`, `company_name`, `role`, `cv_reference`, `tailor_session_id`, `status`, `salary`, `date_applied`, `followup_date`, `notes`, `job_description`, `source`, `tailored_cv` (jsonb), `prep_pack` (jsonb), `created_at`, `updated_at` | Tracker rows. Partial unique index on `(user_id, tailor_session_id)`. `tailored_cv` holds the sections + profile + section order and, for rows saved from 2026-09-16, `coverLetter` and the server-scored `ats` lists — same jsonb, no migration; older rows simply lack the keys. `tailored_cv` (migration `20260829120000`) and `prep_pack` (migration `20260915120000`, Stage 4) are both hand-applied: the detail read walks a three-rung column ladder (both → without `prep_pack` → without either), each rung naming the migration it lacks; writes degrade with a warning. `prep_pack` is written only by `/api/prep` — never via the tracker PUT whitelist. |
 | `user_feedback` | `user_id`, `email`, `message` | Insert-only for `authenticated`. |
 | `company_profiles` | `user_id`, `domain`, `data` (jsonb), `fetched_at` | Stage 3 research cache, one row per (user, domain), unique on that pair, 7-day TTL enforced in the route. Deliberately per-user — a shared cache would let one user's crafted content render for another. `/api/research` degrades to uncached if the migration isn't applied. |
 | `user_projects`, `user_skills` | — | Exist in the database but have **no code** referencing them since the unwired routes were removed. Safe to drop. |
@@ -252,7 +254,7 @@ Each Promise in both waves has an independent `.catch()`. One step failing does 
 
 Two deterministic pieces wrap the model calls:
 - The experience/projects prompts receive an **adaptive length budget** from `lib/contentBudget.ts` — computed from how many bullets the master CV actually has vs. what two pages hold (~22 experience bullets). A CV that fits keeps every bullet; an oversized one gets per-role caps. Parse failure falls back to the fixed default text in `prompts/steps.ts`.
-- After wave 2, `reconcileAtsScore()` in the tailor route cross-checks the model's hit/miss verdicts against the real tailored text with `lib/atsMatch` — counts and lists always agree with the document the user sees; the model keeps the prose.
+- After wave 2, `reconcileAtsScore()` in the tailor route cross-checks the model's hit/miss verdicts against the real tailored text (`tailoredSectionsText()` — the same assembly the tracker scores on Applied) with `lib/atsMatch` — counts and lists always agree with the document the user sees; the model keeps the prose. The matcher is deliberately conservative: an under-match is honest and actionable, an over-match is a lie on a number.
 
 **Pool mode (Advanced customization).** When the request carries `projectsPool` (the free-text pool saved on `/customize`, `master_cvs.projects_pool`, cap `MAX_POOL_CHARS`), the wave-1 projects slot runs `poolProjectsPrompt` instead: it SELECTS the 2 most relevant pool projects for this JD/stack (1 if the pool has one) and writes their bullets. `lib/poolProjects.ts` normalizes the selection at the boundary; the response gains `selectedProjects` and the client derives a **display profile** whose `projects` are the selection — CvPreview, both downloads (via `collectPayload`'s `projectsMeta`) and the Applied snapshot all read that one derivation, so pool results are self-contained (no index-keying against the stored profile). An empty/failed selection degrades to the master-CV projects plus a partial-failure notice.
 
@@ -260,7 +262,7 @@ Two deterministic pieces wrap the model calls:
 
 Paste a company URL on `/app` → the route fetches their homepage/about/careers pages through `lib/fetchPage.ts` (**every external fetch goes through `assertSafeUrl()` — never bypass it**), discovers their ATS board and pulls live job ads (`lib/jobBoards.ts`), then makes exactly two model calls: `COMPANY_PROFILE_PROMPT` and `FIT_SCORE_PROMPT`. `reconcileFitScore()` bounds the hard-skill component with the deterministic CV↔stack overlap. Order is deliberate: all free fetching happens BEFORE the quota RPCs, so an unreachable site costs no credit; the two model calls refund on throw. One research = one tailor credit, cached per (user, domain) for 7 days.
 
-Honesty framing that must survive future edits: the website fingerprint is presented as "their website runs on" and the job-ad keywords as the engineering stack — a marketing site's tech is not the hiring stack. When the client forwards the research to `/api/tailor` as `companyResearch`, it is sanitized (`lib/companyResearch.ts`), the wave-1 synthetic research call is skipped, and rule 6 still bounds vocabulary use. High-fit (80+) unlocks `/api/extras` (pitch script, talking points — one burst-limited call each, no DB quota). Two cold-outreach paths sit on top: **speculative mode** (a button turns the research into a transparent target brief in the JD box, so the normal pipeline tailors the CV/letter against the company's real stack with no posted job) and the **cold email draft** (`/api/extras` kind `cold_email`, owner-only via `profiles.is_unlimited`). The email follows the owner's UKJI template: subject exactly "Potential Opportunity at {Company}", interest → real-initiative paragraph → up-to-3-real-skills value line → "applying, CV and cover letter attached" close, 120-170 words, speculative when no analysis is supplied, never claims stack items the CV lacks, and the "I've been following…" history line may ONLY come from a user-typed personal note. For the owner, "Tailor CV + cover letter + cold email" auto-drafts it after a successful company tailor (fresh analysis passed explicitly — the React closure's `result` is stale at that moment); the email is best-effort and can never damage the tailor result.
+Honesty framing that must survive future edits: the website fingerprint is presented as "their website runs on" and the job-ad keywords as the engineering stack — a marketing site's tech is not the hiring stack. When the client forwards the research to `/api/tailor` as `companyResearch`, it is sanitized (`lib/companyResearch.ts`), the wave-1 synthetic research call is skipped, and rule 6 still bounds vocabulary use. **Research is bound to a company** (`lib/companyMatch.ts`): an outreach run is that company's brief and always carries it; a JD run carries it only when the pre-check read the same company off the JD; skipping the check or a JD with no detectable company carries nothing — the gate card says which happened, and the extras hint says when the tailored role is at a different company. Never inject research into a run for a company it wasn't run for. High-fit (80+) unlocks `/api/extras` (pitch script, talking points — one burst-limited call each, no DB quota). Two cold-outreach paths sit on top: **speculative mode** (a button turns the research into a transparent target brief in the JD box, so the normal pipeline tailors the CV/letter against the company's real stack with no posted job) and the **cold email draft** (`/api/extras` kind `cold_email`, owner-only via `profiles.is_unlimited`). The email follows the owner's UKJI template: subject exactly "Potential Opportunity at {Company}", interest → real-initiative paragraph → up-to-3-real-skills value line → "applying, CV and cover letter attached" close, 120-170 words, speculative when no analysis is supplied, never claims stack items the CV lacks, and the "I've been following…" history line may ONLY come from a user-typed personal note. For the owner, "Tailor CV + cover letter + cold email" auto-drafts it after a successful company tailor (fresh analysis passed explicitly — the React closure's `result` is stale at that moment); the email is best-effort and can never damage the tailor result.
 
 ### Stage 4 — interview prep (`/api/prep`)
 
@@ -416,6 +418,7 @@ npm run build      # production build (also the full type check)
 npm run typecheck  # tsc --noEmit — faster than a build when you only want types
 npm run start      # production server (run after build)
 npm run lint       # ESLint
+npm test           # node:test unit suites in tests/ (explicit file list — see gotchas)
 ```
 
 **Deploy:** push to `main` → Vercel auto-deploys. See *Deploying* above — never push without approval.
@@ -609,6 +612,10 @@ real authenticated request through PostgREST, not by reasoning about reads.
 ### Testing the API without a browser
 
 `SUPABASE_SECRET_KEY` (in `.env.local`, never read by `src/`) lets a local script create a throwaway user through the auth admin API, sign in with the password grant, and build the `sb-<ref>-auth-token` cookie the way `@supabase/ssr` does (`"base64-"` + base64url JSON, chunked at 3180 chars into `.0`, `.1`…). With that cookie every route can be exercised end to end against `npm run dev`, including extracting text back out of the generated PDFs with `unpdf`. Skip the tailor/analyze/extract-profile bodies that would reach a model — test their guards only.
+
+### Unit tests: node:test, explicit files, no `@/` in tested modules
+
+`npm test` runs `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/atsMatch.test.ts tests/companyMatch.test.ts` — Node's own runner with type stripping, zero dependencies. Three things bite: (1) the file list must be explicit — a directory or glob argument silently reports `tests 0` and passes; add every new suite to the script; (2) imports inside `tests/` need the `.ts` extension (`tsconfig` has `allowImportingTsExtensions` for this; legal because `noEmit` is on); (3) Node resolves no `@/` alias, so a module under test must import nothing through it — `lib/atsMatch.ts` and `lib/companyMatch.ts` are import-free on purpose. The warning flag silences the "module type not specified" reparse notice for a package without `"type"`.
 
 ### Test Postgres permissions via PostgREST, not the SQL editor
 

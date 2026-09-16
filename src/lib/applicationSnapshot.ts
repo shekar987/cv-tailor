@@ -257,7 +257,7 @@ export function buildAppliedNotes(atsScore: AtsScoreLike): string | null {
   const req = (atsScore.required_skill_coverage ?? "").trim();
   if (kw) coverage.push(`${kw} keywords`);
   if (req) coverage.push(`${req} required skills`);
-  if (coverage.length) lines.push(`ATS match: ${coverage.join(", ")}`);
+  if (coverage.length) lines.push(`Search visibility: ${coverage.join(", ")}`);
 
   const misses = Array.isArray(atsScore.misses)
     ? atsScore.misses.filter((x): x is string => typeof x === "string" && x.trim() !== "").slice(0, 3)

@@ -835,7 +835,7 @@ export default function Home() {
     if (empty.length > 0) {
       issues.push(`The ${empty.join(", ")} ${empty.length > 1 ? "sections" : "section"} came back empty this run.`);
     }
-    if (!result.atsScore?.keyword_coverage) issues.push("ATS scoring didn't complete.");
+    if (!result.atsScore?.keyword_coverage) issues.push("Search-visibility scoring didn't complete.");
     // The server includes selectedProjects (possibly empty) whenever a pool
     // was sent — an empty array means the selection step failed and the
     // master-CV projects rendered instead.
@@ -854,7 +854,7 @@ export default function Home() {
       <div className="container">
         <AppHeader
           title="Tailor your CV"
-          tagline="Honest, ATS-ready tailoring. Every claim traces back to your real CV — nothing invented."
+          tagline="Honest tailoring. Every claim traces back to your real CV — nothing invented."
         />
 
         {/* Master CV status — uploading/editing/replacing it lives on /customize now */}
@@ -1331,7 +1331,7 @@ export default function Home() {
                 <li>{runResearchCompany ? `Using your research for ${runResearchCompany}` : "Researching the company"}</li>
                 <li>Tailoring summary, skills, experience, projects</li>
                 <li>Writing your cover letter</li>
-                <li>Scoring against ATS keywords</li>
+                <li>Scoring recruiter search visibility</li>
               </ul>
               <p className="loadingMeta">{elapsed}s — a full run usually takes 20–40 seconds.</p>
             </div>
@@ -1374,7 +1374,7 @@ export default function Home() {
             {result.atsScore?.keyword_coverage && (
               <div className="scoreCard">
                 <div className="scoreLabel">
-                  {firstName ? `Hey ${firstName}, here's your ATS keyword match` : "Your ATS keyword match"}
+                  {firstName ? `Hey ${firstName}, here's your recruiter search visibility` : "Your recruiter search visibility"}
                 </div>
                 <div className="scoreValue">{result.atsScore.keyword_coverage}</div>
                 {result.atsScore.required_skill_coverage && (
@@ -1382,6 +1382,9 @@ export default function Home() {
                     Required skills covered: {result.atsScore.required_skill_coverage}
                   </div>
                 )}
+                <p className="scoreNote">
+                  How likely a recruiter searching their pipeline for this role&apos;s terms is to surface your CV.
+                </p>
                 {result.atsScore.overall_assessment && (
                   <p className="scoreNote">{result.atsScore.overall_assessment}</p>
                 )}

@@ -2,7 +2,7 @@
 
 ## What this is
 
-Honest, ATS-aware CV tailoring tool. Next.js 16 + TypeScript + vanilla CSS tokens + Supabase Auth + Anthropic API (OpenRouter/Gemini adapters for the owner account and users' own keys).
+Honest CV tailoring tool with a recruiter-search-visibility score (a deterministic keyword match against the role's terms — shown to users as "Recruiter search visibility", never "ATS"). Next.js 16 + TypeScript + vanilla CSS tokens + Supabase Auth + Anthropic API (OpenRouter/Gemini adapters for the owner account and users' own keys).
 Deployed: https://www.jobhuntz.app (every `*.vercel.app` host 308-redirects there — see `next.config.ts`) | Repo: github.com/shekar987/cv-tailor
 Owner: Soma Shekar Keesari, London.
 

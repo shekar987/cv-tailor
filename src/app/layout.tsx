@@ -11,7 +11,7 @@ const geistSans = Geist({
 });
 
 const DESCRIPTION =
-  "Honest, ATS-ready CV tailoring. Every claim traces back to your real CV — nothing invented.";
+  "Honest CV tailoring. Every claim traces back to your real CV — nothing invented.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.jobhuntz.app"),

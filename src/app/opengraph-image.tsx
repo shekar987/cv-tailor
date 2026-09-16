@@ -6,7 +6,7 @@ import { join } from "node:path";
 // the brand; NotoSans-Bold is the same face the PDFs embed.
 
 export const runtime = "nodejs";
-export const alt = "Jobhuntz — honest, ATS-ready CV tailoring";
+export const alt = "Jobhuntz — honest CV tailoring";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -41,7 +41,7 @@ export default function OpenGraphImage() {
           Every AI CV tool lies for you. This one won't.
         </div>
         <div style={{ display: "flex", fontSize: 30, color: "#9B9BA2", marginTop: 36, maxWidth: 900 }}>
-          Honest, ATS-ready tailoring — every claim traces back to your real CV.
+          Honest tailoring — every claim traces back to your real CV.
         </div>
       </div>
     ),

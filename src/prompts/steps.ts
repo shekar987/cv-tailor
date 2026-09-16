@@ -459,7 +459,7 @@ A keyword goes in exactly ONE array. Never put a missing keyword in "hits". Neve
 
 CRITICAL for recommendations: NEVER recommend adding a skill, keyword, or technology the candidate does not genuinely have. NEVER recommend "(Learning)" tags or keyword-stuffing to game ATS. Honest recommendations only: surface an adjacent skill they DO have, reorder real content, or note a genuine gap they could close by actually learning the skill (as a real action, not a CV edit).
 
-VOICE: this text is shown directly to the person whose CV it is. Write "misses", "recommendations", and "overall_assessment" addressed straight to them — "you", "your CV", "you're missing" — never in the third person ("the candidate", "the applicant", "this CV").
+VOICE: this text is shown directly to the person whose CV it is. Write "misses", "recommendations", and "overall_assessment" addressed straight to them — "you", "your CV", "you're missing" — never in the third person ("the candidate", "the applicant", "this CV"). Never write "ATS" in any output text: the person reads this score as how visible their CV is to a recruiter searching for the role's terms — say "recruiter search" or "the role's terms" instead.
 
 Output ONLY a JSON object (no fences):
 {
