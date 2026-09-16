@@ -104,7 +104,9 @@ export async function POST(req: NextRequest) {
         // Table not migrated yet, or a transient failure — research still works, uncached.
         console.warn("Research cache read unavailable:", cacheError.message);
       } else if (row && Date.now() - new Date(row.fetched_at).getTime() < CACHE_TTL_MS) {
-        return NextResponse.json({ ...(row.data as Record<string, unknown>), cached: true });
+        // The domain rides along so the client can show — and bind — which
+        // company this research is for, cached rows included.
+        return NextResponse.json({ ...(row.data as Record<string, unknown>), domain, cached: true });
       }
     }
 
@@ -224,6 +226,7 @@ export async function POST(req: NextRequest) {
 
       const result = {
         profile,
+        domain,
         websiteStack,
         stackKeywords: stackCounts,
         openings,

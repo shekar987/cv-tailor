@@ -20,6 +20,7 @@ import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
 import { MAX_CV_CHARS, CV_TOO_LONG, MAX_JD_CHARS, MAX_PREP_PACK_JSON } from "@/lib/limits";
 import { interviewPrepPrompt } from "@/prompts/steps";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
+import { companyNamesMatch } from "@/lib/companyMatch";
 import {
   normalizePrepPack,
   verifyEvidence,
@@ -59,10 +60,6 @@ type Row = {
   tailored_cv?: unknown;
   prep_pack?: unknown;
 };
-
-function normalizeName(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -175,13 +172,11 @@ export async function POST(req: NextRequest) {
       if (rError) {
         console.warn("prep: research cache unavailable:", rError.message);
       } else if (Array.isArray(rows)) {
-        const want = normalizeName(row.company_name);
         for (const r of rows) {
           const data = (r as { data?: unknown }).data as Record<string, unknown> | undefined;
           const profile = data?.profile as Record<string, unknown> | undefined;
-          const got = normalizeName(typeof profile?.company_name === "string" ? profile.company_name : "");
-          const hit = want && got && (want === got || (want.length >= 4 && got.includes(want)) || (got.length >= 4 && want.includes(got)));
-          if (!hit) continue;
+          const got = typeof profile?.company_name === "string" ? profile.company_name : "";
+          if (!companyNamesMatch(row.company_name, got)) continue;
           research = sanitizeCompanyResearch(profile);
           const fit = data?.fitScore as Record<string, unknown> | undefined;
           const list = (v: unknown) =>

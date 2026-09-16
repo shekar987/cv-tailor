@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { getMasterCV, getProfile, importFromLocalStorageIfNeeded, type Profile } from "@/lib/cvStore";
 import { normalizeProfile } from "@/lib/profile";
+import { companyNamesMatch } from "@/lib/companyMatch";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
@@ -107,6 +108,10 @@ type ResearchData = {
   fitScore?: ResearchFit | null;
   researchedAt?: string;
   cached?: boolean;
+  // The domain the research was run for (absent on envelopes saved before it
+  // was returned). Shown beside the company name so the user can see exactly
+  // which company a run is bound to.
+  domain?: string;
 };
 
 const FIT_TIER_META = {
@@ -227,6 +232,12 @@ export default function Home() {
   // The JD the current result was generated from, so editing the textarea can
   // flag the results below as stale. Null for results saved before this field.
   const [resultJd, setResultJd] = useState<string | null>(null);
+  // Which flow produced the result. Only "jd" runs arm the stale-JD banner;
+  // an outreach run is tailored from a research brief, not the JD box.
+  const [resultSource, setResultSource] = useState<"jd" | "outreach" | null>(null);
+  // The company whose research the in-flight run is using (null when none is
+  // applied), for the progress list — the binding is visible during the run.
+  const [runResearchCompany, setRunResearchCompany] = useState<string | null>(null);
   // Seconds since the full pipeline started — honest feedback during the wait.
   const [elapsed, setElapsed] = useState(0);
   // Reaches into CvPreview for the EDITED document when saving to the tracker.
@@ -255,6 +266,7 @@ export default function Home() {
           if (saved.ranProvider) setRanProvider(saved.ranProvider);
           if (saved.tailorSessionId) setTailorSessionId(saved.tailorSessionId);
           if (typeof saved.resultJd === "string") setResultJd(saved.resultJd);
+          if (saved.resultSource === "jd" || saved.resultSource === "outreach") setResultSource(saved.resultSource);
           if (saved.research && typeof saved.research === "object") setResearch(saved.research as ResearchData);
           if (saved.researchUrl) setCompanyUrl(saved.researchUrl);
         }
@@ -318,8 +330,8 @@ export default function Home() {
   // workspaceReady so the initial empty state never overwrites saved work.
   useEffect(() => {
     if (!workspaceReady || !userId) return;
-    saveWorkspace(userId, { jobDescription, result, ranProvider, tailorSessionId, resultJd, research, researchUrl: companyUrl || null });
-  }, [workspaceReady, userId, jobDescription, result, ranProvider, tailorSessionId, resultJd, research, companyUrl]);
+    saveWorkspace(userId, { jobDescription, result, ranProvider, tailorSessionId, resultJd, resultSource, research, researchUrl: companyUrl || null });
+  }, [workspaceReady, userId, jobDescription, result, ranProvider, tailorSessionId, resultJd, resultSource, research, companyUrl]);
 
   // Tick once a second while the pipeline runs; resets to 0 on each new run.
   useEffect(() => {
@@ -434,6 +446,12 @@ export default function Home() {
     const setError = kind === "cold_email" ? setColdEmailError : setExtrasError;
     setError("");
     setExtrasLoading(kind);
+    // The tailored role only rides along when it is at the researched
+    // company; otherwise the extra pitches speculatively rather than
+    // stitching company A's research to company B's role.
+    const analysis = analysisOverride ?? result?.analysis;
+    const boundAnalysis =
+      analysis && companyNamesMatch(realValue(analysis.company_name), research?.profile?.company_name) ? analysis : undefined;
     try {
       const res = await fetch("/api/extras", {
         method: "POST",
@@ -442,7 +460,7 @@ export default function Home() {
           kind,
           cvText: masterCvText,
           companyResearch: research?.profile,
-          analysis: analysisOverride ?? result?.analysis,
+          analysis: boundAnalysis,
           ...(kind === "cold_email" && recipientName.trim() ? { recipientName: recipientName.trim() } : {}),
           ...(kind === "cold_email" && personalNote.trim() ? { personalNote: personalNote.trim() } : {}),
         }),
@@ -508,6 +526,32 @@ export default function Home() {
     }
   }
 
+  // Step 1's read of the JD, surfaced on the gate card so a mis-pasted JD is
+  // caught before the full run is spent on the wrong job. Declared ahead of
+  // executeTailor, which reads it: a hoisted function referencing a memo
+  // declared below it stops the React Compiler preserving the memo.
+  const gateInfo = useMemo(() => {
+    const a = gateAnalysis as { role_title?: unknown; company_name?: unknown } | null;
+    const role = realValue(typeof a?.role_title === "string" ? a.role_title : "");
+    const company = realValue(typeof a?.company_name === "string" ? a.company_name : "");
+    return role || company ? { role, company } : null;
+  }, [gateAnalysis]);
+
+  // Whether the saved research applies to the job in the JD box, for the
+  // gate card and the outreach hint. "unknown" = the gate couldn't read a
+  // company off the JD (agency postings often hide it) — no research is
+  // applied then, deliberately.
+  const researchBinding = useMemo(() => {
+    const company = research?.profile?.company_name?.trim() || "";
+    if (!company) return null;
+    if (!gateInfo?.company) return { company, jobCompany: "", status: "unknown" as const };
+    return {
+      company,
+      jobCompany: gateInfo.company,
+      status: companyNamesMatch(gateInfo.company, company) ? ("match" as const) : ("mismatch" as const),
+    };
+  }, [research, gateInfo]);
+
   // Step 2: the full 8-step pipeline. If gateAnalysis is set (the user came
   // through the pre-check), it's sent along so /api/tailor skips re-running
   // Step 1 — otherwise the server runs Step 1 fresh, exactly as before this
@@ -528,6 +572,17 @@ export default function Home() {
     }
     setError("");
     setErrorType(null);
+    // Research is bound to a company. An outreach run IS that company's
+    // brief, so it always applies; a JD run applies it only when the gate
+    // read the same company off the JD. Otherwise company A's research would
+    // shape company B's cover letter — the mislabelled-output bug.
+    const researchToSend =
+      source === "outreach"
+        ? research?.profile ?? null
+        : gateInfo?.company && companyNamesMatch(gateInfo.company, research?.profile?.company_name)
+          ? research?.profile ?? null
+          : null;
+    setRunResearchCompany(researchToSend?.company_name || null);
     setLoading(true);
     // The previous result stays on screen (and in the persisted workspace)
     // until a new one actually arrives — a failed run must not destroy the
@@ -549,8 +604,8 @@ export default function Home() {
           ...(source === "jd" && gateAnalysis ? { analysis: gateAnalysis } : {}),
           // Real scraped research (Stage 3): the tailor route injects it into
           // the cover-letter context instead of synthesizing research from the
-          // JD alone. Only sent when it was run for this company.
-          ...(research?.profile ? { companyResearch: research.profile } : {}),
+          // JD alone. Only sent when it is bound to this company (above).
+          ...(researchToSend ? { companyResearch: researchToSend } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -569,9 +624,12 @@ export default function Home() {
       setResult(data);
       setRanProvider(typeof data.provider === "string" ? data.provider : null);
       setTailorSessionId(sessionId);
-      // Outreach results aren't "for" the JD box, so the stale-JD banner
-      // stays quiet (it only arms when resultJd is a string).
-      setResultJd(source === "jd" ? jdText : null);
+      // The text this run was tailored from — the JD box for a JD run, the
+      // research brief for outreach. The tracker saves it as the row's job
+      // description, so an outreach row never inherits whatever happens to be
+      // in the JD box. The stale banner keys on resultSource, not on this.
+      setResultJd(jdText);
+      setResultSource(source);
       setAppliedState("idle");
       setAppliedError("");
       setAppliedNotice("");
@@ -590,6 +648,7 @@ export default function Home() {
       return null;
     } finally {
       setLoading(false);
+      setRunResearchCompany(null);
       // Success or limit error, the counters may have moved — refresh the chip.
       getUsage().then(setUsage);
     }
@@ -626,6 +685,9 @@ export default function Home() {
     if (sid !== tailorSessionId) setTailorSessionId(sid);
     const analysis = result.analysis;
     const today = new Date();
+    // What the run was actually tailored from (the research brief for an
+    // outreach run), not whatever is sitting in the JD box right now.
+    const jdForRow = resultJd ?? jobDescription;
 
     // Snapshot the document AS EDITED in the preview — the tracker should hold
     // the CV that was actually sent, not the raw pipeline output. The @@JOB@@
@@ -657,7 +719,7 @@ export default function Home() {
           source: "tailored",
           // The JD's literal figure with its unit ("£480 per day"),
           // "Voluntary (unpaid)", or an explicit "Not Specified".
-          salary: salaryFromJd(jobDescription),
+          salary: salaryFromJd(jdForRow),
           date_applied: localIsoDate(today),
           followup_date: localIsoDate(addDays(today, 7)),
           // Generated talking points ride along into the tracker row for
@@ -667,7 +729,7 @@ export default function Home() {
             .filter(Boolean)
             .join("\n\n")
             .slice(0, MAX_NOTES_CHARS),
-          job_description: jobDescription.slice(0, 15_000),
+          job_description: jdForRow.slice(0, 15_000),
           // The CV as generated, with the profile and section order it was
           // rendered with, so the tracker shows this exact document later.
           tailored_cv: {
@@ -738,15 +800,6 @@ export default function Home() {
       })),
     };
   }, [profile, result]);
-
-  // Step 1's read of the JD, surfaced on the gate card so a mis-pasted JD is
-  // caught before the full run is spent on the wrong job.
-  const gateInfo = useMemo(() => {
-    const a = gateAnalysis as { role_title?: unknown; company_name?: unknown } | null;
-    const role = realValue(typeof a?.role_title === "string" ? a.role_title : "");
-    const company = realValue(typeof a?.company_name === "string" ? a.company_name : "");
-    return role || company ? { role, company } : null;
-  }, [gateAnalysis]);
 
   // Same placeholder-scrubbed view of the finished run's analysis, for the
   // results context row.
@@ -847,6 +900,7 @@ export default function Home() {
                   <div>
                     <div className="gateLabel">Company profile</div>
                     <div className="researchName">{research.profile?.company_name || companyUrl}</div>
+                    {research.domain && <div className="fitEvidence">{research.domain}</div>}
                   </div>
                   <button type="button" className="inlineLink researchRefresh" onClick={() => handleResearch(true)}>
                     {research.cached ? "Saved result — research again" : "Research again"}
@@ -1020,7 +1074,11 @@ export default function Home() {
                             {extrasLoading === "cold_email" ? "Writing…" : coldEmail ? "Rewrite cold email" : "Cold email draft"}
                           </Button>
                           <span className="fitEvidence">
-                            {result?.analysis ? "References the tailored role." : "No role selected — it pitches speculatively."}
+                            {!result?.analysis
+                              ? "No role selected — it pitches speculatively."
+                              : companyNamesMatch(realValue(result.analysis.company_name), research.profile?.company_name)
+                                ? "References the tailored role."
+                                : "The tailored role is for a different company — it pitches speculatively."}
                           </span>
                           {coldEmailError && (
                             <StatusText as="span" role="alert">{coldEmailError}</StatusText>
@@ -1108,6 +1166,12 @@ export default function Home() {
             {gateError && !preCheck && (
               <Card variant="dashed">
                 <p className="gateNote" style={{ marginBottom: 'var(--space-3)' }}>{gateError}</p>
+                {research?.profile?.company_name && (
+                  <p className="gateNote" style={{ marginBottom: 'var(--space-3)' }}>
+                    Without the check we can&apos;t confirm this job is at{" "}
+                    <strong>{research.profile.company_name}</strong>, so your research won&apos;t be applied to this run.
+                  </p>
+                )}
                 <div className="gateActions">
                   <Button variant="secondary" onClick={runFullTailor} disabled={loading}>
                     {loading ? "Tailoring…" : "Tailor without the check →"}
@@ -1124,6 +1188,25 @@ export default function Home() {
                     Looks like: <strong>{gateInfo.role || "this role"}</strong>
                     {gateInfo.company && <> at <strong>{gateInfo.company}</strong></>}
                     {" "}— if that&apos;s not the job you meant, fix the JD above before continuing.
+                  </p>
+                )}
+                {researchBinding && (
+                  <p className="gateNote" data-research-binding={researchBinding.status}>
+                    {researchBinding.status === "match" && (
+                      <>Company research for <strong>{researchBinding.company}</strong> will be used in this run.</>
+                    )}
+                    {researchBinding.status === "mismatch" && (
+                      <>
+                        Your research is for <strong>{researchBinding.company}</strong>; this job looks like{" "}
+                        <strong>{researchBinding.jobCompany}</strong> — the research won&apos;t be applied to this run.
+                      </>
+                    )}
+                    {researchBinding.status === "unknown" && (
+                      <>
+                        Couldn&apos;t tell which company this job is at, so your research for{" "}
+                        <strong>{researchBinding.company}</strong> won&apos;t be applied to this run.
+                      </>
+                    )}
                   </p>
                 )}
                 <div className="gateLabel">Rough keyword match, before tailoring</div>
@@ -1232,7 +1315,7 @@ export default function Home() {
             <div className="loadingBody">
               <ul>
                 <li>Analysing the job description</li>
-                <li>Researching the company</li>
+                <li>{runResearchCompany ? `Using your research for ${runResearchCompany}` : "Researching the company"}</li>
                 <li>Tailoring summary, skills, experience, projects</li>
                 <li>Writing your cover letter</li>
                 <li>Scoring against ATS keywords</li>
@@ -1263,7 +1346,7 @@ export default function Home() {
                 </button>
               </div>
             )}
-            {resultJd !== null && jobDescription.trim() !== resultJd.trim() && (
+            {resultJd !== null && resultSource !== "outreach" && jobDescription.trim() !== resultJd.trim() && (
               <div className="limitNotice" role="status">
                 These results were tailored for your previous job description — the text above has
                 changed since. Run another tailor to refresh them.

@@ -31,6 +31,11 @@ export type StoredWorkspace = {
   // textarea to flag stale results. Optional for the same backwards-compat
   // reason as tailorSessionId.
   resultJd?: string | null;
+  // Which flow produced the result: a pasted JD, or a cold-outreach brief
+  // built from research. The stale-JD banner only applies to "jd" runs.
+  // Optional — older envelopes restore as null, which the page treats as "jd"
+  // (only JD runs ever stored a resultJd before this field existed).
+  resultSource?: "jd" | "outreach" | null;
   // Stage 3 company research (the /api/research payload) and the URL it was
   // run for. Optional — envelopes written before Stage 3 restore fine.
   research?: unknown;
@@ -56,6 +61,7 @@ export function loadWorkspace(userId: string): StoredWorkspace | null {
       ranProvider: typeof parsed.ranProvider === "string" ? parsed.ranProvider : null,
       tailorSessionId: typeof parsed.tailorSessionId === "string" ? parsed.tailorSessionId : null,
       resultJd: typeof parsed.resultJd === "string" ? parsed.resultJd : null,
+      resultSource: parsed.resultSource === "jd" || parsed.resultSource === "outreach" ? parsed.resultSource : null,
       research: parsed.research ?? null,
       researchUrl: typeof parsed.researchUrl === "string" ? parsed.researchUrl : null,
     };
