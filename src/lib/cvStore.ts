@@ -18,6 +18,7 @@ export type MasterCV = {
 // server routes, which must not import the browser client from this file).
 export type { Education, ProjectLink, CvProject, ExtraSection, Profile } from '@/lib/profile'
 import { normalizeProfile, type Profile } from '@/lib/profile'
+import { normalizeEligibility, type Eligibility } from '@/lib/knockouts'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -121,6 +122,82 @@ export async function saveProjectsPool(
     console.error('projects_pool update error:', err instanceof Error ? err.message : 'Unknown error')
     return { ok: false }
   }
+}
+
+// ─── User settings (Brief 2: eligibility profile + claims registry) ──────────
+//
+// One row per user in user_settings (migration 20260917120000). Both values
+// are sent along in request bodies by the pages that hold them - the server
+// reads no per-user tables for these, same as projects_pool. Until the
+// migration is applied the table is missing (PGRST205): reads answer nulls
+// with missingTable so the panels can name the fix; writes report it too.
+
+export type UserSettings = {
+  eligibility: Eligibility | null
+  // Normalized by lib/claims (the registry's own module) at the call site.
+  claims: unknown
+  missingTable: boolean
+}
+
+function isMissingTable(code: string | undefined): boolean {
+  return code === 'PGRST205' || code === '42P01'
+}
+
+export async function getUserSettings(): Promise<UserSettings> {
+  const empty: UserSettings = { eligibility: null, claims: null, missingTable: false }
+  try {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('user_settings')
+      .select('eligibility, claims')
+      .maybeSingle()
+    if (error) {
+      if (isMissingTable(error.code)) return { ...empty, missingTable: true }
+      console.error('user_settings read error:', error.message)
+      return empty
+    }
+    if (!data) return empty
+    const row = data as { eligibility?: unknown; claims?: unknown }
+    return {
+      eligibility: row.eligibility ? normalizeEligibility(row.eligibility) : null,
+      claims: row.claims ?? null,
+      missingTable: false,
+    }
+  } catch (err) {
+    console.error('user_settings read error:', err instanceof Error ? err.message : 'Unknown error')
+    return empty
+  }
+}
+
+async function upsertUserSettings(
+  patch: { eligibility?: Eligibility | null; claims?: unknown }
+): Promise<{ ok: boolean; missingTable?: boolean }> {
+  try {
+    const userId = await getUserId()
+    if (!userId) return { ok: false }
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('user_settings')
+      .upsert({ user_id: userId, ...patch, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
+    if (error) {
+      if (isMissingTable(error.code)) return { ok: false, missingTable: true }
+      console.error('user_settings write error:', error.message)
+      return { ok: false }
+    }
+    return { ok: true }
+  } catch (err) {
+    console.error('user_settings write error:', err instanceof Error ? err.message : 'Unknown error')
+    return { ok: false }
+  }
+}
+
+export function saveEligibility(eligibility: Eligibility): Promise<{ ok: boolean; missingTable?: boolean }> {
+  return upsertUserSettings({ eligibility: { ...normalizeEligibility(eligibility), updatedAt: new Date().toISOString() } })
+}
+
+// null clears the registry (a replaced master CV starts a fresh one).
+export function saveClaims(claims: unknown | null): Promise<{ ok: boolean; missingTable?: boolean }> {
+  return upsertUserSettings({ claims })
 }
 
 export async function clearMasterCV(): Promise<void> {

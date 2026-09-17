@@ -8,6 +8,8 @@ import {
   saveMasterCV,
   clearMasterCV,
   saveProjectsPool,
+  getUserSettings,
+  saveEligibility,
   getProfile,
   saveProfile,
   clearProfile,
@@ -16,6 +18,13 @@ import {
 } from "@/lib/cvStore";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { MAX_CV_CHARS, MAX_POOL_CHARS } from "@/lib/limits";
+import {
+  EMPTY_ELIGIBILITY,
+  normalizeEligibility,
+  isEligibilitySet,
+  type Eligibility,
+  type EmploymentType,
+} from "@/lib/knockouts";
 import { splitTrailingDate } from "@/lib/projectDate";
 import { stripMarkdown } from "@/lib/markdownText";
 import CvUpload from "../CvUpload";
@@ -93,6 +102,21 @@ export default function CustomizePage() {
   const [poolMsg, setPoolMsg] = useState("");
   const [poolError, setPoolError] = useState("");
 
+  // Eligibility profile (user_settings.eligibility): the answers an
+  // application form asks before anyone reads the CV. The pre-check on /app
+  // compares each job's gates against these. Typed by the user, never
+  // inferred from the CV; "not set" answers "unknown", never pass or fail.
+  const [eligibility, setEligibility] = useState<Eligibility>(EMPTY_ELIGIBILITY);
+  const [eligLoaded, setEligLoaded] = useState(false);
+  const [settingsMissing, setSettingsMissing] = useState(false);
+  const [eligSaving, setEligSaving] = useState(false);
+  const [eligMsg, setEligMsg] = useState("");
+  const [eligError, setEligError] = useState("");
+  // The three list fields are typed as comma-separated text.
+  const [eligCountries, setEligCountries] = useState("");
+  const [eligBases, setEligBases] = useState("");
+  const [eligLicences, setEligLicences] = useState("");
+
   useEffect(() => {
     let active = true;
     async function load() {
@@ -142,6 +166,23 @@ export default function CustomizePage() {
       if (active) {
         setProfile(p);
         setProfileLoading(false);
+      }
+
+      const settings = await getUserSettings();
+      if (active) {
+        setSettingsMissing(settings.missingTable);
+        if (settings.eligibility) {
+          setEligibility(settings.eligibility);
+          setEligCountries(settings.eligibility.rightToWork.countries.join(", "));
+          setEligBases(settings.eligibility.location.base.join(", "));
+          setEligLicences(settings.eligibility.licences.join(", "));
+        } else if (p && p.certifications.length > 0) {
+          // First visit: the licences box starts from the CV's own
+          // certifications list (the user's text, labelled as such). Nothing
+          // else is prefilled - eligibility answers are never inferred.
+          setEligLicences(p.certifications.join(", "));
+        }
+        setEligLoaded(true);
       }
     }
     load();
@@ -204,6 +245,41 @@ export default function CustomizePage() {
       setPoolError("Your database doesn't have this feature's column yet — run supabase/migrations/20260911120000_master_cvs_projects_pool.sql in the Supabase SQL editor, then save again.");
     } else {
       setPoolError("Couldn't save the pool. Check your connection and try again.");
+    }
+  }
+
+  function updateElig(patch: (e: Eligibility) => Eligibility) {
+    setEligibility((e) => patch(e));
+    setEligMsg("");
+    setEligError("");
+  }
+  const splitList = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
+  const tri = (v: boolean | null) => (v === null ? "unknown" : v ? "yes" : "no");
+  const fromTri = (s: string): boolean | null => (s === "yes" ? true : s === "no" ? false : null);
+
+  async function handleSaveEligibility() {
+    setEligMsg("");
+    setEligError("");
+    setEligSaving(true);
+    const next = normalizeEligibility({
+      ...eligibility,
+      rightToWork: { ...eligibility.rightToWork, countries: splitList(eligCountries) },
+      location: { ...eligibility.location, base: splitList(eligBases) },
+      licences: splitList(eligLicences),
+    });
+    const res = await saveEligibility(next);
+    setEligSaving(false);
+    if (res.ok) {
+      setEligibility(next);
+      setEligCountries(next.rightToWork.countries.join(", "));
+      setEligBases(next.location.base.join(", "));
+      setEligLicences(next.licences.join(", "));
+      setEligMsg("Saved. The pre-check on the tailoring page now compares each job's eligibility conditions against these answers.");
+    } else if (res.missingTable) {
+      setSettingsMissing(true);
+      setEligError("Your database doesn't have this feature's table yet — run supabase/migrations/20260917120000_user_settings_and_jd_lookup.sql in the Supabase SQL editor, then save again.");
+    } else {
+      setEligError("Couldn't save. Check your connection and try again.");
     }
   }
 
@@ -571,6 +647,192 @@ export default function CustomizePage() {
                 </Button>
               )}
             </div>
+          )}
+        </Card>
+
+        {/* Eligibility — the form questions that get an application rejected
+            before the CV is read. Compared by the pre-check on /app. */}
+        <Card>
+          <div className="label">Eligibility</div>
+          <p className="cvHelp">
+            The questions an application form asks before anyone reads your CV: right to work, clearance,
+            years, location, degree, licences, contract type. Answer once; the pre-check on the tailoring
+            page then warns when a job has a condition you&apos;d fail, before a tailor is spent. Nothing here
+            is guessed from your CV — leave anything you&apos;re unsure of as &quot;Not set&quot;.
+          </p>
+          {!eligLoaded ? (
+            <Skeleton lines={3} label="Loading your eligibility answers" />
+          ) : (
+            <>
+              {settingsMissing && (
+                <p className="fitEvidence">
+                  This feature&apos;s database table isn&apos;t set up yet (migration
+                  20260917120000_user_settings_and_jd_lookup.sql). Answers can&apos;t be saved until it is.
+                </p>
+              )}
+              {profile && profile.rightToWork.length > 0 && (
+                <p className="fitEvidence">Your CV says: {profile.rightToWork.join(" · ")}</p>
+              )}
+              <div className="profileGrid eligGrid">
+                <label>
+                  Right to work
+                  <select
+                    className="appsSelect"
+                    value={eligibility.rightToWork.status}
+                    onChange={(e) => {
+                      const status = e.target.value as Eligibility["rightToWork"]["status"];
+                      updateElig((x) => ({ ...x, rightToWork: { ...x.rightToWork, status } }));
+                    }}
+                  >
+                    <option value="unknown">Not set</option>
+                    <option value="full">Full right to work — no sponsorship needed</option>
+                    <option value="needs_sponsorship">I need visa sponsorship</option>
+                  </select>
+                </label>
+                <label>
+                  Countries you can work in
+                  <Input value={eligCountries} onChange={(e) => { setEligCountries(e.target.value); setEligMsg(""); }} placeholder="e.g. UK, Ireland" />
+                </label>
+                <label>
+                  Security clearance held
+                  <select
+                    className="appsSelect"
+                    value={eligibility.clearance.held}
+                    onChange={(e) => {
+                      const held = e.target.value as Eligibility["clearance"]["held"];
+                      updateElig((x) => ({ ...x, clearance: { ...x.clearance, held } }));
+                    }}
+                  >
+                    <option value="unknown">Not set</option>
+                    <option value="none">None</option>
+                    <option value="bpss">BPSS</option>
+                    <option value="ctc">CTC</option>
+                    <option value="sc">SC</option>
+                    <option value="dv">DV</option>
+                  </select>
+                </label>
+                <label>
+                  Eligible to be cleared (e.g. 5 years UK residency)
+                  <select
+                    className="appsSelect"
+                    value={tri(eligibility.clearance.eligible)}
+                    onChange={(e) => { const eligible = fromTri(e.target.value); updateElig((x) => ({ ...x, clearance: { ...x.clearance, eligible } })); }}
+                  >
+                    <option value="unknown">Not set</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </label>
+                <label>
+                  Years of professional experience
+                  <Input
+                    type="number"
+                    min={0}
+                    max={60}
+                    value={eligibility.yearsExperience ?? ""}
+                    onChange={(e) => { const raw = e.target.value; updateElig((x) => ({ ...x, yearsExperience: raw === "" ? null : Number(raw) })); }}
+                    placeholder="Not set"
+                  />
+                </label>
+                <label>
+                  Base location(s)
+                  <Input value={eligBases} onChange={(e) => { setEligBases(e.target.value); setEligMsg(""); }} placeholder="e.g. London" />
+                </label>
+                <label>
+                  On-site roles
+                  <select className="appsSelect" value={tri(eligibility.location.onsiteOk)} onChange={(e) => { const onsiteOk = fromTri(e.target.value); updateElig((x) => ({ ...x, location: { ...x.location, onsiteOk } })); }}>
+                    <option value="unknown">Not set</option>
+                    <option value="yes">Fine with me</option>
+                    <option value="no">Rather not</option>
+                  </select>
+                </label>
+                <label>
+                  Hybrid roles
+                  <select className="appsSelect" value={tri(eligibility.location.hybridOk)} onChange={(e) => { const hybridOk = fromTri(e.target.value); updateElig((x) => ({ ...x, location: { ...x.location, hybridOk } })); }}>
+                    <option value="unknown">Not set</option>
+                    <option value="yes">Fine with me</option>
+                    <option value="no">Rather not</option>
+                  </select>
+                </label>
+                <label>
+                  Willing to relocate
+                  <select className="appsSelect" value={tri(eligibility.location.relocateOk)} onChange={(e) => { const relocateOk = fromTri(e.target.value); updateElig((x) => ({ ...x, location: { ...x.location, relocateOk } })); }}>
+                    <option value="unknown">Not set</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </label>
+                <label>
+                  Highest degree
+                  <select
+                    className="appsSelect"
+                    value={eligibility.degree.level}
+                    onChange={(e) => { const level = e.target.value as Eligibility["degree"]["level"]; updateElig((x) => ({ ...x, degree: { ...x.degree, level } })); }}
+                  >
+                    <option value="unknown">Not set</option>
+                    <option value="none">No degree</option>
+                    <option value="bachelors">Bachelor&apos;s</option>
+                    <option value="masters">Master&apos;s</option>
+                    <option value="phd">PhD</option>
+                  </select>
+                </label>
+                <label>
+                  Degree classification
+                  <select
+                    className="appsSelect"
+                    value={eligibility.degree.classification}
+                    onChange={(e) => { const classification = e.target.value as Eligibility["degree"]["classification"]; updateElig((x) => ({ ...x, degree: { ...x.degree, classification } })); }}
+                  >
+                    <option value="unknown">Not set</option>
+                    <option value="first">First</option>
+                    <option value="2:1">2:1</option>
+                    <option value="2:2">2:2</option>
+                    <option value="other">Other / not on the UK scale</option>
+                  </select>
+                </label>
+                <label>
+                  Licences and certifications you hold
+                  <Input value={eligLicences} onChange={(e) => { setEligLicences(e.target.value); setEligMsg(""); }} placeholder="e.g. Full UK driving licence, AWS Solutions Architect" />
+                </label>
+              </div>
+              <div className="eligChecks">
+                <span className="eligChecksLabel">Contract types you&apos;d take (leave all unticked for no preference)</span>
+                {(
+                  [
+                    ["permanent", "Permanent"],
+                    ["contract", "Contract"],
+                    ["fixed_term", "Fixed-term"],
+                    ["internship", "Internship"],
+                    ["part_time", "Part-time"],
+                  ] as [EmploymentType, string][]
+                ).map(([t, label]) => (
+                  <label key={t} className="eligCheck">
+                    <input
+                      type="checkbox"
+                      checked={eligibility.employmentTypes.includes(t)}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        updateElig((x) => ({
+                          ...x,
+                          employmentTypes: on ? [...x.employmentTypes.filter((y) => y !== t), t] : x.employmentTypes.filter((y) => y !== t),
+                        }));
+                      }}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <div className="actions">
+                <Button onClick={handleSaveEligibility} disabled={eligSaving || settingsMissing}>
+                  {eligSaving ? "Saving…" : "Save eligibility"}
+                </Button>
+                {isEligibilitySet(eligibility) && eligibility.updatedAt && (
+                  <span className="cvSavedMeta">Last saved {new Date(eligibility.updatedAt).toLocaleDateString()}</span>
+                )}
+              </div>
+              {eligError && <StatusText className="msgBelow" role="alert">{eligError}</StatusText>}
+              {eligMsg && <StatusText tone="success" className="msgBelow" role="status">{eligMsg}</StatusText>}
+            </>
           )}
         </Card>
 

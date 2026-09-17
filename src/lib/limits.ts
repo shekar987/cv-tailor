@@ -28,6 +28,19 @@ export const MAX_POOL_CHARS = 15_000;
 // under this; the routes check the serialized size once as a backstop.
 export const MAX_PREP_PACK_JSON = 80_000;
 
+// Brief 2: per-user settings sent along in request bodies (user_settings).
+// The eligibility profile is a handful of enums and short lists; the claims
+// registry is up to 80 skills. Checked as serialized JSON on the server.
+export const MAX_ELIGIBILITY_JSON = 4_000;
+export const MAX_CLAIMS_SKILLS = 80;
+export const MAX_CLAIMS_JSON = 12_000;
+
+// A posting under this many characters is usually a fragment - eligibility
+// conditions sit at the bottom of real ads. The pre-check warns; it never
+// blocks (the number itself lives with the detector in lib/knockouts.ts).
+export const JD_PARTIAL_NOTICE =
+  "This looks like part of a posting (under 1,500 characters). Eligibility conditions usually sit at the bottom of the ad, and tailoring against a fragment gives a generic CV. Paste the whole posting before spending a tailor.";
+
 export const JD_TOO_LONG = "Job description is too long (max ~15,000 characters).";
 export const CV_TOO_LONG = "CV is too long (max ~5 pages / 20,000 characters).";
 export const POOL_TOO_LONG = "Project pool is too long (max ~15,000 characters).";

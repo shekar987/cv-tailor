@@ -19,6 +19,7 @@ this file.
 | `user_feedback` | `user_id`, `email`, `message` | RLS insert-only for `authenticated` | `api/feedback` |
 | `user_projects`, `user_skills` | — | — | **Nothing.** The routes that used them were removed (no callers). Droppable. |
 | `company_profiles` | `user_id`, `domain`, `data` (jsonb), `fetched_at` | **unique `(user_id, domain)`** (the research route upserts on it); RLS on all four verbs; see `migrations/20260903120000_company_profiles.sql` | `api/research` (Stage 3 company-research cache, 7-day TTL; the route degrades to uncached if the table is missing) |
+| `user_settings` | `user_id` (PK), `eligibility` (jsonb — `lib/knockouts.ts` `Eligibility`), `claims` (jsonb — `lib/claims.ts` registry), `updated_at` | PK `user_id` (`onConflict: 'user_id'` upsert); RLS on all four verbs; `anon` revoked; see `migrations/20260917120000_user_settings_and_jd_lookup.sql` | `lib/cvStore.ts` (browser; the values are sent along in request bodies to `api/analyze` / `api/tailor` / `api/extras` — the server reads no per-user tables). Missing table (`PGRST205`) degrades to "no profile / no registry" |
 
 ## Functions (all SECURITY DEFINER)
 
@@ -31,6 +32,7 @@ this file.
 | `set_updated_at()` | trigger | — | From the applications migration (`$func$`-delimited) |
 | `refund_tailor_count` | `uid uuid` | `void` | `migrations/20260830120000_quota_refunds.sql`; decrements `tailor_count` (floor 0) for the caller's own row |
 | `refund_claude_lifetime` | `uid uuid` | `void` | Same migration; decrements `claude_tailors_used` (floor 0) |
+| `find_applications_by_jd` | `p_jd text` | up to 3 `{ id, company_name, role, date_applied }` | **SECURITY INVOKER** (the one exception in this table): RLS applies, plus `user_id = auth.uid()`. Exact-match lookup for the pre-check's "already in your tracker" notice — a 15k-char JD can't ride in a PostgREST filter URL. `migrations/20260917120000_user_settings_and_jd_lookup.sql`; `anon` revoked. Missing (`PGRST202`) → no duplicate check |
 
 Both counters increment **before** the pipeline runs; `/api/tailor` calls the
 refund functions if the pipeline then throws, so a provider 429 or outage no
