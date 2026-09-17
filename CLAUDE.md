@@ -632,6 +632,10 @@ real authenticated request through PostgREST, not by reasoning about reads.
 
 `.eq("job_description", jd)` puts the value in the query string, and a real JD blows the gateway's URL/header limits. Exact-match lookups on long text go through an RPC with the value in the POST body — `find_applications_by_jd` is SECURITY INVOKER so RLS still applies (plus an explicit `user_id = auth.uid()`). Same reason the research route posts URLs rather than filtering on them.
 
+### Turbopack's CSS parser rejects `::highlight()`
+
+A `::highlight(name) { … }` rule in `globals.css` makes `next build` print "Parsing CSS source code failed" as a warning. The claim-check highlight rule is therefore injected at runtime from `app/page.tsx` (a `<style>` element, created only when `CSS.highlights` exists). Keep it that way until Turbopack's parser learns the pseudo-element.
+
 ### `lib/claims.ts` imports `./atsMatch.ts` with the extension
 
 Node's test runner needs the `.ts` extension on a relative import (`allowImportingTsExtensions` makes it legal), and Turbopack resolves the explicit path fine in `next build`. Keep tested modules importing each other only this way — an `@/` alias breaks `npm test`.

@@ -809,6 +809,15 @@ export default function Home() {
     const registry = (CSS as unknown as { highlights: { set(n: string, h: unknown): void; delete(n: string): void } }).highlights;
     const HighlightCtor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight;
     if (!HighlightCtor) return;
+    // The ::highlight() rule lives here, not in globals.css: Turbopack's CSS
+    // parser rejects the pseudo-element, and only browsers with the API
+    // ever reach this line.
+    if (!document.getElementById("claimHighlightStyle")) {
+      const style = document.createElement("style");
+      style.id = "claimHighlightStyle";
+      style.textContent = "::highlight(claimViolation){background-color:var(--danger-dim);color:var(--danger);text-decoration:underline wavy;}";
+      document.head.appendChild(style);
+    }
     const needles = [
       ...(activeCheck?.numberViolations.map((n) => n.figure) ?? []),
       ...(activeCheck?.skillViolations.map((s) => s.skill) ?? []),

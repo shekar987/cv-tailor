@@ -993,14 +993,11 @@ button.claimChip:hover:not(:disabled) { transform: translateY(-1px); }
 button.claimChip:active:not(:disabled) { transform: translateY(0); opacity: 0.85; }
 button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
-/* Claim-check highlights on the editable previews (/app): painted with the
-   CSS Custom Highlight API, so nothing is injected into the contentEditable
-   DOM the downloads read from. */
-::highlight(claimViolation) {
-  background-color: var(--danger-dim);
-  color: var(--danger);
-  text-decoration: underline wavy;
-}
+/* Claim-check highlights on the editable previews (/app) are painted with the
+   CSS Custom Highlight API. The ::highlight(claimViolation) rule itself is
+   injected at runtime by app/page.tsx: Turbopack's CSS parser rejects the
+   pseudo-element in this file (build warning), and the highlight only
+   exists in browsers that support the API anyway. */
 
 /* ── /settings — API key cards ──────────────────────────────────────────── */
 .keyList { display: flex; flex-direction: column; gap: var(--space-4); }
