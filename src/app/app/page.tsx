@@ -18,6 +18,7 @@ import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
 import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
 import { normalizeClaims, checkClaims, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
+import { qualityReport, type QualityReport } from "@/lib/quality";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
@@ -239,6 +240,9 @@ export default function Home() {
   // "use the server's check of the original output".
   const [liveCheck, setLiveCheck] = useState<ClaimCheck | null>(null);
   const [coldEmailCheck, setColdEmailCheck] = useState<ClaimCheck | null>(null);
+  // Quality read of the preview AS EDITED (page estimate, duplicates, weak
+  // bullets, filler); null = read the original result.
+  const [liveQuality, setLiveQuality] = useState<QualityReport | null>(null);
 
   // Stage 3 — company research + Fit Score. Self-contained error state: the
   // server's limit messages are shown verbatim inside the research card, so
@@ -717,6 +721,7 @@ export default function Home() {
       const fresh: Result = gatesSummary ? { ...(data as Result), gatesSummary } : (data as Result);
       setResult(fresh);
       setLiveCheck(null);
+      setLiveQuality(null);
       setRanProvider(typeof data.provider === "string" ? data.provider : null);
       setTailorSessionId(sessionId);
       // The text this run was tailored from — the JD box for a JD run, the
@@ -795,6 +800,15 @@ export default function Home() {
         [masterCvText, projectsPool]
       )
     );
+    if (payload) {
+      setLiveQuality(
+        qualityReport(
+          { summary: payload.summary, skills: payload.skills, experience: payload.experience, projects: payload.projects },
+          payload.profile ? { ...payload.profile, projects: payload.projectsMeta } : null,
+          letter ?? result.coverLetter ?? ""
+        )
+      );
+    }
   }
   function onPreviewBlur() {
     if (!activeCheck || claimIssues === 0) return;
@@ -987,6 +1001,22 @@ export default function Home() {
       })),
     };
   }, [profile, result]);
+
+  // Deterministic quality read (lib/quality) of what is on screen: the page
+  // estimate the download layout implies, content repeated across sections,
+  // bullets with no evidence, filler words. Never blocks; it says what to fix.
+  const quality: QualityReport | null = useMemo(() => {
+    if (liveQuality) return liveQuality;
+    if (!result) return null;
+    return qualityReport(
+      { summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects },
+      displayProfile,
+      result.coverLetter
+    );
+  }, [liveQuality, result, displayProfile]);
+  const qualityIssues = quality
+    ? (quality.pages.overBudget ? 1 : 0) + quality.duplicates.length + (quality.weakBullets.length > 0 ? 1 : 0) + (quality.inflation.length > 0 ? 1 : 0)
+    : 0;
 
   // Same placeholder-scrubbed view of the finished run's analysis, for the
   // results context row.
@@ -1677,6 +1707,58 @@ export default function Home() {
                 </div>
               </div>
             )}
+            {quality && qualityIssues > 0 && (
+              <div className="limitNotice" role="status" data-quality-check>
+                <div className="limitNotice__title">Before you send</div>
+                <div className="limitNotice__body">
+                  <ul className="atsList">
+                    {quality.pages.overBudget && (
+                      <li>
+                        <Badge variant="dot" tone="miss">✕</Badge>
+                        <span>
+                          About <strong>{quality.pages.pages} pages</strong> — over the two-page limit even at the tightest
+                          spacing. Cut the least relevant bullets in the preview below.
+                        </span>
+                      </li>
+                    )}
+                    {quality.duplicates.map((d, i) => (
+                      <li key={`d${i}`}>
+                        <Badge variant="dot" tone="rec">?</Badge>
+                        <span>
+                          <strong>{d.text}</strong>{" "}
+                          {d.kind === "project_in_experience"
+                            ? "is a project and also appears under Experience — keep it in one place."
+                            : d.kind === "project_in_education"
+                              ? "is a project and also appears under Education — keep it in one place."
+                              : "appears twice."}
+                        </span>
+                      </li>
+                    ))}
+                    {quality.weakBullets.length > 0 && (
+                      <li>
+                        <Badge variant="dot" tone="rec">?</Badge>
+                        <span>
+                          {quality.weakBullets.length === 1 ? "One bullet carries" : `${quality.weakBullets.length} bullets carry`} no number,
+                          scale or named system: &ldquo;{quality.weakBullets[0].slice(0, 90)}
+                          {quality.weakBullets[0].length > 90 ? "…" : ""}&rdquo;
+                          {quality.weakBullets.length > 1 ? " and more" : ""}. Add the evidence from your CV, or cut it.
+                        </span>
+                      </li>
+                    )}
+                    {quality.inflation.length > 0 && (
+                      <li>
+                        <Badge variant="dot" tone="rec">?</Badge>
+                        <span>
+                          Filler a recruiter reads straight past:{" "}
+                          {quality.inflation.map((h) => `${h.word}${h.count > 1 ? ` ×${h.count}` : ""}`).join(", ")}. Cut or replace with what you did.
+                        </span>
+                      </li>
+                    )}
+                  </ul>
+                  <p className="fitEvidence">Edit the preview below and use Re-check to update this read.</p>
+                </div>
+              </div>
+            )}
             {result.atsScore?.keyword_coverage && (
               <div className="scoreCard">
                 <div className="scoreLabel">
@@ -1810,6 +1892,12 @@ export default function Home() {
             {/* Focus leaving either editable preview re-runs the claim check
                 on the edited text (focusout bubbles; the previews stay memo'd
                 and untouched). */}
+            {quality && (
+              <p className="fitEvidence" data-page-estimate={quality.pages.pages}>
+                About {quality.pages.pages} {quality.pages.pages === 1 ? "page" : "pages"} at the spacing the download uses
+                {quality.pages.overBudget ? " — over the two-page limit." : "."}
+              </p>
+            )}
             <div onBlur={onPreviewBlur}>
               <CvPreview
                 ref={previewRef}

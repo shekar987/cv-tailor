@@ -41,6 +41,7 @@ import {
 const NEXT_LEVEL: Record<ClaimLevel, ClaimLevel> = { production: "project", project: "learning", learning: "production" };
 import { splitTrailingDate } from "@/lib/projectDate";
 import { stripMarkdown } from "@/lib/markdownText";
+import { extractionFlags, mergeProfileEdits } from "@/lib/extractionCheck";
 import CvUpload from "../CvUpload";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -149,6 +150,16 @@ export default function CustomizePage() {
     return [...seen];
   }, [masterCvText]);
   const claimsStale = !!claims?.seededFrom && !!masterCvText && claims.seededFrom !== cvFingerprint(masterCvText);
+  // Sections the CV seems to list more of than extraction returned - shown
+  // for the user to check, never auto-corrected.
+  const extractionIssues =
+    profile && masterCvText
+      ? extractionFlags(masterCvText, {
+          projects: profile.projects.length,
+          education: profile.education.length,
+          certifications: profile.certifications.length,
+        })
+      : [];
   const unconfirmedCount = countUnconfirmed(claims);
 
   useEffect(() => {
@@ -479,8 +490,12 @@ export default function CustomizePage() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.profile) {
-        setProfile(data.profile);
-        const persisted = await saveProfile(data.profile);
+        // Non-destructive: the eight contact fields keep whatever the user
+        // has now (their edits included); the structured sections take the
+        // fresh read.
+        const merged = mergeProfileEdits(profile, data.profile as Profile);
+        setProfile(merged);
+        const persisted = await saveProfile(merged);
         await reseedClaims(masterCvText, data.skills);
         if (persisted) {
           // The project list may have changed shape — a tailored result keyed
@@ -656,6 +671,14 @@ export default function CustomizePage() {
                 <label>GitHub<Input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} /></label>
                 <label>Website<Input value={profile.website} onChange={(e) => updateProfileField("website", e.target.value)} /></label>
               </div>
+
+              {extractionIssues.map((f) => (
+                <StatusText key={f.section} className="msgBelow" role="alert" data-extraction-flag={f.section}>
+                  Your CV&apos;s {f.label} section seems to list {f.expected} entries, but {f.got}{" "}
+                  {f.got === 1 ? "was" : "were"} extracted. Check the list below; if something is missing,
+                  re-run extraction.
+                </StatusText>
+              ))}
 
               {(profile.projects.length > 0 ||
                 profile.education.length > 0 ||

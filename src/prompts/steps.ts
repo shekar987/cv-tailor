@@ -70,7 +70,7 @@ ${claimsBlock}
 - Do not stack trendy technologies to match the JD. Match by emphasizing true strengths that overlap.
 - Never describe what the candidate is currently studying, learning or planning to learn - not even as a positive. The summary is about what they have done.
 
-NATURAL WRITING RULES: Write the 3 lines in varied structure — do not make all three the same shape. Avoid filler ("at scale", "production-grade", "end-to-end", "hands-on", "leveraging"). But KEEP the exact JD-relevant keywords and real metrics — weave them into natural sentences. Human-readable AND keyword-rich.
+NATURAL WRITING RULES: Write the 3 lines in varied structure — do not make all three the same shape. Avoid filler ("at scale", "production-grade", "end-to-end", "hands-on", "leveraging", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "passionate", "results-driven"). One positioning only: the summary names ONE target role (the analysis role_type), never two joined by a slash or a pipe. But KEEP the exact JD-relevant keywords and real metrics — weave them into natural sentences. Human-readable AND keyword-rich.
 You will receive the JD analysis as JSON. Write exactly 3 lines — three SEPARATE lines of text with a real newline between them, never one merged paragraph. Each line must contain one concrete piece of evidence (metric, brand, project, or scale) from the master CV. Match the seniority_level and role_type from the analysis. No "junior" framing unless the analysis says junior.
 
 Output ONLY the 3-line summary as plain text. No headings, no preamble, no integrity check.`;
@@ -117,8 +117,9 @@ ${cv}
 NATURAL WRITING RULES (write like a human, not an AI):
 - VARY bullet structure. Do NOT end every bullet with an em-dash followed by a "-ing" phrase (e.g. "— demonstrating X", "— enabling Y"). At most ONE bullet may use that pattern. The rest must end differently: end on the result, the metric, or a plain period.
 - VARY bullet length. Some bullets should be one punchy line; others can be two. Not all the same.
-- BAN these overused phrases (use at most once total across all bullets, ideally zero): "at scale", "production-grade", "mission-critical", "end-to-end", "hands-on", "leveraging", "robust", "seamless".
-- Lead with the action and the concrete result. Don't tack on an explanatory clause justifying why the bullet matters — the achievement should speak for itself.
+- BAN these overused phrases (use at most once total across all bullets, ideally zero): "at scale", "production-grade", "mission-critical", "end-to-end", "hands-on", "leveraging", "robust", "seamless", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "passionate", "results-driven".
+- Lead with the OUTCOME — the result or the number — then how it was done and with what. "Cut API response time 25% by restructuring the service layer" beats "Worked with Python and FastAPI to build services". Don't tack on an explanatory clause justifying why the bullet matters.
+- Every bullet carries evidence from the master CV: a figure, a scale (users, requests, services, team size) or a named system. A bullet with none of these is cut — unless the role would be left with fewer than two bullets, in which case keep the most JD-relevant one as it is.
 - Write the way a strong engineer describes their own work plainly: direct, specific, no filler.
 - ATS BALANCE: While varying your phrasing, you MUST still include the exact technical keywords and skills from the JD analysis that the candidate genuinely has (e.g. "REST API", "Spring Boot", "PostgreSQL", "CI/CD"). Natural phrasing does not mean dropping keywords — weave them into plain sentences. The scanner needs the exact terms; the recruiter needs readable prose. Deliver both.
 - Keep each bullet's core keyword density intact: name the real technology, the real metric, the real action verb. Just vary the SENTENCE STRUCTURE around them, not the keywords themselves.
@@ -166,8 +167,9 @@ CRITICAL ANTI-EMBELLISHMENT RULES:
 - Every phrase must be defensible if an interviewer asks "show me exactly where you did this."
 
 NATURAL WRITING RULES:
+- Lead with the outcome or the number, then how. Every bullet carries evidence from that project's own text - a figure, a scale or a named system; a bullet with none is cut.
 - Vary bullet structure; do not end every bullet with an em-dash + "-ing" phrase.
-- Vary bullet length. Ban: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "showcasing".
+- Vary bullet length. Ban: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "showcasing", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "passionate", "results-driven".
 
 The candidate's CV contains these projects (by index):
 ${projectList}
@@ -459,7 +461,7 @@ NATURAL WRITING RULES (CRITICAL — write like a real person, not AI):
 - HARD LIMIT: maximum ONE em-dash (—) in the entire letter. Count them. If you have more than one, rewrite those sentences with periods or commas.
 - NO sentence may contain more than one comma-separated list of achievements. Do NOT write "doing X, cutting Y, reducing Z, improving W" — split into separate sentences.
 - Vary sentence length deliberately: include at least two SHORT sentences (under 10 words) somewhere in the letter.
-- BAN entirely: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "operational chaos", "cuts through", "that same [X]".
+- BAN entirely: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "operational chaos", "cuts through", "that same [X]", "passionate", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "results-driven".
 - Do NOT open with a dramatic scene ("When a project runs billions over budget..."). Open with something direct and specific about you or a genuine connection to the company.
 - Read it back: if it sounds like a marketing brochure or a LinkedIn thought-leadership post, rewrite it plainer.
 - Do NOT include a date line. Do NOT write bracketed placeholders of any kind — no [Date], [Address], [Hiring Manager], etc. The app inserts today's date itself. Anything you can't fill with real information from the master CV or the analysis, omit entirely.
