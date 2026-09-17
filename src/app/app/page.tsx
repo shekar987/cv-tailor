@@ -831,10 +831,6 @@ export default function Home() {
       );
     }
   }
-  function onPreviewBlur() {
-    if (!activeCheck || claimIssues === 0) return;
-    setTimeout(recheckClaims, 0);
-  }
 
   // Paint the flagged figures and skills onto the editable previews with the
   // CSS Custom Highlight API: nothing is injected into the contentEditable
@@ -1038,6 +1034,13 @@ export default function Home() {
   const qualityIssues = quality
     ? (quality.pages.overBudget ? 1 : 0) + quality.duplicates.length + (quality.weakBullets.length > 0 ? 1 : 0) + (quality.inflation.length > 0 ? 1 : 0)
     : 0;
+
+  // Focus leaving a preview re-reads both notices when either has something
+  // to say. Declared after the memos it reads (React Compiler rule).
+  function onPreviewBlur() {
+    if (!result || (claimIssues === 0 && qualityIssues === 0)) return;
+    setTimeout(recheckClaims, 0);
+  }
 
   // Same placeholder-scrubbed view of the finished run's analysis, for the
   // results context row.
@@ -1800,7 +1803,10 @@ export default function Home() {
                       </li>
                     )}
                   </ul>
-                  <p className="fitEvidence">Edit the preview below and use Re-check to update this read.</p>
+                  <p className="fitEvidence">Edit the preview below; this read updates when you click away or re-check.</p>
+                </div>
+                <div className="limitNotice__cta">
+                  <Button variant="secondary" onClick={recheckClaims} data-quality-recheck>Re-check now</Button>
                 </div>
               </div>
             )}
