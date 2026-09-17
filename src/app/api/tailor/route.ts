@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { callLLM, Provider, ProviderRateLimitError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
-import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
+import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
+import { normalizeClaims, renderClaimsBlock, checkClaims, type ClaimsRegistry } from "@/lib/claims";
 import {
   summaryPrompt,
   skillsPrompt,
@@ -156,8 +157,13 @@ async function runPipeline(opts: {
   // writes their bullets — replacing the master-CV projects for this run —
   // and the response additionally carries `selectedProjects` metadata.
   projectsPool?: string;
+  // The user's claims registry (lib/claims). Rendered into every writing
+  // prompt as what each skill may be called; the finished text is checked
+  // against it deterministically at the end. Absent = the generic rule.
+  claims?: ClaimsRegistry | null;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims } = opts;
+  const claimsBlock = renderClaimsBlock(claims);
 
   // Step 0 — JD analysis. Reused from the pre-tailoring gate when available and
   // well-formed; otherwise run fresh (this is also the fallback for a caller
@@ -199,20 +205,20 @@ async function runPipeline(opts: {
       ? Promise.resolve<unknown>(companyResearch) // real scraped research — skip the synthetic call
       : callLLM({ provider, apiKeyOverride, system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
           .catch(swallowStep({})),
-    callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock), userInput: analysisStr })
       .catch(swallowStep("")),
-    callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv, claimsBlock), userInput: analysisStr })
       .catch(swallowStep("")),
-    callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock), userInput: analysisStr })
       .catch(swallowStep("")),
     projectsPool
       // Pool mode: select + tailor from the pasted pool. Runs even when the
       // extracted profile has no projects (projectNames empty) — the pool is
       // the source, not the profile.
-      ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool), userInput: analysisStr, expectJson: true })
+      ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool, claimsBlock), userInput: analysisStr, expectJson: true })
           .catch(swallowStep({}))
       : projectNames.length > 0
-        ? callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget), userInput: analysisStr, expectJson: true })
+        ? callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock), userInput: analysisStr, expectJson: true })
             .catch(swallowStep({}))
         : Promise.resolve({}),
   ]);
@@ -235,11 +241,24 @@ async function runPipeline(opts: {
   const atsInput         = JSON.stringify({ analysis, summary, skills, experience: experienceOut, projects: projectsOut });
 
   const [coverLetter, atsScore] = await Promise.all([
-    callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv), userInput: coverLetterInput, maxTokens: 1200 })
+    callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv, claimsBlock), userInput: coverLetterInput, maxTokens: 1200 })
       .catch(swallowStep("")),
     callLLM({ provider, apiKeyOverride, system: ATS_SCORING_PROMPT, userInput: atsInput, expectJson: true })
       .catch(swallowStep(null)),
   ]);
+
+  const sections = { summary, skills, experience: experienceOut, projects: projectsOut };
+  // Deterministic claim check on the finished text — same precedent as
+  // reconcileAtsScore: no model call, computed from exactly what the user
+  // sees. The client re-runs the same function on the edited preview.
+  const claimCheck = checkClaims(
+    [
+      { where: "cv", text: tailoredSectionsText(sections) },
+      { where: "coverLetter", text: typeof coverLetter === "string" ? coverLetter : "" },
+    ],
+    claims,
+    [cv, projectsPool]
+  );
 
   return {
     analysis,
@@ -249,7 +268,8 @@ async function runPipeline(opts: {
     experience: experienceOut,
     projects: projectsOut,
     coverLetter,
-    atsScore: reconcileAtsScore(atsScore, analysis, { summary, skills, experience: experienceOut, projects: projectsOut }),
+    atsScore: reconcileAtsScore(atsScore, analysis, sections),
+    claimCheck,
     ...(projectsPool ? { selectedProjects } : {}),
   };
 }
@@ -309,6 +329,10 @@ export async function POST(req: NextRequest) {
     const bodyProvider = body.provider;
     const bodyAnalysis = body.analysis;
     const bodyResearch = sanitizeCompanyResearch(body.companyResearch);
+    if (body.claims !== undefined && JSON.stringify(body.claims).length > MAX_CLAIMS_JSON) {
+      return NextResponse.json({ error: "Claims registry is too large." }, { status: 400 });
+    }
+    const bodyClaims = normalizeClaims(body.claims);
 
     // ── Quota + provider routing (shared brain — lib/llmRouting.ts) ───────────
     const route = await resolveLlmRoute(supabase, userId, { bodyProvider });
@@ -336,6 +360,7 @@ export async function POST(req: NextRequest) {
         precomputedAnalysis: bodyAnalysis,
         companyResearch: bodyResearch,
         ...(projectsPool ? { projectsPool } : {}),
+        claims: bodyClaims,
       });
       // The unlimited (owner) path reports which provider ran, for the dropdown.
       return NextResponse.json(route.reason === "unlimited" ? { provider: route.provider, ...result } : result);

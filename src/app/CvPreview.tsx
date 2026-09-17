@@ -60,6 +60,8 @@ type CvPreviewProps = {
   // all resolve to the default order, so an untouched account renders exactly
   // as it did before this feature existed.
   sectionOrder?: unknown;
+  // Downloads held shut by the page while the claims check is blocking.
+  downloadsDisabled?: boolean;
 };
 
 // What collectPayload() hands back: the document as currently on screen,
@@ -76,10 +78,12 @@ export type CvPreviewHandle = {
     fileBaseName: string;
     sectionOrder: SectionId[];
   } | null;
+  // The editable root, for the page's claim-check highlights.
+  getRoot: () => HTMLDivElement | null;
 };
 
 const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvPreview(
-  { data, profile, fileBaseName = "CV", sectionOrder },
+  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false },
   fwdRef
 ) {
   const order = resolveSectionOrder(sectionOrder);
@@ -111,7 +115,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
 
   // The /app page snapshots the EDITED document for the tracker through this
   // handle — the same DOM walk both downloads use, so nothing can drift.
-  useImperativeHandle(fwdRef, () => ({ collectPayload }));
+  useImperativeHandle(fwdRef, () => ({ collectPayload, getRoot: () => ref.current }));
 
   const lines = (text?: string) =>
     (text || "")
@@ -636,7 +640,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
   return (
     <div className="cvDocWrap">
       <div className="cvActions">
-        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} />
+        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason="Fix the flagged claims first" />
       </div>
       {docErr && <StatusText role="alert">{docErr}</StatusText>}
       <p className="editHint">Click any text to edit it. Your changes are included when you download.</p>

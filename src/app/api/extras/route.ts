@@ -8,8 +8,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callLLM, ProviderRateLimitError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
-import { MAX_CV_CHARS, CV_TOO_LONG } from "@/lib/limits";
+import { MAX_CV_CHARS, CV_TOO_LONG, MAX_CLAIMS_JSON } from "@/lib/limits";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
+import { normalizeClaims, renderClaimsBlock, checkClaims } from "@/lib/claims";
 import { pitchScriptPrompt, talkingPointsPrompt, coldEmailPrompt } from "@/prompts/steps";
 
 export async function POST(req: NextRequest) {
@@ -46,6 +47,13 @@ export async function POST(req: NextRequest) {
     if (!research) {
       return NextResponse.json({ error: "Run the company research first — these are built from it." }, { status: 400 });
     }
+    // The claims registry rides along from the client (never read from a
+    // table here); the prompts get it rendered, the output is checked.
+    if (body.claims !== undefined && JSON.stringify(body.claims).length > MAX_CLAIMS_JSON) {
+      return NextResponse.json({ error: "Claims registry is too large." }, { status: 400 });
+    }
+    const claims = normalizeClaims(body.claims);
+    const claimsBlock = renderClaimsBlock(claims);
 
     // Cold email drafts are owner-only for now. Same gate as the provider
     // selector: profiles.is_unlimited, read under RLS (own row only) and
@@ -79,7 +87,11 @@ export async function POST(req: NextRequest) {
       provider: "anthropic",
       apiKeyOverride: undefined,
       system:
-        kind === "pitch" ? pitchScriptPrompt(cv) : kind === "talking_points" ? talkingPointsPrompt(cv) : coldEmailPrompt(cv),
+        kind === "pitch"
+          ? pitchScriptPrompt(cv, claimsBlock)
+          : kind === "talking_points"
+            ? talkingPointsPrompt(cv, claimsBlock)
+            : coldEmailPrompt(cv, claimsBlock),
       userInput: JSON.stringify({
         company_research: research,
         jd_analysis: jdAnalysis,
@@ -89,7 +101,11 @@ export async function POST(req: NextRequest) {
       maxTokens: 800,
     });
 
-    return NextResponse.json({ text: typeof text === "string" ? text.trim() : "" });
+    const out = typeof text === "string" ? text.trim() : "";
+    // Deterministic claim check on the copy text. Never blocks here — the
+    // fix for an extra is "Rewrite"; the page shows what was flagged.
+    const claimCheck = checkClaims([{ where: kind === "cold_email" ? "email" : "extra", text: out }], claims, [cv]);
+    return NextResponse.json({ text: out, claimCheck });
   } catch (error) {
     if (error instanceof ProviderRateLimitError) {
       return NextResponse.json(

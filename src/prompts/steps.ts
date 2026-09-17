@@ -1,4 +1,10 @@
 import { ABSOLUTE_RULES } from "./rules";
+import { DEFAULT_CLAIMS_BLOCK } from "@/lib/claims";
+
+// Every prompt that writes about the candidate takes a `claimsBlock`: the
+// rendered claims registry (lib/claims renderClaimsBlock) saying what each
+// skill may be called and which skills are forbidden. The default is the
+// generic rule for users who have no registry yet.
 
 // Step 1 of the pipeline. Shared by /api/analyze (standalone JD analysis, also
 // used for the pre-tailoring ATS keyword gate) and /api/tailor (Step 0 of the
@@ -50,7 +56,7 @@ export const LENGTH_BUDGET = `LENGTH BUDGET — the finished CV must fit on TWO 
 - Trim ONLY by deleting whole bullets. Never merge two achievements into one sentence, never combine metrics, and never drop a qualifier that a claim depends on — that would state something the master CV does not support.
 - Never drop a whole role, and never change any employer, title, or date.`;
 
-export const summaryPrompt = (cv: string) => `You write a 3-line achievement-oriented professional summary for a CV, tailored to a specific job.
+export const summaryPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You write a 3-line achievement-oriented professional summary for a CV, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
 
@@ -59,8 +65,8 @@ ${cv}
 
 CRITICAL ANTI-EMBELLISHMENT RULES FOR THE SUMMARY:
 - Every skill or proficiency you mention MUST trace to production experience or a shipped project in the master CV.
-- FORBIDDEN: calling any skill "proficient", "expert", "strong", or "experienced" unless the master CV backs it with real production/project work. Python is project-level — say "built [project] in Python", never "proficient in Python".
-- FORBIDDEN: mentioning any "Currently studying" skill (Kubernetes, Kafka, RAG, Go, distributed-systems design) as a current competency.
+- FORBIDDEN: calling any skill "proficient", "expert", "strong", or "experienced" unless the master CV backs it with real production work. A project-only skill is written as "built [project] in X", never "proficient in X".
+${claimsBlock}
 - Do not stack trendy technologies to match the JD. Match by emphasizing true strengths that overlap.
 
 NATURAL WRITING RULES: Write the 3 lines in varied structure — do not make all three the same shape. Avoid filler ("at scale", "production-grade", "end-to-end", "hands-on", "leveraging"). But KEEP the exact JD-relevant keywords and real metrics — weave them into natural sentences. Human-readable AND keyword-rich.
@@ -68,7 +74,7 @@ You will receive the JD analysis as JSON. Write exactly 3 lines — three SEPARA
 
 Output ONLY the 3-line summary as plain text. No headings, no preamble, no integrity check.`;
 
-export const skillsPrompt = (cv: string) => `You write a tailored CV Skills section.
+export const skillsPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You write a tailored CV Skills section.
 
 ${ABSOLUTE_RULES}
 
@@ -79,7 +85,7 @@ CRITICAL ANTI-EMBELLISHMENT RULES FOR SKILLS:
 - List a tool/language/framework ONLY if it appears VERBATIM in the master CV — either in its Skills section or explicitly named in a project's tech stack or an experience bullet.
 - A skill being "easy to learn", "commonly paired with", or "a subpart of" something on the CV does NOT qualify it. Libraries like pandas, matplotlib, scikit-learn are SEPARATE skills — include one ONLY if that exact library is named in the master CV.
 - FORBIDDEN to infer specific technologies from general descriptions. "Auth tokens" in a project does NOT license listing "OAuth 2.0" or "JWT". "Styling" does NOT license "Tailwind CSS". Only list the protocol/tool if the master CV names it.
-- FORBIDDEN: "Currently studying" skills (Kubernetes, Kafka, RAG, Go, distributed-systems design).
+${claimsBlock}
 - For a required JD skill the candidate lacks, surface the closest ADJACENT skill they genuinely have. Never list the missing skill itself.
 - Final check before output: for EVERY item in your skills list, confirm it appears verbatim in the master CV. If you cannot point to where, remove it.
 You will receive the JD analysis as JSON.
@@ -99,9 +105,10 @@ Output ONLY the skills line(s) as plain text. Never wrap the labels or any skill
 // `budget` lets /api/tailor pass an adaptive budget computed from the actual
 // master CV (lib/contentBudget.ts); the fixed LENGTH_BUDGET stays the default
 // so nothing else changes behaviour.
-export const experiencePrompt = (cv: string, budget: string = LENGTH_BUDGET) => `You rewrite the CV work experience section, tailored to a specific job.
+export const experiencePrompt = (cv: string, budget: string = LENGTH_BUDGET, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You rewrite the CV work experience section, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
+${claimsBlock}
 
 MASTER CV:
 ${cv}
@@ -140,13 +147,14 @@ where possible and never more than two. Trim by dropping a whole bullet, never b
 merging two achievements or combining their metrics into one sentence.`;
 
 // `budget` as in experiencePrompt: /api/tailor passes the adaptive version.
-export const projectsPrompt = (cv: string, projectNames: string[] = [], budget?: string) => {
+export const projectsPrompt = (cv: string, projectNames: string[] = [], budget?: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => {
   const projectList = projectNames.length > 0
     ? projectNames.map((n, i) => `${i}: ${n}`).join("\n")
     : "(none)";
   return `You write tailored CV project bullets. You do NOT write project names, tech stacks, or links — only the bullet points.
 
 ${ABSOLUTE_RULES}
+${claimsBlock}
 
 MASTER CV:
 ${cv}
@@ -182,9 +190,10 @@ Each bullet is a plain string with no leading dash.`;
 // projects, this step SELECTS the 2 most relevant pool projects for the JD /
 // company stack and writes their bullets. The pool is the master source for
 // project claims; the CV is context only.
-export const poolProjectsPrompt = (cv: string, pool: string) => `You select and tailor CV projects from the candidate's full project pool.
+export const poolProjectsPrompt = (cv: string, pool: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You select and tailor CV projects from the candidate's full project pool.
 
 ${ABSOLUTE_RULES}
+${claimsBlock}
 
 MASTER CV (context only — the candidate's skills and experience):
 ${cv}
@@ -297,9 +306,10 @@ Output ONLY a JSON object (no fences):
 }`;
 
 // Stage 3 high-fit extra — a 60-90 second spoken pitch (e.g. for a Loom).
-export const pitchScriptPrompt = (cv: string) => `You write a 60-90 second SPOKEN pitch script (150-220 words) the candidate will record for a specific company.
+export const pitchScriptPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You write a 60-90 second SPOKEN pitch script (150-220 words) the candidate will record for a specific company.
 
 ${ABSOLUTE_RULES}
+${claimsBlock}
 
 MASTER CV:
 ${cv}
@@ -319,9 +329,10 @@ Never claim a technology from the company's stack that the master CV doesn't sho
 Output ONLY the script as plain text.`;
 
 // Stage 3 high-fit extra — interview prep grounded in the research.
-export const talkingPointsPrompt = (cv: string) => `You prepare interview talking points for a candidate, grounded ONLY in their master CV and the company research provided.
+export const talkingPointsPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You prepare interview talking points for a candidate, grounded ONLY in their master CV and the company research provided.
 
 ${ABSOLUTE_RULES}
+${claimsBlock}
 
 MASTER CV:
 ${cv}
@@ -406,9 +417,10 @@ Output ONLY a JSON object (no fences), exactly this shape:
 // (never invented), and every skill/metric must be verbatim-defensible from
 // the master CV. The closing mentions BOTH the CV and the cover letter,
 // because the app generates both alongside this email.
-export const coldEmailPrompt = (cv: string) => `You write a COLD outreach email from a job seeker, grounded ONLY in their master CV, the company research, and the optional personal note provided.
+export const coldEmailPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You write a COLD outreach email from a job seeker, grounded ONLY in their master CV, the company research, and the optional personal note provided.
 
 ${ABSOLUTE_RULES}
+${claimsBlock}
 
 MASTER CV:
 ${cv}
@@ -434,9 +446,10 @@ Subject: <subject line>
 
 <body>`;
 
-export const coverLetterPrompt = (cv: string) => `You write a cover letter, max 400 words.
+export const coverLetterPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You write a cover letter, max 400 words.
 
 ${ABSOLUTE_RULES}
+${claimsBlock}
 
 MASTER CV:
 ${cv}

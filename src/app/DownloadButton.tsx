@@ -11,10 +11,16 @@ export default function DownloadButton({
   onPdf,
   onWord,
   busy = false,
+  disabled = false,
+  disabledReason,
 }: {
   onPdf: () => void;
   onWord: () => void;
   busy?: boolean;
+  // Held shut by the page (e.g. the claims check is blocking) — the label
+  // stays "Download" and the reason rides in the tooltip.
+  disabled?: boolean;
+  disabledReason?: string;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -52,7 +58,8 @@ export default function DownloadButton({
         type="button"
         className="dlBtn"
         onClick={() => setOpen((o) => !o)}
-        disabled={busy}
+        disabled={busy || disabled}
+        title={disabled && !busy ? disabledReason : undefined}
         aria-expanded={open}
         aria-controls={panelId}
       >

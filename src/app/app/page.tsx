@@ -16,7 +16,8 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
-import type { AtsMatchResult } from "@/lib/atsMatch";
+import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
+import { normalizeClaims, checkClaims, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
@@ -90,7 +91,11 @@ type Result = {
   // gave this job, kept with the result (and its workspace copy) so the
   // Applied row can store it after the gate state is cleared.
   gatesSummary?: GatesSummary;
+  // The server's deterministic claim check of this exact output (lib/claims).
+  claimCheck?: ClaimCheck;
 };
+
+const WHERE_LABEL: Record<ClaimWhere, string> = { cv: "CV", coverLetter: "cover letter", email: "email", extra: "text" };
 
 // What /api/analyze returns beside the keyword pre-check.
 type GateExtras = {
@@ -227,6 +232,13 @@ export default function Home() {
   // The user's eligibility answers (Customize), sent with the pre-check so
   // the server can compare each gate. null = never set up.
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
+  // The claims registry (Customize), sent with every tailor/extras call and
+  // used for the live re-check of the edited preview. null = none yet.
+  const [claims, setClaims] = useState<ClaimsRegistry | null>(null);
+  // The claim check of the preview AS EDITED, after a re-check; null means
+  // "use the server's check of the original output".
+  const [liveCheck, setLiveCheck] = useState<ClaimCheck | null>(null);
+  const [coldEmailCheck, setColdEmailCheck] = useState<ClaimCheck | null>(null);
 
   // Stage 3 — company research + Fit Score. Self-contained error state: the
   // server's limit messages are shown verbatim inside the research card, so
@@ -360,6 +372,7 @@ export default function Home() {
         setProjectsPool(stored.projectsPool ?? "");
         const settings = await getUserSettings();
         setEligibility(settings.eligibility);
+        setClaims(normalizeClaims(settings.claims));
         const p = await getProfile();
         setProfile(p);
       }
@@ -507,6 +520,7 @@ export default function Home() {
           cvText: masterCvText,
           companyResearch: research?.profile,
           analysis: boundAnalysis,
+          ...(claims ? { claims } : {}),
           ...(kind === "cold_email" && recipientName.trim() ? { recipientName: recipientName.trim() } : {}),
           ...(kind === "cold_email" && personalNote.trim() ? { personalNote: personalNote.trim() } : {}),
         }),
@@ -520,6 +534,7 @@ export default function Home() {
       else if (kind === "talking_points") setTalkingPoints(data.text || "");
       else {
         setColdEmail(data.text || "");
+        setColdEmailCheck(data.claimCheck ?? null);
         setEmailCopied(false);
       }
     } catch {
@@ -599,6 +614,13 @@ export default function Home() {
   // too (the pre-check may have failed before it could say anything).
   const jdInfo = jdQuality(jobDescription);
 
+  // The claim check in force: the live re-check of the edited preview when
+  // there is one, else the server's check of the original output. Blocking
+  // holds Download and Applied shut until an edit passes a re-check.
+  const activeCheck: ClaimCheck | null = liveCheck ?? result?.claimCheck ?? null;
+  const claimIssues = activeCheck ? activeCheck.skillViolations.length + activeCheck.numberViolations.length : 0;
+  const blocked = !!activeCheck?.blocking;
+
   // Whether the saved research applies to the job in the JD box, for the
   // gate card and the outreach hint. "unknown" = the gate couldn't read a
   // company off the JD (agency postings often hide it) — no research is
@@ -668,6 +690,9 @@ export default function Home() {
           // the cover-letter context instead of synthesizing research from the
           // JD alone. Only sent when it is bound to this company (above).
           ...(researchToSend ? { companyResearch: researchToSend } : {}),
+          // The claims registry: what each skill may be called, and the
+          // basis for the server's claim check of the output.
+          ...(claims ? { claims } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -691,6 +716,7 @@ export default function Home() {
           : undefined;
       const fresh: Result = gatesSummary ? { ...(data as Result), gatesSummary } : (data as Result);
       setResult(fresh);
+      setLiveCheck(null);
       setRanProvider(typeof data.provider === "string" ? data.provider : null);
       setTailorSessionId(sessionId);
       // The text this run was tailored from — the JD box for a JD run, the
@@ -747,7 +773,77 @@ export default function Home() {
   // the run already produced — the pipeline itself is untouched. The server
   // owns the duplicate rule (one row per session id) and reports a repeat
   // click back as alreadySaved, without touching the existing row.
+  // Re-run the claim check on the preview AS EDITED — the same function the
+  // server ran, on the same text assembly, against the same sources. Called
+  // from the "Re-check now" button and when focus leaves either preview
+  // (deferred a tick: collectPayload blurs the active element, and running it
+  // inside the focusout itself would fight the focus change).
+  function recheckClaims() {
+    if (!result) return;
+    const payload = previewRef.current?.collectPayload();
+    const letter = coverRef.current?.collectText();
+    const cvText = payload
+      ? tailoredSectionsText({ summary: payload.summary, skills: payload.skills, experience: payload.experience, projects: payload.projects })
+      : tailoredSectionsText({ summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects });
+    setLiveCheck(
+      checkClaims(
+        [
+          { where: "cv", text: cvText },
+          { where: "coverLetter", text: letter ?? result.coverLetter ?? "" },
+        ],
+        claims,
+        [masterCvText, projectsPool]
+      )
+    );
+  }
+  function onPreviewBlur() {
+    if (!activeCheck || claimIssues === 0) return;
+    setTimeout(recheckClaims, 0);
+  }
+
+  // Paint the flagged figures and skills onto the editable previews with the
+  // CSS Custom Highlight API: nothing is injected into the contentEditable
+  // DOM the downloads read from. Browsers without it just get the list.
+  useEffect(() => {
+    if (typeof CSS === "undefined" || !("highlights" in CSS)) return;
+    const registry = (CSS as unknown as { highlights: { set(n: string, h: unknown): void; delete(n: string): void } }).highlights;
+    const HighlightCtor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight;
+    if (!HighlightCtor) return;
+    const needles = [
+      ...(activeCheck?.numberViolations.map((n) => n.figure) ?? []),
+      ...(activeCheck?.skillViolations.map((s) => s.skill) ?? []),
+    ]
+      .map((s) => s.toLowerCase().trim())
+      .filter((s) => s.length >= 2);
+    if (needles.length === 0) {
+      registry.delete("claimViolation");
+      return;
+    }
+    const roots = [previewRef.current?.getRoot(), coverRef.current?.getRoot()].filter((r): r is HTMLDivElement => !!r);
+    const ranges: Range[] = [];
+    for (const root of roots) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const text = (node.textContent || "").toLowerCase();
+        for (const needle of needles) {
+          let at = text.indexOf(needle);
+          while (at >= 0) {
+            const range = document.createRange();
+            range.setStart(node, at);
+            range.setEnd(node, at + needle.length);
+            ranges.push(range);
+            at = text.indexOf(needle, at + needle.length);
+          }
+        }
+      }
+    }
+    registry.set("claimViolation", new HighlightCtor(...ranges));
+    return () => registry.delete("claimViolation");
+  }, [activeCheck, result]);
+
   async function handleApplied() {
+    if (blocked) return;
     if (!result) return;
     // Workspaces saved before session ids existed restore without one; mint
     // it now so the save effect persists it and a second click still dedupes.
@@ -1170,6 +1266,18 @@ export default function Home() {
                           <div className="extraBlock">
                             <div className="gateLabel">Ready to send — attach your downloaded CV</div>
                             <p className="extraText">{coldEmail}</p>
+                            {coldEmailCheck && coldEmailCheck.skillViolations.length + coldEmailCheck.numberViolations.length > 0 && (
+                              <p className="fitEvidence" role="status" data-email-claim-check>
+                                Claims check:{" "}
+                                {[
+                                  ...coldEmailCheck.skillViolations.map((s) => `${s.skill} is marked learning`),
+                                  ...coldEmailCheck.numberViolations.map((n) =>
+                                    n.kind === "absent" ? `${n.figure} isn't on your CV` : `${n.figure} is used in a different context`
+                                  ),
+                                ].join("; ")}
+                                . Rewrite the email or edit before sending.
+                              </p>
+                            )}
                             <button type="button" className="inlineLink" onClick={copyColdEmail}>
                               {emailCopied ? "Copied ✓" : "Copy email"}
                             </button>
@@ -1514,6 +1622,52 @@ export default function Home() {
                 (it counts as a new run).
               </div>
             )}
+            {activeCheck && claimIssues > 0 && (
+              <div className="limitNotice" role={blocked ? "alert" : "status"} data-claim-check={blocked ? "blocking" : "warn"}>
+                <div className="limitNotice__title">
+                  {blocked
+                    ? `Claims check: ${claimIssues === 1 ? "1 thing" : `${claimIssues} things`} to fix before you can download`
+                    : `Claims check: ${claimIssues === 1 ? "1 thing" : `${claimIssues} things`} to look at`}
+                </div>
+                <div className="limitNotice__body">
+                  <ul className="atsList">
+                    {activeCheck.skillViolations.map((s, i) => (
+                      <li key={`s${i}`}>
+                        <Badge variant="dot" tone={activeCheck.mode === "enforce" && s.confirmed ? "miss" : "rec"}>
+                          {activeCheck.mode === "enforce" && s.confirmed ? "✕" : "?"}
+                        </Badge>
+                        <span>
+                          <strong>{s.skill}</strong> is marked <em>learning</em> in your registry, and it appears in the{" "}
+                          {WHERE_LABEL[s.where]}.{!s.confirmed && " (Not confirmed yet, so this is a warning.)"}
+                        </span>
+                      </li>
+                    ))}
+                    {activeCheck.numberViolations.map((n, i) => (
+                      <li key={`n${i}`}>
+                        <Badge variant="dot" tone={activeCheck.mode === "enforce" && n.kind === "absent" ? "miss" : "rec"}>
+                          {n.kind === "absent" ? "✕" : "?"}
+                        </Badge>
+                        <span>
+                          <strong>{n.figure}</strong>{" "}
+                          {n.kind === "absent" ? "isn't on your master CV" : "is on your CV in a different context"} — in the{" "}
+                          {WHERE_LABEL[n.where]}: &ldquo;{n.sentence.length > 140 ? `${n.sentence.slice(0, 139)}…` : n.sentence}&rdquo;
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="fitEvidence">
+                    {blocked
+                      ? "Edit the preview below, then re-check. Download and Applied unlock when it passes."
+                      : activeCheck.mode === "enforce"
+                        ? "Warnings don't block downloads; confirmed learning skills and figures missing from your CV would."
+                        : "Confirm your skill levels in Customize and these become blocking checks."}
+                  </p>
+                </div>
+                <div className="limitNotice__cta">
+                  <Button variant="secondary" onClick={recheckClaims}>Re-check now</Button>
+                </div>
+              </div>
+            )}
             {result.atsScore?.keyword_coverage && (
               <div className="scoreCard">
                 <div className="scoreLabel">
@@ -1619,7 +1773,8 @@ export default function Home() {
               <Button
                 variant="secondary"
                 onClick={handleApplied}
-                disabled={appliedState === "saving" || appliedState === "saved" || appliedState === "already"}
+                disabled={blocked || appliedState === "saving" || appliedState === "saved" || appliedState === "already"}
+                title={blocked ? "Fix the flagged claims first" : undefined}
               >
                 {appliedState === "saving"
                   ? "Saving…"
@@ -1635,28 +1790,38 @@ export default function Home() {
               {appliedError && (
                 <StatusText as="span" role="alert">{appliedError}</StatusText>
               )}
+              {blocked && appliedState === "idle" && (
+                <StatusText as="span" role="status">Fix the flagged claims above first.</StatusText>
+              )}
             </div>
             {appliedNotice && (
               <div className="limitNotice" role="status">{appliedNotice}</div>
             )}
 
-            <CvPreview
-              ref={previewRef}
-              data={cvData}
-              profile={displayProfile}
-              sectionOrder={sectionOrder}
-              fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}
-            />
-{result.coverLetter && (
-              <>
-                <h2 className="clHeading">Cover Letter</h2>
-                <CoverLetterPreview
-                  ref={coverRef}
-                  coverLetter={result.coverLetter}
-                  fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CoverLetter")}
-                />
-              </>
-            )}
+            {/* Focus leaving either editable preview re-runs the claim check
+                on the edited text (focusout bubbles; the previews stay memo'd
+                and untouched). */}
+            <div onBlur={onPreviewBlur}>
+              <CvPreview
+                ref={previewRef}
+                data={cvData}
+                profile={displayProfile}
+                sectionOrder={sectionOrder}
+                fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}
+                downloadsDisabled={blocked}
+              />
+              {result.coverLetter && (
+                <>
+                  <h2 className="clHeading">Cover Letter</h2>
+                  <CoverLetterPreview
+                    ref={coverRef}
+                    coverLetter={result.coverLetter}
+                    fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CoverLetter")}
+                    downloadsDisabled={blocked}
+                  />
+                </>
+              )}
+            </div>
           </section>
         )}
       </div>

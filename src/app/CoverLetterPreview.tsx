@@ -10,6 +10,8 @@ import StatusText from "@/components/ui/StatusText";
 // the editable DOM (the Applied button snapshots it into the tracker).
 export type CoverLetterPreviewHandle = {
   collectText: () => string | null;
+  // The editable root, for the page's claim-check highlights.
+  getRoot: () => HTMLDivElement | null;
 };
 
 type Props = {
@@ -19,10 +21,12 @@ type Props = {
   // stored letter already carries the date it was sent as its first line, so
   // the tracker renders it without a second one.
   withDateLine?: boolean;
+  // Downloads held shut by the page while the claims check is blocking.
+  downloadsDisabled?: boolean;
 };
 
 const CoverLetterPreview = forwardRef<CoverLetterPreviewHandle, Props>(function CoverLetterPreview(
-  { coverLetter, fileBaseName = "CoverLetter", withDateLine = true },
+  { coverLetter, fileBaseName = "CoverLetter", withDateLine = true, downloadsDisabled = false },
   handleRef
 ) {
   const ref = useRef<HTMLDivElement>(null);
@@ -56,7 +60,7 @@ const CoverLetterPreview = forwardRef<CoverLetterPreviewHandle, Props>(function 
 
   // Hooks stay above the early return below, so the handle exists whether or
   // not there is a letter to show (collectText answers null in that case).
-  useImperativeHandle(handleRef, () => ({ collectText }));
+  useImperativeHandle(handleRef, () => ({ collectText, getRoot: () => ref.current }));
 
   // Server-built .docx for the current letter — shared source for both downloads.
   async function fetchDocx(): Promise<Blob | null> {
@@ -117,7 +121,7 @@ const CoverLetterPreview = forwardRef<CoverLetterPreviewHandle, Props>(function 
   return (
     <div className="clWrap">
       <div className="cvActions">
-        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} />
+        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason="Fix the flagged claims first" />
       </div>
       {docErr && <StatusText role="alert">{docErr}</StatusText>}
       <p className="editHint">Click any text to edit your cover letter. Changes are included when you download.</p>
