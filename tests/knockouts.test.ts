@@ -77,6 +77,15 @@ test("sponsorship: 'sponsorship available' passes even for needs_sponsorship; ci
   assert.equal(r.verdict, "unknown");
 });
 
+test("sponsorship: 'cannot sponsor clearance' is about vetting, not visas", () => {
+  const jd = "Requirements:\n- Must hold active SC clearance (we cannot sponsor clearance for this role).";
+  const gates = detectGates(jd);
+  assert.equal(gates.filter((g) => g.category === "sponsorship").length, 0, JSON.stringify(gates));
+  assert.equal(gates.filter((g) => g.category === "clearance").length, 1);
+  // ...but a visa line in the same posting still counts
+  assert.equal(detectGates(jd + "\n- We cannot offer visa sponsorship.").filter((g) => g.category === "sponsorship").length, 1);
+});
+
 test("sponsorship: a nice-to-have phrasing never yields hard", () => {
   const jd = "Ideally you would already have the right to work in the UK without sponsorship.";
   const r = verdictOf(jd, "sponsorship", profile({ rightToWork: { status: "needs_sponsorship", countries: [] } }));

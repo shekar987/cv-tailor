@@ -4,7 +4,7 @@ import { callLLM, Provider, ProviderRateLimitError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
-import { normalizeClaims, renderClaimsBlock, checkClaims, type ClaimsRegistry } from "@/lib/claims";
+import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, type ClaimsRegistry } from "@/lib/claims";
 import {
   summaryPrompt,
   skillsPrompt,
@@ -200,7 +200,7 @@ async function runPipeline(opts: {
 
   // Wave 1 — parallel; individual step failures produce empty values,
   // but ProviderRateLimitError propagates.
-  const [research, summary, skills, experience, projects] = await Promise.all([
+  const [research, summaryRaw, skillsRaw, experienceRaw, projects] = await Promise.all([
     companyResearch
       ? Promise.resolve<unknown>(companyResearch) // real scraped research — skip the synthetic call
       : callLLM({ provider, apiKeyOverride, system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
@@ -223,6 +223,14 @@ async function runPipeline(opts: {
         : Promise.resolve({}),
   ]);
 
+  // A step that refused ("I cannot produce a tailored CV for this role")
+  // instead of writing the section is a failed step: empty, so the client's
+  // partial-failure notice names it rather than rendering the refusal.
+  const dropRefusal = (v: unknown) => (looksLikeRefusal(v) ? "" : v);
+  const summary = dropRefusal(summaryRaw);
+  const skills = dropRefusal(skillsRaw);
+  const experience = dropRefusal(experienceRaw);
+
   // Pool mode: coerce the selection JSON at the boundary and re-key bullets by
   // index so every downstream consumer (ATS scoring, renderers, downloads) sees
   // the exact same shape as the normal path. A failed/empty selection degrades
@@ -240,13 +248,14 @@ async function runPipeline(opts: {
   const coverLetterInput = JSON.stringify({ analysis, research });
   const atsInput         = JSON.stringify({ analysis, summary, skills, experience: experienceOut, projects: projectsOut });
 
-  const [coverLetter, atsScore] = await Promise.all([
+  const [coverLetterRaw, atsScore] = await Promise.all([
     callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv, claimsBlock), userInput: coverLetterInput, maxTokens: 1200 })
       .catch(swallowStep("")),
     callLLM({ provider, apiKeyOverride, system: ATS_SCORING_PROMPT, userInput: atsInput, expectJson: true })
       .catch(swallowStep(null)),
   ]);
 
+  const coverLetter = dropRefusal(coverLetterRaw);
   const sections = { summary, skills, experience: experienceOut, projects: projectsOut };
   // Deterministic claim check on the finished text — same precedent as
   // reconcileAtsScore: no model call, computed from exactly what the user

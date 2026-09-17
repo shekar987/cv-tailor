@@ -167,8 +167,25 @@ export function mergeClaims(existing: ClaimsRegistry | null, seed: ClaimsRegistr
 
 // ── Prompt block ─────────────────────────────────────────────────────────────
 
+// A forbidden skill is a reason to leave it out, never a reason to refuse:
+// the first paid run of this block saw the model answer "I cannot produce a
+// tailored CV for this role" when the JD's core requirement was a learning
+// skill. The output must always be the requested section.
+const NEVER_REFUSE =
+  "A job asking for a forbidden or absent skill is NOT a reason to refuse, apologise, or write commentary about the gap - leave that skill out, do not mention that it is being studied, and lead with the candidate's genuine strengths. Output only the section requested, always.";
+
 export const DEFAULT_CLAIMS_BLOCK =
-  `- FORBIDDEN: any skill the master CV lists under a "currently studying", "learning", "familiar with", "exposure to" or similar heading or phrase - omit it entirely, in every section and in the cover letter. Never present a personal-project skill as work experience.`;
+  `- FORBIDDEN: any skill the master CV lists under a "currently studying", "learning", "familiar with", "exposure to" or similar heading or phrase - omit it entirely, in every section and in the cover letter. Never present a personal-project skill as work experience.
+- ${NEVER_REFUSE}`;
+
+// A model step that answered with a refusal or meta-commentary instead of
+// the section. Treated like a failed step (empty), so the partial-failure
+// notice shows instead of the refusal rendering as a CV.
+export function looksLikeRefusal(text: unknown): boolean {
+  if (typeof text !== "string") return false;
+  const head = text.trim().slice(0, 160).toLowerCase();
+  return /^(?:i(?:'m| am)? (?:cannot|can't|unable|won't|will not|am unable)|i (?:cannot|can't|won't)|unable to (?:produce|write|create|tailor)|sorry,|i apologi[sz]e|as an ai\b|i (?:must|need to) (?:decline|flag)|this (?:cv|candidate) (?:cannot|does not|doesn't) )/.test(head);
+}
 
 export function renderClaimsBlock(r: ClaimsRegistry | null | undefined): string {
   if (!r || r.skills.length === 0) return DEFAULT_CLAIMS_BLOCK;
@@ -189,6 +206,7 @@ export function renderClaimsBlock(r: ClaimsRegistry | null | undefined): string 
       `- LEARNING - FORBIDDEN (studying, not yet used; must not appear ANYWHERE in the output: not as a skill, not hedged, not in the cover letter): ${learning.join(", ")}`
     );
   lines.push("Any skill named in the master CV but not in this registry keeps the master CV's own framing.");
+  lines.push(`- ${NEVER_REFUSE}`);
   return lines.join("\n");
 }
 

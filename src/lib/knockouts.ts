@@ -307,11 +307,15 @@ const CITIZEN_RE =
 const RTW_COUNTRY_RE =
   /\b(?:right|rights|eligib\w+|entitle\w+|authori[sz]\w+|able|permitted|allowed)\s+to\s+(?:live\s+and\s+)?work\s+in\s+(?:the\s+)?([a-z][a-z .]{1,30}?)(?=\s+(?:without|and|is|are|with|at|from|on|for|who)\b|[,.;:)!?]|$)/i;
 
+// "We cannot sponsor clearance" is about vetting, not visas.
+const CLEARANCE_SPONSOR_RE = /\bsponsor\w*\s+(?:(?:the|your|an?|for)\s+)?(?:sc|dv|ctc|bpss|security|clearance|vetting)\b/i;
+
 function detectSponsorship(u: Unit): Gate | null {
   const t = u.text;
   const relevant =
     /\bsponsor|\bright to work|\bwork authori|\beligib\w+ to work|\bauthori[sz]ed to work|\bentitled to work|\bcitizen|\bILR\b|\bindefinite leave|\bsettled status|\bgreen card|\bpermanent residen/i.test(t);
   if (!relevant) return null;
+  if (CLEARANCE_SPONSOR_RE.test(t) && !/\bvisa\b|\bright to work\b|\bwork authori|\bcitizen/i.test(t)) return null;
   const countryMatch = RTW_COUNTRY_RE.exec(t);
   const country = countryMatch ? normalizeCountry(countryMatch[1]) : null;
   const citizenship = CITIZEN_RE.test(t);

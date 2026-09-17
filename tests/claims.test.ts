@@ -14,6 +14,7 @@ import {
   cvFingerprint,
   learningText,
   countUnconfirmed,
+  looksLikeRefusal,
   DEFAULT_CLAIMS_BLOCK,
   type ClaimsRegistry,
 } from "../src/lib/claims.ts";
@@ -172,6 +173,18 @@ test("normalizeClaims and normalizeSkillGuesses bound and default safely", () =>
   ]);
   assert.equal(r?.confirmedAt, null);
   assert.deepEqual(normalizeSkillGuesses([{ name: "Rust", level: "production" }, { name: "Rust" }, "junk"]), [{ name: "Rust", level: "production" }]);
+});
+
+test("looksLikeRefusal catches a refusing step and leaves real sections alone", () => {
+  assert.equal(looksLikeRefusal("I cannot produce a tailored CV for this role."), true);
+  assert.equal(looksLikeRefusal("  I'm unable to write this section honestly because..."), true);
+  assert.equal(looksLikeRefusal("Sorry, the master CV does not support the required skills."), true);
+  assert.equal(looksLikeRefusal("Backend Engineer | Acme | 2022 – Present\n• Cut latency 40%."), false);
+  assert.equal(looksLikeRefusal("Languages: Java, SQL | Frameworks: Spring Boot"), false);
+  assert.equal(looksLikeRefusal("Dear Hiring Manager,\n\nI am writing about the Platform Engineer role."), false);
+  assert.equal(looksLikeRefusal(null), false);
+  assert.ok(/NOT a reason to refuse/.test(renderClaimsBlock({ version: 1, confirmedAt: null, seededFrom: null, skills: [{ name: "Go", level: "learning", confirmed: true }] })));
+  assert.ok(/NOT a reason to refuse/.test(DEFAULT_CLAIMS_BLOCK));
 });
 
 test("renderClaimsBlock lists the three levels and falls back to the generic rule", () => {
