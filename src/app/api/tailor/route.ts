@@ -5,6 +5,7 @@ import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
 import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, type ClaimsRegistry } from "@/lib/claims";
+import { normalizeVariants, renderVariantBlock, type Variant } from "@/lib/variants";
 import {
   summaryPrompt,
   skillsPrompt,
@@ -161,9 +162,14 @@ async function runPipeline(opts: {
   // prompt as what each skill may be called; the finished text is checked
   // against it deterministically at the end. Absent = the generic rule.
   claims?: ClaimsRegistry | null;
+  // The positioning variant the client picked for this run (lib/variants):
+  // headline + lead skills for the summary and skills steps. Null = the
+  // CV's own positioning.
+  variant?: Variant | null;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant } = opts;
   const claimsBlock = renderClaimsBlock(claims);
+  const variantBlock = renderVariantBlock(variant);
 
   // Step 0 — JD analysis. Reused from the pre-tailoring gate when available and
   // well-formed; otherwise run fresh (this is also the fallback for a caller
@@ -205,9 +211,9 @@ async function runPipeline(opts: {
       ? Promise.resolve<unknown>(companyResearch) // real scraped research — skip the synthetic call
       : callLLM({ provider, apiKeyOverride, system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
           .catch(swallowStep({})),
-    callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock), userInput: analysisStr })
       .catch(swallowStep("")),
-    callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv, claimsBlock), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv, claimsBlock, variantBlock), userInput: analysisStr })
       .catch(swallowStep("")),
     callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock), userInput: analysisStr })
       .catch(swallowStep("")),
@@ -344,6 +350,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Claims registry is too large." }, { status: 400 });
     }
     const bodyClaims = normalizeClaims(body.claims);
+    // One variant, bounded like a stored one; anything malformed = none.
+    const bodyVariant = body.variant ? (normalizeVariants({ variants: [body.variant] })?.variants[0] ?? null) : null;
 
     // ── Quota + provider routing (shared brain — lib/llmRouting.ts) ───────────
     const route = await resolveLlmRoute(supabase, userId, { bodyProvider });
@@ -372,6 +380,7 @@ export async function POST(req: NextRequest) {
         companyResearch: bodyResearch,
         ...(projectsPool ? { projectsPool } : {}),
         claims: bodyClaims,
+        variant: bodyVariant,
       });
       // The unlimited (owner) path reports which provider ran, for the dropdown.
       return NextResponse.json(route.reason === "unlimited" ? { provider: route.provider, ...result } : result);

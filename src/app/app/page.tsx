@@ -19,6 +19,7 @@ import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLette
 import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
 import { normalizeClaims, checkClaims, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
 import { qualityReport, type QualityReport } from "@/lib/quality";
+import { normalizeVariants, pickVariant, type VariantsConfig } from "@/lib/variants";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
@@ -94,6 +95,9 @@ type Result = {
   gatesSummary?: GatesSummary;
   // The server's deterministic claim check of this exact output (lib/claims).
   claimCheck?: ClaimCheck;
+  // Attached client-side: the positioning variant this run was made with.
+  variantName?: string;
+  variantReason?: string;
 };
 
 const WHERE_LABEL: Record<ClaimWhere, string> = { cv: "CV", coverLetter: "cover letter", email: "email", extra: "text" };
@@ -243,6 +247,10 @@ export default function Home() {
   // Quality read of the preview AS EDITED (page estimate, duplicates, weak
   // bullets, filler); null = read the original result.
   const [liveQuality, setLiveQuality] = useState<QualityReport | null>(null);
+  // Positioning variants (Customize) and the user's override for this run
+  // (null = pick by the posting's role type; "none" = apply none).
+  const [variants, setVariants] = useState<VariantsConfig | null>(null);
+  const [variantOverride, setVariantOverride] = useState<string | null>(null);
 
   // Stage 3 — company research + Fit Score. Self-contained error state: the
   // server's limit messages are shown verbatim inside the research card, so
@@ -377,6 +385,7 @@ export default function Home() {
         const settings = await getUserSettings();
         setEligibility(settings.eligibility);
         setClaims(normalizeClaims(settings.claims));
+        setVariants(normalizeVariants(settings.variants));
         const p = await getProfile();
         setProfile(p);
       }
@@ -625,6 +634,11 @@ export default function Home() {
   const claimIssues = activeCheck ? activeCheck.skillViolations.length + activeCheck.numberViolations.length : 0;
   const blocked = !!activeCheck?.blocking;
 
+  // The positioning variant for this run: the override, else the one whose
+  // role types include the posting's role_type. Declared above executeTailor
+  // for the same reason as gateInfo.
+  const variantPick = pickVariant(variants, (gateAnalysis as { role_type?: unknown } | null)?.role_type, variantOverride);
+
   // Whether the saved research applies to the job in the JD box, for the
   // gate card and the outreach hint. "unknown" = the gate couldn't read a
   // company off the JD (agency postings often hide it) — no research is
@@ -697,6 +711,8 @@ export default function Home() {
           // The claims registry: what each skill may be called, and the
           // basis for the server's claim check of the output.
           ...(claims ? { claims } : {}),
+          // The positioning variant for this run (headline + lead skills).
+          ...(variantPick.variant ? { variant: variantPick.variant } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -718,7 +734,11 @@ export default function Home() {
         source === "jd" && gateExtras?.knockouts
           ? summarizeGates(gateExtras.knockouts.verdicts, gateExtras.knockouts.read.read)
           : undefined;
-      const fresh: Result = gatesSummary ? { ...(data as Result), gatesSummary } : (data as Result);
+      const fresh: Result = {
+        ...(data as Result),
+        ...(gatesSummary ? { gatesSummary } : {}),
+        ...(variantPick.variant ? { variantName: variantPick.variant.name, variantReason: variantPick.reason } : {}),
+      };
       setResult(fresh);
       setLiveCheck(null);
       setLiveQuality(null);
@@ -1527,6 +1547,24 @@ export default function Home() {
                   <Button variant={gateRead === "skip" ? "secondary" : "primary"} onClick={runFullTailor} disabled={loading}>
                     {loading ? "Tailoring…" : gateRead === "skip" ? "Tailor anyway (uses a credit) →" : "Continue to full tailoring →"}
                   </Button>
+                  {variants && variants.variants.length > 0 && (
+                    <span className="providerPick" data-variant-pick={variantPick.variant?.id ?? "none"}>
+                      <label htmlFor="variantSelect">Positioning</label>
+                      <select
+                        id="variantSelect"
+                        value={variantOverride ?? "auto"}
+                        onChange={(e) => setVariantOverride(e.target.value === "auto" ? null : e.target.value)}
+                        disabled={loading}
+                        title={variantPick.reason}
+                      >
+                        <option value="auto">Auto{variantOverride ? "" : variantPick.variant ? ` — ${variantPick.variant.name}` : " — none"}</option>
+                        {variants.variants.map((v) => (
+                          <option key={v.id} value={v.id}>{v.name}</option>
+                        ))}
+                        <option value="none">None</option>
+                      </select>
+                    </span>
+                  )}
                   {isUnlimited && (
                     <span className="providerPick">
                       <label htmlFor="providerSelect">Provider</label>
@@ -1636,6 +1674,12 @@ export default function Home() {
                 <span>
                   Tailored for <strong>{resultInfo.role || "this role"}</strong>
                   {resultInfo.company && <> at <strong>{resultInfo.company}</strong></>}
+                  {result.variantName && (
+                    <span data-variant-used={result.variantName}>
+                      {" "}· positioned as <strong>{result.variantName}</strong>
+                      {result.variantReason && <span className="fitEvidence" style={{ display: "block" }}>{result.variantReason}</span>}
+                    </span>
+                  )}
                 </span>
                 <button
                   type="button"

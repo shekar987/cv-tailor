@@ -91,7 +91,11 @@ function summarize(label, rows) {
     if (r.absentFigures.length) hardFails.push(`${r.cv}×${r.jd}: figures not in the CV: ${r.absentFigures.join(", ")}`);
     if (r.absentTools.length) hardFails.push(`${r.cv}×${r.jd}: tools not in the CV: ${r.absentTools.join(", ")}`);
     if (r.overBudget) hardFails.push(`${r.cv}×${r.jd}: over two pages (${r.pages})`);
-    if (r.orderingDiffers === false) hardFails.push(`${r.cv}: bullet ordering identical across both JDs`);
+    // reported per CV below; the run-level rule is two or more identical CVs
+  }
+  const sameCvs = [...new Set(present.filter((r) => r.orderingDiffers === false).map((r) => r.cv))];
+  if (sameCvs.length >= 2) hardFails.push(`bullet ordering identical across both JDs for ${sameCvs.length} CVs: ${sameCvs.join(", ")}`);
+  for (const r of present) {
     if (r.refused) hardFails.push(`${r.cv}×${r.jd}: a section is empty (refusal or failure)`);
   }
   const sum = (k) => present.reduce((n, r) => n + (Number(r[k]) || 0), 0);

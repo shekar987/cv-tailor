@@ -56,9 +56,10 @@ export const LENGTH_BUDGET = `LENGTH BUDGET — the finished CV must fit on TWO 
 - Trim ONLY by deleting whole bullets. Never merge two achievements into one sentence, never combine metrics, and never drop a qualifier that a claim depends on — that would state something the master CV does not support.
 - Never drop a whole role, and never change any employer, title, or date.`;
 
-export const summaryPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You write a 3-line achievement-oriented professional summary for a CV, tailored to a specific job.
+export const summaryPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, variantBlock: string = "") => `You write a 3-line achievement-oriented professional summary for a CV, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
+${variantBlock}
 
 MASTER CV:
 ${cv}
@@ -75,9 +76,10 @@ You will receive the JD analysis as JSON. Write exactly 3 lines — three SEPARA
 
 Output ONLY the 3-line summary as plain text. No headings, no preamble, no integrity check.`;
 
-export const skillsPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You write a tailored CV Skills section.
+export const skillsPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, variantBlock: string = "") => `You write a tailored CV Skills section.
 
 ${ABSOLUTE_RULES}
+${variantBlock}
 
 MASTER CV:
 ${cv}

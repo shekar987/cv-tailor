@@ -11,6 +11,7 @@ import {
   getUserSettings,
   saveEligibility,
   saveClaims,
+  saveVariants,
   getProfile,
   saveProfile,
   clearProfile,
@@ -42,6 +43,16 @@ const NEXT_LEVEL: Record<ClaimLevel, ClaimLevel> = { production: "project", proj
 import { splitTrailingDate } from "@/lib/projectDate";
 import { stripMarkdown } from "@/lib/markdownText";
 import { extractionFlags, mergeProfileEdits } from "@/lib/extractionCheck";
+import {
+  normalizeVariants,
+  newVariantId,
+  ROLE_TYPES,
+  ROLE_TYPE_LABEL,
+  MAX_VARIANTS,
+  type VariantsConfig,
+  type Variant,
+  type RoleType,
+} from "@/lib/variants";
 import CvUpload from "../CvUpload";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -140,6 +151,15 @@ export default function CustomizePage() {
   const [claimsMsg, setClaimsMsg] = useState("");
   const [claimsError, setClaimsError] = useState("");
   const [showFigures, setShowFigures] = useState(false);
+
+  // Positioning variants (user_settings.variants): headline + lead skills per
+  // role family, applied to the one master CV. Drafted here, saved as one.
+  const [variantsDraft, setVariantsDraft] = useState<Variant[]>([]);
+  const [leadSkillsText, setLeadSkillsText] = useState<Record<string, string>>({});
+  const [variantsColumnMissing, setVariantsColumnMissing] = useState(false);
+  const [variantsSaving, setVariantsSaving] = useState(false);
+  const [variantsMsg, setVariantsMsg] = useState("");
+  const [variantsError, setVariantsError] = useState("");
   const claimsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (claimsSaveTimer.current) clearTimeout(claimsSaveTimer.current); }, []);
   // The figures the checker will accept, straight from the saved CV (and
@@ -217,6 +237,12 @@ export default function CustomizePage() {
       if (active) {
         setSettingsMissing(settings.missingTable);
         setClaims(normalizeClaims(settings.claims));
+        setVariantsColumnMissing(settings.variantsColumnMissing);
+        const vc = normalizeVariants(settings.variants);
+        if (vc) {
+          setVariantsDraft(vc.variants);
+          setLeadSkillsText(Object.fromEntries(vc.variants.map((v) => [v.id, v.leadSkills.join(", ")])));
+        }
         if (settings.eligibility) {
           setEligibility(settings.eligibility);
           setEligCountries(settings.eligibility.rightToWork.countries.join(", "));
@@ -376,6 +402,49 @@ export default function CustomizePage() {
       confirmedAt: claims.confirmedAt ?? new Date().toISOString(),
     };
     persistClaims(next, "Levels confirmed. From now on a figure that isn't on your CV, or a learning skill in the output, blocks the download until you fix it.");
+  }
+
+  function updateVariant(id: string, patch: Partial<Variant>) {
+    setVariantsDraft((list) => list.map((v) => (v.id === id ? { ...v, ...patch } : v)));
+    setVariantsMsg("");
+    setVariantsError("");
+  }
+  function addVariant() {
+    if (variantsDraft.length >= MAX_VARIANTS) return;
+    const id = newVariantId();
+    setVariantsDraft((list) => [...list, { id, name: "", headline: "", roleTypes: [], leadSkills: [] }]);
+    setLeadSkillsText((m) => ({ ...m, [id]: "" }));
+    setVariantsMsg("");
+  }
+  function removeVariant(id: string) {
+    setVariantsDraft((list) => list.filter((v) => v.id !== id));
+    setVariantsMsg("");
+  }
+  async function handleSaveVariants() {
+    setVariantsMsg("");
+    setVariantsError("");
+    const config: VariantsConfig | null = normalizeVariants({
+      variants: variantsDraft.map((v) => ({ ...v, leadSkills: splitList(leadSkillsText[v.id] ?? "") })),
+    });
+    const dropped = variantsDraft.filter((v) => !v.name.trim()).length;
+    setVariantsSaving(true);
+    const res = await saveVariants(config && config.variants.length > 0 ? config : null);
+    setVariantsSaving(false);
+    if (res.ok) {
+      const saved = config?.variants ?? [];
+      setVariantsDraft(saved);
+      setLeadSkillsText(Object.fromEntries(saved.map((v) => [v.id, v.leadSkills.join(", ")])));
+      setVariantsMsg(
+        saved.length === 0
+          ? "Saved with no variants — tailoring uses your CV's own positioning."
+          : `Saved ${saved.length} variant${saved.length === 1 ? "" : "s"}${dropped ? ` (${dropped} without a name dropped)` : ""}. The pre-check picks one by the posting's role type; you can override it per run.`
+      );
+    } else if (res.missingColumn || res.missingTable) {
+      setVariantsColumnMissing(true);
+      setVariantsError("Your database doesn't have this feature's column yet — run supabase/migrations/20260917130000_user_settings_variants.sql in the Supabase SQL editor, then save again.");
+    } else {
+      setVariantsError("Couldn't save. Check your connection and try again.");
+    }
   }
 
   async function handleSaveCv() {
@@ -1030,6 +1099,79 @@ export default function CustomizePage() {
                 {claimsMsg && <StatusText tone="success" className="msgBelow" role="status">{claimsMsg}</StatusText>}
               </>
             )}
+          </Card>
+        )}
+
+        {/* Positioning variants — one headline + lead skills per role family,
+            applied to the one master CV. Only meaningful once a CV exists. */}
+        {masterCvText && (
+          <Card>
+            <div className="label">Positioning variants</div>
+            <p className="cvHelp">
+              A headline naming two roles (&quot;Full Stack Engineer | AI Engineer&quot;) halves the impact of both. Set one
+              positioning per kind of role: the summary opens with that headline and the skills section leads with those
+              skills, drawn from your master CV as always. The pre-check picks the variant whose role types match the
+              posting and says why; you can override it for any run.
+            </p>
+            {variantsColumnMissing && (
+              <p className="fitEvidence">
+                This feature&apos;s database column isn&apos;t set up yet (migration 20260917130000_user_settings_variants.sql).
+                Variants can&apos;t be saved until it is.
+              </p>
+            )}
+            {variantsDraft.map((v, idx) => (
+              <div className="extractSummary" key={v.id} data-variant-row={idx}>
+                <div className="profileGrid eligGrid">
+                  <label>
+                    Variant name
+                    <Input value={v.name} onChange={(e) => updateVariant(v.id, { name: e.target.value })} placeholder="e.g. Backend" />
+                  </label>
+                  <label>
+                    Headline (one positioning)
+                    <Input value={v.headline} onChange={(e) => updateVariant(v.id, { headline: e.target.value })} placeholder="e.g. Backend engineer (Java, Spring Boot)" />
+                  </label>
+                  <label>
+                    Lead with these skills (comma-separated, must be on your CV)
+                    <Input
+                      value={leadSkillsText[v.id] ?? ""}
+                      onChange={(e) => { const t = e.target.value; setLeadSkillsText((m) => ({ ...m, [v.id]: t })); setVariantsMsg(""); }}
+                      placeholder="e.g. Java, Spring Boot, PostgreSQL"
+                    />
+                  </label>
+                </div>
+                <div className="eligChecks">
+                  <span className="eligChecksLabel">Use for these kinds of role</span>
+                  {ROLE_TYPES.map((t: RoleType) => (
+                    <label key={t} className="eligCheck">
+                      <input
+                        type="checkbox"
+                        checked={v.roleTypes.includes(t)}
+                        onChange={(e) => {
+                          const on = e.target.checked;
+                          updateVariant(v.id, { roleTypes: on ? [...v.roleTypes.filter((x) => x !== t), t] : v.roleTypes.filter((x) => x !== t) });
+                        }}
+                      />
+                      {ROLE_TYPE_LABEL[t]}
+                    </label>
+                  ))}
+                </div>
+                <div className="actions">
+                  <Button variant="ghost" className="keyRemove" onClick={() => removeVariant(v.id)} disabled={variantsSaving}>
+                    Remove variant
+                  </Button>
+                </div>
+              </div>
+            ))}
+            <div className="actions">
+              <Button variant="secondary" onClick={addVariant} disabled={variantsSaving || variantsDraft.length >= MAX_VARIANTS}>
+                Add a variant
+              </Button>
+              <Button onClick={handleSaveVariants} disabled={variantsSaving || variantsColumnMissing}>
+                {variantsSaving ? "Saving…" : "Save variants"}
+              </Button>
+            </div>
+            {variantsError && <StatusText className="msgBelow" role="alert">{variantsError}</StatusText>}
+            {variantsMsg && <StatusText tone="success" className="msgBelow" role="status">{variantsMsg}</StatusText>}
           </Card>
         )}
 

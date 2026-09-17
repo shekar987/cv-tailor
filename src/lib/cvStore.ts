@@ -136,7 +136,11 @@ export type UserSettings = {
   eligibility: Eligibility | null
   // Normalized by lib/claims (the registry's own module) at the call site.
   claims: unknown
+  // Normalized by lib/variants at the call site. Column added by migration
+  // 20260917130000; reads retry without it.
+  variants: unknown
   missingTable: boolean
+  variantsColumnMissing: boolean
 }
 
 function isMissingTable(code: string | undefined): boolean {
@@ -144,24 +148,32 @@ function isMissingTable(code: string | undefined): boolean {
 }
 
 export async function getUserSettings(): Promise<UserSettings> {
-  const empty: UserSettings = { eligibility: null, claims: null, missingTable: false }
+  const empty: UserSettings = { eligibility: null, claims: null, variants: null, missingTable: false, variantsColumnMissing: false }
   try {
     const supabase = createClient()
-    const { data, error } = await supabase
+    let variantsColumnMissing = false
+    let { data, error } = await supabase
       .from('user_settings')
-      .select('eligibility, claims')
+      .select('eligibility, claims, variants')
       .maybeSingle()
+    if (error?.code === '42703') {
+      // variants column not migrated in yet — the other two still work.
+      variantsColumnMissing = true
+      ;({ data, error } = await supabase.from('user_settings').select('eligibility, claims').maybeSingle())
+    }
     if (error) {
       if (isMissingTable(error.code)) return { ...empty, missingTable: true }
       console.error('user_settings read error:', error.message)
       return empty
     }
-    if (!data) return empty
-    const row = data as { eligibility?: unknown; claims?: unknown }
+    if (!data) return { ...empty, variantsColumnMissing }
+    const row = data as { eligibility?: unknown; claims?: unknown; variants?: unknown }
     return {
       eligibility: row.eligibility ? normalizeEligibility(row.eligibility) : null,
       claims: row.claims ?? null,
+      variants: row.variants ?? null,
       missingTable: false,
+      variantsColumnMissing,
     }
   } catch (err) {
     console.error('user_settings read error:', err instanceof Error ? err.message : 'Unknown error')
@@ -170,8 +182,8 @@ export async function getUserSettings(): Promise<UserSettings> {
 }
 
 async function upsertUserSettings(
-  patch: { eligibility?: Eligibility | null; claims?: unknown }
-): Promise<{ ok: boolean; missingTable?: boolean }> {
+  patch: { eligibility?: Eligibility | null; claims?: unknown; variants?: unknown }
+): Promise<{ ok: boolean; missingTable?: boolean; missingColumn?: boolean }> {
   try {
     const userId = await getUserId()
     if (!userId) return { ok: false }
@@ -181,6 +193,7 @@ async function upsertUserSettings(
       .upsert({ user_id: userId, ...patch, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
     if (error) {
       if (isMissingTable(error.code)) return { ok: false, missingTable: true }
+      if (error.code === 'PGRST204') return { ok: false, missingColumn: true }
       console.error('user_settings write error:', error.message)
       return { ok: false }
     }
@@ -198,6 +211,10 @@ export function saveEligibility(eligibility: Eligibility): Promise<{ ok: boolean
 // null clears the registry (a replaced master CV starts a fresh one).
 export function saveClaims(claims: unknown | null): Promise<{ ok: boolean; missingTable?: boolean }> {
   return upsertUserSettings({ claims })
+}
+
+export function saveVariants(variants: unknown | null): Promise<{ ok: boolean; missingTable?: boolean; missingColumn?: boolean }> {
+  return upsertUserSettings({ variants })
 }
 
 export async function clearMasterCV(): Promise<void> {
