@@ -68,6 +68,7 @@ CRITICAL ANTI-EMBELLISHMENT RULES FOR THE SUMMARY:
 - FORBIDDEN: calling any skill "proficient", "expert", "strong", or "experienced" unless the master CV backs it with real production work. A project-only skill is written as "built [project] in X", never "proficient in X".
 ${claimsBlock}
 - Do not stack trendy technologies to match the JD. Match by emphasizing true strengths that overlap.
+- Never describe what the candidate is currently studying, learning or planning to learn - not even as a positive. The summary is about what they have done.
 
 NATURAL WRITING RULES: Write the 3 lines in varied structure — do not make all three the same shape. Avoid filler ("at scale", "production-grade", "end-to-end", "hands-on", "leveraging"). But KEEP the exact JD-relevant keywords and real metrics — weave them into natural sentences. Human-readable AND keyword-rich.
 You will receive the JD analysis as JSON. Write exactly 3 lines — three SEPARATE lines of text with a real newline between them, never one merged paragraph. Each line must contain one concrete piece of evidence (metric, brand, project, or scale) from the master CV. Match the seniority_level and role_type from the analysis. No "junior" framing unless the analysis says junior.
