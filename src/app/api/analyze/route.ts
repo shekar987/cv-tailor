@@ -4,7 +4,50 @@ import { callClaude } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { JD_ANALYZER_PROMPT } from "@/prompts/steps";
 import { matchAtsKeywords } from "@/lib/atsMatch";
-import { MAX_CV_CHARS, MAX_JD_CHARS, CV_TOO_LONG, JD_TOO_LONG } from "@/lib/limits";
+import {
+  detectGates,
+  mergeModelGates,
+  compareGates,
+  readVerdict,
+  jdQuality,
+  normalizeEligibility,
+  isEligibilitySet,
+} from "@/lib/knockouts";
+import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG } from "@/lib/limits";
+
+// Rows the user already saved with this exact job description. Goes through
+// an RPC because a 15k-char JD can't ride in a PostgREST filter URL; the
+// function is SECURITY INVOKER so RLS applies. A missing function (migration
+// not applied) or any error simply means "no duplicate check".
+type DuplicateRow = { id: string; company_name: string; role: string; date_applied: string };
+let warnedDuplicateLookup = false;
+async function findDuplicates(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  jd: string
+): Promise<DuplicateRow[] | null> {
+  try {
+    const { data, error } = await supabase.rpc("find_applications_by_jd", { p_jd: jd });
+    if (error) {
+      if (!warnedDuplicateLookup) {
+        warnedDuplicateLookup = true;
+        console.warn("analyze: duplicate-JD lookup unavailable:", error.message);
+      }
+      return null;
+    }
+    if (!Array.isArray(data) || data.length === 0) return null;
+    return data
+      .filter((r): r is DuplicateRow => !!r && typeof r === "object" && typeof (r as DuplicateRow).id === "string")
+      .slice(0, 3)
+      .map((r) => ({
+        id: r.id,
+        company_name: String(r.company_name ?? ""),
+        role: String(r.role ?? ""),
+        date_applied: String(r.date_applied ?? ""),
+      }));
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -42,13 +85,23 @@ export async function POST(req: NextRequest) {
     if (jobDescription.length > MAX_JD_CHARS) {
       return NextResponse.json({ error: JD_TOO_LONG }, { status: 400 });
     }
-    // cvText is optional: when present, this doubles as the pre-tailoring ATS
-    // gate (Step 1 only, plus a local keyword check — no extra LLM call).
-    // When absent, behaviour is exactly the original standalone JD analysis.
+    // cvText is optional: when present, this doubles as the pre-tailoring
+    // gate (Step 1 only, plus local keyword and eligibility checks — no extra
+    // LLM call). When absent, behaviour is the original standalone analysis
+    // plus the free gate/quality/duplicate reads.
     const cvText = typeof body.cvText === "string" ? body.cvText : "";
     if (cvText.length > MAX_CV_CHARS) {
       return NextResponse.json({ error: CV_TOO_LONG }, { status: 400 });
     }
+    // The user's eligibility answers, sent along by the client (never read
+    // from a table here). Absent or empty → every gate is "unknown".
+    if (body.eligibility !== undefined && JSON.stringify(body.eligibility).length > MAX_ELIGIBILITY_JSON) {
+      return NextResponse.json({ error: "Eligibility profile is too large." }, { status: 400 });
+    }
+    const eligibility = normalizeEligibility(body.eligibility);
+
+    // Free, and independent of the model call — run it alongside.
+    const duplicatesPromise = findDuplicates(supabase, jobDescription);
 
     const result = await callClaude({
       system: JD_ANALYZER_PROMPT,
@@ -56,13 +109,40 @@ export async function POST(req: NextRequest) {
       expectJson: true,
     });
 
+    const analysis = (result && typeof result === "object" ? result : {}) as {
+      top_15_ats_keywords?: unknown;
+      required_skills?: unknown;
+      hard_gates?: unknown;
+    };
+
+    // Knockout gates: deterministic detection is the source of truth; the
+    // model's hard_gates only add coverage and only when quoted verbatim.
+    const gates = mergeModelGates(detectGates(jobDescription), analysis.hard_gates, jobDescription);
+    const verdicts = compareGates(gates, eligibility);
+    const duplicateOf = await duplicatesPromise;
+    const quality = jdQuality(jobDescription);
+
     if (cvText.trim()) {
-      const analysis = result as { top_15_ats_keywords?: unknown };
-      const atsPreCheck = matchAtsKeywords(cvText, analysis?.top_15_ats_keywords);
-      return NextResponse.json({ result, atsPreCheck });
+      const atsPreCheck = matchAtsKeywords(cvText, analysis.top_15_ats_keywords);
+      const requiredPreCheck = matchAtsKeywords(cvText, analysis.required_skills);
+      const read = readVerdict(verdicts, requiredPreCheck.total > 0 ? requiredPreCheck : null, atsPreCheck.total > 0 ? atsPreCheck : null);
+      return NextResponse.json({
+        result,
+        atsPreCheck,
+        requiredPreCheck,
+        knockouts: { profileSet: isEligibilitySet(eligibility), verdicts, read },
+        jdQuality: quality,
+        duplicateOf,
+      });
     }
 
-    return NextResponse.json({ result });
+    const read = readVerdict(verdicts, null, null);
+    return NextResponse.json({
+      result,
+      knockouts: { profileSet: isEligibilitySet(eligibility), verdicts, read },
+      jdQuality: quality,
+      duplicateOf,
+    });
   } catch (error) {
     console.error("Analyze API error:", error instanceof Error ? error.message : "Unknown error");
     return NextResponse.json({ error: "Failed to analyze JD" }, { status: 500 });

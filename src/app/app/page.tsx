@@ -1,6 +1,15 @@
 "use client";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { getMasterCV, getProfile, importFromLocalStorageIfNeeded, type Profile } from "@/lib/cvStore";
+import { getMasterCV, getProfile, getUserSettings, importFromLocalStorageIfNeeded, type Profile } from "@/lib/cvStore";
+import {
+  jdQuality,
+  summarizeGates,
+  CATEGORY_LABEL,
+  type Eligibility,
+  type GateVerdict,
+  type GateRead,
+  type GatesSummary,
+} from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
 import { companyNamesMatch } from "@/lib/companyMatch";
 import { createClient } from "@/lib/supabase/client";
@@ -10,7 +19,7 @@ import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLette
 import type { AtsMatchResult } from "@/lib/atsMatch";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
-import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS } from "@/lib/limits";
+import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
 import { getUsage, type Usage } from "@/lib/usage";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -77,7 +86,30 @@ type Result = {
   // from the user's project pool. Present only when a pool was sent; the
   // display profile derives its projects from this instead of the master CV's.
   selectedProjects?: { name?: string; date?: string; tech?: string; bullets?: string[] }[];
+  // Attached client-side on a JD run: the eligibility-gate read the pre-check
+  // gave this job, kept with the result (and its workspace copy) so the
+  // Applied row can store it after the gate state is cleared.
+  gatesSummary?: GatesSummary;
 };
+
+// What /api/analyze returns beside the keyword pre-check.
+type GateExtras = {
+  required: AtsMatchResult | null;
+  knockouts: { profileSet: boolean; verdicts: GateVerdict[]; read: { read: GateRead; reason: string } } | null;
+  duplicateOf: { id: string; company_name: string; role: string; date_applied: string }[] | null;
+};
+
+const READ_LABEL: Record<GateRead, string> = {
+  apply: "Apply",
+  long_shot: "Long shot",
+  skip: "Likely auto-rejected",
+};
+const VERDICT_RANK: Record<GateVerdict["verdict"], number> = { hard: 0, soft: 1, pass: 2, unknown: 3 };
+
+function formatDay(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
 
 type AppliedState = "idle" | "saving" | "saved" | "already" | "error";
 
@@ -188,6 +220,13 @@ export default function Home() {
   const [gateAnalysis, setGateAnalysis] = useState<unknown>(null);
   const [gateLoading, setGateLoading] = useState(false);
   const [gateError, setGateError] = useState("");
+  // The rest of the pre-check: required-skill coverage, eligibility-gate
+  // verdicts + the one-line read, and tracker rows with this exact JD.
+  // Cleared with preCheck — it belongs to the same JD.
+  const [gateExtras, setGateExtras] = useState<GateExtras | null>(null);
+  // The user's eligibility answers (Customize), sent with the pre-check so
+  // the server can compare each gate. null = never set up.
+  const [eligibility, setEligibility] = useState<Eligibility | null>(null);
 
   // Stage 3 — company research + Fit Score. Self-contained error state: the
   // server's limit messages are shown verbatim inside the research card, so
@@ -319,6 +358,8 @@ export default function Home() {
       if (stored) {
         setMasterCvText(stored.text);
         setProjectsPool(stored.projectsPool ?? "");
+        const settings = await getUserSettings();
+        setEligibility(settings.eligibility);
         const p = await getProfile();
         setProfile(p);
       }
@@ -431,6 +472,7 @@ export default function Home() {
     const jd = [o.title, o.location].filter(Boolean).join("\n") + (o.description ? `\n\n${o.description}` : "");
     setJobDescription(jd.trim());
     setPreCheck(null);
+    setGateExtras(null);
     setGateAnalysis(null);
     setGateError("");
     const el = document.getElementById("jd");
@@ -514,7 +556,7 @@ export default function Home() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobDescription, cvText: masterCvText }),
+        body: JSON.stringify({ jobDescription, cvText: masterCvText, ...(eligibility ? { eligibility } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -522,6 +564,11 @@ export default function Home() {
       } else {
         setGateAnalysis(data.result ?? null);
         setPreCheck(data.atsPreCheck ?? null);
+        setGateExtras({
+          required: data.requiredPreCheck ?? null,
+          knockouts: data.knockouts ?? null,
+          duplicateOf: Array.isArray(data.duplicateOf) && data.duplicateOf.length > 0 ? data.duplicateOf : null,
+        });
       }
     } catch {
       setGateError("Couldn't reach the server for the keyword check. You can still tailor without it.");
@@ -540,6 +587,17 @@ export default function Home() {
     const company = realValue(typeof a?.company_name === "string" ? a.company_name : "");
     return role || company ? { role, company } : null;
   }, [gateAnalysis]);
+
+  // The eligibility read and its verdicts, hard fails first, "check these
+  // yourself" last. Declared above executeTailor for the same reason.
+  const gateRead: GateRead = gateExtras?.knockouts?.read.read ?? "apply";
+  const gateVerdicts = useMemo(
+    () => [...(gateExtras?.knockouts?.verdicts ?? [])].sort((a, b) => VERDICT_RANK[a.verdict] - VERDICT_RANK[b.verdict]),
+    [gateExtras]
+  );
+  // Partial-posting warning: computed locally, so it shows on the skip card
+  // too (the pre-check may have failed before it could say anything).
+  const jdInfo = jdQuality(jobDescription);
 
   // Whether the saved research applies to the job in the JD box, for the
   // gate card and the outreach hint. "unknown" = the gate couldn't read a
@@ -625,7 +683,14 @@ export default function Home() {
       const sessionId = typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      setResult(data);
+      // A JD run keeps the pre-check's eligibility read with its result, so
+      // the Applied row can record it after the gate state is cleared below.
+      const gatesSummary =
+        source === "jd" && gateExtras?.knockouts
+          ? summarizeGates(gateExtras.knockouts.verdicts, gateExtras.knockouts.read.read)
+          : undefined;
+      const fresh: Result = gatesSummary ? { ...(data as Result), gatesSummary } : (data as Result);
+      setResult(fresh);
       setRanProvider(typeof data.provider === "string" ? data.provider : null);
       setTailorSessionId(sessionId);
       // The text this run was tailored from — the JD box for a JD run, the
@@ -644,8 +709,9 @@ export default function Home() {
       if (source === "jd") {
         setPreCheck(null);
         setGateAnalysis(null);
+        setGateExtras(null);
       }
-      return data as Result;
+      return fresh;
     } catch {
       setError("Couldn't reach the server. Check it's running and try again.");
       setErrorType(null);
@@ -757,6 +823,9 @@ export default function Home() {
               keywords: analysis?.top_15_ats_keywords ?? [],
               required: analysis?.required_skills ?? [],
             },
+            // The eligibility read this run was made under, for the
+            // tracker's "what's working" view.
+            ...(result.gatesSummary ? { gates: result.gatesSummary } : {}),
           },
         }),
       });
@@ -1137,6 +1206,7 @@ export default function Home() {
                   if (preCheck || gateAnalysis) {
                     setPreCheck(null);
                     setGateAnalysis(null);
+                    setGateExtras(null);
                     setGateError("");
                   }
                 }}
@@ -1179,6 +1249,9 @@ export default function Home() {
             {gateError && !preCheck && (
               <Card variant="dashed">
                 <p className="gateNote" style={{ marginBottom: 'var(--space-3)' }}>{gateError}</p>
+                {jdInfo.partial && (
+                  <p className="gateNote" style={{ marginBottom: 'var(--space-3)' }}>{JD_PARTIAL_NOTICE}</p>
+                )}
                 {research?.profile?.company_name && (
                   <p className="gateNote" style={{ marginBottom: 'var(--space-3)' }}>
                     Without the check we can&apos;t confirm this job is at{" "}
@@ -1222,7 +1295,64 @@ export default function Home() {
                     )}
                   </p>
                 )}
-                <div className="gateLabel">Rough keyword match, before tailoring</div>
+                {gateExtras?.duplicateOf && (
+                  <div className="limitNotice" role="status" style={{ marginBottom: 'var(--space-4)' }} data-gate-duplicate>
+                    You already saved this exact job description:{" "}
+                    {gateExtras.duplicateOf.map((d, i) => (
+                      <span key={d.id}>
+                        {i > 0 ? "; " : ""}
+                        <strong>{d.company_name} — {d.role}</strong>, applied {formatDay(d.date_applied)}
+                      </span>
+                    ))}
+                    . Continue only if this is a genuinely new application.
+                  </div>
+                )}
+                {jdInfo.partial && (
+                  <div className="limitNotice" role="status" style={{ marginBottom: 'var(--space-4)' }} data-gate-partial>
+                    {JD_PARTIAL_NOTICE}
+                  </div>
+                )}
+                {gateExtras?.knockouts && (
+                  <>
+                    <div className="gateLabel">Read on this application</div>
+                    <Badge variant="value" tone={gateRead === "apply" ? "success" : "neutral"} data-gate-read={gateRead}>
+                      {READ_LABEL[gateRead]}
+                    </Badge>
+                    <p className="gateNote">
+                      {gateExtras.knockouts.read.reason}
+                      {!gateExtras.knockouts.profileSet && (
+                        <>
+                          {" "}Set up your eligibility answers in{" "}
+                          <Link href="/customize" className="customizeLink">Customize</Link> (about 2 minutes) and this
+                          check turns each job&apos;s eligibility conditions into pass or fail before you spend a tailor.
+                        </>
+                      )}
+                    </p>
+                    {gateVerdicts.length > 0 && (
+                      <div className="atsGroup">
+                        <div className={"atsGroupLabel " + (gateExtras.knockouts.verdicts.some((x) => x.verdict === "hard") ? "misses" : "recs")}>
+                          Eligibility gates ({gateVerdicts.length})
+                        </div>
+                        <ul className="atsList" data-gate-list>
+                          {gateVerdicts.map((x, i) => (
+                            <li key={i} data-gate-verdict={x.verdict}>
+                              <Badge variant="dot" tone={x.verdict === "hard" ? "miss" : x.verdict === "pass" ? "hit" : "rec"}>
+                                {x.verdict === "hard" ? "✕" : x.verdict === "pass" ? "✓" : x.verdict === "soft" ? "→" : "?"}
+                              </Badge>
+                              <span>
+                                <strong>{CATEGORY_LABEL[x.gate.category]}:</strong> &ldquo;{x.gate.requirement}&rdquo; — {x.reason}
+                                {x.wording && <span className="fitEvidence" style={{ display: "block" }}>Say: {x.wording}</span>}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                )}
+                <div className="gateLabel" style={gateExtras?.knockouts ? { marginTop: 'var(--space-5)' } : undefined}>
+                  Rough keyword match, before tailoring
+                </div>
                 <Badge variant="value" tone={preCheck.matched >= 10 ? "success" : "neutral"}>
                   {preCheck.matched}/{preCheck.total}
                 </Badge>
@@ -1232,9 +1362,22 @@ export default function Home() {
                     : "Below the usual 10-keyword mark for your CV as-is — tailoring can still genuinely help by surfacing real adjacent skills, though a gap this size may be honest too."}
                   {" "}This checks literal keyword presence in your raw CV; the tailored version gets scored separately afterward, and the two numbers can differ.
                 </p>
+                {gateExtras?.required && gateExtras.required.total > 0 && (
+                  <>
+                    <div className="gateLabel">Required skills in your CV</div>
+                    <Badge variant="value" tone={gateExtras.required.matched / gateExtras.required.total >= 0.5 ? "success" : "neutral"}>
+                      {gateExtras.required.matched}/{gateExtras.required.total}
+                    </Badge>
+                    <p className="gateNote">
+                      {gateExtras.required.missedKeywords.length > 0
+                        ? `Not in your CV as it stands: ${gateExtras.required.missedKeywords.join(", ")}.`
+                        : "Every required skill the posting names is in your CV."}
+                    </p>
+                  </>
+                )}
                 <div className="gateActions">
-                  <Button onClick={runFullTailor} disabled={loading}>
-                    {loading ? "Tailoring…" : "Continue to full tailoring →"}
+                  <Button variant={gateRead === "skip" ? "secondary" : "primary"} onClick={runFullTailor} disabled={loading}>
+                    {loading ? "Tailoring…" : gateRead === "skip" ? "Tailor anyway (uses a credit) →" : "Continue to full tailoring →"}
                   </Button>
                   {isUnlimited && (
                     <span className="providerPick">

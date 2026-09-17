@@ -17,8 +17,16 @@ Output ONLY a JSON object (no prose, no markdown fences) with these fields:
   "top_15_ats_keywords": ["top 15 ATS keywords, priority ordered"],
   "company_values_and_culture": ["3-6 cultural signals"],
   "domain_context": "1 sentence on what the product does",
-  "tone_signals": "formal | semi-formal | founder-casual | technical-dense"
-}`;
+  "tone_signals": "formal | semi-formal | founder-casual | technical-dense",
+  "hard_gates": [
+    {
+      "category": "sponsorship | clearance | years | location | degree | licence | employment_type",
+      "requirement": "the sentence or bullet COPIED VERBATIM from the job description",
+      "strictness": "must | preferred"
+    }
+  ]
+}
+hard_gates are the conditions an application form screens on before anyone reads the CV: right to work / visa sponsorship, security clearance (SC, DV, BPSS, NPPV, Secret/TS), a number of years stated as a requirement, on-site / hybrid / location or relocation conditions, a required degree or degree class, licences or certifications that must already be held, and contract vs permanent terms. Copy each requirement sentence exactly as written - a deterministic checker discards any entry it cannot find verbatim in the text. Use "preferred" when the posting says nice-to-have, ideally, desirable or a plus. Empty array when there are none. Never infer a gate the text does not state.`;
 
 // The rendered CV must fit TWO A4 pages. Page count is a product of this length
 // budget and the layout density in api/download/route.ts — change one and

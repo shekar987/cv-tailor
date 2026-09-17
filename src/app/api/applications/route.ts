@@ -102,6 +102,32 @@ function scoreSnapshot(snapshot: Record<string, unknown>, atsInput: unknown) {
   return { keywords: verdict(keywords), required: verdict(required), computedAt: new Date().toISOString() };
 }
 
+// The eligibility-gate read the pre-check gave this run (lib/knockouts
+// GatesSummary), stored for the tracker's insights: which reads went on to
+// progress. Bounded enums and counts only; anything malformed is dropped.
+const GATE_READS = ["apply", "long_shot", "skip"] as const;
+const GATE_CATEGORIES = ["sponsorship", "clearance", "years", "location", "degree", "licence", "employment_type"] as const;
+const GATE_VERDICTS = ["pass", "soft", "hard", "unknown"] as const;
+function cleanGates(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const g = value as Record<string, unknown>;
+  if (typeof g.read !== "string" || !(GATE_READS as readonly string[]).includes(g.read)) return null;
+  const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(50, Math.round(v))) : 0);
+  const items = Array.isArray(g.items)
+    ? g.items
+        .filter(
+          (x): x is { category: string; verdict: string } =>
+            !!x &&
+            typeof x === "object" &&
+            (GATE_CATEGORIES as readonly string[]).includes((x as { category?: unknown }).category as string) &&
+            (GATE_VERDICTS as readonly string[]).includes((x as { verdict?: unknown }).verdict as string)
+        )
+        .slice(0, 20)
+        .map((x) => ({ category: x.category, verdict: x.verdict }))
+    : [];
+  return { read: g.read, hard: count(g.hard), soft: count(g.soft), unknown: count(g.unknown), items };
+}
+
 // The CV snapshot comes from our own client, so this only pins the shape and
 // size: a plain object, known keys only, bounded JSON. Two keys ride along
 // with the sections — the cover letter as sent (text, capped, rejected rather
@@ -124,6 +150,8 @@ function cleanTailoredCv(value: unknown): { snapshot: Record<string, unknown> | 
   }
   const ats = scoreSnapshot(snapshot, input.ats);
   if (ats) snapshot.ats = ats;
+  const gates = cleanGates(input.gates);
+  if (gates) snapshot.gates = gates;
   if (JSON.stringify(snapshot).length > MAX_TAILORED_CV_JSON) {
     return { error: "Tailored CV snapshot is too large to store." };
   }
