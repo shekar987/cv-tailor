@@ -1,0 +1,80 @@
+{
+  "_note": "Synthetic CV/JD pairs for the tailoring evaluation harness (Brief 3). Every CV is invented. Each CV has two JDs with different emphasis so bullet ordering can be compared. Figures in the CVs are the ground truth for the numeric-claim assertion; 'Currently learning' lines are the ground truth for the learning-skill assertion.",
+  "cvs": [
+    {
+      "id": "java-backend",
+      "learning": ["Kubernetes", "Kafka"],
+      "text": "PRIYA NAIR\nBackend Engineer | London | priya@example.com | linkedin.com/in/priyanair\n\nSUMMARY\nBackend engineer with 4 years building Java services for retail and payments.\n\nSKILLS\nCore: Java 17, Spring Boot, PostgreSQL, REST APIs, Docker, GitHub Actions, AWS (EC2, S3, RDS)\nWorking knowledge: Python, Redis, Terraform\nCurrently learning: Kubernetes, Kafka\n\nEXPERIENCE\nBackend Engineer | Shopwell | Mar 2022 – Present\n- Rebuilt the order service in Spring Boot, cutting p95 checkout latency from 900ms to 380ms.\n- Designed the PostgreSQL schema for 12 million orders a year; query time down 45% after indexing work.\n- Owned the GitHub Actions pipeline for 9 services; deploy time cut from 40 minutes to 8.\n- Mentored 2 junior engineers through weekly code review.\n- On the on-call rota for a platform handling 2,000 requests per second at peak.\n\nJunior Developer | Brightpay | Jul 2020 – Feb 2022\n- Built REST endpoints for payouts in Java, used by 300 merchant integrations.\n- Wrote the Redis cache for exchange rates, removing 70% of upstream calls.\n- Migrated 3 services from EC2 to Docker on AWS.\n\nPROJECTS\nLedger Lite | 2023\nTech: Java, Spring Boot, PostgreSQL\n- Double-entry ledger with 98% test coverage; used by 40 users at a co-op.\n\nEDUCATION\nBSc Computer Science | University of Leeds | 2017 – 2020\n\nCERTIFICATIONS\n- AWS Certified Developer – Associate\n\nRIGHT TO WORK\nUK: full right to work, no sponsorship needed",
+      "jds": [
+        {
+          "id": "payments-perf",
+          "text": "Senior Backend Engineer (Java) - Northwind Payments\nAbout the role\nYou will own the latency and reliability of our payments API: Spring Boot services, PostgreSQL, and the pipeline that ships them to AWS every day. Our p95 targets are strict and we measure everything.\n\nRequirements\n- 3+ years building backend services in Java and Spring Boot.\n- Strong PostgreSQL: schema design, indexing, query tuning under load.\n- Experience owning performance work: latency budgets, profiling, caching (Redis).\n- Docker and CI/CD (GitHub Actions); deploying to AWS.\n- Comfortable on an on-call rota for a high-throughput API.\n\nNice to have\n- Kafka, Kubernetes, Terraform.\n\nWhat we offer\n- Hybrid, 2 days a week in our London office. 26 days holiday, pension, learning budget."
+        },
+        {
+          "id": "platform-cicd",
+          "text": "Platform Engineer - Acme Logistics\nAbout the role\nYou will run the delivery platform for 40 engineers: build pipelines, container images, environments and the deployment path to AWS. Less feature code, more making everyone else faster and safer.\n\nRequirements\n- Deep experience with CI/CD: GitHub Actions or similar, pipeline design, deployment automation.\n- Docker in production; infrastructure as code (Terraform).\n- AWS (EC2, S3, IAM) and migrating services between environments.\n- A backend background (Java or Python) so you understand what you're shipping.\n- Mentoring and developer-experience work: you make other engineers better.\n\nNice to have\n- Kubernetes, Redis, PostgreSQL.\n\nDetails\n- Remote-friendly within the UK. 25 days holiday."
+        }
+      ]
+    },
+    {
+      "id": "react-frontend",
+      "learning": ["Rust", "WebGL"],
+      "text": "TOM ADEYEMI\nFrontend Engineer | Manchester | tom@example.com\n\nSUMMARY\nFrontend engineer, 5 years shipping React products for consumer and B2B teams.\n\nSKILLS\nCore: TypeScript, React, Next.js, CSS, Jest, React Testing Library, Playwright, Storybook\nWorking knowledge: Node.js, GraphQL, Figma\nCurrently learning: Rust, WebGL\n\nEXPERIENCE\nSenior Frontend Engineer | Clearview Insurance | Jan 2022 – Present\n- Led the rebuild of the quote journey in Next.js; conversion up 18% and Lighthouse performance from 61 to 94.\n- Cut bundle size 35% by code-splitting and replacing 3 libraries with platform APIs.\n- Set up Playwright end-to-end tests covering the 12 core journeys; production regressions down 60%.\n- Ran the design-system working group with 2 designers and 6 engineers.\n\nFrontend Developer | Lumen Media | Sep 2019 – Dec 2021\n- Built the article editor in React and TypeScript, used by 150 journalists daily.\n- Added accessibility fixes that took the site to WCAG 2.1 AA across 40 templates.\n- Wrote Storybook docs for 70 components.\n\nPROJECTS\nChartlet | 2024\nTech: React, TypeScript, D3\n- Open-source charting kit with 1,200 GitHub stars.\n\nEDUCATION\nBA Design and Computing | Manchester Metropolitan University | 2015 – 2018\n\nRIGHT TO WORK\nUK citizen",
+      "jds": [
+        {
+          "id": "perf-web",
+          "text": "Senior Frontend Engineer - Swiftcart\nAbout the role\nOur storefront serves 4 million shoppers a month and every 100ms costs us money. You'll own web performance and the React/Next.js stack behind checkout.\n\nRequirements\n- 4+ years with React and TypeScript in production; Next.js experience.\n- A track record on web performance: Core Web Vitals, bundle size, Lighthouse.\n- Testing discipline: Jest, Playwright or Cypress, CI on every merge.\n- Code-splitting, caching and rendering strategies (SSR/ISR).\n\nNice to have\n- Design systems, GraphQL, WebGL.\n\nDetails\n- Hybrid, London. 28 days holiday."
+        },
+        {
+          "id": "design-system",
+          "text": "Design Systems Engineer - Halden Bank\nAbout the role\nYou will own the component library used by 14 product teams: Storybook, tokens, accessibility, and the working relationship with design. Less pixel-pushing on one product, more making every product consistent and accessible.\n\nRequirements\n- Strong React and TypeScript; Storybook-driven component development.\n- Accessibility to WCAG 2.1 AA as a habit, not an afterthought.\n- Experience running a design system or shared component library across teams.\n- Working closely with designers (Figma) and writing component documentation.\n\nNice to have\n- Next.js, Playwright, visual regression testing.\n\nDetails\n- Hybrid, Manchester, 3 days a week. Permanent."
+        }
+      ]
+    },
+    {
+      "id": "data-engineer",
+      "learning": ["Flink", "Scala"],
+      "text": "MARIA KOWALSKI\nData Engineer | Bristol | maria@example.com\n\nSUMMARY\nData engineer, 6 years building batch and streaming pipelines on AWS.\n\nSKILLS\nCore: Python, SQL, Apache Spark, Airflow, dbt, Snowflake, AWS (S3, Glue, Redshift), Terraform\nWorking knowledge: Kafka, Docker, Great Expectations\nCurrently learning: Flink, Scala\n\nEXPERIENCE\nSenior Data Engineer | Meridian Retail | Feb 2021 – Present\n- Built the Airflow and dbt platform that runs 340 daily jobs; on-time delivery went from 82% to 99.5%.\n- Migrated 60 TB from Redshift to Snowflake with zero data loss, cutting warehouse cost 38%.\n- Wrote Great Expectations checks on 45 tables; bad-data incidents down from 9 a quarter to 1.\n- Streaming: Kafka to S3 ingestion for 25,000 events a second at peak.\n\nData Engineer | Ospray Analytics | Jun 2018 – Jan 2021\n- Spark jobs on AWS Glue processing 3 billion rows a month.\n- Terraform modules for the data platform, used by 4 teams.\n- Trained 8 analysts on dbt.\n\nPROJECTS\nCityflow | 2022\nTech: Python, Airflow, PostgreSQL\n- Open-data traffic pipeline for Bristol, 1.2 million records.\n\nEDUCATION\nMSc Data Science | University of Bristol | 2017 – 2018\nBSc Mathematics | University of Warsaw | 2013 – 2017\n\nRIGHT TO WORK\nEU citizen with UK settled status",
+      "jds": [
+        {
+          "id": "streaming",
+          "text": "Senior Data Engineer (Streaming) - Pulsewave\nAbout the role\nWe process 200,000 events a second from connected devices. You will own the streaming path: Kafka, real-time transformations, and the storage layer on AWS.\n\nRequirements\n- Production streaming experience: Kafka, event schemas, exactly-once semantics.\n- Python and SQL; Spark or Flink.\n- AWS data services (S3, Glue) and infrastructure as code.\n- Data quality tooling and on-call ownership of pipelines.\n\nNice to have\n- Flink, Scala, dbt, Snowflake.\n\nDetails\n- Hybrid, Bristol. 27 days holiday."
+        },
+        {
+          "id": "warehouse",
+          "text": "Analytics Engineer - Fernhill Health\nAbout the role\nYou will build and run our Snowflake warehouse and the dbt models 30 analysts depend on. Batch, not streaming: reliability, cost, and data quality are the job.\n\nRequirements\n- dbt and Snowflake in production; Airflow or similar orchestration.\n- Warehouse cost management and migration experience.\n- Data quality frameworks (Great Expectations or similar) and clear documentation.\n- Training and supporting analysts; strong SQL.\n\nNice to have\n- Spark, Terraform, Python.\n\nDetails\n- Remote, UK. 25 days holiday."
+        }
+      ]
+    },
+    {
+      "id": "devops",
+      "learning": ["Go", "eBPF"],
+      "text": "SAM O'BRIEN\nDevOps Engineer | Edinburgh | sam@example.com\n\nSUMMARY\nDevOps engineer, 7 years running Kubernetes platforms and on-call for SaaS products.\n\nSKILLS\nCore: Kubernetes, Helm, Terraform, AWS, GCP, Docker, Prometheus, Grafana, Bash, Python, GitLab CI, ArgoCD\nWorking knowledge: Java, PostgreSQL, Vault\nCurrently learning: Go, eBPF\n\nEXPERIENCE\nLead DevOps Engineer | Tidewater SaaS | Apr 2020 – Present\n- Run 3 Kubernetes clusters (EKS) serving 180 microservices with 99.95% availability over 3 years.\n- Cut cloud spend 31% (about £420k a year) through rightsizing, spot nodes and Terraform-managed autoscaling.\n- Built the ArgoCD GitOps pipeline; 45 deploys a day across 12 teams with a 0.8% change-failure rate.\n- Prometheus and Grafana observability stack with 210 alerts tuned; pages down 55%.\n- Led incident response for 40 incidents; mean time to recovery from 95 minutes to 22.\n\nDevOps Engineer | Kestrel Digital | Jan 2017 – Mar 2020\n- Moved 30 services from VMs to Docker on GCP.\n- Wrote GitLab CI templates used by 8 teams.\n- Managed Vault for secrets across 5 environments.\n\nPROJECTS\nClusterlint | 2023\nTech: Python, Kubernetes\n- CLI that catches Helm misconfigurations; 600 downloads a month.\n\nEDUCATION\nBEng Software Engineering | Heriot-Watt University | 2012 – 2016\n\nCERTIFICATIONS\n- Certified Kubernetes Administrator\n- AWS Certified Solutions Architect – Associate\n\nRIGHT TO WORK\nUK citizen",
+      "jds": [
+        {
+          "id": "sre-reliability",
+          "text": "Site Reliability Engineer - Beacon Health\nAbout the role\nYou will own availability for a clinical SaaS platform: SLOs, incident response, observability, and the Kubernetes clusters it runs on.\n\nRequirements\n- Kubernetes in production (EKS or GKE) at multi-cluster scale.\n- Incident management and on-call leadership; MTTR and change-failure rate are numbers you've moved.\n- Observability: Prometheus, Grafana, alert tuning.\n- Terraform and GitOps (ArgoCD or Flux).\n\nNice to have\n- Go, eBPF, Vault.\n\nDetails\n- Hybrid, Edinburgh. Must be eligible for BPSS."
+        },
+        {
+          "id": "finops",
+          "text": "Cloud Cost Engineer - Granite Media\nAbout the role\nOur AWS and GCP bill is £3m a year and growing. You'll build the tooling and practice to bring it down: rightsizing, spot, autoscaling, and showback per team.\n\nRequirements\n- Demonstrated cloud cost reduction with numbers.\n- Terraform-managed infrastructure on AWS and GCP.\n- Kubernetes autoscaling and node management.\n- Python or Bash for tooling; dashboards for engineering teams.\n\nNice to have\n- ArgoCD, GitLab CI, Prometheus.\n\nDetails\n- Remote, UK."
+        }
+      ]
+    },
+    {
+      "id": "ml-engineer",
+      "learning": ["Kubeflow", "JAX"],
+      "text": "AISHA RAHMAN\nMachine Learning Engineer | Cambridge | aisha@example.com\n\nSUMMARY\nML engineer, 4 years taking models from notebooks to production for fraud and recommendations.\n\nSKILLS\nCore: Python, PyTorch, scikit-learn, pandas, SQL, MLflow, FastAPI, Docker, AWS SageMaker, Airflow\nWorking knowledge: Spark, Kubernetes, Terraform\nCurrently learning: Kubeflow, JAX\n\nEXPERIENCE\nMachine Learning Engineer | Ferrous Bank | Sep 2021 – Present\n- Shipped the card-fraud model serving 50 million transactions a month; fraud losses down 23% with a 0.4% false-positive rate.\n- Built the feature pipeline in Airflow and Spark, refreshing 320 features hourly.\n- FastAPI model service on SageMaker at 40ms p99; deployed 14 model versions with MLflow.\n- Wrote the model monitoring that caught 3 drift incidents before customers did.\n\nData Scientist | Nimbus Retail | Aug 2019 – Aug 2021\n- Recommendation model raising basket size 9% for 2 million shoppers.\n- Trained 5 analysts on scikit-learn workflows.\n\nPROJECTS\nDriftwatch | 2023\nTech: Python, FastAPI, PostgreSQL\n- Open-source drift monitoring; used by 3 companies.\n\nEDUCATION\nMSc Machine Learning | University of Cambridge | 2018 – 2019\nBSc Statistics | University of Manchester | 2015 – 2018\n\nRIGHT TO WORK\nUK: indefinite leave to remain",
+      "jds": [
+        {
+          "id": "fraud-realtime",
+          "text": "Senior ML Engineer (Fraud) - Vantage Pay\nAbout the role\nYou will own real-time fraud models in production: feature pipelines, low-latency serving, monitoring and retraining for 80 million transactions a month.\n\nRequirements\n- Production ML at scale: serving latency, monitoring, drift, retraining.\n- Python, PyTorch or similar; feature pipelines (Airflow, Spark).\n- Model serving with FastAPI or similar on AWS (SageMaker).\n- Experiment tracking (MLflow) and clear evaluation of false-positive trade-offs.\n\nNice to have\n- Kubernetes, Kubeflow, JAX.\n\nDetails\n- Hybrid, London, 2 days a week."
+        },
+        {
+          "id": "recsys",
+          "text": "Recommendations Engineer - Bloomcart\nAbout the role\nYou'll build the recommendation system for a 6-million-shopper marketplace: candidate generation, ranking, offline evaluation and A/B tests with the product team.\n\nRequirements\n- Recommendation or ranking models in production with measured business impact.\n- Python, scikit-learn or PyTorch, SQL; experiment design.\n- Working with analysts and product managers; teaching and documentation.\n- Batch feature pipelines.\n\nNice to have\n- Spark, SageMaker, FastAPI.\n\nDetails\n- Remote, UK."
+        }
+      ]
+    }
+  ]
+}

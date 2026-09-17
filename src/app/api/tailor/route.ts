@@ -260,10 +260,12 @@ async function runPipeline(opts: {
   // Deterministic claim check on the finished text — same precedent as
   // reconcileAtsScore: no model call, computed from exactly what the user
   // sees. The client re-runs the same function on the edited preview.
+  // The letter may quote the posting's own facts about the company; the CV
+  // may not, so only the letter gets the JD as a source.
   const claimCheck = checkClaims(
     [
       { where: "cv", text: tailoredSectionsText(sections) },
-      { where: "coverLetter", text: typeof coverLetter === "string" ? coverLetter : "" },
+      { where: "coverLetter", text: typeof coverLetter === "string" ? coverLetter : "", extraSources: [jd] },
     ],
     claims,
     [cv, projectsPool]

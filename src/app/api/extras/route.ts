@@ -104,7 +104,12 @@ export async function POST(req: NextRequest) {
     const out = typeof text === "string" ? text.trim() : "";
     // Deterministic claim check on the copy text. Never blocks here — the
     // fix for an extra is "Rewrite"; the page shows what was flagged.
-    const claimCheck = checkClaims([{ where: kind === "cold_email" ? "email" : "extra", text: out }], claims, [cv]);
+    // Company facts come from the research; the candidate's own claims from the CV.
+    const claimCheck = checkClaims(
+      [{ where: kind === "cold_email" ? "email" : "extra", text: out, extraSources: [JSON.stringify(research)] }],
+      claims,
+      [cv]
+    );
     return NextResponse.json({ text: out, claimCheck });
   } catch (error) {
     if (error instanceof ProviderRateLimitError) {

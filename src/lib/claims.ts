@@ -248,9 +248,17 @@ const UNIT_SYNONYMS: Record<string, string> = {
   repositories: "repo",
   people: "person",
   countries: "country",
+  indexes: "index",
 };
+// Count nouns: "3 drift incidents", "8 analysts". Part of UNITS below, and
+// the nouns the one-describing-word rewrite (ADJ_COUNT_RE) recognises.
+const COUNT_NOUNS =
+  "users?|customers?|clients?|requests?|transactions?|orders?|events?|records?|rows?|services?|microservices?|endpoints?|apis?|tests?|pipelines?|deployments?|releases?|incidents?|bugs?|reports?|dashboards?|models?|features?|repos?|repositories|projects?|servers?|nodes?|clusters?|regions?|components?|screens?|pages?|articles?|documents?|files?|candidates?|applications?|hires?|students?|members?|accounts?|devices?|vehicles?|locations?|branches?|products?|skus?|queries|jobs?|tasks?|issues?|prs?|commits?|lines?|teams?|engineers?|developers?|analysts?|journalists?|merchants?|shoppers?|templates?|libraries|alerts?|environments?|integrations?|tables?|checks?|journeys?|flows?|stages?|steps?|sprints?|systems?|platforms?|tools?|languages?|frameworks?|modules?|packages?|containers?|images?|functions?|topics?|partitions?|schemas?|indexes|migrations?|workflows?|dags?|notebooks?|experiments?|versions?|datasets?|sources?|feeds?|countries|markets?|stores?|sites?|tickets?|people";
 const UNITS =
-  "%|percent|x|k|m|mm|bn|b|million|billion|thousand|ms|s|sec|secs|seconds?|min|mins|minutes?|hrs?|hours?|days?|weeks?|months?|years?|yrs?|kb|mb|gb|tb|pb|qps|rps|tps|fps|users?|customers?|clients?|requests?|records?|rows?|events?|transactions?|orders?|tickets?|engineers?|developers?|people|teams?|stores?|sites?|countries|markets?|services?|microservices?|endpoints?|apis?|tests?|pipelines?|deployments?|releases?|incidents?|bugs?|reports?|dashboards?|models?|features?|repos?|repositories|projects?|servers?|nodes?|clusters?|regions?|languages?|components?|screens?|pages?|articles?|documents?|files?|candidates?|applications?|hires?|students?|members?|accounts?|devices?|vehicles?|locations?|branches?|products?|skus?|queries|jobs?|tasks?|issues?|prs?|commits?|lines?";
+  `%|percent|x|k|m|mm|bn|b|million|billion|thousand|ms|s|sec|secs|seconds?|min|mins|minutes?|hrs?|hours?|days?|weeks?|months?|years?|yrs?|kb|mb|gb|tb|pb|qps|rps|tps|fps|${COUNT_NOUNS}`;
+// Canonical (singularised) count nouns, for the noun-swap leniency in checkClaims.
+const COUNT_NOUN_SET = new Set(COUNT_NOUNS.split("|").map((w) => canonicalUnit(w.replace(/\?/g, ""))));
+const isCountNoun = (unit: string | undefined) => !!unit && COUNT_NOUN_SET.has(unit);
 const FIGURE_RE = new RegExp(
   String.raw`(?<![a-z0-9.])(?<cur>[£$€₹]|(?:gbp|usd|eur|inr)\s?)?(?<num>\d{1,3}(?:,\d{3})+|\d+)(?:\.(?<dec>\d+))?(?<plus>\+)?\s?(?<unit>${UNITS})?(?![a-z0-9])`,
   "gi"
@@ -276,6 +284,8 @@ export function normalizeFigureText(text: string): string {
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, '"')
     .replace(/[ \t]+/g, " ")
+    // "6-million-shopper", "40-minute": the hyphen after a number hides the unit.
+    .replace(/(\d)-(?=[a-z])/gi, "$1 ")
     .toLowerCase();
 }
 
@@ -295,10 +305,31 @@ function sentenceAt(text: string, index: number): string {
   return text.slice(start, end).trim();
 }
 
+// "cut deploy time from 40 minutes to 8": the second number borrows the
+// first one's unit. Written out so the CV registers "8 min", which is how
+// the tailored text will state it.
+const NOT_A_YEAR = String.raw`(?!(?:19|20)\d{2}(?![\d,.]))`;
+// A number with optional thousands/decimal separators, never a trailing
+// full stop ("to 8." must capture "8").
+const NUM = String.raw`\d+(?:[,.]\d+)*`;
+const FROM_TO_RE = new RegExp(
+  String.raw`\bfrom\s+${NOT_A_YEAR}(${NUM})\s?(${UNITS})\s+(?:down\s+|up\s+)?to\s+${NOT_A_YEAR}(${NUM})(?![.,]?\d)(?!\s?(?:${UNITS})(?![a-z]))(?![a-z0-9])`,
+  "gi"
+);
+// "3 drift incidents", "12 core journeys": one describing word (never a unit
+// word, never across a line break) between a number and its count noun
+// still makes it a count.
+const ADJ_COUNT_RE = new RegExp(
+  String.raw`(?<![a-z0-9.])${NOT_A_YEAR}(${NUM})(\+?)[ \t]+(?!(?:${UNITS})(?![a-z]))([a-z][a-z-]{2,})[ \t]+(${COUNT_NOUNS})(?![a-z])`,
+  "gi"
+);
+
 export function extractFigures(text: string): Figure[] {
   const norm = normalizeFigureText(text)
     .replace(PHONE_RE, (run) => ((run.match(/\d/g) ?? []).length >= 9 ? " ".repeat(run.length) : run))
-    .replace(RANGE_RE, "$1$3 to $2$3");
+    .replace(RANGE_RE, "$1$3 to $2$3")
+    .replace(FROM_TO_RE, (m, a, unit, b) => `from ${a}${unit} to ${b} ${unit}`)
+    .replace(ADJ_COUNT_RE, (m, n, plus, adj, noun) => (/^(?:and|or|of|per|to)$/.test(adj) ? m : `${n}${plus} ${noun} ${adj}`));
   const out: Figure[] = [];
   const seenAt = new Set<number>();
   FIGURE_RE.lastIndex = 0;
@@ -363,31 +394,54 @@ export type ClaimCheck = {
   blocking: boolean;
 };
 
-export function checkClaims(
-  parts: { where: ClaimWhere; text: string }[],
-  registry: ClaimsRegistry | null | undefined,
-  sources: (string | null | undefined)[]
-): ClaimCheck {
-  const mode = claimMode(registry);
-  const sourceFigures = sources.filter((s): s is string => typeof s === "string" && s.trim() !== "").flatMap(extractFigures);
+// A part may carry extra sources of its own: the cover letter legitimately
+// quotes facts about the company from the job description ("your 14 product
+// teams"), which would be an invented claim inside the CV itself.
+export type ClaimPart = { where: ClaimWhere; text: string; extraSources?: (string | null | undefined)[] };
+
+function figureIndex(sources: (string | null | undefined)[]): Map<string, Figure[]> {
   const byKey = new Map<string, Figure[]>();
-  for (const f of sourceFigures) {
+  for (const f of sources.filter((s): s is string => typeof s === "string" && s.trim() !== "").flatMap(extractFigures)) {
     const list = byKey.get(f.key) ?? [];
     list.push(f);
     byKey.set(f.key, list);
   }
+  return byKey;
+}
+
+export function checkClaims(
+  parts: ClaimPart[],
+  registry: ClaimsRegistry | null | undefined,
+  sources: (string | null | undefined)[]
+): ClaimCheck {
+  const mode = claimMode(registry);
+  const baseIndex = figureIndex(sources);
   const learningSkills = (registry?.skills ?? []).filter((s) => s.level === "learning");
 
   const numberViolations: NumberViolation[] = [];
   const skillViolations: SkillViolation[] = [];
   for (const part of parts) {
     if (!part.text || !part.text.trim()) continue;
+    const byKey = part.extraSources?.length ? figureIndex([...sources, ...part.extraSources]) : baseIndex;
     const seen = new Set<string>();
     for (const f of extractFigures(part.text)) {
       const dedupe = `${f.key}|${f.sentence}`;
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);
-      const sourceHits = byKey.get(f.key);
+      let sourceHits = byKey.get(f.key);
+      // A bare number in the output ("320") or a counted one with a different
+      // count noun ("14 versions" for the CV's "14 model versions") is fine
+      // when the source has the same number with a count noun: the noun was
+      // dropped or swapped, not the figure changed.
+      if (!sourceHits && /^\d/.test(f.key) && !f.key.endsWith("%")) {
+        const [num, unit] = f.key.split(" ");
+        if (!unit || isCountNoun(unit)) {
+          for (const [k, v] of byKey) {
+            const [kn, ku] = k.split(" ");
+            if (kn === num && isCountNoun(ku)) { sourceHits = v; break; }
+          }
+        }
+      }
       if (!sourceHits) {
         numberViolations.push({ figure: f.text, sentence: f.sentence, kind: "absent", where: part.where });
         continue;

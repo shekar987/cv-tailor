@@ -24,7 +24,7 @@ const keys = (t: string) => extractFigures(t).map((f) => f.key);
 test("extractFigures keeps real figures with their units", () => {
   const t = "Cut p95 latency 40% (from 200ms to 120ms); saved £2.3m a year; grew to 150k users and 1,200 daily orders; 3x throughput; 99.9% uptime; 5+ years of Python; $1b GMV; 2.5x faster";
   const k = keys(t);
-  for (const expect of ["40%", "200 ms", "120 ms", "£2.3 m", "150 k", "1200", "3 x", "99.9%", "5 yr", "$1 bn", "2.5 x"]) {
+  for (const expect of ["40%", "200 ms", "120 ms", "£2.3 m", "150 k", "1200 order", "3 x", "99.9%", "5 yr", "$1 bn", "2.5 x"]) {
     assert.ok(k.includes(expect), `missing ${expect} in ${JSON.stringify(k)}`);
   }
   // "150k users": the k binds first; the noun is context, not a second figure
@@ -70,6 +70,44 @@ test("checkClaims: a figure absent from the master CV is a violation; the same f
   const pool = "Widget tracker | 2024\n- Handled 2,500 requests per second in load tests.";
   const withPool = checkClaims([{ where: "cv", text: "Handled 2,500 requests per second" }], registry, [cv, pool]);
   assert.deepEqual(withPool.numberViolations, []);
+});
+
+test("extractFigures: 'from 40 minutes to 8' registers 8 min; a describing word between number and noun still counts", () => {
+  assert.ok(keys("Deploy time cut from 40 minutes to 8.").includes("8 min"));
+  assert.ok(keys("MTTR from 95 minutes to 22 after the rota change").includes("22 min"));
+  assert.ok(keys("Caught 3 drift incidents before customers did").includes("3 incident"));
+  assert.ok(keys("Covering the 12 core journeys").includes("12 journey"));
+  assert.ok(!keys("Cut p95 from 900ms to 380ms").includes("380"), "unit already present is left alone");
+  assert.ok(keys("Cut p95 from 900ms to 380ms").includes("380 ms"));
+  // a unit word is never the describing word; years never start a count
+  assert.deepEqual(keys("3 million rows a month"), ["3 m"]);
+  assert.deepEqual(keys("a 6-million-shopper marketplace"), ["6 m"]);
+  // the second number's own unit is kept intact
+  assert.deepEqual(keys("on-time delivery went from 82% to 99.5%"), ["82%", "99.5%"]);
+  assert.ok(keys("Trained 8 analysts on dbt.").includes("8 analyst"));
+  assert.deepEqual(keys("Sep 2021 – Present\nShipped the card-fraud model"), []);
+  // a bare number in the output matches the source's counted figure
+  const cv = "• Refreshing 320 features hourly.";
+  assert.deepEqual(checkClaims([{ where: "cv", text: "Built a pipeline refreshing 320 hourly." }], null, [cv]).numberViolations, []);
+  assert.equal(checkClaims([{ where: "cv", text: "Built a pipeline refreshing 340 hourly." }], null, [cv]).numberViolations.length, 1);
+  // a swapped count noun is the same figure; a swapped real unit is not
+  const cv2 = "• Deployed 14 model versions with MLflow at 40ms p99.";
+  assert.deepEqual(checkClaims([{ where: "cv", text: "Shipped 14 versions with MLflow." }], null, [cv2]).numberViolations, []);
+  assert.equal(checkClaims([{ where: "cv", text: "Shipped 14 services." }], null, [cv2]).numberViolations.length, 0, "count-noun swap is tolerated by design");
+  assert.equal(checkClaims([{ where: "cv", text: "Served at 40 requests p99." }], null, [cv2]).numberViolations.length, 1, "ms → requests is a different claim");
+});
+
+test("checkClaims: a part's extra sources (the JD for the cover letter) register the posting's own facts", () => {
+  const cv = "• Cut p95 API latency by 40%.";
+  const jd = "Our storefront serves 4 million shoppers a month across 14 product teams.";
+  const letter = "You serve 4 million shoppers across 14 product teams; I cut latency 40%.";
+  const without = checkClaims([{ where: "coverLetter", text: letter }], null, [cv]);
+  assert.deepEqual(without.numberViolations.filter((n) => n.kind === "absent").map((n) => n.figure), ["4 million", "14 product"]);
+  const withJd = checkClaims([{ where: "coverLetter", text: letter, extraSources: [jd] }], null, [cv]);
+  assert.deepEqual(withJd.numberViolations.filter((n) => n.kind === "absent"), []);
+  // the CV part never gets the JD: the same figure inside the CV is still absent
+  const inCv = checkClaims([{ where: "cv", text: "• Served 4 million shoppers." }, { where: "coverLetter", text: "", extraSources: [jd] }], null, [cv]);
+  assert.equal(inCv.numberViolations.length, 1);
 });
 
 test("checkClaims: learning skills are caught through the matcher's variants; blocking follows mode and confirmation", () => {

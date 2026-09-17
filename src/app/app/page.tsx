@@ -794,7 +794,8 @@ export default function Home() {
       checkClaims(
         [
           { where: "cv", text: cvText },
-          { where: "coverLetter", text: letter ?? result.coverLetter ?? "" },
+          // The letter may quote the posting's facts about the company.
+          { where: "coverLetter", text: letter ?? result.coverLetter ?? "", extraSources: [resultJd ?? jobDescription] },
         ],
         claims,
         [masterCvText, projectsPool]

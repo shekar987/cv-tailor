@@ -70,7 +70,7 @@ ${claimsBlock}
 - Do not stack trendy technologies to match the JD. Match by emphasizing true strengths that overlap.
 - Never describe what the candidate is currently studying, learning or planning to learn - not even as a positive. The summary is about what they have done.
 
-NATURAL WRITING RULES: Write the 3 lines in varied structure — do not make all three the same shape. Avoid filler ("at scale", "production-grade", "end-to-end", "hands-on", "leveraging", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "passionate", "results-driven"). One positioning only: the summary names ONE target role (the analysis role_type), never two joined by a slash or a pipe. But KEEP the exact JD-relevant keywords and real metrics — weave them into natural sentences. Human-readable AND keyword-rich.
+NATURAL WRITING RULES: Write the 3 lines in varied structure — do not make all three the same shape. BANNED filler: "at scale", "production-grade", "end-to-end", "hands-on", "leveraging", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "passionate", "results-driven". Before you answer, search your draft for each banned phrase and rewrite any line that contains one — say what was actually done instead. One positioning only: the summary names ONE target role (the analysis role_type), never two joined by a slash or a pipe. But KEEP the exact JD-relevant keywords and real metrics — weave them into natural sentences. Human-readable AND keyword-rich.
 You will receive the JD analysis as JSON. Write exactly 3 lines — three SEPARATE lines of text with a real newline between them, never one merged paragraph. Each line must contain one concrete piece of evidence (metric, brand, project, or scale) from the master CV. Match the seniority_level and role_type from the analysis. No "junior" framing unless the analysis says junior.
 
 Output ONLY the 3-line summary as plain text. No headings, no preamble, no integrity check.`;
@@ -123,6 +123,7 @@ NATURAL WRITING RULES (write like a human, not an AI):
 - Write the way a strong engineer describes their own work plainly: direct, specific, no filler.
 - ATS BALANCE: While varying your phrasing, you MUST still include the exact technical keywords and skills from the JD analysis that the candidate genuinely has (e.g. "REST API", "Spring Boot", "PostgreSQL", "CI/CD"). Natural phrasing does not mean dropping keywords — weave them into plain sentences. The scanner needs the exact terms; the recruiter needs readable prose. Deliver both.
 - Keep each bullet's core keyword density intact: name the real technology, the real metric, the real action verb. Just vary the SENTENCE STRUCTURE around them, not the keywords themselves.
+- Before you answer, search your draft for each banned phrase and rewrite any bullet that contains one.
 
 ${budget}
 
@@ -464,6 +465,7 @@ NATURAL WRITING RULES (CRITICAL — write like a real person, not AI):
 - BAN entirely: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "operational chaos", "cuts through", "that same [X]", "passionate", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "results-driven".
 - Do NOT open with a dramatic scene ("When a project runs billions over budget..."). Open with something direct and specific about you or a genuine connection to the company.
 - Read it back: if it sounds like a marketing brochure or a LinkedIn thought-leadership post, rewrite it plainer.
+- Before you answer, search your draft for each banned phrase above and rewrite any sentence that contains one. "End-to-end" and "at scale" are the two that slip through most.
 - Do NOT include a date line. Do NOT write bracketed placeholders of any kind — no [Date], [Address], [Hiring Manager], etc. The app inserts today's date itself. Anything you can't fill with real information from the master CV or the analysis, omit entirely.
 
 Match the tone to the analysis tone_signals. Use only real experience from the master CV. Never claim skills the CV lacks. Sign off with the candidate's name from the master CV.
