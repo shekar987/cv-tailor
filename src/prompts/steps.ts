@@ -505,6 +505,9 @@ Output ONLY this JSON (no fences, no preamble):
       "originalBullets": ["each bullet under this project, verbatim"]
     }
   ],
+  "skills": [
+    { "name": "one technology, language, framework, tool or method exactly as the CV names it", "level": "production | project | learning" }
+  ],
   "rightToWork": ["each right-to-work / visa line as one string, empty array if none"],
   "extraSections": [
     { "title": "section heading as written, e.g. RECOGNITIONS", "bullets": ["each line or bullet under this heading, verbatim"] }
@@ -513,5 +516,7 @@ Output ONLY this JSON (no fences, no preamble):
 For projects: extract each project listed in a Projects/Portfolio section. If the CV has NO projects section, use an empty array []. Do not invent projects. Extract names, tech, and URLs verbatim.
 
 For extraSections: capture every CV section whose content is NOT already captured by the fields above and is NOT a summary/profile, skills, experience/work history, projects, education, certifications, or right-to-work/visa section. Examples: recognitions, awards, publications, languages, volunteering, interests. Keep the heading exactly as written and each line verbatim, in original order. Empty array if none.
+
+For skills: list every named technology, language, framework, tool or method in the CV, each once, up to 80. level is decided ONLY by where the CV shows it used: "production" if it appears in an employment/experience bullet or a role's tech line; "project" if it appears only under a personal or side project; "learning" if the CV lists it under a heading or phrase like "currently studying", "learning", "familiar with", "exposure to", "coursework" or similar. Never promote a skill above the evidence; when unsure, use "project".
 
 Extract verbatim where possible. Do not reformat dates or names. Do not add anything not in the CV.`;

@@ -5,6 +5,7 @@ import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { PROFILE_EXTRACTION_PROMPT } from "@/prompts/steps";
 import { MAX_CV_CHARS, CV_TOO_LONG } from "@/lib/limits";
 import { normalizeProfile } from "@/lib/profile";
+import { normalizeSkillGuesses } from "@/lib/claims";
 
 export async function POST(req: NextRequest) {
   try {
@@ -58,7 +59,11 @@ export async function POST(req: NextRequest) {
     // Valid JSON is not the same as the right shape: coerce every field to
     // what the preview and download routes assume before it is stored.
     const profile = normalizeProfile(raw);
-    return NextResponse.json({ profile });
+    // The claims-registry seed: the model's read of each skill's level from
+    // where the CV shows it used. The client seeds/merges the registry with
+    // it; the CV's own "currently studying" framing still overrides there.
+    const skills = normalizeSkillGuesses((raw as { skills?: unknown } | null)?.skills);
+    return NextResponse.json({ profile, skills });
   } catch (error) {
     console.error("Profile extraction error:", error instanceof Error ? error.message : "Unknown error");
     return NextResponse.json({ error: "Failed to extract profile" }, { status: 500 });

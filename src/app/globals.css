@@ -967,6 +967,41 @@ textarea { resize: vertical; min-height: 96px; }
 .eligCheck { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; }
 .eligCheck input { accent-color: var(--amber); cursor: pointer; }
 
+/* Claims registry chips (/customize): a button with the stackChip look,
+   coloured by level. Dashed border = not yet confirmed by the user. */
+.claimLegend { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); opacity: 0.8; }
+.claimChips { margin-top: var(--space-3); }
+.claimChip {
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-subtle);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-3);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease), opacity var(--duration-fast) var(--ease);
+}
+.claimChip.production { color: var(--success); border-color: var(--success-border); background: var(--success-dim); }
+.claimChip.learning { color: var(--danger); border-color: var(--danger-border); background: var(--danger-dim); text-decoration: line-through; }
+.claimChip.unconfirmed { border-style: dashed; }
+span.claimChip { cursor: default; }
+button.claimChip:hover:not(:disabled) { transform: translateY(-1px); }
+button.claimChip:active:not(:disabled) { transform: translateY(0); opacity: 0.85; }
+button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* Claim-check highlights on the editable previews (/app): painted with the
+   CSS Custom Highlight API, so nothing is injected into the contentEditable
+   DOM the downloads read from. */
+::highlight(claimViolation) {
+  background-color: var(--danger-dim);
+  color: var(--danger);
+  text-decoration: underline wavy;
+}
+
 /* ── /settings — API key cards ──────────────────────────────────────────── */
 .keyList { display: flex; flex-direction: column; gap: var(--space-4); }
 .keyCardHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-1); }

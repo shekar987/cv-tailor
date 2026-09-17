@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -10,6 +10,7 @@ import {
   saveProjectsPool,
   getUserSettings,
   saveEligibility,
+  saveClaims,
   getProfile,
   saveProfile,
   clearProfile,
@@ -25,6 +26,19 @@ import {
   type Eligibility,
   type EmploymentType,
 } from "@/lib/knockouts";
+import {
+  normalizeClaims,
+  normalizeSkillGuesses,
+  seedClaims,
+  mergeClaims,
+  extractFigures,
+  cvFingerprint,
+  countUnconfirmed,
+  type ClaimsRegistry,
+  type ClaimLevel,
+} from "@/lib/claims";
+
+const NEXT_LEVEL: Record<ClaimLevel, ClaimLevel> = { production: "project", project: "learning", learning: "production" };
 import { splitTrailingDate } from "@/lib/projectDate";
 import { stripMarkdown } from "@/lib/markdownText";
 import CvUpload from "../CvUpload";
@@ -117,6 +131,26 @@ export default function CustomizePage() {
   const [eligBases, setEligBases] = useState("");
   const [eligLicences, setEligLicences] = useState("");
 
+  // Claims registry (user_settings.claims): each skill's level, seeded from
+  // the CV on extraction, confirmed once by the user. Tailoring may describe
+  // a skill only at or below its level; learning skills never appear.
+  const [claims, setClaims] = useState<ClaimsRegistry | null>(null);
+  const [claimsSaving, setClaimsSaving] = useState(false);
+  const [claimsMsg, setClaimsMsg] = useState("");
+  const [claimsError, setClaimsError] = useState("");
+  const [showFigures, setShowFigures] = useState(false);
+  const claimsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (claimsSaveTimer.current) clearTimeout(claimsSaveTimer.current); }, []);
+  // The figures the checker will accept, straight from the saved CV (and
+  // shown so the user knows what "registered" means).
+  const figureKeys = useMemo(() => {
+    const seen = new Set<string>();
+    for (const f of extractFigures(masterCvText)) seen.add(f.key);
+    return [...seen];
+  }, [masterCvText]);
+  const claimsStale = !!claims?.seededFrom && !!masterCvText && claims.seededFrom !== cvFingerprint(masterCvText);
+  const unconfirmedCount = countUnconfirmed(claims);
+
   useEffect(() => {
     let active = true;
     async function load() {
@@ -171,6 +205,7 @@ export default function CustomizePage() {
       const settings = await getUserSettings();
       if (active) {
         setSettingsMissing(settings.missingTable);
+        setClaims(normalizeClaims(settings.claims));
         if (settings.eligibility) {
           setEligibility(settings.eligibility);
           setEligCountries(settings.eligibility.rightToWork.countries.join(", "));
@@ -283,6 +318,55 @@ export default function CustomizePage() {
     }
   }
 
+  // Seed or refresh the claims registry from an extraction result. Confirmed
+  // levels survive (mergeClaims); an extraction that named no skills leaves
+  // the registry alone rather than wiping it.
+  async function reseedClaims(cvText: string, guesses: unknown) {
+    const seed = seedClaims(cvText, normalizeSkillGuesses(guesses));
+    if (seed.skills.length === 0) return;
+    const merged = mergeClaims(claims, seed);
+    setClaims(merged);
+    const res = await saveClaims(merged);
+    if (res.missingTable) setSettingsMissing(true);
+  }
+
+  function persistClaims(next: ClaimsRegistry, message: string) {
+    setClaims(next);
+    setClaimsMsg("");
+    setClaimsError("");
+    if (claimsSaveTimer.current) clearTimeout(claimsSaveTimer.current);
+    claimsSaveTimer.current = setTimeout(async () => {
+      setClaimsSaving(true);
+      const res = await saveClaims(next);
+      setClaimsSaving(false);
+      if (res.ok) setClaimsMsg(message);
+      else if (res.missingTable) {
+        setSettingsMissing(true);
+        setClaimsError("Your database doesn't have this feature's table yet — run supabase/migrations/20260917120000_user_settings_and_jd_lookup.sql in the Supabase SQL editor.");
+      } else setClaimsError("Couldn't save that change. Check your connection and try again.");
+    }, 400);
+  }
+
+  // A deliberate click on a chip is that skill's confirmation.
+  function cycleLevel(name: string) {
+    if (!claims) return;
+    const next: ClaimsRegistry = {
+      ...claims,
+      skills: claims.skills.map((s) => (s.name === name ? { ...s, level: NEXT_LEVEL[s.level], confirmed: true } : s)),
+    };
+    persistClaims(next, "Saved.");
+  }
+
+  function handleConfirmClaims() {
+    if (!claims) return;
+    const next: ClaimsRegistry = {
+      ...claims,
+      skills: claims.skills.map((s) => ({ ...s, confirmed: true })),
+      confirmedAt: claims.confirmedAt ?? new Date().toISOString(),
+    };
+    persistClaims(next, "Levels confirmed. From now on a figure that isn't on your CV, or a learning skill in the output, blocks the download until you fix it.");
+  }
+
   async function handleSaveCv() {
     if (extracting) return; // a second click mid-save would spend a second extraction call
     // A CV pasted from a markdown file carries **bold** and [label](url)
@@ -328,6 +412,7 @@ export default function CustomizePage() {
         if (res.ok && data.profile) {
           setProfile(data.profile);
           const persisted = await saveProfile(data.profile);
+          await reseedClaims(rec.text, data.skills);
           if (!persisted) {
             extractError = "Your CV is saved, but your details couldn't be stored. Reload and try Edit → Save again.";
           }
@@ -370,8 +455,12 @@ export default function CustomizePage() {
     setPoolError("");
     invalidateWorkspaceResult();
     // Delete from DB in the background
+    // A replaced CV starts a fresh registry (eligibility is kept - it isn't
+    // CV-derived).
+    setClaims(null);
     await clearMasterCV();
     await clearProfile();
+    await saveClaims(null);
   }
 
   // Re-runs profile extraction against the SAVED master CV — the recovery path
@@ -392,6 +481,7 @@ export default function CustomizePage() {
       if (res.ok && data.profile) {
         setProfile(data.profile);
         const persisted = await saveProfile(data.profile);
+        await reseedClaims(masterCvText, data.skills);
         if (persisted) {
           // The project list may have changed shape — a tailored result keyed
           // by the old project indexes must not survive it.
@@ -835,6 +925,90 @@ export default function CustomizePage() {
             </>
           )}
         </Card>
+
+        {/* Claims registry — what each skill can honestly be called. Seeded on
+            extraction, so it only exists once a CV is saved. */}
+        {masterCvText && (
+          <Card>
+            <div className="label">Claims registry</div>
+            <p className="cvHelp">
+              Tailoring may describe a skill only at the level you set here. <strong>Production</strong> = used in
+              paid work; <strong>project</strong> = personal projects only (written as &quot;built X with it&quot;, never
+              &quot;proficient in it&quot;); <strong>learning</strong> = never appears in any CV, letter or email. Click a
+              skill to change its level. Figures in generated text are checked against your master CV automatically.
+            </p>
+            {!claims || claims.skills.length === 0 ? (
+              <p className="cvHelp cvHelpTight">
+                No skills registered yet — re-run extraction above to seed the list from your CV.
+              </p>
+            ) : (
+              <>
+                {claimsStale && (
+                  <p className="fitEvidence">
+                    Your CV changed since this list was seeded — re-run extraction above to refresh it. Levels you&apos;ve
+                    confirmed are kept.
+                  </p>
+                )}
+                <div className="claimLegend" aria-hidden="true">
+                  <span className="claimChip production">production</span>
+                  <span className="claimChip project">project</span>
+                  <span className="claimChip learning">learning</span>
+                  <span className="claimChip project unconfirmed">not confirmed yet</span>
+                </div>
+                <div className="stackChips claimChips" data-claims-list>
+                  {claims.skills.map((s) => (
+                    <button
+                      key={s.name}
+                      type="button"
+                      className={"claimChip " + s.level + (s.confirmed ? "" : " unconfirmed")}
+                      onClick={() => cycleLevel(s.name)}
+                      title={`${s.level}${s.confirmed ? "" : " (not confirmed)"} — click to change`}
+                      data-level={s.level}
+                      data-confirmed={s.confirmed ? "1" : "0"}
+                    >
+                      {s.name}
+                    </button>
+                  ))}
+                </div>
+                <div className="actions">
+                  {unconfirmedCount > 0 ? (
+                    <>
+                      <Button onClick={handleConfirmClaims} disabled={claimsSaving || settingsMissing}>
+                        {claimsSaving ? "Saving…" : `Confirm levels (${unconfirmedCount})`}
+                      </Button>
+                      <span className="cvSavedMeta">
+                        {claims.confirmedAt
+                          ? "New skills warn rather than block until you confirm them."
+                          : "Until you confirm, a claim problem in a result warns rather than blocking the download."}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="cvSavedLabel">
+                      ✓ Levels confirmed — a figure that isn&apos;t on your CV, or a learning skill in the output, blocks
+                      the download until you fix it.
+                    </span>
+                  )}
+                </div>
+                <div className="actions">
+                  <Button variant="ghost" onClick={() => setShowFigures((v) => !v)}>
+                    {showFigures ? "Hide" : "Show"} the {figureKeys.length} figures the checker knows from your CV
+                  </Button>
+                </div>
+                {showFigures && (
+                  <div className="stackChips" style={{ marginTop: "var(--space-2)" }}>
+                    {figureKeys.length === 0 ? (
+                      <span className="fitEvidence">No quantified figures found in your CV.</span>
+                    ) : (
+                      figureKeys.map((k) => <span key={k} className="stackChip muted">{k}</span>)
+                    )}
+                  </div>
+                )}
+                {claimsError && <StatusText className="msgBelow" role="alert">{claimsError}</StatusText>}
+                {claimsMsg && <StatusText tone="success" className="msgBelow" role="status">{claimsMsg}</StatusText>}
+              </>
+            )}
+          </Card>
+        )}
 
         <Card>
           <FormField
