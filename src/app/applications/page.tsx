@@ -8,6 +8,7 @@ import { getProfile, type Profile } from "@/lib/cvStore";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
 import { MAX_JD_CHARS as JD_LIMIT, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
+import { MIN_DECIDED, type Insights, type Bucket } from "@/lib/insights";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -90,6 +91,42 @@ function readStoredAts(value: unknown): StoredAts | null {
 function letterFileName(cvReference: string | null): string {
   const stem = (cvReference ?? "").replace(/_?CV$/, "");
   return stem ? `${stem}_CoverLetter` : "CoverLetter";
+}
+
+// One "What's working" group: a bar per bucket, filled to its progression
+// rate. A bucket with too few decided applications shows no rate — a 1-of-1
+// "100%" would mislead.
+function InsightGroup({ title, buckets }: { title: string; buckets: Bucket[] }) {
+  if (buckets.length === 0) return null;
+  return (
+    <div className="atsGroup">
+      <div className="atsGroupLabel recs">{title}</div>
+      <div className="fitBars">
+        {buckets.map((b) => {
+          const decided = b.progressed + b.rejected;
+          const right =
+            b.rate === null
+              ? decided === 0
+                ? "none decided yet"
+                : `too few decided (${decided})`
+              : `${Math.round(b.rate * 100)}% progressed (${b.progressed} of ${decided})`;
+          return (
+            <div key={b.key} data-insight-bucket={b.key}>
+              <div className="fitBarTop">
+                <span>
+                  {b.label} · {b.n} application{b.n === 1 ? "" : "s"}
+                </span>
+                <span>{right}</span>
+              </div>
+              <div className="fitBarTrack">
+                <div className="fitBarFill" style={{ width: `${Math.round((b.rate ?? 0) * 100)}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // Cells that edit in place. Tab walks them in this order.
@@ -235,6 +272,12 @@ function newRowError(d: NewRow): string {
 
 export default function ApplicationsPage() {
   const [rows, setRows] = useState<Application[]>([]);
+  // "What's working": progression by score band, eligibility read, role and
+  // company, aggregated server-side over every row. Collapsed by default;
+  // the headline rate is always visible.
+  const [insights, setInsights] = useState<Insights | null>(null);
+  const [insightsNote, setInsightsNote] = useState("");
+  const [showInsights, setShowInsights] = useState(false);
   const rowsRef = useRef<Application[]>([]);
   rowsRef.current = rows;
   const [loaded, setLoaded] = useState(false);
@@ -302,6 +345,16 @@ export default function ApplicationsPage() {
     getProfile().then((p) => {
       if (!cancelled) setProfile(p);
     });
+    fetch("/api/applications/insights")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.insights) return;
+        setInsights(data.insights as Insights);
+        setInsightsNote(typeof data.scoredNote === "string" ? data.scoredNote : "");
+      })
+      .catch(() => {
+        /* the card simply doesn't show */
+      });
     fetch("/api/section-order")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -969,6 +1022,42 @@ export default function ApplicationsPage() {
               </button>
             )}
           </div>
+        )}
+
+        {insights && insights.counted >= 5 && (
+          <Card variant="dashed" data-insights>
+            <div className="appsPanelHead">
+              <span className="appsPanelTitle">What&apos;s working</span>
+              <button
+                type="button"
+                className="appsActionBtn"
+                onClick={() => setShowInsights((v) => !v)}
+                aria-expanded={showInsights}
+              >
+                {showInsights ? "Hide" : "Show breakdown"}
+              </button>
+            </div>
+            <p className="fitEvidence">
+              {insights.overallRate === null
+                ? `${insights.decided} application${insights.decided === 1 ? " has" : "s have"} an outcome so far — the progression rate shows from ${MIN_DECIDED}.`
+                : `${Math.round(insights.overallRate * 100)}% of decided applications progressed past the screen (${insights.progressed} of ${insights.decided}; ${insights.counted - insights.decided} still open).`}{" "}
+              {insightsNote}
+            </p>
+            {showInsights && (
+              <>
+                <InsightGroup title="By search visibility of the saved CV" buckets={insights.byVisibility} />
+                <InsightGroup title="By required-skill coverage" buckets={insights.byRequired} />
+                <InsightGroup title="By eligibility read at the pre-check" buckets={insights.byGate} />
+                <InsightGroup title="By role" buckets={insights.byRole} />
+                <InsightGroup title="By company" buckets={insights.byCompany} />
+                {insights.byVisibility.length + insights.byRequired.length + insights.byGate.length === 0 && (
+                  <p className="fitEvidence">
+                    Score and eligibility bands appear once applications saved from a tailored run have outcomes.
+                  </p>
+                )}
+              </>
+            )}
+          </Card>
         )}
 
         <div className="appsToolbar">
