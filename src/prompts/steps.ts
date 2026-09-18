@@ -108,13 +108,30 @@ Output ONLY the skills line(s) as plain text. Never wrap the labels or any skill
 // `budget` lets /api/tailor pass an adaptive budget computed from the actual
 // master CV (lib/contentBudget.ts); the fixed LENGTH_BUDGET stays the default
 // so nothing else changes behaviour.
-export const experiencePrompt = (cv: string, budget: string = LENGTH_BUDGET, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You rewrite the CV work experience section, tailored to a specific job.
+// The bullet shape every experience/projects prompt enforces, and the block
+// the tailor route sends back with a section's rejected bullets for its one
+// regeneration (lib/quality.ts lintBullets decides what is rejected).
+export const BULLET_SHAPE_RULE = `BULLET SHAPE — HARD CONSTRAINT:
+A bullet states what was built, how, and the measured result, then STOPS. It must never end with a clause explaining why it is relevant to this employer or role, and it never names the employer. Rejected shapes: "… - directly applicable to Acme's technical file review workflows", "… - the production-grade compliance Acme's regulated customers demand", "… - core patterns for Acme's scheduling agents", "… - exactly what this role needs". Relevance is shown by which bullets you choose and the order you put them in, never by narration. A deterministic check rejects any bullet that narrates its relevance or carries a banned filler phrase, and you will be asked to rewrite it.`;
+
+export function rejectedBulletsBlock(flags: { bullet: string; reasons: string[] }[]): string {
+  if (flags.length === 0) return "";
+  const lines = flags.map((f) => `- "${f.bullet.replace(/\s+/g, " ").slice(0, 220)}" → ${f.reasons.join("; ")}`);
+  return `
+REJECTED IN YOUR PREVIOUS DRAFT — rewrite the whole section so none of these patterns recur anywhere in it. Keep every fact; drop the offending clause or word. Do not add a different justification in its place.
+${lines.join("\n")}
+`;
+}
+
+export const experiencePrompt = (cv: string, budget: string = LENGTH_BUDGET, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "") => `You rewrite the CV work experience section, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
 ${claimsBlock}
 
 MASTER CV:
 ${cv}
+
+${BULLET_SHAPE_RULE}
 
 NATURAL WRITING RULES (write like a human, not an AI):
 - VARY bullet structure. Do NOT end every bullet with an em-dash followed by a "-ing" phrase (e.g. "— demonstrating X", "— enabling Y"). At most ONE bullet may use that pattern. The rest must end differently: end on the result, the metric, or a plain period.
@@ -125,10 +142,10 @@ NATURAL WRITING RULES (write like a human, not an AI):
 - Write the way a strong engineer describes their own work plainly: direct, specific, no filler.
 - ATS BALANCE: While varying your phrasing, you MUST still include the exact technical keywords and skills from the JD analysis that the candidate genuinely has (e.g. "REST API", "Spring Boot", "PostgreSQL", "CI/CD"). Natural phrasing does not mean dropping keywords — weave them into plain sentences. The scanner needs the exact terms; the recruiter needs readable prose. Deliver both.
 - Keep each bullet's core keyword density intact: name the real technology, the real metric, the real action verb. Just vary the SENTENCE STRUCTURE around them, not the keywords themselves.
-- Before you answer, search your draft for each banned phrase and rewrite any bullet that contains one.
+- Before you answer, search your draft for each banned phrase and for any bullet whose last clause explains why it matters to the employer, and rewrite those bullets.
 
 ${budget}
-
+${retryBlock}
 You will receive the JD analysis as JSON. Keep the same employer, title, and dates exactly as in the master CV. Reorder bullets so the most JD-relevant come first. If a role has a highlight/headline line under its header in the master CV (e.g. "Highlight: …"), do NOT drop it — output it as that role's FIRST bullet. Bold quantified wins with **. Do not invent bullets — use only what's in the master CV.
 
 OUTPUT FORMAT — follow exactly, no exceptions:
@@ -152,7 +169,7 @@ where possible and never more than two. Trim by dropping a whole bullet, never b
 merging two achievements or combining their metrics into one sentence.`;
 
 // `budget` as in experiencePrompt: /api/tailor passes the adaptive version.
-export const projectsPrompt = (cv: string, projectNames: string[] = [], budget?: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => {
+export const projectsPrompt = (cv: string, projectNames: string[] = [], budget?: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "") => {
   const projectList = projectNames.length > 0
     ? projectNames.map((n, i) => `${i}: ${n}`).join("\n")
     : "(none)";
@@ -163,6 +180,8 @@ ${claimsBlock}
 
 MASTER CV:
 ${cv}
+
+${BULLET_SHAPE_RULE}
 
 CRITICAL ANTI-EMBELLISHMENT RULES:
 - Describe each project using ONLY technologies, actions, and outcomes explicitly in the master CV for THAT project.
@@ -180,7 +199,7 @@ ${projectList}
 You will receive the JD analysis as JSON. For EACH project by index, write 2-3 tailored bullets (What + How + Result) emphasizing what's most relevant to this JD. Quantify only where the master CV quantifies for that project.
 
 ${budget ?? DEFAULT_PROJECTS_BUDGET}
-
+${retryBlock}
 Output ONLY valid JSON — an OBJECT mapping each project index (as a string) to its array of bullet strings. Example shape for 2 projects:
 {
   "0": ["bullet 1", "bullet 2"],
@@ -196,13 +215,15 @@ Each bullet is a plain string with no leading dash.`;
 // projects, this step SELECTS the 2 most relevant pool projects for the JD /
 // company stack and writes their bullets. The pool is the master source for
 // project claims; the CV is context only.
-export const poolProjectsPrompt = (cv: string, pool: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You select and tailor CV projects from the candidate's full project pool.
+export const poolProjectsPrompt = (cv: string, pool: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "") => `You select and tailor CV projects from the candidate's full project pool.
 
 ${ABSOLUTE_RULES}
 ${claimsBlock}
 
 MASTER CV (context only — the candidate's skills and experience):
 ${cv}
+
+${BULLET_SHAPE_RULE}
 
 PROJECT POOL — the candidate's own complete list of projects, in their own
 words. For project claims THIS POOL IS the master source: every project name,
@@ -228,7 +249,7 @@ technologies the pool genuinely shows with **.
 NATURAL WRITING RULES:
 - Vary bullet structure; do not end every bullet with an em-dash + "-ing" phrase.
 - Vary bullet length. Ban: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "showcasing".
-
+${retryBlock}
 Output ONLY valid JSON (no fences), exactly this shape:
 {
   "selected": [

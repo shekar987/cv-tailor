@@ -10,6 +10,10 @@ import {
   orderingSignature,
   orderingDiffers,
   qualityReport,
+  isRelevanceBoltOn,
+  relevanceBoltOns,
+  lintBullets,
+  countFlags,
 } from "../src/lib/quality.ts";
 
 const profile = {
@@ -71,9 +75,58 @@ test("orderingSignature / orderingDiffers compare the first bullets per role", (
   assert.equal(orderingDiffers("", a), false);
 });
 
+test("relevance bolt-ons: a bullet that ends by narrating its relevance to the employer is rejected", () => {
+  // The three real tails from one generated CV — the clearest tool signal in the document.
+  const boltOns = [
+    "Built a document parser handling 250k pages with idempotent retries - directly applicable to Seamflow's technical file review and evidence mapping workflows",
+    "Secured multi-tenant data with row-level security and AES-256-GCM encryption - the production-grade compliance and data isolation Seamflow's regulated customers demand",
+    "Engineered an 8-step LLM pipeline with structured JSON contracts between steps - core patterns for Seamflow's certification workflow automation and scheduling agents",
+  ];
+  for (const b of boltOns) {
+    assert.equal(isRelevanceBoltOn(b), true, b);
+    assert.equal(isRelevanceBoltOn(b, "Seamflow"), true, b);
+  }
+  assert.deepEqual(relevanceBoltOns(role("Engineer", boltOns), {}), boltOns);
+  assert.deepEqual(relevanceBoltOns("", { "0": [boltOns[0]] }, "Seamflow Ltd"), [boltOns[0]]);
+  // Other shapes of the same move.
+  assert.equal(isRelevanceBoltOn("Shipped the checkout flow in 6 weeks, exactly what this role needs."), true);
+  assert.equal(isRelevanceBoltOn("Ran 40 Kubernetes services — mirroring your platform team's stack."), true);
+  assert.equal(isRelevanceBoltOn("Cut latency 40%; the reliability your customers expect."), true);
+  assert.equal(isRelevanceBoltOn("Built the dispatch service, which Acme's fleet product requires", "Acme"), true);
+  // Bullets that state what, how and the result, then stop, pass — including a
+  // possessive that is a real system, an em-dash result and a comma clause.
+  const clean = [
+    "Cut p95 latency by 40% by restructuring the service layer.",
+    "Integrated Stripe's Payment Intents API with idempotency keys; no double charges in 12 months.",
+    "Built real-time dispatch on Firestore listeners, sub-second sync for 2k drivers — validated by 90+ tests.",
+    "Migrated 14 services to Kubernetes with zero downtime, cutting deploy time from 40 minutes to 8.",
+    "Delivered the FRMS platform covering 4 resource categories (counters, gates, belts and stands).",
+  ];
+  for (const b of clean) assert.equal(isRelevanceBoltOn(b, "Seamflow"), false, b);
+  assert.deepEqual(relevanceBoltOns(role("Engineer", clean), { "0": clean }, "Seamflow"), []);
+});
+
+test("lintBullets flags bolt-ons and filler per bullet, for the one regeneration", () => {
+  const exp = role("Engineer", [
+    "Built a document parser handling 250k pages - directly applicable to Seamflow's technical file review workflows",
+    "Delivered end-to-end ownership of the checkout flow, cutting drop-off 12%.",
+    "Cut p95 latency by 40% by restructuring the service layer.",
+  ]);
+  const l = lintBullets({ experience: exp, projects: { "0": ["A robust, production-grade queue on SQS.", "Processed 3m events a day on SQS."] } }, "Seamflow");
+  assert.equal(l.experience.length, 2);
+  assert.match(l.experience[0].reasons[0], /narrating its relevance/);
+  assert.deepEqual(l.experience[1].reasons, ["filler: end-to-end"]);
+  assert.deepEqual(l.projects.map((f) => f.reasons), [["filler: production-grade", "filler: robust"]]);
+  assert.equal(countFlags(l), 3);
+  assert.equal(countFlags(lintBullets({ experience: role("Engineer", ["Cut p95 latency by 40%."]) })), 0);
+});
+
 test("qualityReport bundles everything", () => {
   const r = qualityReport({ summary: "An expert engineer.", skills: "Go", experience: role("Engineer", ["Worked on things."]), projects: {} }, profile, "Dear team, I am passionate.");
   assert.equal(r.weakBullets.length, 1);
   assert.deepEqual(r.inflation.map((h) => h.word), ["expert", "passionate"]);
   assert.equal(typeof r.pages.pages, "number");
+  assert.deepEqual(r.boltOns, []);
+  const r2 = qualityReport({ experience: role("Engineer", ["Shipped the flow in 6 weeks - core patterns for Acme's scheduling agents."]) }, profile, "", "Acme");
+  assert.equal(r2.boltOns.length, 1);
 });

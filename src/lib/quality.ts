@@ -157,6 +157,76 @@ export function weakBullets(experience: unknown, projects?: unknown): string[] {
   return [...bulletsOf(str(experience)), ...projectBullets(projects)].filter((b) => !hasEvidence(b));
 }
 
+// ── Relevance bolt-ons ───────────────────────────────────────────────────────
+
+// "… - directly applicable to Acme's technical file review workflows": a
+// bullet that ends by narrating its own relevance to the employer is the
+// clearest generated-by-a-tool signal in a CV. A bullet states what was
+// built, how, and the measured result, then stops; relevance is shown by
+// selection and ordering. Three rules, all on the bullet's trailing clause:
+//   1. relevance phrases anywhere in the clause ("applicable to", "core
+//      patterns for", "exactly what this role needs", "mirrors your …");
+//   2. after a dash/semicolon/comma separator only: an address to the
+//      employer ("your team", "this role") or a clause that ends on a
+//      demand verb ("… Acme's regulated customers demand");
+//   3. the employer's name inside that trailing clause, when known.
+const RELEVANCE_RE =
+  /\b(?:(?:directly|readily|immediately|highly)\s+)?(?:applicable|transferable|relevant)\s+to\b|\bcore\s+(?:patterns?|skills?|capabilit(?:y|ies)|competenc(?:y|ies)|experience)\s+for\b|\b(?:this|the|your)\s+(?:role|position|team|opening)\s+(?:demands|requires|needs|calls\s+for|asks\s+for|is\s+looking\s+for)\b|\b(?:exactly|precisely)\s+(?:what|the\s+(?:kind|sort|type))\b|\bmirror(?:s|ing)\s+(?:the|your|this)\b|\balign(?:s|ed|ing)\s+(?:directly\s+)?with\s+(?:the|your|this)\b|\bmaps?\s+(?:directly\s+)?(?:to|onto)\s+(?:the|your|this)\b|\btranslat(?:es|ing)\s+directly\b|\bthe\s+(?:same|exact)\s+[\w\s/-]{0,40}?\b(?:this|the|your)\s+(?:role|team|position|company|stack)\b/i;
+const EMPLOYER_ADDRESS_RE = /\b(?:this|the)\s+(?:role|position|hiring\s+team|opening)\b|\byour\s+(?:team|role|stack|platform|customers|workflows?|product|engineers|pipeline|users)\b/i;
+const DEMAND_VERB_END_RE = /\b(?:demands?|requires?|needs?|expects?|values?|prioriti[sz]es?|looks?\s+for|calls\s+for|depends?\s+on|relies\s+on)[.!]?$/i;
+const TAIL_SEP_RE = /\s[-–—]{1,2}\s|—|;\s|,\s/g;
+
+function trailingClause(bullet: string): { tail: string; separated: boolean } {
+  const text = bullet.replace(/\*\*/g, "").trim();
+  let last = -1, lastLen = 0;
+  for (const m of text.matchAll(TAIL_SEP_RE)) { last = m.index ?? -1; lastLen = m[0].length; }
+  if (last < 0) return { tail: text, separated: false };
+  return { tail: text.slice(last + lastLen).trim(), separated: true };
+}
+
+function companyKey(company: string | undefined): string {
+  return (company ?? "").toLowerCase().replace(/\b(?:ltd|limited|plc|inc|llc|gmbh|co)\b\.?/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+export function isRelevanceBoltOn(bullet: string, company?: string): boolean {
+  const { tail, separated } = trailingClause(bullet);
+  if (RELEVANCE_RE.test(tail)) return true;
+  if (!separated || tail.split(/\s+/).length < 3) return false;
+  if (EMPLOYER_ADDRESS_RE.test(tail) || DEMAND_VERB_END_RE.test(tail)) return true;
+  const key = companyKey(company);
+  return key.length >= 3 && ` ${norm(tail)} `.includes(` ${key} `) ? true : key.length >= 3 && norm(tail).includes(`${key}'s`);
+}
+
+export function relevanceBoltOns(experience: unknown, projects?: unknown, company?: string): string[] {
+  return [...bulletsOf(str(experience)), ...projectBullets(projects)].filter((b) => isRelevanceBoltOn(b, company));
+}
+
+// ── Bullet lint (the generation loop) ────────────────────────────────────────
+
+// Per-bullet flags the tailor route feeds back into one regeneration of the
+// flagged section: a relevance bolt-on, or a filler phrase from the ban list.
+export type BulletFlag = { bullet: string; reasons: string[] };
+export type BulletLint = { experience: BulletFlag[]; projects: BulletFlag[] };
+
+function flagBullet(bullet: string, company?: string): BulletFlag | null {
+  const reasons: string[] = [];
+  if (isRelevanceBoltOn(bullet, company)) reasons.push("ends with a clause narrating its relevance to the employer — state what was built, how, and the result, then stop");
+  for (const h of inflationHits(bullet)) reasons.push(`filler: ${h.word}`);
+  return reasons.length ? { bullet, reasons } : null;
+}
+
+export function lintBullets(sections: { experience?: unknown; projects?: unknown }, company?: string): BulletLint {
+  const flag = (b: string) => flagBullet(b, company);
+  return {
+    experience: bulletsOf(str(sections.experience)).map(flag).filter((f): f is BulletFlag => f !== null),
+    projects: projectBullets(sections.projects).map(flag).filter((f): f is BulletFlag => f !== null),
+  };
+}
+
+export function countFlags(lint: BulletLint): number {
+  return lint.experience.length + lint.projects.length;
+}
+
 // ── Inflation ────────────────────────────────────────────────────────────────
 
 export const INFLATION_WORDS = [
@@ -210,14 +280,17 @@ export type QualityReport = {
   duplicates: Duplicate[];
   weakBullets: string[];
   inflation: { word: string; count: number }[];
+  // Bullets that end by narrating their relevance to the employer.
+  boltOns: string[];
 };
 
-export function qualityReport(sections: Sections, profile: ProfileLike, coverLetter?: unknown): QualityReport {
+export function qualityReport(sections: Sections, profile: ProfileLike, coverLetter?: unknown, company?: string): QualityReport {
   const prose = [str(sections.summary), str(sections.experience), projectBullets(sections.projects).join("\n"), str(coverLetter)].join("\n");
   return {
     pages: estimatePages(sections, profile),
     duplicates: findDuplicateContent(sections, profile),
     weakBullets: weakBullets(sections.experience, sections.projects),
     inflation: inflationHits(prose),
+    boltOns: relevanceBoltOns(sections.experience, sections.projects, company),
   };
 }

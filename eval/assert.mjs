@@ -17,7 +17,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PROJ = join(HERE, "..");
 const { checkClaims } = await import(pathToFileURL(join(PROJ, "src/lib/claims.ts")));
 const { matchAtsKeywords, tailoredSectionsText } = await import(pathToFileURL(join(PROJ, "src/lib/atsMatch.ts")));
-const { estimatePages, weakBullets, inflationHits, orderingDiffers, findDuplicateContent } = await import(pathToFileURL(join(PROJ, "src/lib/quality.ts")));
+const { estimatePages, weakBullets, inflationHits, orderingDiffers, findDuplicateContent, relevanceBoltOns } = await import(pathToFileURL(join(PROJ, "src/lib/quality.ts")));
 
 const pairs = JSON.parse(readFileSync(join(HERE, "pairs.json"), "utf8"));
 const labels = process.argv.slice(2).filter((l) => /^[\w-]+$/.test(l));
@@ -63,6 +63,9 @@ function evaluate(label) {
       const weak = weakBullets(d.experience, d.projects);
       const bullets = String(d.experience || "").split("\n").filter((l) => /^\s*[•\-*]\s+/.test(l)).length;
       const inflation = inflationHits([d.summary, d.experience, d.coverLetter].join("\n"));
+      const company = typeof d.analysis?.company_name === "string" ? d.analysis.company_name : undefined;
+      const boltOns = relevanceBoltOns(d.experience, d.projects, company);
+      const retried = d.bulletLint ? (d.bulletLint.retried?.experience ? 1 : 0) + (d.bulletLint.retried?.projects ? 1 : 0) : 0;
       const dup = findDuplicateContent(sections, { projects: [], education: [] });
       const letterWords = String(d.coverLetter || "").trim().split(/\s+/).filter(Boolean).length;
       rows.push({
@@ -71,7 +74,7 @@ function evaluate(label) {
         absentTools,
         pages: pages.pages, overBudget: pages.overBudget,
         learningPresent, weak: weak.length, bullets, inflation: inflation.reduce((n, h) => n + h.count, 0),
-        duplicates: dup.length, letterWords,
+        duplicates: dup.length, letterWords, boltOns: boltOns.length, retried,
         refused: !d.experience || !d.summary,
       });
     }
@@ -110,6 +113,8 @@ function summarize(label, rows) {
     weakBullets: sum("weak"),
     bullets: sum("bullets"),
     inflation: sum("inflation"),
+    boltOns: sum("boltOns"),
+    retried: sum("retried"),
     duplicates: sum("duplicates"),
     avgPages: present.length ? Math.round((sum("pages") / present.length) * 100) / 100 : 0,
     avgLetterWords: present.length ? Math.round(sum("letterWords") / present.length) : 0,
@@ -126,7 +131,7 @@ for (const r of results) {
     console.log(
       `  ${row.cv} × ${row.jd}: figures✗${row.absentFigures.length} tools✗${row.absentTools.length} pages ${row.pages}${row.overBudget ? " OVER" : ""} ` +
         `order ${row.orderingDiffers === undefined ? "?" : row.orderingDiffers ? "differs" : "SAME"} learning ${row.learningPresent.length ? row.learningPresent.join("/") : "-"} ` +
-        `weak ${row.weak}/${row.bullets} filler ${row.inflation} dup ${row.duplicates} letter ${row.letterWords}w ${row.ms}ms`
+        `weak ${row.weak}/${row.bullets} filler ${row.inflation} boltons ${row.boltOns} retried ${row.retried} dup ${row.duplicates} letter ${row.letterWords}w ${row.ms}ms`
     );
   }
   console.log("  metrics:", JSON.stringify(r.metrics));

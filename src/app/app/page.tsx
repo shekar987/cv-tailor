@@ -102,6 +102,12 @@ type Result = {
 
 const WHERE_LABEL: Record<ClaimWhere, string> = { cv: "CV", coverLetter: "cover letter", email: "email", extra: "text" };
 
+// The employer name Step 1 read off the JD, for the relevance bolt-on check.
+function companyOf(analysis: unknown): string | undefined {
+  const a = analysis as { company_name?: unknown } | null | undefined;
+  return typeof a?.company_name === "string" ? a.company_name : undefined;
+}
+
 // What /api/analyze returns beside the keyword pre-check.
 type GateExtras = {
   required: AtsMatchResult | null;
@@ -845,7 +851,8 @@ export default function Home() {
         qualityReport(
           { summary: payload.summary, skills: payload.skills, experience: payload.experience, projects: payload.projects },
           payload.profile ? { ...payload.profile, projects: payload.projectsMeta } : null,
-          letter ?? result.coverLetter ?? ""
+          letter ?? result.coverLetter ?? "",
+          companyOf(result.analysis)
         )
       );
     }
@@ -1047,11 +1054,16 @@ export default function Home() {
     return qualityReport(
       { summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects },
       displayProfile,
-      result.coverLetter
+      result.coverLetter,
+      companyOf(result.analysis)
     );
   }, [liveQuality, result, displayProfile]);
   const qualityIssues = quality
-    ? (quality.pages.overBudget ? 1 : 0) + quality.duplicates.length + (quality.weakBullets.length > 0 ? 1 : 0) + (quality.inflation.length > 0 ? 1 : 0)
+    ? (quality.pages.overBudget ? 1 : 0) +
+      quality.duplicates.length +
+      (quality.weakBullets.length > 0 ? 1 : 0) +
+      (quality.inflation.length > 0 ? 1 : 0) +
+      (quality.boltOns.length > 0 ? 1 : 0)
     : 0;
 
   // Focus leaving a preview re-reads both notices when either has something
@@ -1827,6 +1839,17 @@ export default function Home() {
                         <span>
                           Filler a recruiter reads straight past:{" "}
                           {quality.inflation.map((h) => `${h.word}${h.count > 1 ? ` ×${h.count}` : ""}`).join(", ")}. Cut or replace with what you did.
+                        </span>
+                      </li>
+                    )}
+                    {quality.boltOns.length > 0 && (
+                      <li data-quality-boltons={quality.boltOns.length}>
+                        <Badge variant="dot" tone="rec">?</Badge>
+                        <span>
+                          {quality.boltOns.length === 1 ? "One bullet ends" : `${quality.boltOns.length} bullets end`} by explaining why it matters to
+                          the employer: &ldquo;…{quality.boltOns[0].slice(-80)}&rdquo;
+                          {quality.boltOns.length > 1 ? " and more" : ""}. That clause is the clearest sign of a tool at work; cut it and let the bullet
+                          stop on the result.
                         </span>
                       </li>
                     )}

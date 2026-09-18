@@ -16,7 +16,9 @@ import {
   coverLetterPrompt,
   ATS_SCORING_PROMPT,
   JD_ANALYZER_PROMPT,
+  rejectedBulletsBlock,
 } from "@/prompts/steps";
+import { lintBullets, countFlags } from "@/lib/quality";
 import { experienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
@@ -250,9 +252,58 @@ async function runPipeline(opts: {
   // user gets.
   const experienceOut = typeof experience === "string" ? normalizeExperienceOutput(experience) : experience;
 
+  // Bullet lint, then ONE retry per flagged section. The same deterministic
+  // checks the UI shows (lib/quality: relevance bolt-ons, filler) run on the
+  // draft; a flagged section is regenerated once with its rejected bullets
+  // passed back as constraints, and the retry is kept only when it is
+  // non-empty and carries fewer flags than the draft. Capped at one retry.
+  const company =
+    analysis && typeof analysis === "object" && typeof (analysis as Record<string, unknown>).company_name === "string"
+      ? ((analysis as Record<string, unknown>).company_name as string)
+      : "";
+  let experienceFinal = experienceOut;
+  let projectsFinal: unknown = projectsOut;
+  let selectedFinal = selectedProjects;
+  const draftLint = lintBullets({ experience: experienceOut, projects: projectsOut }, company);
+  const retried = { experience: false, projects: false };
+  if (countFlags(draftLint) > 0) {
+    const [experienceRetry, projectsRetry] = await Promise.all([
+      draftLint.experience.length > 0
+        ? callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, rejectedBulletsBlock(draftLint.experience)), userInput: analysisStr })
+            .catch(swallowStep(""))
+        : Promise.resolve<unknown>(""),
+      draftLint.projects.length > 0
+        ? projectsPool
+          ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool, claimsBlock, rejectedBulletsBlock(draftLint.projects)), userInput: analysisStr, expectJson: true })
+              .catch(swallowStep({}))
+          : callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock, rejectedBulletsBlock(draftLint.projects)), userInput: analysisStr, expectJson: true })
+              .catch(swallowStep({}))
+        : Promise.resolve<unknown>({}),
+    ]);
+    if (draftLint.experience.length > 0) {
+      const candidate = dropRefusal(experienceRetry);
+      const candidateOut = typeof candidate === "string" && candidate.trim() ? normalizeExperienceOutput(candidate) : "";
+      if (candidateOut && lintBullets({ experience: candidateOut }, company).experience.length < draftLint.experience.length) {
+        experienceFinal = candidateOut;
+        retried.experience = true;
+      }
+    }
+    if (draftLint.projects.length > 0) {
+      const candidateSelected = projectsPool ? normalizeSelectedProjects(projectsRetry) : [];
+      const candidateProjects: unknown = projectsPool ? projectsFromSelected(candidateSelected) : projectsRetry;
+      const nonEmpty = !!candidateProjects && typeof candidateProjects === "object" && Object.keys(candidateProjects as object).length > 0;
+      if (nonEmpty && lintBullets({ projects: candidateProjects }, company).projects.length < draftLint.projects.length) {
+        projectsFinal = candidateProjects;
+        selectedFinal = candidateSelected;
+        retried.projects = true;
+      }
+    }
+  }
+  const bulletLint = { retried, remaining: lintBullets({ experience: experienceFinal, projects: projectsFinal }, company) };
+
   // Wave 2 — cover letter + ATS score
   const coverLetterInput = JSON.stringify({ analysis, research });
-  const atsInput         = JSON.stringify({ analysis, summary, skills, experience: experienceOut, projects: projectsOut });
+  const atsInput         = JSON.stringify({ analysis, summary, skills, experience: experienceFinal, projects: projectsFinal });
 
   const [coverLetterRaw, atsScore] = await Promise.all([
     callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv, claimsBlock), userInput: coverLetterInput, maxTokens: 1200 })
@@ -262,7 +313,7 @@ async function runPipeline(opts: {
   ]);
 
   const coverLetter = dropRefusal(coverLetterRaw);
-  const sections = { summary, skills, experience: experienceOut, projects: projectsOut };
+  const sections = { summary, skills, experience: experienceFinal, projects: projectsFinal };
   // Deterministic claim check on the finished text — same precedent as
   // reconcileAtsScore: no model call, computed from exactly what the user
   // sees. The client re-runs the same function on the edited preview.
@@ -282,12 +333,13 @@ async function runPipeline(opts: {
     research,
     summary,
     skills,
-    experience: experienceOut,
-    projects: projectsOut,
+    experience: experienceFinal,
+    projects: projectsFinal,
     coverLetter,
     atsScore: reconcileAtsScore(atsScore, analysis, sections),
     claimCheck,
-    ...(projectsPool ? { selectedProjects } : {}),
+    bulletLint,
+    ...(projectsPool ? { selectedProjects: selectedFinal } : {}),
   };
 }
 
