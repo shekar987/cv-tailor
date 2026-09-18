@@ -19,6 +19,7 @@ import {
   rejectedBulletsBlock,
 } from "@/prompts/steps";
 import { lintBullets, countFlags } from "@/lib/quality";
+import { coreTitle, titleInText } from "@/lib/roleTitle";
 import { experienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
@@ -200,6 +201,9 @@ async function runPipeline(opts: {
       : analysis
   );
 
+  // The posting's title, as the summary must state it (lib/roleTitle).
+  const roleTitle = coreTitle(analysis && typeof analysis === "object" ? (analysis as Record<string, unknown>).role_title : "");
+
   // Adaptive content budget: only ask the model to trim what two pages truly
   // can't hold (lib/contentBudget.ts). When the CV can't be parsed, the
   // prompts fall back to their fixed defaults — behaviour as before.
@@ -213,7 +217,7 @@ async function runPipeline(opts: {
       ? Promise.resolve<unknown>(companyResearch) // real scraped research — skip the synthetic call
       : callLLM({ provider, apiKeyOverride, system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
           .catch(swallowStep({})),
-    callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle), userInput: analysisStr })
       .catch(swallowStep("")),
     callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv, claimsBlock, variantBlock), userInput: analysisStr })
       .catch(swallowStep("")),
@@ -235,7 +239,22 @@ async function runPipeline(opts: {
   // instead of writing the section is a failed step: empty, so the client's
   // partial-failure notice names it rather than rendering the refusal.
   const dropRefusal = (v: unknown) => (looksLikeRefusal(v) ? "" : v);
-  const summary = dropRefusal(summaryRaw);
+  // The exact role title must be in the summary (lib/roleTitle). One retry
+  // with the rejection spelled out; the draft is kept if the retry fails too.
+  const summaryDraft = dropRefusal(summaryRaw);
+  const titleCheck = { title: roleTitle, present: !roleTitle || titleInText(summaryDraft, roleTitle), retried: false };
+  let summary: unknown = summaryDraft;
+  if (roleTitle && typeof summaryDraft === "string" && summaryDraft.trim() && !titleCheck.present) {
+    const retryBlock = `\nREJECTED IN YOUR PREVIOUS DRAFT: the summary did not contain the exact role title "${roleTitle}". Rewrite all three lines so that title appears verbatim at least once, phrased naturally as the target role. Keep every fact and figure as it was.\n`;
+    const retry = dropRefusal(
+      await callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle, retryBlock), userInput: analysisStr }).catch(swallowStep(""))
+    );
+    if (typeof retry === "string" && retry.trim() && titleInText(retry, roleTitle)) {
+      summary = retry;
+      titleCheck.present = true;
+      titleCheck.retried = true;
+    }
+  }
   const skills = dropRefusal(skillsRaw);
   const experience = dropRefusal(experienceRaw);
 
@@ -339,6 +358,7 @@ async function runPipeline(opts: {
     atsScore: reconcileAtsScore(atsScore, analysis, sections),
     claimCheck,
     bulletLint,
+    titleCheck,
     ...(projectsPool ? { selectedProjects: selectedFinal } : {}),
   };
 }

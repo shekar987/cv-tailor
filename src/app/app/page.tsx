@@ -21,6 +21,7 @@ import { normalizeClaims, checkClaims, type ClaimsRegistry, type ClaimCheck, typ
 import { qualityReport, type QualityReport } from "@/lib/quality";
 import { normalizeVariants, pickVariant, type VariantsConfig } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
+import type { SeniorityFit } from "@/lib/seniority";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
@@ -117,6 +118,10 @@ type GateExtras = {
   // Tracker rows at the same company (by normalized name), newest first —
   // a recruiter sees every application to their company in one screen.
   sameCompany: { company: string; count: number; last: { role: string; date_applied: string; status: string } } | null;
+  // Which level the posting is written for, against the user's years
+  // (lib/seniority). fits === false is a blocking warning: the continue
+  // button demotes to "Tailor anyway" exactly as a skip read does.
+  seniority: SeniorityFit | null;
 };
 
 const READ_LABEL: Record<GateRead, string> = {
@@ -625,6 +630,7 @@ export default function Home() {
                 last: { role: String(same[0].role ?? ""), date_applied: String(same[0].date_applied ?? ""), status: String(same[0].status ?? "") },
               }
             : null,
+          seniority: data.seniority && typeof data.seniority === "object" && typeof data.seniority.reason === "string" ? (data.seniority as SeniorityFit) : null,
         });
       }
     } catch {
@@ -648,6 +654,10 @@ export default function Home() {
   // The eligibility read and its verdicts, hard fails first, "check these
   // yourself" last. Declared above executeTailor for the same reason.
   const gateRead: GateRead = gateExtras?.knockouts?.read.read ?? "apply";
+  // The seniority read blocks like a skip read: the posting is written for a
+  // level the user's years don't cover, so tailoring is a credit spent on a
+  // long shot at best.
+  const seniorityBlocks = gateExtras?.seniority?.fits === false;
   const gateVerdicts = useMemo(
     () => [...(gateExtras?.knockouts?.verdicts ?? [])].sort((a, b) => VERDICT_RANK[a.verdict] - VERDICT_RANK[b.verdict]),
     [gateExtras]
@@ -1535,6 +1545,22 @@ export default function Home() {
                     {JD_PARTIAL_NOTICE}
                   </div>
                 )}
+                {gateExtras?.seniority && gateExtras.seniority.level !== "unknown" && (
+                  <div
+                    className={gateExtras.seniority.fits === false ? "limitNotice" : "gateNote"}
+                    role="status"
+                    style={{ marginBottom: 'var(--space-4)' }}
+                    data-gate-seniority={gateExtras.seniority.level}
+                    data-gate-seniority-fits={String(gateExtras.seniority.fits)}
+                  >
+                    {gateExtras.seniority.reason}
+                    {gateExtras.seniority.signals.length > 0 && (
+                      <>
+                        {" "}Read from: {gateExtras.seniority.signals.map((s) => `${s.kind === "title" ? "title" : s.kind === "years" ? "years" : s.kind === "salary" ? "salary" : "ownership"} (${s.text})`).join(", ")}.
+                      </>
+                    )}
+                  </div>
+                )}
                 {gateExtras?.knockouts && (
                   <>
                     <div className="gateLabel">Read on this application</div>
@@ -1599,8 +1625,8 @@ export default function Home() {
                   </>
                 )}
                 <div className="gateActions">
-                  <Button variant={gateRead === "skip" ? "secondary" : "primary"} onClick={runFullTailor} disabled={loading}>
-                    {loading ? "Tailoring…" : gateRead === "skip" ? "Tailor anyway (uses a credit) →" : "Continue to full tailoring →"}
+                  <Button variant={gateRead === "skip" || seniorityBlocks ? "secondary" : "primary"} onClick={runFullTailor} disabled={loading}>
+                    {loading ? "Tailoring…" : gateRead === "skip" || seniorityBlocks ? "Tailor anyway (uses a credit) →" : "Continue to full tailoring →"}
                   </Button>
                   {variants && variants.variants.length > 0 && (
                     <span className="providerPick" data-variant-pick={variantPick.variant?.id ?? "none"}>

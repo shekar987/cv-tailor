@@ -18,6 +18,7 @@ const PROJ = join(HERE, "..");
 const { checkClaims } = await import(pathToFileURL(join(PROJ, "src/lib/claims.ts")));
 const { matchAtsKeywords, tailoredSectionsText } = await import(pathToFileURL(join(PROJ, "src/lib/atsMatch.ts")));
 const { estimatePages, weakBullets, inflationHits, orderingDiffers, findDuplicateContent, relevanceBoltOns } = await import(pathToFileURL(join(PROJ, "src/lib/quality.ts")));
+const { coreTitle, titleInText } = await import(pathToFileURL(join(PROJ, "src/lib/roleTitle.ts")));
 
 const pairs = JSON.parse(readFileSync(join(HERE, "pairs.json"), "utf8"));
 const labels = process.argv.slice(2).filter((l) => /^[\w-]+$/.test(l));
@@ -66,6 +67,9 @@ function evaluate(label) {
       const company = typeof d.analysis?.company_name === "string" ? d.analysis.company_name : undefined;
       const boltOns = relevanceBoltOns(d.experience, d.projects, company);
       const retried = d.bulletLint ? (d.bulletLint.retried?.experience ? 1 : 0) + (d.bulletLint.retried?.projects ? 1 : 0) : 0;
+      // The exact role title must be in the summary (hard assertion).
+      const title = coreTitle(d.analysis?.role_title);
+      const titleMissing = !!title && !titleInText(d.summary, title);
       const dup = findDuplicateContent(sections, { projects: [], education: [] });
       const letterWords = String(d.coverLetter || "").trim().split(/\s+/).filter(Boolean).length;
       rows.push({
@@ -74,7 +78,7 @@ function evaluate(label) {
         absentTools,
         pages: pages.pages, overBudget: pages.overBudget,
         learningPresent, weak: weak.length, bullets, inflation: inflation.reduce((n, h) => n + h.count, 0),
-        duplicates: dup.length, letterWords, boltOns: boltOns.length, retried,
+        duplicates: dup.length, letterWords, boltOns: boltOns.length, retried, title, titleMissing,
         refused: !d.experience || !d.summary,
       });
     }
@@ -94,6 +98,7 @@ function summarize(label, rows) {
     if (r.absentFigures.length) hardFails.push(`${r.cv}×${r.jd}: figures not in the CV: ${r.absentFigures.join(", ")}`);
     if (r.absentTools.length) hardFails.push(`${r.cv}×${r.jd}: tools not in the CV: ${r.absentTools.join(", ")}`);
     if (r.overBudget) hardFails.push(`${r.cv}×${r.jd}: over two pages (${r.pages})`);
+    if (r.titleMissing) hardFails.push(`${r.cv}×${r.jd}: role title "${r.title}" absent from the summary`);
     // reported per CV below; the run-level rule is two or more identical CVs
   }
   const sameCvs = [...new Set(present.filter((r) => r.orderingDiffers === false).map((r) => r.cv))];

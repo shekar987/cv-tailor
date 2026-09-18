@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/atsMatch.test.ts tests/companyMatch.test.ts tests/knockouts.test.ts tests/claims.test.ts tests/insights.test.ts tests/quality.test.ts tests/extractionCheck.test.ts tests/variants.test.ts tests/preferences.test.ts"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/atsMatch.test.ts tests/companyMatch.test.ts tests/knockouts.test.ts tests/claims.test.ts tests/insights.test.ts tests/quality.test.ts tests/extractionCheck.test.ts tests/variants.test.ts tests/preferences.test.ts tests/seniority.test.ts tests/roleTitle.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",

@@ -56,11 +56,21 @@ export const LENGTH_BUDGET = `LENGTH BUDGET — the finished CV must fit on TWO 
 - Trim ONLY by deleting whole bullets. Never merge two achievements into one sentence, never combine metrics, and never drop a qualifier that a claim depends on — that would state something the master CV does not support.
 - Never drop a whole role, and never change any employer, title, or date.`;
 
-export const summaryPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, variantBlock: string = "") => `You write a 3-line achievement-oriented professional summary for a CV, tailored to a specific job.
+// The exact role title from the posting must appear in the summary: it is
+// the highest-weighted term in a recruiter's search, and the gap list kept
+// reporting it missing. lib/roleTitle checks the draft; the tailor route
+// retries once with `retryBlock` when it is absent.
+export const roleTitleRule = (roleTitle: string) =>
+  roleTitle
+    ? `ROLE TITLE — HARD CONSTRAINT: the exact role title "${roleTitle}" must appear at least once in the summary, spelled exactly as given, phrased naturally — as the target role ("… targeting a ${roleTitle} role", "${roleTitle} with two years of …") — never in quotes and never as a title the candidate has held. It is the highest-weighted term a recruiter searches for; a summary without it is rejected.`
+    : "";
+
+export const summaryPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, variantBlock: string = "", roleTitle: string = "", retryBlock: string = "") => `You write a 3-line achievement-oriented professional summary for a CV, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
 ${variantBlock}
-
+${roleTitleRule(roleTitle)}
+${retryBlock}
 MASTER CV:
 ${cv}
 

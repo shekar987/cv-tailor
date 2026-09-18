@@ -14,6 +14,7 @@ import {
   isEligibilitySet,
 } from "@/lib/knockouts";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG } from "@/lib/limits";
+import { classifySeniority, seniorityFit } from "@/lib/seniority";
 
 // Rows the user already saved with this exact job description. Goes through
 // an RPC because a 15k-char JD can't ride in a PostgREST filter URL; the
@@ -113,6 +114,7 @@ export async function POST(req: NextRequest) {
       top_15_ats_keywords?: unknown;
       required_skills?: unknown;
       hard_gates?: unknown;
+      role_title?: unknown;
     };
 
     // Knockout gates: deterministic detection is the source of truth; the
@@ -121,6 +123,12 @@ export async function POST(req: NextRequest) {
     const verdicts = compareGates(gates, eligibility);
     const duplicateOf = await duplicatesPromise;
     const quality = jdQuality(jobDescription);
+    // Seniority read (lib/seniority): which level the posting is written
+    // for, against the candidate's stated years — before a credit is spent.
+    const seniority = seniorityFit(
+      classifySeniority(jobDescription, typeof analysis.role_title === "string" ? analysis.role_title : null),
+      eligibility.yearsExperience
+    );
 
     if (cvText.trim()) {
       const atsPreCheck = matchAtsKeywords(cvText, analysis.top_15_ats_keywords);
@@ -131,6 +139,7 @@ export async function POST(req: NextRequest) {
         atsPreCheck,
         requiredPreCheck,
         knockouts: { profileSet: isEligibilitySet(eligibility), verdicts, read },
+        seniority,
         jdQuality: quality,
         duplicateOf,
       });
@@ -140,6 +149,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       result,
       knockouts: { profileSet: isEligibilitySet(eligibility), verdicts, read },
+      seniority,
       jdQuality: quality,
       duplicateOf,
     });
