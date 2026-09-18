@@ -100,6 +100,43 @@ export function renderBandBlock(coverage: AtsMatchResult, required: AtsMatchResu
   return lines.join("\n");
 }
 
+// ── One verdict on one screen ────────────────────────────────────────────────
+//
+// The research panel's Fit Score (lib/fitScore: the master CV against the
+// company's real stack, values and pain points) and this band (the role's
+// search terms found in the tailored text) measured different things and
+// once read "Low match 49/100" beside "you're a strong fit" for the same
+// company. The Fit Score is authoritative for whether to send: it can only
+// lower the band, never raise it, and the verdict line names the research
+// figure so the two never contradict.
+
+export type FitReference = { total: number; tier: "low" | "medium" | "high" };
+export type CombinedVerdict = { band: VisibilityBand; label: string; fitNote: string | null };
+
+export function combineWithFit(band: VisibilityBand, fit: FitReference | null | undefined): CombinedVerdict {
+  if (!fit || !Number.isFinite(fit.total)) return { band, label: BAND_LABELS[band], fitNote: null };
+  const figure = `${Math.round(fit.total)}/100`;
+  if (fit.tier === "low") {
+    return {
+      band: "weak",
+      label: `Weak fit. Company research scored ${figure} (low match) against your CV; do not send as-is.`,
+      fitNote: `Company research: ${figure}, low match. The search-term count above is not a fit score.`,
+    };
+  }
+  if (fit.tier === "medium" && band === "ready") {
+    return {
+      band: "borderline",
+      label: `Borderline. The role's terms are covered, but company research scored ${figure} (potential match). Fix the gaps before sending.`,
+      fitNote: `Company research: ${figure}, potential match.`,
+    };
+  }
+  return {
+    band,
+    label: BAND_LABELS[band],
+    fitNote: `Company research: ${figure}, ${fit.tier === "high" ? "highly positive fit" : "potential match"}.`,
+  };
+}
+
 export type VisibilityScore = {
   band: VisibilityBand;
   verdict: string;

@@ -505,6 +505,21 @@ Match the tone to the analysis tone_signals. Use only real experience from the m
 
 Output ONLY the cover letter as plain text. No date line, no word count, no integrity check, no preamble.`;
 
+// A cover letter named a place that appears nowhere in the job description,
+// the research or the CV ("available for on-site work in Shoreditch").
+// lib/properNouns finds such names; this asks for the offending sentences
+// only to be rewritten, and the route drops them if the rewrite still fails.
+export const coverLetterFixPrompt = (unsupported: string[], sentences: string[]) => `You fix a cover letter. Output the FULL letter with ONLY the sentences listed below rewritten; every other sentence must stay exactly as it is.
+
+${ABSOLUTE_RULES}
+
+These names appear in the letter but in none of the job description, the company research or the candidate's CV, so they are invented and must go: ${unsupported.map((n) => `"${n}"`).join(", ")}.
+
+Sentences to rewrite (rewrite each without any place, company, product or person that is not in those sources; do not replace an invented name with another name; if the sentence has nothing left to say, remove it):
+${sentences.map((s) => `- ${s}`).join("\n")}
+
+Output ONLY the full letter as plain text. No preamble, no notes.`;
+
 // The verdict is NOT written here. lib/visibilityVerdict computes the band
 // from the deterministic keyword match and hands it in as `bandBlock`; the
 // model annotates the settled lists and proposes edits inside that band.

@@ -14,12 +14,14 @@ import {
   poolProjectsPrompt,
   COMPANY_RESEARCH_PROMPT,
   coverLetterPrompt,
+  coverLetterFixPrompt,
   atsScoringPrompt,
   JD_ANALYZER_PROMPT,
   rejectedBulletsBlock,
 } from "@/prompts/steps";
 import { lintBullets, countFlags } from "@/lib/quality";
 import { coreTitle, titleInText } from "@/lib/roleTitle";
+import { unsupportedProperNouns, sentencesNaming, dropSentences } from "@/lib/properNouns";
 import { experienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
@@ -280,7 +282,30 @@ async function runPipeline(opts: {
       : Promise.resolve(null),
   ]);
 
-  const coverLetter = dropRefusal(coverLetterRaw);
+  // Every proper noun in the letter must come from the JD, the research or
+  // the CV (lib/properNouns). Offending sentences are rewritten once by the
+  // model; if a name is still unsupported, those sentences are dropped.
+  const letterDraft = dropRefusal(coverLetterRaw);
+  const letterSources = [jd, cv, projectsPool, JSON.stringify(research ?? {}), JSON.stringify(analysis ?? {})];
+  const letterCheck = { unsupported: [] as string[], rewritten: false, dropped: 0 };
+  let coverLetter: unknown = letterDraft;
+  if (typeof letterDraft === "string" && letterDraft.trim()) {
+    const unsupported = unsupportedProperNouns(letterDraft, letterSources);
+    if (unsupported.length > 0) {
+      letterCheck.unsupported = unsupported;
+      const offending = sentencesNaming(letterDraft, unsupported);
+      const retry = dropRefusal(
+        await callLLM({ provider, apiKeyOverride, system: coverLetterFixPrompt(unsupported, offending), userInput: letterDraft, maxTokens: 1200 }).catch(swallowStep(""))
+      );
+      if (typeof retry === "string" && retry.trim() && unsupportedProperNouns(retry, letterSources).length === 0) {
+        coverLetter = retry;
+        letterCheck.rewritten = true;
+      } else {
+        coverLetter = dropSentences(letterDraft, offending);
+        letterCheck.dropped = offending.length;
+      }
+    }
+  }
   // No terms to score against (analysis failed) → no score; otherwise the
   // deterministic score stands even when the annotation call failed.
   const atsScore = coverage.total > 0 ? reconcileAtsScore(atsAnnotation, coverage, required) : null;
@@ -311,6 +336,7 @@ async function runPipeline(opts: {
     bulletLint,
     titleCheck,
     formatFixes,
+    letterCheck,
     ...(projectsPool ? { selectedProjects: selectedFinal } : {}),
   };
 }

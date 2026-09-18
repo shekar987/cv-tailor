@@ -8,7 +8,8 @@
 // reads counts and lists the same way. The eligibility read is recomputed
 // from the stored job description against the user's current eligibility
 // profile (source: "backfill"), and the role seniority from the title.
-// Rows that already carry ats/gates/seniority are left alone.
+// Rows that already carry ats/gates/seniority are left alone. Notes that
+// say "ATS match:" (the metric's old name) are relabelled "Search visibility:".
 //
 // Reads SUPABASE_SECRET_KEY from .env.local (never referenced by src/).
 //   node scripts/backfill-tracker-scores.mjs          # dry run: report only
@@ -57,7 +58,7 @@ for (const uid of userIds) {
   if (s[0]?.eligibility) settings.set(uid, normalizeEligibility(s[0].eligibility));
 }
 
-const stats = { rows: rows.length, alreadyScored: 0, scoredFromNotes: 0, noScoreLine: 0, gatesAdded: 0, gatesSkipped: 0, seniorityAdded: 0, updated: 0 };
+const stats = { rows: rows.length, alreadyScored: 0, scoredFromNotes: 0, noScoreLine: 0, gatesAdded: 0, gatesSkipped: 0, seniorityAdded: 0, notesRelabelled: 0, updated: 0 };
 const updates = [];
 for (const r of rows) {
   const cv = r.tailored_cv && typeof r.tailored_cv === "object" ? { ...r.tailored_cv } : null;
@@ -97,7 +98,11 @@ for (const r of rows) {
     changed = true;
     stats.seniorityAdded++;
   }
-  if (changed) updates.push({ id: r.id, tailored_cv: cv });
+  // One name for the metric: older rows wrote "ATS match:", the app now
+  // writes "Search visibility:".
+  const notes = typeof r.notes === "string" && /^ATS match:/m.test(r.notes) ? r.notes.replace(/^ATS match:/gm, "Search visibility:") : null;
+  if (notes) stats.notesRelabelled++;
+  if (changed || notes) updates.push({ id: r.id, ...(changed ? { tailored_cv: cv } : {}), ...(notes ? { notes } : {}) });
 }
 
 console.log(JSON.stringify({ ...stats, toUpdate: updates.length, apply: APPLY }, null, 1));
@@ -106,7 +111,8 @@ if (!APPLY) {
   process.exit(0);
 }
 for (const u of updates) {
-  await rest(`applications?id=eq.${u.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ tailored_cv: u.tailored_cv }) });
+  const { id, ...patch } = u;
+  await rest(`applications?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(patch) });
   stats.updated++;
 }
 console.log("updated rows:", stats.updated);

@@ -24,7 +24,7 @@ import { normalizePreferences, profileForDocument, rightToWorkForForms, DEFAULT_
 import type { SeniorityFit } from "@/lib/seniority";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
-import { bandFor, parseCoverage, BAND_LABELS, type VisibilityBand } from "@/lib/visibilityVerdict";
+import { bandFor, parseCoverage, combineWithFit, type VisibilityBand, type CombinedVerdict } from "@/lib/visibilityVerdict";
 import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
 import { getUsage, type Usage } from "@/lib/usage";
 import AppHeader from "@/components/ui/AppHeader";
@@ -1168,6 +1168,17 @@ export default function Home() {
     const cov = parseCoverage(result.atsScore.keyword_coverage);
     return cov ? bandFor(cov.matched, cov.total) : result.atsScore.band;
   })();
+  // One verdict on one screen: when the research panel scored this same
+  // company, its Fit Score is authoritative and can only lower the band
+  // (lib/visibilityVerdict combineWithFit). The line names the research figure.
+  const verdict: CombinedVerdict | undefined = (() => {
+    if (!visibilityBand) return undefined;
+    const fit = research?.fitScore;
+    const total = typeof fit?.total === "number" ? fit.total : null;
+    const sameCompany =
+      total !== null && !!result?.analysis && companyNamesMatch(realValue(result.analysis.company_name), research?.profile?.company_name);
+    return combineWithFit(visibilityBand, sameCompany && total !== null ? { total, tier: fit?.tier ?? "low" } : null);
+  })();
 
   return (
     <main className="page">
@@ -1992,9 +2003,14 @@ export default function Home() {
                   {firstName ? `Hey ${firstName}, here's your recruiter search visibility` : "Your recruiter search visibility"}
                 </div>
                 <div className="scoreValue">{result.atsScore.keyword_coverage}</div>
-                {visibilityBand && (
-                  <div className="scoreVerdict" data-band={visibilityBand} data-visibility-verdict>
-                    {BAND_LABELS[visibilityBand]}
+                {verdict && (
+                  <div className="scoreVerdict" data-band={verdict.band} data-visibility-verdict>
+                    {verdict.label}
+                  </div>
+                )}
+                {verdict?.fitNote && (
+                  <div className="scoreSub" data-fit-reference>
+                    {verdict.fitNote}
                   </div>
                 )}
                 {result.atsScore.required_skill_coverage && (
@@ -2034,7 +2050,7 @@ export default function Home() {
                 {Array.isArray(result.atsScore.recommendations) && result.atsScore.recommendations.length > 0 && (
                   <div className="atsGroup">
                     <div className="atsGroupLabel recs">
-                      {visibilityBand === "weak" ? "Fix first" : visibilityBand === "borderline" ? "Fix before sending" : "Optional edits"}
+                      {verdict?.band === "weak" ? "Fix first" : verdict?.band === "borderline" ? "Fix before sending" : "Optional edits"}
                     </div>
                     <ul className="atsList">
                       {result.atsScore.recommendations.map((r, i) => (

@@ -7,6 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  combineWithFit,
   bandFor,
   parseCoverage,
   renderBandBlock,
@@ -23,6 +24,29 @@ const coverageOf = (matched: number, total: number): AtsMatchResult => {
   const all = terms(total);
   return { matched, total, matchedKeywords: all.slice(0, matched), missedKeywords: all.slice(matched) };
 };
+
+test("combineWithFit: the research Fit Score is authoritative and can only lower the band", () => {
+  // The real contradiction: research "Low match 49/100", tailor panel "strong fit".
+  const low = combineWithFit("ready", { total: 49, tier: "low" });
+  assert.equal(low.band, "weak");
+  assert.match(low.label, /^Weak fit\. Company research scored 49\/100 \(low match\)/);
+  assert.match(low.label, /do not send as-is/);
+  assert.match(low.fitNote ?? "", /49\/100, low match/);
+  assert.equal(combineWithFit("weak", { total: 49, tier: "low" }).band, "weak");
+  // Medium fit caps a ready band at borderline and leaves lower bands alone.
+  const med = combineWithFit("ready", { total: 62, tier: "medium" });
+  assert.equal(med.band, "borderline");
+  assert.match(med.label, /62\/100 \(potential match\)/);
+  assert.equal(combineWithFit("borderline", { total: 62, tier: "medium" }).band, "borderline");
+  assert.equal(combineWithFit("weak", { total: 62, tier: "medium" }).label, BAND_LABELS.weak);
+  // High fit never raises the band; it is referenced, not contradicted.
+  const high = combineWithFit("weak", { total: 88, tier: "high" });
+  assert.equal(high.band, "weak");
+  assert.equal(high.label, BAND_LABELS.weak);
+  assert.match(high.fitNote ?? "", /88\/100, highly positive fit/);
+  // No research for this company: the band stands, nothing referenced.
+  assert.deepEqual(combineWithFit("ready", null), { band: "ready", label: BAND_LABELS.ready, fitNote: null });
+});
 
 test("bandFor: below 50% weak, 50-74% borderline, 75%+ ready — integer edges included", () => {
   assert.equal(bandFor(3, 15), "weak");
