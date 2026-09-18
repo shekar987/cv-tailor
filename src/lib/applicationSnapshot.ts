@@ -164,10 +164,12 @@ export function salaryFromJd(jd: string): string {
 
 // ── Notes ───────────────────────────────────────────────────────────────────
 
+import { bandFor, parseCoverage, BAND_LABELS } from "./visibilityVerdict.ts";
+
 export type AtsScoreLike = {
   keyword_coverage?: string;
   required_skill_coverage?: string;
-  overall_assessment?: string;
+  verdict?: string;
   misses?: string[];
 } | null | undefined;
 
@@ -240,17 +242,17 @@ function clip(text: string, max: number): string {
   return `${text.slice(0, cut > max / 2 ? cut : max - 1).trimEnd()}…`;
 }
 
-// Two to three lines: the scorer's own assessment, the coverage numbers, and
-// the gaps it flagged — from the run's real output, only re-addressed to "you".
+// Two to three lines: the band verdict, the coverage numbers, and the gaps
+// flagged — from the run's real output. The verdict is re-derived from the
+// coverage figure (lib/visibilityVerdict) so a stored note can never carry a
+// label that disagrees with its own number.
 export function buildAppliedNotes(atsScore: AtsScoreLike): string | null {
   if (!atsScore) return null;
   const lines: string[] = [];
 
-  const assessment = toSecondPerson((atsScore.overall_assessment ?? "").trim());
-  if (assessment) {
-    const firstTwo = assessment.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ");
-    lines.push(clip(firstTwo, 300));
-  }
+  const cov = parseCoverage(atsScore.keyword_coverage);
+  const verdict = cov ? BAND_LABELS[bandFor(cov.matched, cov.total)] : (atsScore.verdict ?? "").trim();
+  if (verdict) lines.push(clip(verdict, 300));
 
   const coverage: string[] = [];
   const kw = (atsScore.keyword_coverage ?? "").trim();

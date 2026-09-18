@@ -48,8 +48,20 @@ export type PageEstimate = {
   pages: number;
   // True when even the tightest spacing cannot hold the content in two pages.
   overBudget: boolean;
+  // True when the tightest spacing would hold the content in ONE page — the
+  // honest answer to "is this CV too long for one page", as opposed to
+  // `pages`, which reports the stretch the builders choose.
+  fitsOnePage: boolean;
   bodyLines: number;
 };
+
+// Under this many years of experience a recruiter expects one page. The
+// user's years come from their own eligibility answers (lib/knockouts) and
+// are never inferred: null means no expectation is applied.
+export const ONE_PAGE_MAX_YEARS = 3;
+export function onePageExpected(yearsExperience: number | null | undefined): boolean {
+  return typeof yearsExperience === "number" && Number.isFinite(yearsExperience) && yearsExperience < ONE_PAGE_MAX_YEARS;
+}
 
 export function estimatePages(sections: Sections, profile: ProfileLike): PageEstimate {
   const p = profile ?? {};
@@ -82,9 +94,11 @@ export function estimatePages(sections: Sections, profile: ProfileLike): PageEst
   const chosen = chooseDensity(size);
   const tightest = DENSITIES[DENSITIES.length - 1];
   const overBudget = estimatedHeight(size, tightest) > capacity(tightest);
+  // capacity() is the two-page budget; one page is half of it.
+  const fitsOnePage = estimatedHeight(size, tightest) <= capacity(tightest) / 2;
   const usable = PAGE_HEIGHT - 2 * chosen.margin;
   const pages = Math.round((estimatedHeight(size, chosen) / usable) * 10) / 10;
-  return { pages, overBudget, bodyLines: size.lines };
+  return { pages, overBudget, fitsOnePage, bodyLines: size.lines };
 }
 
 // ── Duplicate content ────────────────────────────────────────────────────────

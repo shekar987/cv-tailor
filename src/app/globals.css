@@ -1938,6 +1938,9 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   margin-top: var(--space-1);
   max-width: var(--measure-prose);
 }
+/* The page estimate becomes a warning, not a neutral statement, when the
+   document is longer than the candidate's experience justifies. */
+.fitEvidence[data-warn] { color: var(--danger); }
 .fitGaps {
   font-size: var(--text-sm);
   color: var(--text-subtle);

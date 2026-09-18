@@ -505,29 +505,30 @@ Match the tone to the analysis tone_signals. Use only real experience from the m
 
 Output ONLY the cover letter as plain text. No date line, no word count, no integrity check, no preamble.`;
 
-export const ATS_SCORING_PROMPT = `You objectively score how well a tailored CV covers a job's ATS keywords.
+// The verdict is NOT written here. lib/visibilityVerdict computes the band
+// from the deterministic keyword match and hands it in as `bandBlock`; the
+// model annotates the settled lists and proposes edits inside that band.
+export const atsScoringPrompt = (bandBlock: string) => `You annotate a settled recruiter-search-visibility score for a tailored CV and propose edits within its band.
 
 ${ABSOLUTE_RULES}
 
-You will receive a JSON input containing: the JD analysis (with top_15_ats_keywords and required_skills), and the tailored sections (summary, skills, experience, projects).
+${bandBlock}
 
-For each of the top_15_ats_keywords, decide STRICTLY whether it genuinely appears in the tailored sections.
-- If it appears (or is clearly represented) → it is a HIT. Put it in "hits" only.
-- If it is absent → it is a MISS. Put it in "misses" only.
-A keyword goes in exactly ONE array. Never put a missing keyword in "hits". Never annotate a hit as "MISSING".
+You will receive a JSON input containing: the settled score (band, counts, present and absent terms), and the tailored sections (summary, skills, experience, projects).
 
-CRITICAL for recommendations: NEVER recommend adding a skill, keyword, or technology the candidate does not genuinely have. NEVER recommend "(Learning)" tags or keyword-stuffing to game ATS. Honest recommendations only: surface an adjacent skill they DO have, reorder real content, or note a genuine gap they could close by actually learning the skill (as a real action, not a CV edit).
+The membership of every term is already decided. You may NOT move a term between present and absent, add or drop a term, or quote a different count.
+- "hits": one entry per PRESENT term, in the order given, each starting with the term verbatim followed by " — " and the section it appears in.
+- "misses": one entry per ABSENT term, in the order given, each starting with the term verbatim followed by " — " and a brief honest reason addressed to "you".
 
-VOICE: this text is shown directly to the person whose CV it is. Write "misses", "recommendations", and "overall_assessment" addressed straight to them — "you", "your CV", "you're missing" — never in the third person ("the candidate", "the applicant", "this CV"). Never write "ATS" in any output text: the person reads this score as how visible their CV is to a recruiter searching for the role's terms — say "recruiter search" or "the role's terms" instead.
+CRITICAL for edits: NEVER propose adding a skill, keyword, or technology the candidate does not genuinely have. NEVER propose "(Learning)" tags or keyword-stuffing. An edit surfaces something real that is already in the master CV but absent from the tailored text, reorders real content, or names a genuine gap they could close by actually learning the skill (as a real action, not a CV edit). Each edit is an action, not an opinion: never describe the CV as strong, competitive, submittable or ready — the band above already said what it is.
+
+VOICE: this text is shown directly to the person whose CV it is. Address them as "you" / "your CV", never "the candidate". Never write "ATS": say "recruiter search" or "the role's terms".
 
 Output ONLY a JSON object (no fences):
 {
-  "keyword_coverage": "X/15",
-  "required_skill_coverage": "X/10",
-  "hits": ["only keywords genuinely present, each with the section it appears in"],
-  "misses": ["only keywords genuinely absent, each with a brief honest reason, addressed to \"you\""],
-  "recommendations": ["2-3 honest actions, addressed to \"you\" — never suggest adding skills the CV lacks or keyword-stuffing"],
-  "overall_assessment": "2-3 sentences addressed to \"you\": is this submittable, and your honest competitive position"
+  "hits": ["term — section it appears in"],
+  "misses": ["term — brief honest reason, addressed to \"you\""],
+  "edits": ["actions only, as many as the band above asks for"]
 }`;
 
 export const PROFILE_EXTRACTION_PROMPT = `You extract factual profile details from a CV. Extract ONLY what is explicitly present — never invent or guess. If a field isn't in the CV, use an empty string or empty array.

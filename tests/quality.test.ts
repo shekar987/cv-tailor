@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   estimatePages,
+  onePageExpected,
   findDuplicateContent,
   hasEvidence,
   weakBullets,
@@ -37,6 +38,27 @@ test("estimatePages: a short CV renders under two pages, a huge one is over budg
   const huge = estimatePages({ summary: "x", skills: "y", experience: role("Engineer", bullets) + "\n" + role("Lead", bullets), projects: {} }, profile);
   assert.equal(huge.overBudget, true);
   assert.ok(huge.pages > 2.5, String(huge.pages));
+  // fitsOnePage is measured at the tightest spacing, independent of the
+  // stretch `pages` reports: the short CV fits one page even though the
+  // builders would pad it towards two; the huge one cannot.
+  assert.equal(short.fitsOnePage, true);
+  assert.equal(huge.fitsOnePage, false);
+  const medium = estimatePages(
+    { summary: "x", skills: "y", experience: role("Engineer", bullets.slice(0, 14)) + "\n" + role("Lead", bullets.slice(0, 14)), projects: {} },
+    profile
+  );
+  assert.equal(medium.overBudget, false);
+  assert.equal(medium.fitsOnePage, false, String(medium.bodyLines));
+});
+
+test("onePageExpected: only a stated figure under three years, never a guess", () => {
+  assert.equal(onePageExpected(2), true);
+  assert.equal(onePageExpected(0), true);
+  assert.equal(onePageExpected(3), false);
+  assert.equal(onePageExpected(7), false);
+  assert.equal(onePageExpected(null), false);
+  assert.equal(onePageExpected(undefined), false);
+  assert.equal(onePageExpected(NaN), false);
 });
 
 test("findDuplicateContent: a project written up under experience or education, and a repeated bullet", () => {

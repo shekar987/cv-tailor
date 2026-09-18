@@ -14,7 +14,7 @@ import {
   poolProjectsPrompt,
   COMPANY_RESEARCH_PROMPT,
   coverLetterPrompt,
-  ATS_SCORING_PROMPT,
+  atsScoringPrompt,
   JD_ANALYZER_PROMPT,
   rejectedBulletsBlock,
 } from "@/prompts/steps";
@@ -24,6 +24,8 @@ import { experienceBudget, projectsBudget, normalizeExperienceOutput } from "@/l
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
+import { reconcileAtsScore, renderBandBlock } from "@/lib/visibilityVerdict";
+import { applyFormatRules } from "@/lib/formatRules";
 
 // Minimal shape check for a client-supplied analysis object (from the
 // pre-tailoring ATS gate — see runPipeline's precomputedAnalysis param). Not a
@@ -47,91 +49,6 @@ function swallowStep<T>(fallback: T) {
   return (err: unknown): T => {
     if (err instanceof ProviderRateLimitError) throw err;
     return fallback;
-  };
-}
-
-// The ATS scorer is itself a model call, and it occasionally files a keyword
-// on the wrong side — a "hit" the tailored text doesn't actually contain, or
-// a miss that is plainly present. Reconcile its verdicts against the REAL
-// tailored output with the deterministic matcher (no extra model call), so
-// the numbers shown to the user always agree with the document on their
-// screen. Only hits/misses/counts are corrected; the model keeps the prose
-// (recommendations, overall assessment).
-function reconcileAtsScore(
-  atsScore: unknown,
-  analysis: unknown,
-  sections: { summary: unknown; skills: unknown; experience: unknown; projects: unknown }
-): unknown {
-  if (!atsScore || typeof atsScore !== "object") return atsScore;
-  const score = atsScore as Record<string, unknown>;
-  const a = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
-  const keywords = a.top_15_ats_keywords;
-  if (!Array.isArray(keywords) || keywords.length === 0) return atsScore;
-
-  // The same text assembly the tracker scores when an application is saved.
-  const tailoredText = tailoredSectionsText(sections);
-  if (!tailoredText.trim()) return atsScore;
-
-  const det = matchAtsKeywords(tailoredText, keywords);
-  const present = new Set(det.matchedKeywords.map((k) => k.toLowerCase()));
-
-  const modelHits = Array.isArray(score.hits) ? score.hits.filter((h): h is string => typeof h === "string") : [];
-  const modelMisses = Array.isArray(score.misses) ? score.misses.filter((m): m is string => typeof m === "string") : [];
-  // Prefix match, not containment: a hit's annotation ("Java — skills and
-  // experience (Spring Boot API)") CONTAINS other keywords, and containment
-  // matching filed the same entry under several of them (duplicate hits).
-  const entryFor = (list: string[], kw: string) => list.find((e) => e.trim().toLowerCase().startsWith(kw.toLowerCase()));
-
-  const hits: string[] = [];
-  const misses: string[] = [];
-  for (const kw of keywords) {
-    if (typeof kw !== "string" || !kw.trim()) continue;
-    if (present.has(kw.toLowerCase())) {
-      hits.push(entryFor(modelHits, kw) ?? kw);
-    } else if (entryFor(modelHits, kw)) {
-      // The model claimed a hit the tailored text doesn't back.
-      misses.push(`${kw} — not actually present in the tailored text`);
-    } else {
-      misses.push(entryFor(modelMisses, kw) ?? `${kw} — not present in the tailored text`);
-    }
-  }
-
-  const required = a.required_skills;
-  const requiredCoverage =
-    Array.isArray(required) && required.length > 0
-      ? (() => {
-          const r = matchAtsKeywords(tailoredText, required);
-          return `${r.matched}/${r.total}`;
-        })()
-      : score.required_skill_coverage;
-
-  // The model's prose sometimes quotes different figures than its own lists
-  // ("13 of 15" beside a 15-entry hits array, seen in testing). Sync any
-  // X/N or "X of N" figure it quotes with the reconciled counts.
-  const kwTotal = keywords.length;
-  const reqParts = typeof requiredCoverage === "string" ? requiredCoverage.split("/") : [];
-  const syncProse = (v: unknown): unknown => {
-    if (typeof v !== "string") return v;
-    let s = v.replace(
-      new RegExp(String.raw`\b\d{1,2}(\s*(?:/|of)\s*)${kwTotal}\b`, "g"),
-      (_m, sep: string) => `${hits.length}${sep}${kwTotal}`
-    );
-    if (reqParts.length === 2) {
-      s = s.replace(
-        new RegExp(String.raw`\b\d{1,2}(\s*(?:/|of)\s*)${reqParts[1]}\b`, "g"),
-        (_m, sep: string) => `${reqParts[0]}${sep}${reqParts[1]}`
-      );
-    }
-    return s;
-  };
-
-  return {
-    ...score,
-    hits,
-    misses,
-    keyword_coverage: `${hits.length}/${keywords.length}`,
-    required_skill_coverage: requiredCoverage,
-    overall_assessment: syncProse(score.overall_assessment),
   };
 }
 
@@ -255,7 +172,14 @@ async function runPipeline(opts: {
       titleCheck.retried = true;
     }
   }
-  const skills = dropRefusal(skillsRaw);
+  // Hard formatting rules (lib/formatRules): the Technical Tools line is cut
+  // to the 15 most JD-relevant terms and the summary to three sentences.
+  // Applied BEFORE the score and the claim check, so both read exactly the
+  // text the user gets; the response says what was dropped.
+  const formatted = applyFormatRules({ summary, skills: dropRefusal(skillsRaw) }, analysis);
+  summary = formatted.summary;
+  const skills = formatted.skills;
+  const formatFixes = formatted.fixes;
   const experience = dropRefusal(experienceRaw);
 
   // Pool mode: coerce the selection JSON at the boundary and re-key bullets by
@@ -320,27 +244,54 @@ async function runPipeline(opts: {
   }
   const bulletLint = { retried, remaining: lintBullets({ experience: experienceFinal, projects: projectsFinal }, company) };
 
-  // Wave 2 — cover letter + ATS score
-  const coverLetterInput = JSON.stringify({ analysis, research });
-  const atsInput         = JSON.stringify({ analysis, summary, skills, experience: experienceFinal, projects: projectsFinal });
+  // Search-visibility score — deterministic, BEFORE wave 2: the band is
+  // arithmetic on lib/atsMatch over the same text assembly the tracker scores
+  // on Applied, and the scoring call below receives it as settled. The model
+  // annotates the lists and proposes edits inside the band; it never picks
+  // the verdict (lib/visibilityVerdict).
+  const sections = { summary, skills, experience: experienceFinal, projects: projectsFinal };
+  const tailoredText = tailoredSectionsText(sections);
+  const terms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
+  const coverage = matchAtsKeywords(tailoredText, terms.top_15_ats_keywords);
+  const requiredRaw = matchAtsKeywords(tailoredText, terms.required_skills);
+  const required = requiredRaw.total > 0 ? requiredRaw : null;
 
-  const [coverLetterRaw, atsScore] = await Promise.all([
+  // Wave 2 — cover letter + score annotation
+  const coverLetterInput = JSON.stringify({ analysis, research });
+  const atsInput = JSON.stringify({
+    score: {
+      keyword_coverage: `${coverage.matched}/${coverage.total}`,
+      present: coverage.matchedKeywords,
+      absent: coverage.missedKeywords,
+      ...(required ? { required_skill_coverage: `${required.matched}/${required.total}`, required_absent: required.missedKeywords } : {}),
+    },
+    summary,
+    skills,
+    experience: experienceFinal,
+    projects: projectsFinal,
+  });
+
+  const [coverLetterRaw, atsAnnotation] = await Promise.all([
     callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv, claimsBlock), userInput: coverLetterInput, maxTokens: 1200 })
       .catch(swallowStep("")),
-    callLLM({ provider, apiKeyOverride, system: ATS_SCORING_PROMPT, userInput: atsInput, expectJson: true })
-      .catch(swallowStep(null)),
+    coverage.total > 0
+      ? callLLM({ provider, apiKeyOverride, system: atsScoringPrompt(renderBandBlock(coverage, required)), userInput: atsInput, expectJson: true })
+          .catch(swallowStep(null))
+      : Promise.resolve(null),
   ]);
 
   const coverLetter = dropRefusal(coverLetterRaw);
-  const sections = { summary, skills, experience: experienceFinal, projects: projectsFinal };
-  // Deterministic claim check on the finished text — same precedent as
-  // reconcileAtsScore: no model call, computed from exactly what the user
-  // sees. The client re-runs the same function on the edited preview.
-  // The letter may quote the posting's own facts about the company; the CV
-  // may not, so only the letter gets the JD as a source.
+  // No terms to score against (analysis failed) → no score; otherwise the
+  // deterministic score stands even when the annotation call failed.
+  const atsScore = coverage.total > 0 ? reconcileAtsScore(atsAnnotation, coverage, required) : null;
+  // Deterministic claim check on the same finished text — no model call,
+  // computed from exactly what the user sees. The client re-runs the same
+  // function on the edited preview. The letter may quote the posting's own
+  // facts about the company; the CV may not, so only the letter gets the JD
+  // as a source.
   const claimCheck = checkClaims(
     [
-      { where: "cv", text: tailoredSectionsText(sections) },
+      { where: "cv", text: tailoredText },
       { where: "coverLetter", text: typeof coverLetter === "string" ? coverLetter : "", extraSources: [jd] },
     ],
     claims,
@@ -355,10 +306,11 @@ async function runPipeline(opts: {
     experience: experienceFinal,
     projects: projectsFinal,
     coverLetter,
-    atsScore: reconcileAtsScore(atsScore, analysis, sections),
+    atsScore,
     claimCheck,
     bulletLint,
     titleCheck,
+    formatFixes,
     ...(projectsPool ? { selectedProjects: selectedFinal } : {}),
   };
 }

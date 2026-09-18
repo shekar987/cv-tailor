@@ -273,7 +273,7 @@ export default function Landing() {
             <div className="lpShowScore">
               <div className="lpShowScoreLabel">Hey Jordan, here&apos;s your recruiter search visibility</div>
               <AnimatedScoreValue target={12} total={15} />
-              <div className="lpShowScoreSub">Required skills covered: 8/10</div>
+              <div className="lpShowScoreSub">Ready to send. · Required skills in the tailored CV: 8/10 — not present: Go, Kafka</div>
               <div className="lpShowScoreGroup">
                 <div className="lpShowScoreGroupLabel hits">Matched (12)</div>
                 <ul className="lpShowScoreList">

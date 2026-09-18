@@ -18,12 +18,13 @@ import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
 import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
 import { normalizeClaims, checkClaims, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
-import { qualityReport, type QualityReport } from "@/lib/quality";
+import { qualityReport, onePageExpected, type QualityReport } from "@/lib/quality";
 import { normalizeVariants, pickVariant, type VariantsConfig } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import type { SeniorityFit } from "@/lib/seniority";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
+import { bandFor, parseCoverage, BAND_LABELS, type VisibilityBand } from "@/lib/visibilityVerdict";
 import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
 import { getUsage, type Usage } from "@/lib/usage";
 import AppHeader from "@/components/ui/AppHeader";
@@ -79,10 +80,15 @@ type Result = {
     top_15_ats_keywords?: string[];
     required_skills?: string[];
   };
+  // lib/visibilityVerdict's VisibilityScore: every figure and the verdict are
+  // computed server-side from the keyword match; only the annotations and the
+  // edits (`recommendations`) are the model's.
   atsScore?: {
+    band?: VisibilityBand;
+    verdict?: string;
     keyword_coverage?: string;
     required_skill_coverage?: string;
-    overall_assessment?: string;
+    required_misses?: string[];
     hits?: string[];
     misses?: string[];
     recommendations?: string[];
@@ -100,6 +106,13 @@ type Result = {
   // Attached client-side: the positioning variant this run was made with.
   variantName?: string;
   variantReason?: string;
+  // What the server's hard formatting rules dropped from this run
+  // (lib/formatRules): tools cut from the Technical Tools line, sentences
+  // cut from the summary. Null entries mean the rule had nothing to do.
+  formatFixes?: {
+    tools?: { kept: string[]; dropped: string[] } | null;
+    summary?: { sentences: number; kept: number } | null;
+  };
 };
 
 const WHERE_LABEL: Record<ClaimWhere, string> = { cv: "CV", coverLetter: "cover letter", email: "email", extra: "text" };
@@ -1080,8 +1093,14 @@ export default function Home() {
       companyOf(result.analysis)
     );
   }, [liveQuality, result, displayProfile]);
+  // Under three years of experience (the user's own eligibility answer —
+  // never inferred) a recruiter expects one page. Two readings: the content
+  // genuinely cannot fit one page at the tightest spacing, or it could but
+  // the download's layout stretches a short CV towards two.
+  const overOnePage = !!quality && onePageExpected(eligibility?.yearsExperience) && quality.pages.pages > 1;
   const qualityIssues = quality
     ? (quality.pages.overBudget ? 1 : 0) +
+      (overOnePage && !quality.pages.overBudget ? 1 : 0) +
       quality.duplicates.length +
       (quality.weakBullets.length > 0 ? 1 : 0) +
       (quality.inflation.length > 0 ? 1 : 0) +
@@ -1129,6 +1148,15 @@ export default function Home() {
   // First name only, for a personal greeting on the results — falls back to
   // nothing (not a placeholder) if no profile name is set yet.
   const firstName = (profile?.name || "").trim().split(/\s+/)[0] || "";
+
+  // The search-visibility band, re-derived from the same "X/N" the score card
+  // shows, so the verdict line and the edits heading can never disagree with
+  // the number — including for a result saved before the server sent a band.
+  const visibilityBand: VisibilityBand | undefined = (() => {
+    if (!result?.atsScore) return undefined;
+    const cov = parseCoverage(result.atsScore.keyword_coverage);
+    return cov ? bandFor(cov.matched, cov.total) : result.atsScore.band;
+  })();
 
   return (
     <main className="page">
@@ -1833,6 +1861,34 @@ export default function Home() {
                 </div>
               </div>
             )}
+            {(result.formatFixes?.tools || result.formatFixes?.summary) && (
+              <div className="limitNotice" role="status" data-format-fixes>
+                <div className="limitNotice__title">Formatting rules applied</div>
+                <div className="limitNotice__body">
+                  <ul className="atsList">
+                    {result.formatFixes.tools && (
+                      <li data-format-fix="tools">
+                        <Badge variant="dot" tone="rec">→</Badge>
+                        <span>
+                          Technical Tools ran to {result.formatFixes.tools.kept.length + result.formatFixes.tools.dropped.length}; kept the{" "}
+                          {result.formatFixes.tools.kept.length} most relevant to this role and dropped:{" "}
+                          {result.formatFixes.tools.dropped.join(", ")}. Add one back in the preview if it matters more than a term shown.
+                        </span>
+                      </li>
+                    )}
+                    {result.formatFixes.summary && (
+                      <li data-format-fix="summary">
+                        <Badge variant="dot" tone="rec">→</Badge>
+                        <span>
+                          The summary came back as {result.formatFixes.summary.sentences} sentences; kept the first{" "}
+                          {result.formatFixes.summary.kept}, one per line. Check they still carry the role title and your strongest figure.
+                        </span>
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            )}
             {quality && qualityIssues > 0 && (
               <div className="limitNotice" role="status" data-quality-check>
                 <div className="limitNotice__title">Before you send</div>
@@ -1844,6 +1900,17 @@ export default function Home() {
                         <span>
                           About <strong>{quality.pages.pages} pages</strong> — over the two-page limit even at the tightest
                           spacing. Cut the least relevant bullets in the preview below.
+                        </span>
+                      </li>
+                    )}
+                    {overOnePage && !quality.pages.overBudget && (
+                      <li data-quality-one-page={quality.pages.fitsOnePage ? "stretched" : "over"}>
+                        <Badge variant="dot" tone="miss">✕</Badge>
+                        <span>
+                          About <strong>{quality.pages.pages} pages</strong> for under three years of experience — recruiters expect one.{" "}
+                          {quality.pages.fitsOnePage
+                            ? "The content would fit one page at tight spacing; the download's layout stretches a short CV towards two, so cut the weakest bullets until it reads as one page."
+                            : "Even the tightest spacing can't hold this on one page: cut the least relevant bullets and projects in the preview below."}
                         </span>
                       </li>
                     )}
@@ -1905,45 +1972,52 @@ export default function Home() {
                   {firstName ? `Hey ${firstName}, here's your recruiter search visibility` : "Your recruiter search visibility"}
                 </div>
                 <div className="scoreValue">{result.atsScore.keyword_coverage}</div>
+                {visibilityBand && (
+                  <div className="scoreVerdict" data-band={visibilityBand} data-visibility-verdict>
+                    {BAND_LABELS[visibilityBand]}
+                  </div>
+                )}
                 {result.atsScore.required_skill_coverage && (
                   <div className="scoreSub">
-                    Required skills covered: {result.atsScore.required_skill_coverage}
+                    Required skills in the tailored CV: {result.atsScore.required_skill_coverage}
+                    {(result.atsScore.required_misses?.length ?? 0) > 0
+                      ? ` — not present: ${result.atsScore.required_misses!.join(", ")}`
+                      : ""}
                   </div>
                 )}
                 <p className="scoreNote">
-                  How likely a recruiter searching their pipeline for this role&apos;s terms is to surface your CV.
+                  {`How likely a recruiter searching their pipeline for this role's terms is to surface your CV: ${result.atsScore.keyword_coverage} of the role's terms are in the tailored text.`}
                 </p>
-                {result.atsScore.overall_assessment && (
-                  <p className="scoreNote">{result.atsScore.overall_assessment}</p>
-                )}
 
-                {Array.isArray((result.atsScore as any).hits) && (result.atsScore as any).hits.length > 0 && (
+                {Array.isArray(result.atsScore.hits) && result.atsScore.hits.length > 0 && (
                   <div className="atsGroup">
-                    <div className="atsGroupLabel hits">Matched ({(result.atsScore as any).hits.length})</div>
+                    <div className="atsGroupLabel hits">Matched ({result.atsScore.hits.length})</div>
                     <ul className="atsList">
-                      {(result.atsScore as any).hits.map((h: string, i: number) => (
+                      {result.atsScore.hits.map((h, i) => (
                         <li key={i}><Badge variant="dot" tone="hit">✓</Badge>{h}</li>
                       ))}
                     </ul>
                   </div>
                 )}
 
-                {Array.isArray((result.atsScore as any).misses) && (result.atsScore as any).misses.length > 0 && (
+                {Array.isArray(result.atsScore.misses) && result.atsScore.misses.length > 0 && (
                   <div className="atsGroup">
-                    <div className="atsGroupLabel misses">Missing ({(result.atsScore as any).misses.length})</div>
+                    <div className="atsGroupLabel misses">Missing ({result.atsScore.misses.length})</div>
                     <ul className="atsList">
-                      {(result.atsScore as any).misses.map((m: string, i: number) => (
+                      {result.atsScore.misses.map((m, i) => (
                         <li key={i}><Badge variant="dot" tone="miss">✕</Badge>{m}</li>
                       ))}
                     </ul>
                   </div>
                 )}
 
-                {Array.isArray((result.atsScore as any).recommendations) && (result.atsScore as any).recommendations.length > 0 && (
+                {Array.isArray(result.atsScore.recommendations) && result.atsScore.recommendations.length > 0 && (
                   <div className="atsGroup">
-                    <div className="atsGroupLabel recs">Recommendations</div>
+                    <div className="atsGroupLabel recs">
+                      {visibilityBand === "weak" ? "Fix first" : visibilityBand === "borderline" ? "Fix before sending" : "Optional edits"}
+                    </div>
                     <ul className="atsList">
-                      {(result.atsScore as any).recommendations.map((r: string, i: number) => (
+                      {result.atsScore.recommendations.map((r, i) => (
                         <li key={i}><Badge variant="dot" tone="rec">→</Badge>{r}</li>
                       ))}
                     </ul>
@@ -2033,9 +2107,13 @@ export default function Home() {
                 on the edited text (focusout bubbles; the previews stay memo'd
                 and untouched). */}
             {quality && (
-              <p className="fitEvidence" data-page-estimate={quality.pages.pages}>
+              <p className="fitEvidence" data-page-estimate={quality.pages.pages} data-warn={overOnePage || quality.pages.overBudget ? "" : undefined}>
                 About {quality.pages.pages} {quality.pages.pages === 1 ? "page" : "pages"} at the spacing the download uses
-                {quality.pages.overBudget ? " — over the two-page limit." : "."}
+                {quality.pages.overBudget
+                  ? " — over the two-page limit."
+                  : overOnePage
+                    ? " — over one page, which is what under three years of experience calls for. See Before you send above."
+                    : "."}
               </p>
             )}
             <div onBlur={onPreviewBlur}>
