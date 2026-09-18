@@ -797,6 +797,18 @@ textarea { resize: vertical; min-height: 96px; }
   margin-bottom: var(--space-4);
   font-variant-numeric: tabular-nums;
 }
+/* The band verdict is the one line on this card that tells the user what to
+   do. Status colour carries meaning (weak = danger, borderline = the accent,
+   ready = success); the number above stays plain so the two don't compete. */
+.scoreVerdict {
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  margin-bottom: var(--space-3);
+}
+.scoreVerdict[data-band="weak"] { color: var(--danger); }
+.scoreVerdict[data-band="borderline"] { color: var(--amber-bright); }
+.scoreVerdict[data-band="ready"] { color: var(--success); }
 
 /* Groups are separated by a hairline rather than margin alone, so hits /
    misses / recommendations read as distinct sections at a glance. */
@@ -1038,6 +1050,20 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .cvDocWrap { margin-top: var(--space-6); }
 .editHint { font-size: var(--text-xs); color: var(--muted); margin-bottom: var(--space-3); }
 .cvActions { display: flex; gap: var(--space-3); margin-bottom: var(--space-3); }
+
+/* Score-vs-outcome plot on the tracker: one axis, two lanes, status colours
+   with lane + shape as the primary cue. */
+.scorePlot { width: 100%; height: auto; display: block; margin: var(--space-3) 0 var(--space-2); }
+.scoreGrid { stroke: var(--border); stroke-width: 1; }
+.scoreLane { stroke: var(--border-strong); stroke-width: 1; }
+.scoreTick, .scoreLaneLabel { font-size: 11px; fill: var(--muted); font-family: var(--font-sans); }
+.scoreMark circle { stroke: var(--bg); stroke-width: 2; }
+.scoreMark.progressed circle { fill: var(--success); }
+.scoreMark.rejected circle { fill: var(--surface-2); stroke: var(--danger); }
+.scoreTable { margin-top: var(--space-3); font-size: var(--text-xs); color: var(--text-subtle); }
+.scoreTable summary { cursor: pointer; color: var(--muted); }
+.scoreTable table { width: 100%; border-collapse: collapse; margin-top: var(--space-2); }
+.scoreTable th, .scoreTable td { text-align: left; padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--border); }
 
 /* Right to Work wording for application forms — beside the downloads, never
    in the document unless the Customize switch is on. */

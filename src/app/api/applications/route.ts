@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { MAX_JD_CHARS, MAX_NOTES_CHARS, MAX_COVER_LETTER_CHARS, JD_TOO_LONG } from "@/lib/limits";
 import { packFromRow } from "@/lib/prepPack";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
+import { seniorityOf } from "@/lib/insights";
 
 // CRUD for the application tracker. RLS ("auth.uid() = user_id") is the real
 // boundary; every write is additionally scoped by user id.
@@ -95,9 +96,11 @@ function scoreSnapshot(snapshot: Record<string, unknown>, atsInput: unknown) {
     experience: snapshot.experience,
     projects: snapshot.projects,
   });
+  // Lists plus explicit counts: the denominator is what the insights divide
+  // by, and the backfill (which never had the lists) stores counts alone.
   const verdict = (terms: string[]) => {
     const r = matchAtsKeywords(text, terms);
-    return { hits: r.matchedKeywords, misses: r.missedKeywords };
+    return { hits: r.matchedKeywords, misses: r.missedKeywords, matched: r.matched, total: r.total };
   };
   return { keywords: verdict(keywords), required: verdict(required), computedAt: new Date().toISOString() };
 }
@@ -132,7 +135,7 @@ function cleanGates(value: unknown): Record<string, unknown> | null {
 // size: a plain object, known keys only, bounded JSON. Two keys ride along
 // with the sections — the cover letter as sent (text, capped, rejected rather
 // than truncated) and the server-scored keyword analysis above.
-function cleanTailoredCv(value: unknown): { snapshot: Record<string, unknown> | null } | { error: string } {
+function cleanTailoredCv(value: unknown, role: string): { snapshot: Record<string, unknown> | null } | { error: string } {
   if (value == null) return { snapshot: null };
   if (typeof value !== "object" || Array.isArray(value)) return { error: "Invalid tailored CV snapshot." };
   const input = value as Record<string, unknown>;
@@ -152,6 +155,8 @@ function cleanTailoredCv(value: unknown): { snapshot: Record<string, unknown> | 
   if (ats) snapshot.ats = ats;
   const gates = cleanGates(input.gates);
   if (gates) snapshot.gates = gates;
+  // Role seniority, read off the title here so every save carries it.
+  if (role) snapshot.seniority = seniorityOf(role);
   if (JSON.stringify(snapshot).length > MAX_TAILORED_CV_JSON) {
     return { error: "Tailored CV snapshot is too large to store." };
   }
@@ -383,7 +388,7 @@ export async function POST(req: NextRequest) {
     const source = body.source === "tailored" ? "tailored" : "manual";
     const sessionId = source === "tailored" ? clampOptional(body.tailor_session_id, MAX_SESSION_ID) : null;
     const cvReference = source === "tailored" ? clampOptional(body.cv_reference, MAX_CV_REF) : null;
-    const cv = source === "tailored" ? cleanTailoredCv(body.tailored_cv) : { snapshot: null };
+    const cv = source === "tailored" ? cleanTailoredCv(body.tailored_cv, String(fields.role ?? "")) : { snapshot: null };
     if ("error" in cv) {
       return NextResponse.json({ error: cv.error }, { status: 400 });
     }

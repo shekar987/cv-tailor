@@ -6,7 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { computeInsights, rowFromApplication } from "@/lib/insights";
+import { computeInsights, rowFromApplication, scoreOutcome } from "@/lib/insights";
 
 const WITH_SNAPSHOT_PATHS = "status, role, company_name, ats:tailored_cv->ats, gates:tailored_cv->gates";
 const PLAIN = "status, role, company_name";
@@ -35,12 +35,15 @@ export async function GET() {
       return NextResponse.json({ error: "Could not load your applications" }, { status: 500 });
     }
 
-    const insights = computeInsights((rows ?? []).map(rowFromApplication));
+    const insightRows = (rows ?? []).map(rowFromApplication);
+    const insights = computeInsights(insightRows);
     const scoredNote =
       insights.scored > 0
         ? `Score bands use the ${insights.scored} of ${insights.counted} applications with a stored search-visibility score; eligibility reads exist on ${insights.gated}.`
         : "No application has a stored search-visibility score yet — scores are kept from the next tailored run you save.";
-    return NextResponse.json({ insights, scoredNote });
+    // Decided applications against their stored score — the one question
+    // the score has to answer (lib/insights scoreOutcome).
+    return NextResponse.json({ insights, scoredNote, scoreOutcome: scoreOutcome(insightRows) });
   } catch (err) {
     console.error("insights GET error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not load your applications" }, { status: 500 });

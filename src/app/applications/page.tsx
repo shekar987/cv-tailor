@@ -8,7 +8,7 @@ import { getProfile, type Profile } from "@/lib/cvStore";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
 import { MAX_JD_CHARS as JD_LIMIT, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
-import { MIN_DECIDED, type Insights, type Bucket } from "@/lib/insights";
+import { MIN_DECIDED, MIN_FOR_VERDICT, type Insights, type Bucket, type ScoreOutcome } from "@/lib/insights";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -91,6 +91,108 @@ function readStoredAts(value: unknown): StoredAts | null {
 function letterFileName(cvReference: string | null): string {
   const stem = (cvReference ?? "").replace(/_?CV$/, "");
   return stem ? `${stem}_CoverLetter` : "CoverLetter";
+}
+
+// Does the score predict the outcome? Every decided application with a stored
+// score, plotted as it is: one axis (the share of the role's terms the saved
+// CV carried), two lanes (progressed / rejected). Lane and mark shape carry
+// the identity; colour is the app's status pair and never the only cue. The
+// text says what the plot shows even when that is "the metric has no
+// predictive power".
+function ScoreOutcomePanel({ s }: { s: ScoreOutcome }) {
+  const W = 640, H = 136, L = 124, R = 18;
+  const laneY = { progressed: 42, rejected: 94 } as const;
+  const x = (score: number) => L + score * (W - L - R);
+  const seen = new Map<string, number>();
+  const marks = s.points.map((p, i) => {
+    // Marks at one score in one lane fan out vertically, so none hides another.
+    const key = `${p.outcome}:${p.hits}/${p.total}`;
+    const n = seen.get(key) ?? 0;
+    seen.set(key, n + 1);
+    const dy = n === 0 ? 0 : (n % 2 ? 1 : -1) * Math.ceil(n / 2) * 9;
+    return { ...p, i, cx: x(p.score), cy: laneY[p.outcome] + dy };
+  });
+  const pct = (v: number | null) => (v === null ? "—" : `${Math.round(v * 100)}%`);
+  const topProgressed = s.topOutcomes.filter((o) => o === "progressed").length;
+  const topLine =
+    s.points.length < s.topN
+      ? null
+      : s.topAllRejected
+        ? `Your ${s.topN} highest-scoring decided applications were all rejected.`
+        : `Of your ${s.topN} highest-scoring decided applications, ${topProgressed} progressed.`;
+  const verdictLine =
+    s.verdict === "too_few"
+      ? `Too few decided applications to judge yet: ${s.points.length} scored and decided${s.auc === null ? ", and only one kind of outcome so far" : ""}. A read needs ${MIN_FOR_VERDICT} with both outcomes.`
+      : s.verdict === "no_signal"
+        ? "So far the score does not predict the outcome. Treat it as a checklist of the role's terms, not a forecast."
+        : s.verdict === "weak"
+          ? "A weak relationship at best: higher scores progressed slightly more often."
+          : "Higher scores have progressed more often.";
+  return (
+    <div>
+      <p className="fitEvidence" data-score-read>
+        {topLine ? `${topLine} ` : ""}
+        {s.auc !== null &&
+          `Pick one progressed and one rejected application at random: the progressed one has the higher score ${pct(s.auc)} of the time (50% would be a coin flip). `}
+        {verdictLine}
+      </p>
+      <svg className="scorePlot" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Decided applications by search-visibility score">
+        {[0, 0.25, 0.5, 0.75, 1].map((t) => (
+          <g key={t}>
+            <line x1={x(t)} x2={x(t)} y1={16} y2={H - 24} className="scoreGrid" />
+            <text x={x(t)} y={H - 8} textAnchor="middle" className="scoreTick">
+              {Math.round(t * 100)}%
+            </text>
+          </g>
+        ))}
+        {(["progressed", "rejected"] as const).map((o) => (
+          <g key={o}>
+            <line x1={L} x2={W - R} y1={laneY[o]} y2={laneY[o]} className="scoreLane" />
+            <text x={L - 10} y={laneY[o] + 4} textAnchor="end" className="scoreLaneLabel">
+              {o === "progressed" ? `Progressed (${s.progressed})` : `Rejected (${s.rejected})`}
+            </text>
+          </g>
+        ))}
+        {marks.map((m) => (
+          <g key={m.i} className={`scoreMark ${m.outcome}`} data-score-point={m.outcome}>
+            <title>{`${m.company} — ${m.role}: ${m.hits}/${m.total} (${Math.round(m.score * 100)}%), ${m.outcome}`}</title>
+            <circle cx={m.cx} cy={m.cy} r={6} />
+          </g>
+        ))}
+      </svg>
+      <p className="fitEvidence">
+        Share of the role&apos;s search terms the saved CV carried. Mean: rejected {pct(s.meanRejected)} across {s.rejected}, progressed{" "}
+        {pct(s.meanProgressed)} across {s.progressed}.
+        {s.unscoredDecided > 0 && ` ${s.unscoredDecided} decided application${s.unscoredDecided === 1 ? " has" : "s have"} no stored score and ${s.unscoredDecided === 1 ? "is" : "are"} not plotted.`}
+        {s.pendingScored > 0 && ` ${s.pendingScored} scored application${s.pendingScored === 1 ? " is" : "s are"} still open.`}
+      </p>
+      <details className="scoreTable">
+        <summary>As a table</summary>
+        <table>
+          <thead>
+            <tr>
+              <th>Company</th>
+              <th>Role</th>
+              <th>Score</th>
+              <th>Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.points.map((p, i) => (
+              <tr key={i}>
+                <td>{p.company}</td>
+                <td>{p.role}</td>
+                <td>
+                  {p.hits}/{p.total} ({Math.round(p.score * 100)}%)
+                </td>
+                <td>{p.outcome}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </div>
+  );
 }
 
 // One "What's working" group: a bar per bucket, filled to its progression
@@ -277,6 +379,8 @@ export default function ApplicationsPage() {
   // the headline rate is always visible.
   const [insights, setInsights] = useState<Insights | null>(null);
   const [insightsNote, setInsightsNote] = useState("");
+  // Decided applications against their stored score (lib/insights scoreOutcome).
+  const [scoreOutcome, setScoreOutcome] = useState<ScoreOutcome | null>(null);
   const [showInsights, setShowInsights] = useState(false);
   const rowsRef = useRef<Application[]>([]);
   rowsRef.current = rows;
@@ -351,6 +455,7 @@ export default function ApplicationsPage() {
         if (cancelled || !data?.insights) return;
         setInsights(data.insights as Insights);
         setInsightsNote(typeof data.scoredNote === "string" ? data.scoredNote : "");
+        if (data.scoreOutcome && Array.isArray(data.scoreOutcome.points)) setScoreOutcome(data.scoreOutcome as ScoreOutcome);
       })
       .catch(() => {
         /* the card simply doesn't show */
@@ -1048,6 +1153,7 @@ export default function ApplicationsPage() {
                 <InsightGroup title="By search visibility of the saved CV" buckets={insights.byVisibility} />
                 <InsightGroup title="By required-skill coverage" buckets={insights.byRequired} />
                 <InsightGroup title="By eligibility read at the pre-check" buckets={insights.byGate} />
+                <InsightGroup title="By role seniority" buckets={insights.bySeniority} />
                 <InsightGroup title="By role" buckets={insights.byRole} />
                 <InsightGroup title="By company" buckets={insights.byCompany} />
                 {insights.byVisibility.length + insights.byRequired.length + insights.byGate.length === 0 && (
@@ -1057,6 +1163,15 @@ export default function ApplicationsPage() {
                 )}
               </>
             )}
+          </Card>
+        )}
+
+        {scoreOutcome && scoreOutcome.points.length > 0 && (
+          <Card variant="dashed" data-score-outcome data-score-verdict={scoreOutcome.verdict}>
+            <div className="appsPanelHead">
+              <span className="appsPanelTitle">Does the score predict the outcome?</span>
+            </div>
+            <ScoreOutcomePanel s={scoreOutcome} />
           </Card>
         )}
 

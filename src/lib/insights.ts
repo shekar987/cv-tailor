@@ -12,6 +12,7 @@
 // 1-of-1 "100%" would mislead.
 
 export type GateRead = "apply" | "long_shot" | "skip";
+export type Seniority = "junior" | "mid" | "senior";
 
 export type InsightRow = {
   status: string;
@@ -22,7 +23,30 @@ export type InsightRow = {
   reqHits?: number;
   reqTotal?: number;
   gateRead?: GateRead;
+  seniority?: Seniority;
 };
+
+// Role seniority read off the title, stored with every tailored save and
+// derived on read for older rows. Deterministic; "mid" is the default.
+export function seniorityOf(role: string): Seniority {
+  const r = role || "";
+  if (/\b(?:senior|lead|staff|principal|head\s+of|sr\.?|architect|manager)\b/i.test(r)) return "senior";
+  if (/\b(?:graduate|junior|associate|intern|internship|entry[-\s]level|early[-\s]career|apprentice|trainee|placement)\b/i.test(r)) return "junior";
+  return "mid";
+}
+const SENIORITY_LABEL: Record<Seniority, string> = { junior: "Junior / graduate", mid: "Mid-level", senior: "Senior" };
+
+// A stored count pair: { matched, total } written by the backfill (the
+// lists were never kept) or beside the lists by the save path since the
+// denominators were made explicit.
+function countPair(v: Record<string, unknown>): { hits: number; total: number } | null {
+  const hits = Array.isArray(v.hits) ? v.hits.length : typeof v.matched === "number" && Number.isFinite(v.matched) ? Math.round(v.matched) : null;
+  const total = Array.isArray(v.hits) || Array.isArray(v.misses)
+    ? (Array.isArray(v.hits) ? v.hits.length : 0) + (Array.isArray(v.misses) ? v.misses.length : 0)
+    : typeof v.total === "number" && Number.isFinite(v.total) ? Math.round(v.total) : null;
+  if (hits === null || total === null || total <= 0 || hits < 0 || hits > total) return null;
+  return { hits, total };
+}
 
 export type Bucket = {
   key: string;
@@ -46,6 +70,7 @@ export type Insights = {
   byVisibility: Bucket[];
   byRequired: Bucket[];
   byGate: Bucket[];
+  bySeniority: Bucket[];
   byRole: Bucket[];
   byCompany: Bucket[];
 };
@@ -55,9 +80,6 @@ const PROGRESSED = new Set(["Screening", "Interview", "Offer"]);
 
 function obj(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
-}
-function len(v: unknown): number {
-  return Array.isArray(v) ? v.length : 0;
 }
 
 // Reads a tracker row (the list shape or the detail shape) defensively: a
@@ -71,22 +93,21 @@ export function rowFromApplication(row: unknown): InsightRow {
   };
   const snapshot = obj(r.tailored_cv);
   const ats = obj(r.ats ?? snapshot.ats);
-  const keywords = obj(ats.keywords);
-  const required = obj(ats.required);
-  const kwHits = len(keywords.hits);
-  const kwTotal = kwHits + len(keywords.misses);
-  if (kwTotal > 0) {
-    out.kwHits = kwHits;
-    out.kwTotal = kwTotal;
+  const kw = countPair(obj(ats.keywords));
+  if (kw) {
+    out.kwHits = kw.hits;
+    out.kwTotal = kw.total;
   }
-  const reqHits = len(required.hits);
-  const reqTotal = reqHits + len(required.misses);
-  if (reqTotal > 0) {
-    out.reqHits = reqHits;
-    out.reqTotal = reqTotal;
+  const req = countPair(obj(ats.required));
+  if (req) {
+    out.reqHits = req.hits;
+    out.reqTotal = req.total;
   }
   const gates = obj(r.gates ?? snapshot.gates);
   if (gates.read === "apply" || gates.read === "long_shot" || gates.read === "skip") out.gateRead = gates.read;
+  const stored = r.seniority ?? snapshot.seniority;
+  if (stored === "junior" || stored === "mid" || stored === "senior") out.seniority = stored;
+  else if (out.role) out.seniority = seniorityOf(out.role);
   return out;
 }
 
@@ -140,6 +161,7 @@ export function computeInsights(rows: InsightRow[]): Insights {
   const byVisibility = new Map<string, Acc>();
   const byRequired = new Map<string, Acc>();
   const byGate = new Map<string, Acc>();
+  const bySeniority = new Map<string, Acc>();
   const byRole = new Map<string, Acc>();
   const byCompany = new Map<string, Acc>();
   let scored = 0;
@@ -163,6 +185,7 @@ export function computeInsights(rows: InsightRow[]): Insights {
       gated++;
       bucketOf(byGate, row.gateRead, GATE_LABEL[row.gateRead], row);
     }
+    if (row.seniority) bucketOf(bySeniority, row.seniority, SENIORITY_LABEL[row.seniority], row);
     if (row.role) bucketOf(byRole, row.role.toLowerCase(), row.role, row);
     if (row.company) bucketOf(byCompany, row.company.toLowerCase(), row.company, row);
   }
@@ -189,7 +212,86 @@ export function computeInsights(rows: InsightRow[]): Insights {
     byVisibility: ordered(byVisibility, ["low", "mid", "high"]),
     byRequired: ordered(byRequired, ["low", "mid", "high"]),
     byGate: ordered(byGate, ["apply", "long_shot", "skip"]),
+    bySeniority: ordered(bySeniority, ["junior", "mid", "senior"]),
     byRole: top(byRole),
     byCompany: top(byCompany),
+  };
+}
+
+// ── Does the score predict the outcome? ──────────────────────────────────────
+//
+// Every decided application with a stored score, plotted as it is: score on
+// one axis, outcome on the other. The one summary statistic is the
+// probability that a randomly chosen progressed application outscores a
+// randomly chosen rejected one (the Mann-Whitney AUC; ties count half).
+// 0.5 is a coin flip, and when the highest-scoring applications are all
+// rejections the panel says so rather than hiding it in a band.
+
+export type Outcome = "progressed" | "rejected";
+export type ScorePoint = { score: number; hits: number; total: number; outcome: Outcome; role: string; company: string };
+export type ScoreVerdict = "too_few" | "no_signal" | "weak" | "signal";
+export type ScoreOutcome = {
+  points: ScorePoint[]; // decided + scored, highest score first
+  progressed: number;
+  rejected: number;
+  pendingScored: number; // open applications with a score (not plotted)
+  unscoredDecided: number; // decided applications with no stored score
+  meanProgressed: number | null;
+  meanRejected: number | null;
+  auc: number | null; // null unless both outcomes are present
+  topN: number;
+  topOutcomes: Outcome[]; // outcomes of the topN highest scores
+  topAllRejected: boolean;
+  verdict: ScoreVerdict;
+};
+
+export const TOP_N = 5;
+// Below this many decided-and-scored applications no verdict is offered.
+export const MIN_FOR_VERDICT = 8;
+
+export function scoreOutcome(rows: InsightRow[]): ScoreOutcome {
+  const points: ScorePoint[] = [];
+  let pendingScored = 0;
+  let unscoredDecided = 0;
+  for (const r of rows) {
+    if (r.status === "Withdrawn") continue;
+    const decided: Outcome | null = PROGRESSED.has(r.status) ? "progressed" : r.status === "Rejected" ? "rejected" : null;
+    const scored = r.kwTotal !== undefined && r.kwTotal > 0 && r.kwHits !== undefined;
+    if (!decided) {
+      if (scored) pendingScored++;
+      continue;
+    }
+    if (!scored) {
+      unscoredDecided++;
+      continue;
+    }
+    points.push({ score: r.kwHits! / r.kwTotal!, hits: r.kwHits!, total: r.kwTotal!, outcome: decided, role: r.role, company: r.company });
+  }
+  points.sort((a, b) => b.score - a.score || a.company.localeCompare(b.company) || a.role.localeCompare(b.role));
+  const prog = points.filter((p) => p.outcome === "progressed");
+  const rej = points.filter((p) => p.outcome === "rejected");
+  const mean = (xs: ScorePoint[]) => (xs.length ? xs.reduce((n, p) => n + p.score, 0) / xs.length : null);
+  let auc: number | null = null;
+  if (prog.length && rej.length) {
+    let wins = 0;
+    for (const p of prog) for (const q of rej) wins += p.score > q.score ? 1 : p.score === q.score ? 0.5 : 0;
+    auc = wins / (prog.length * rej.length);
+  }
+  const topOutcomes = points.slice(0, TOP_N).map((p) => p.outcome);
+  const verdict: ScoreVerdict =
+    auc === null || points.length < MIN_FOR_VERDICT ? "too_few" : auc < 0.6 ? "no_signal" : auc < 0.7 ? "weak" : "signal";
+  return {
+    points,
+    progressed: prog.length,
+    rejected: rej.length,
+    pendingScored,
+    unscoredDecided,
+    meanProgressed: mean(prog),
+    meanRejected: mean(rej),
+    auc,
+    topN: TOP_N,
+    topOutcomes,
+    topAllRejected: topOutcomes.length === TOP_N && topOutcomes.every((o) => o === "rejected"),
+    verdict,
   };
 }
