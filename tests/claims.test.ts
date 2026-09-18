@@ -95,6 +95,12 @@ test("extractFigures: 'from 40 minutes to 8' registers 8 min; a describing word 
   assert.deepEqual(checkClaims([{ where: "cv", text: "Shipped 14 versions with MLflow." }], null, [cv2]).numberViolations, []);
   assert.equal(checkClaims([{ where: "cv", text: "Shipped 14 services." }], null, [cv2]).numberViolations.length, 0, "count-noun swap is tolerated by design");
   assert.equal(checkClaims([{ where: "cv", text: "Served at 40 requests p99." }], null, [cv2]).numberViolations.length, 1, "ms → requests is a different claim");
+  // several describing words (a tool name, an adjective chain) before the
+  // count noun still make it that count — the owner's real CV lines
+  const cv3 = "• Covered by 90+ Jest and React Testing Library automated tests; evaluated 11 industry asset-management platforms.";
+  assert.deepEqual(keys(cv3), ["90 test", "11 platform"]);
+  assert.deepEqual(checkClaims([{ where: "cv", text: "Validated by 90+ tests across 11 platforms." }], null, [cv3]).numberViolations, []);
+  assert.equal(checkClaims([{ where: "cv", text: "Validated by 95+ tests." }], null, [cv3]).numberViolations.length, 1);
 });
 
 test("checkClaims: a part's extra sources (the JD for the cover letter) register the posting's own facts", () => {

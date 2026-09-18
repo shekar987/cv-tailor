@@ -399,6 +399,10 @@ const PLACE_RE =
   /\b(?:based|located|commutable|commuting distance|within (?:easy )?reach|reside|residing|live|living|relocate|relocation|office|offices|HQ|headquarters|site)\b[^.;\n]{0,30}?\b(?:in|to|of|near|around|from|at)\s+(?:the\s+)?((?:[A-Z][\w'-]+)(?:\s+(?:[A-Z][\w'-]+|of|the|upon|on|and))*)/;
 const PLACE_BASED_RE = /\b((?:[A-Z][\w'-]+)(?:\s+[A-Z][\w'-]+)?)[- ]based\b/;
 const PLACE_OFFICE_RE = /\b(?:our\s+)?((?:[A-Z][\w'-]+)(?:\s+[A-Z][\w'-]+)?)\s+(?:office|offices|HQ|headquarters|hub|campus)\b/;
+// "Support Hub, Liverpool - Permanent": a workplace named by its city with no
+// on-site/hybrid word anywhere. Checked before the other place patterns so the
+// city wins over the word before "Hub".
+const PLACE_HUB_RE = /\b(?:[Hh]ub|[Oo]ffices?|HQ|[Hh]eadquarters|[Ss]tudio|[Cc]ampus),\s+((?:[A-Z][\w'-]+)(?:\s+[A-Z][\w'-]+)?)\b/;
 const COUNTRY_ONLY_RE = /\b(uk|united kingdom|us|usa|united states|eu|europe|ireland|canada|australia|germany|netherlands|india|singapore)[- ]?(?:only|based|residents?|residing)\b/i;
 const RELOCATION_RE = /\brelocat(?:e|ion|ing)\b/i;
 const COMMUTE_RE = /\bcommut(?:e|ing|able)\b/i;
@@ -406,7 +410,7 @@ const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4
 const NOT_A_PLACE_RE = /^(?:Our|The|A|An|This|You|We|Hybrid|Remote|Office|Monday|Tuesday|Wednesday|Thursday|Friday|Team|Role|Company|Home|Site|Central|Head)$/i;
 
 function placeFrom(t: string): string | null {
-  const m = PLACE_RE.exec(t) || PLACE_BASED_RE.exec(t) || PLACE_OFFICE_RE.exec(t);
+  const m = PLACE_HUB_RE.exec(t) || PLACE_RE.exec(t) || PLACE_BASED_RE.exec(t) || PLACE_OFFICE_RE.exec(t);
   if (m) {
     const p = m[1].replace(/\s+(?:of|the|upon|on|and)$/i, "").trim();
     if (p.length >= 2 && p.length <= 40 && !NOT_A_PLACE_RE.test(p)) return p;
@@ -425,9 +429,12 @@ function detectLocation(u: Unit): Gate | null {
   // "commute to our Bristol office three days per week" is a location gate
   // without the words on-site or hybrid.
   const commute = COMMUTE_RE.test(t) && place !== null;
+  // "Support Hub, Liverpool - Permanent": a workplace with a city and no
+  // working-mode word. Kept as mode "unstated" so it can never fail hard.
+  const hub = !onsite && !hybrid && !remote && place !== null && PLACE_HUB_RE.test(t);
   const countryOnly =
     COUNTRY_ONLY_RE.test(t) || (place !== null && isCountry(place) && /\bmust\b|\bonly\b|\brequired\b|\bbased\b/i.test(t));
-  if (!onsite && !hybrid && !commute && !relocation && !(remote && countryOnly)) return null;
+  if (!onsite && !hybrid && !commute && !relocation && !hub && !(remote && countryOnly)) return null;
   let daysInOffice: number | null = null;
   const d = HYBRID_DAYS_RE.exec(t);
   if (d) {
@@ -650,6 +657,18 @@ function placeMatches(place: string, bases: string[]): boolean {
   });
 }
 
+// The base city named as a whole word inside the requirement sentence
+// ("central London near Tottenham Court Road" for a London base). A base
+// written as "Leeds, UK" counts by its first part.
+function baseNamedIn(text: string, bases: string[]): string | null {
+  const t = ` ${normalizeForMatch(text)} `;
+  for (const b of bases) {
+    const city = normalizeForMatch(b.split(",")[0]);
+    if (city.length >= 3 && t.includes(` ${city} `)) return b.split(",")[0].trim();
+  }
+  return null;
+}
+
 function countryOk(country: string | null, countries: string[]): boolean | null {
   if (!country) return true;
   if (countries.length === 0) return null;
@@ -718,14 +737,18 @@ export function compareGate(gate: Gate, e: Eligibility): GateVerdict {
         if (loc.relocateOk === false) return v(gate, "soft", "Relocation is required and you've said you won't relocate.", "Only apply if you'd genuinely consider moving; say so plainly.");
         return v(gate, "unknown", "Relocation is required; say in Customize whether you'd relocate.");
       }
-      const modeLabel = val.mode === "hybrid" ? `hybrid${val.daysInOffice ? ` (${val.daysInOffice} days in the office)` : ""}` : "on-site";
+      const modeLabel =
+        val.mode === "hybrid" ? `hybrid${val.daysInOffice ? ` (${val.daysInOffice} days in the office)` : ""}` : val.mode === "onsite" ? "on-site" : "located";
       if (place) {
         if (loc.base.length === 0) return v(gate, "unknown", `${cap(modeLabel)} in ${place}; add your base location in Customize to check the commute.`);
-        if (placeMatches(place, loc.base)) return v(gate, "pass", `${cap(modeLabel)} in ${place}, where you're based.`);
+        // "central London near Tottenham Court Road": the place parsed is a
+        // street, but the sentence names your base city — that is a pass.
+        const base = placeMatches(place, loc.base) ? place : baseNamedIn(gate.requirement, loc.base);
+        if (base) return v(gate, "pass", `${cap(modeLabel)} in ${base}, where you're based.`);
         if (loc.relocateOk === true) return v(gate, "soft", `${cap(modeLabel)} in ${place}; you're based in ${loc.base.join(", ")}.`, `Say you're willing to relocate to ${place}, and when.`);
         if (loc.relocateOk === false) {
           if (val.mode === "onsite") return hard(`On-site in ${place}; you're based in ${loc.base.join(", ")} and not relocating.`);
-          return v(gate, "soft", `Hybrid in ${place}; you're based in ${loc.base.join(", ")} and not relocating. Office days are sometimes negotiable.`, "Ask how fixed the office days are before you commit.");
+          return v(gate, "soft", `${cap(modeLabel)} in ${place}; you're based in ${loc.base.join(", ")} and not relocating. Office days are sometimes negotiable.`, "Ask how fixed the office days are before you commit.");
         }
         return v(gate, "unknown", `${cap(modeLabel)} in ${place}; say in Customize whether you'd relocate.`);
       }

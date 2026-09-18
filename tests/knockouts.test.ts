@@ -133,6 +133,25 @@ test("location: on-site in a city you're not in and won't relocate to is hard; h
   assert.equal(verdictOf(hybrid, "location", profile({ location: { base: [], onsiteOk: null, hybridOk: null, relocateOk: null } })).verdict, "unknown");
 });
 
+test("location: a street inside your base city passes; 'Hub, City' with no mode word is a located gate that never fails hard", () => {
+  const tcr = "Office-based role, central London near Tottenham Court Road.";
+  const london = profile({ location: { base: ["London"], onsiteOk: true, hybridOk: true, relocateOk: true } });
+  const r = verdictOf(tcr, "location", london);
+  assert.equal(r.verdict, "pass");
+  assert.ok(/London/.test(r.reason));
+  assert.equal(verdictOf(tcr, "location", profile({ location: { base: ["Leeds, UK"], onsiteOk: true, hybridOk: true, relocateOk: true } })).verdict, "soft");
+  const hub = "Full Stack Developer - Matalan - Support Hub, Liverpool - Permanent, Full Time, 38.75 hours";
+  const g = one(hub, "location");
+  assert.deepEqual(g.value, { kind: "location", mode: "unstated", daysInOffice: null, place: "Liverpool", relocation: "none" });
+  assert.equal(verdictOf(hub, "location", london).verdict, "soft");
+  assert.equal(verdictOf(hub, "location", profile({ location: { base: ["London"], onsiteOk: true, hybridOk: true, relocateOk: false } })).verdict, "soft");
+  assert.equal(verdictOf(hub, "location", profile({ location: { base: ["Liverpool"], onsiteOk: true, hybridOk: true, relocateOk: false } })).verdict, "pass");
+  // A hub line with a hybrid word elsewhere in the same sentence is still hybrid.
+  const hybridHub = "Based at our Hub, Manchester, hybrid with 2 days a week in the office.";
+  const hv = one(hybridHub, "location").value;
+  assert.equal(hv.kind === "location" ? hv.mode : null, "hybrid");
+});
+
 test("location: remote roles are not a gate unless restricted to a country", () => {
   assert.equal(detectGates("This is a fully remote role with quarterly meetups.").filter((g) => g.category === "location").length, 0);
   const jd = "Remote (UK only) - you must be based in the UK.";

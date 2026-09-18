@@ -107,6 +107,9 @@ type GateExtras = {
   required: AtsMatchResult | null;
   knockouts: { profileSet: boolean; verdicts: GateVerdict[]; read: { read: GateRead; reason: string } } | null;
   duplicateOf: { id: string; company_name: string; role: string; date_applied: string }[] | null;
+  // Tracker rows at the same company (by normalized name), newest first —
+  // a recruiter sees every application to their company in one screen.
+  sameCompany: { company: string; count: number; last: { role: string; date_applied: string; status: string } } | null;
 };
 
 const READ_LABEL: Record<GateRead, string> = {
@@ -581,6 +584,12 @@ export default function Home() {
     setGateError("");
     setGateLoading(true);
     try {
+      // The tracker list is free and already ordered newest first; fetched
+      // alongside the analysis so the same-company notice costs no extra wait.
+      const rowsPromise: Promise<Record<string, unknown>[]> = fetch("/api/applications")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => (Array.isArray(j?.applications) ? (j.applications as Record<string, unknown>[]) : []))
+        .catch(() => []);
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -590,12 +599,22 @@ export default function Home() {
       if (!res.ok) {
         setGateError(data.error || "Couldn't check keyword match. You can still tailor without it.");
       } else {
+        const company = realValue(typeof data.result?.company_name === "string" ? data.result.company_name : "");
+        const rows = company ? await rowsPromise : [];
+        const same = rows.filter((r) => typeof r.company_name === "string" && companyNamesMatch(company, r.company_name));
         setGateAnalysis(data.result ?? null);
         setPreCheck(data.atsPreCheck ?? null);
         setGateExtras({
           required: data.requiredPreCheck ?? null,
           knockouts: data.knockouts ?? null,
           duplicateOf: Array.isArray(data.duplicateOf) && data.duplicateOf.length > 0 ? data.duplicateOf : null,
+          sameCompany: same.length
+            ? {
+                company,
+                count: same.length,
+                last: { role: String(same[0].role ?? ""), date_applied: String(same[0].date_applied ?? ""), status: String(same[0].status ?? "") },
+              }
+            : null,
         });
       }
     } catch {
@@ -1476,6 +1495,15 @@ export default function Home() {
                       </span>
                     ))}
                     . Continue only if this is a genuinely new application.
+                  </div>
+                )}
+                {gateExtras?.sameCompany && (
+                  <div className="limitNotice" role="status" style={{ marginBottom: 'var(--space-4)' }} data-gate-same-company>
+                    You have already applied to <strong>{gateExtras.sameCompany.company}</strong>{" "}
+                    {gateExtras.sameCompany.count === 1 ? "once" : `${gateExtras.sameCompany.count} times`}
+                    {" "}(last: {gateExtras.sameCompany.last.role}, {formatDay(gateExtras.sameCompany.last.date_applied)}
+                    {gateExtras.sameCompany.last.status ? `, ${gateExtras.sameCompany.last.status}` : ""}). Recruiters see every application to
+                    their company in one screen; apply again only for a genuinely different role.
                   </div>
                 )}
                 {jdInfo.partial && (

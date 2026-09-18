@@ -316,20 +316,26 @@ const FROM_TO_RE = new RegExp(
   String.raw`\bfrom\s+${NOT_A_YEAR}(${NUM})\s?(${UNITS})\s+(?:down\s+|up\s+)?to\s+${NOT_A_YEAR}(${NUM})(?![.,]?\d)(?!\s?(?:${UNITS})(?![a-z]))(?![a-z0-9])`,
   "gi"
 );
-// "3 drift incidents", "12 core journeys": one describing word (never a unit
-// word, never across a line break) between a number and its count noun
-// still makes it a count.
+// "3 drift incidents", "12 core journeys", "90+ Jest and React Testing
+// Library automated tests": up to six describing words (the first never a
+// unit word, none across a line break, no digits) between a number and its
+// count noun still make it that count. Lazy, so the nearest count noun wins.
+// A describing word starts with a letter ("e2e" is fine, another number is not).
 const ADJ_COUNT_RE = new RegExp(
-  String.raw`(?<![a-z0-9.])${NOT_A_YEAR}(${NUM})(\+?)[ \t]+(?!(?:${UNITS})(?![a-z]))([a-z][a-z-]{2,})[ \t]+(${COUNT_NOUNS})(?![a-z])`,
+  String.raw`(?<![a-z0-9.])${NOT_A_YEAR}(${NUM})(\+?)[ \t]+(?!(?:${UNITS})(?![a-z]))((?:[a-z][a-z0-9/-]+[ \t]+){1,6}?)(${COUNT_NOUNS})(?![a-z])`,
   "gi"
 );
+const CONNECTOR_RE = /^(?:and|or|of|per|to|in|at|on|by|for|with)$/;
 
 export function extractFigures(text: string): Figure[] {
   const norm = normalizeFigureText(text)
     .replace(PHONE_RE, (run) => ((run.match(/\d/g) ?? []).length >= 9 ? " ".repeat(run.length) : run))
     .replace(RANGE_RE, "$1$3 to $2$3")
     .replace(FROM_TO_RE, (m, a, unit, b) => `from ${a}${unit} to ${b} ${unit}`)
-    .replace(ADJ_COUNT_RE, (m, n, plus, adj, noun) => (/^(?:and|or|of|per|to)$/.test(adj) ? m : `${n}${plus} ${noun} ${adj}`));
+    .replace(ADJ_COUNT_RE, (m, n, plus, phrase, noun) => {
+      const words = String(phrase).trim();
+      return CONNECTOR_RE.test(words.split(/\s+/)[0]) ? m : `${n}${plus} ${noun} ${words}`;
+    });
   const out: Figure[] = [];
   const seenAt = new Set<number>();
   FIGURE_RE.lastIndex = 0;
