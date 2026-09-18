@@ -20,6 +20,7 @@ import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
 import { normalizeClaims, checkClaims, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
 import { qualityReport, type QualityReport } from "@/lib/quality";
 import { normalizeVariants, pickVariant, type VariantsConfig } from "@/lib/variants";
+import { normalizePreferences, profileForDocument, rightToWorkForForms, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
@@ -259,6 +260,8 @@ export default function Home() {
   // Positioning variants (Customize) and the user's override for this run
   // (null = pick by the posting's role type; "none" = apply none).
   const [variants, setVariants] = useState<VariantsConfig | null>(null);
+  // Document preferences (lib/preferences): Right to Work off the CV unless switched on.
+  const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES);
   const [variantOverride, setVariantOverride] = useState<string | null>(null);
 
   // Stage 3 — company research + Fit Score. Self-contained error state: the
@@ -395,6 +398,7 @@ export default function Home() {
         setEligibility(settings.eligibility);
         setClaims(normalizeClaims(settings.claims));
         setVariants(normalizeVariants(settings.variants));
+        setPreferences(normalizePreferences(settings.preferences));
         const p = await getProfile();
         setProfile(p);
       }
@@ -973,7 +977,8 @@ export default function Home() {
               ? { ...edited.profile, projects: edited.projectsMeta }
               // Preview not mounted: fall back to the profile the document
               // rendered with — in pool mode that carries the selected
-              // projects, not the master CV's.
+              // projects, not the master CV's, and Right to Work only when
+              // the switch is on.
               : displayProfile,
             sectionOrder: edited ? edited.sectionOrder : sectionOrder,
             // The letter as it stands in the preview — edits included, date
@@ -1028,10 +1033,13 @@ export default function Home() {
           (s) => s && typeof s.name === "string" && s.name.trim() && Array.isArray(s.bullets) && s.bullets.length > 0
         )
       : [];
-    if (sel.length === 0) return profile;
+    // Right to Work is dropped here unless the Customize switch is on
+    // (lib/preferences), so preview, downloads (via the preview's DOM read),
+    // the page estimate and the Applied snapshot all see one document.
+    if (sel.length === 0) return profileForDocument(profile, preferences);
     // A pool can exist without an extracted profile; render the selection on
     // an empty-but-well-formed base rather than dropping it.
-    const base = profile ?? normalizeProfile({});
+    const base = profileForDocument(profile ?? normalizeProfile({}), preferences);
     return {
       ...base,
       projects: sel.map((s) => ({
@@ -1043,7 +1051,11 @@ export default function Home() {
         originalBullets: [],
       })),
     };
-  }, [profile, result]);
+  }, [profile, result, preferences]);
+
+  // The CV's Right to Work wording for the copy block beside the downloads —
+  // read from the stored profile, so it is offered even when off the document.
+  const rtwForForms = useMemo(() => rightToWorkForForms(profile), [profile]);
 
   // Deterministic quality read (lib/quality) of what is on screen: the page
   // estimate the download layout implies, content repeated across sections,
@@ -2005,6 +2017,7 @@ export default function Home() {
                 ref={previewRef}
                 data={cvData}
                 profile={displayProfile}
+                rightToWorkForForms={rtwForForms}
                 sectionOrder={sectionOrder}
                 fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}
                 downloadsDisabled={blocked}

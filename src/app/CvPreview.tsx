@@ -14,6 +14,7 @@ type CvData = {
 
 import type { Profile } from "@/lib/cvStore";
 import DownloadButton from "./DownloadButton";
+import Button from "@/components/ui/Button";
 import StatusText from "@/components/ui/StatusText";
 import { filterExtraSections, isReservedSectionTitle, SECTION_HEADING_LINE_RE } from "@/lib/sections";
 import { saveBlob } from "@/lib/saveBlob";
@@ -62,6 +63,11 @@ type CvPreviewProps = {
   sectionOrder?: unknown;
   // Downloads held shut by the page while the claims check is blocking.
   downloadsDisabled?: boolean;
+  // The CV's Right to Work wording, offered beside the downloads as a
+  // copy-to-clipboard block for application forms. The document itself
+  // carries the section only when the Customize switch is on (the page
+  // passes a profile without it otherwise). Empty = no block.
+  rightToWorkForForms?: string;
 };
 
 // What collectPayload() hands back: the document as currently on screen,
@@ -83,10 +89,20 @@ export type CvPreviewHandle = {
 };
 
 const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvPreview(
-  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false },
+  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, rightToWorkForForms = "" },
   fwdRef
 ) {
   const order = resolveSectionOrder(sectionOrder);
+  const [rtwCopied, setRtwCopied] = useState(false);
+  async function copyRightToWork() {
+    try {
+      await navigator.clipboard.writeText(rightToWorkForForms);
+      setRtwCopied(true);
+      window.setTimeout(() => setRtwCopied(false), 2000);
+    } catch {
+      setRtwCopied(false);
+    }
+  }
   // Fallbacks keep it working if profile is missing
   const p = profile || null;
   const name = p?.name || "YOUR NAME";
@@ -642,6 +658,17 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
       <div className="cvActions">
         <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason="Fix the flagged claims first" />
       </div>
+      {rightToWorkForForms && (
+        <div className="rtwForms" data-rtw-forms>
+          <div className="rtwFormsBody">
+            <span className="rtwFormsLabel">Right to work — for application forms (not on the CV)</span>
+            <pre className="rtwFormsText">{rightToWorkForForms}</pre>
+          </div>
+          <Button type="button" variant="secondary" onClick={copyRightToWork} data-rtw-copy>
+            {rtwCopied ? "Copied" : "Copy"}
+          </Button>
+        </div>
+      )}
       {docErr && <StatusText role="alert">{docErr}</StatusText>}
       <p className="editHint">Click any text to edit it. Your changes are included when you download.</p>
       <div className="cvDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false} onPaste={pastePlainText}>

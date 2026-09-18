@@ -139,8 +139,12 @@ export type UserSettings = {
   // Normalized by lib/variants at the call site. Column added by migration
   // 20260917130000; reads retry without it.
   variants: unknown
+  // Normalized by lib/preferences at the call site. Column added by migration
+  // 20260918120000; reads retry without it (defaults apply).
+  preferences: unknown
   missingTable: boolean
   variantsColumnMissing: boolean
+  preferencesColumnMissing: boolean
 }
 
 function isMissingTable(code: string | undefined): boolean {
@@ -148,32 +152,44 @@ function isMissingTable(code: string | undefined): boolean {
 }
 
 export async function getUserSettings(): Promise<UserSettings> {
-  const empty: UserSettings = { eligibility: null, claims: null, variants: null, missingTable: false, variantsColumnMissing: false }
+  const empty: UserSettings = {
+    eligibility: null, claims: null, variants: null, preferences: null,
+    missingTable: false, variantsColumnMissing: false, preferencesColumnMissing: false,
+  }
   try {
     const supabase = createClient()
-    let variantsColumnMissing = false
-    let { data, error } = await supabase
-      .from('user_settings')
-      .select('eligibility, claims, variants')
-      .maybeSingle()
-    if (error?.code === '42703') {
-      // variants column not migrated in yet — the other two still work.
-      variantsColumnMissing = true
-      ;({ data, error } = await supabase.from('user_settings').select('eligibility, claims').maybeSingle())
+    // Column ladder, newest optional column first: each rung names the
+    // migration it lacks and the rest keep working.
+    const rungs: { columns: string; variantsMissing: boolean; preferencesMissing: boolean }[] = [
+      { columns: 'eligibility, claims, variants, preferences', variantsMissing: false, preferencesMissing: false },
+      { columns: 'eligibility, claims, variants', variantsMissing: false, preferencesMissing: true },
+      { columns: 'eligibility, claims', variantsMissing: true, preferencesMissing: true },
+    ]
+    let data: unknown = null
+    let error: { code?: string; message: string } | null = null
+    let rung = rungs[0]
+    for (const r of rungs) {
+      rung = r
+      ;({ data, error } = await supabase.from('user_settings').select(r.columns).maybeSingle())
+      if (error?.code !== '42703') break
     }
+    const variantsColumnMissing = rung.variantsMissing
+    const preferencesColumnMissing = rung.preferencesMissing
     if (error) {
       if (isMissingTable(error.code)) return { ...empty, missingTable: true }
       console.error('user_settings read error:', error.message)
       return empty
     }
-    if (!data) return { ...empty, variantsColumnMissing }
-    const row = data as { eligibility?: unknown; claims?: unknown; variants?: unknown }
+    if (!data) return { ...empty, variantsColumnMissing, preferencesColumnMissing }
+    const row = data as { eligibility?: unknown; claims?: unknown; variants?: unknown; preferences?: unknown }
     return {
       eligibility: row.eligibility ? normalizeEligibility(row.eligibility) : null,
       claims: row.claims ?? null,
       variants: row.variants ?? null,
+      preferences: row.preferences ?? null,
       missingTable: false,
       variantsColumnMissing,
+      preferencesColumnMissing,
     }
   } catch (err) {
     console.error('user_settings read error:', err instanceof Error ? err.message : 'Unknown error')
@@ -182,7 +198,7 @@ export async function getUserSettings(): Promise<UserSettings> {
 }
 
 async function upsertUserSettings(
-  patch: { eligibility?: Eligibility | null; claims?: unknown; variants?: unknown }
+  patch: { eligibility?: Eligibility | null; claims?: unknown; variants?: unknown; preferences?: unknown }
 ): Promise<{ ok: boolean; missingTable?: boolean; missingColumn?: boolean }> {
   try {
     const userId = await getUserId()
@@ -215,6 +231,11 @@ export function saveClaims(claims: unknown | null): Promise<{ ok: boolean; missi
 
 export function saveVariants(variants: unknown | null): Promise<{ ok: boolean; missingTable?: boolean; missingColumn?: boolean }> {
   return upsertUserSettings({ variants })
+}
+
+// Document preferences (lib/preferences). Always written whole.
+export function savePreferences(preferences: unknown): Promise<{ ok: boolean; missingTable?: boolean; missingColumn?: boolean }> {
+  return upsertUserSettings({ preferences })
 }
 
 export async function clearMasterCV(): Promise<void> {

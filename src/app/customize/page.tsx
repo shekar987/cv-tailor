@@ -12,6 +12,7 @@ import {
   saveEligibility,
   saveClaims,
   saveVariants,
+  savePreferences,
   getProfile,
   saveProfile,
   clearProfile,
@@ -53,6 +54,7 @@ import {
   type Variant,
   type RoleType,
 } from "@/lib/variants";
+import { normalizePreferences, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import CvUpload from "../CvUpload";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -160,6 +162,30 @@ export default function CustomizePage() {
   const [variantsSaving, setVariantsSaving] = useState(false);
   const [variantsMsg, setVariantsMsg] = useState("");
   const [variantsError, setVariantsError] = useState("");
+  // Document preferences (user_settings.preferences): Right to Work off the
+  // CV by default. Saved on toggle; reverted if the save fails.
+  const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFERENCES);
+  const [prefsColumnMissing, setPrefsColumnMissing] = useState(false);
+  const [prefsMsg, setPrefsMsg] = useState("");
+  const [prefsError, setPrefsError] = useState("");
+  async function toggleRightToWorkOnCv(next: boolean) {
+    const previous = prefs;
+    const updated: Preferences = { ...prefs, includeRightToWorkOnCv: next };
+    setPrefs(updated);
+    setPrefsMsg("");
+    setPrefsError("");
+    const res = await savePreferences(updated);
+    if (res.ok) {
+      setPrefsMsg(next ? "Saved — Right to Work will appear on the CV document." : "Saved — Right to Work stays off the CV document.");
+      return;
+    }
+    setPrefs(previous);
+    if (res.missingTable) setPrefsError("Your database doesn't have the user_settings table yet — run supabase/migrations/20260917120000_user_settings_and_jd_lookup.sql first.");
+    else if (res.missingColumn) {
+      setPrefsColumnMissing(true);
+      setPrefsError("Your database doesn't have this setting's column yet — run supabase/migrations/20260918120000_user_settings_preferences.sql in the Supabase SQL editor, then try again.");
+    } else setPrefsError("Couldn't save. Check your connection and try again.");
+  }
   const claimsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (claimsSaveTimer.current) clearTimeout(claimsSaveTimer.current); }, []);
   // The figures the checker will accept, straight from the saved CV (and
@@ -238,6 +264,8 @@ export default function CustomizePage() {
         setSettingsMissing(settings.missingTable);
         setClaims(normalizeClaims(settings.claims));
         setVariantsColumnMissing(settings.variantsColumnMissing);
+        setPrefs(normalizePreferences(settings.preferences));
+        setPrefsColumnMissing(settings.preferencesColumnMissing);
         const vc = normalizeVariants(settings.variants);
         if (vc) {
           setVariantsDraft(vc.variants);
@@ -1260,9 +1288,45 @@ export default function CustomizePage() {
         <Card>
           <div className="label">Not affected by this</div>
           <p className="cvHelp cvHelpTight">
-            Your name and contact details stay at the top. Certifications, Right to Work and any
-            extra sections from your CV stay after the sections above, in that order.
+            Your name and contact details stay at the top. Certifications and any extra sections from
+            your CV stay after the sections above, in that order. Right to Work is a separate switch below.
           </p>
+        </Card>
+
+        {/* Right to Work stays off the CV document by default: a reviewer who
+            sees immigration status before any experience screens on it, and
+            the form asks the question in a better context. The wording is
+            kept and offered for forms; the cover letter is unchanged. */}
+        <Card>
+          <div className="label">Right to Work on the CV</div>
+          <p className="cvHelp">
+            Off by default. A reviewer who sees your immigration status before reading a line of your experience
+            screens on it, and the application form asks the same question in a better place. Your CV&apos;s wording
+            stays saved: it is offered as a copy block beside the download buttons for pasting into forms, and the
+            cover letter is unchanged. Turn it on only for a posting that asks for it on the document itself.
+          </p>
+          {profile && profile.rightToWork.length > 0 && (
+            <p className="fitEvidence">Your CV says: {profile.rightToWork.join(" · ")}</p>
+          )}
+          {prefsColumnMissing && (
+            <p className="fitEvidence">
+              This setting&apos;s database column isn&apos;t set up yet (migration 20260918120000_user_settings_preferences.sql).
+              The default — off — applies until it is.
+            </p>
+          )}
+          <div className="eligChecks">
+            <label className="eligCheck">
+              <input
+                type="checkbox"
+                checked={prefs.includeRightToWorkOnCv}
+                onChange={(e) => toggleRightToWorkOnCv(e.target.checked)}
+                data-pref-rtw
+              />
+              Include Right to Work on the CV
+            </label>
+          </div>
+          {prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
+          {prefsError && <StatusText as="span" role="alert">{prefsError}</StatusText>}
         </Card>
 
         {/* Advanced customization — the full project pool. Only meaningful
