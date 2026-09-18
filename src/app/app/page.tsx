@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { getMasterCV, getProfile, getUserSettings, importFromLocalStorageIfNeeded, type Profile } from "@/lib/cvStore";
+import { getMasterCV, getProfile, getUserSettings, importFromLocalStorageIfNeeded, saveClaims, type Profile } from "@/lib/cvStore";
 import {
   jdQuality,
   summarizeGates,
@@ -17,7 +17,7 @@ import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
 import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
-import { normalizeClaims, checkClaims, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
+import { normalizeClaims, checkClaims, seedClaimsFromCv, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
 import { qualityReport, onePageExpected, type QualityReport } from "@/lib/quality";
 import { normalizeVariants, pickVariant, type VariantsConfig } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
@@ -414,7 +414,18 @@ export default function Home() {
         setProjectsPool(stored.projectsPool ?? "");
         const settings = await getUserSettings();
         setEligibility(settings.eligibility);
-        setClaims(normalizeClaims(settings.claims));
+        // An empty registry is never the resting state: seed it from the
+        // CV's own skills section, with levels read from where the CV shows
+        // each skill used, and keep it (best effort).
+        let registry = normalizeClaims(settings.claims);
+        if ((!registry || registry.skills.length === 0) && stored.text.trim()) {
+          const seeded = seedClaimsFromCv(stored.text);
+          if (seeded.skills.length > 0) {
+            registry = seeded;
+            void saveClaims(seeded);
+          }
+        }
+        setClaims(registry);
         setVariants(normalizeVariants(settings.variants));
         setPreferences(normalizePreferences(settings.preferences));
         const p = await getProfile();
@@ -865,7 +876,7 @@ export default function Home() {
     setLiveCheck(
       checkClaims(
         [
-          { where: "cv", text: cvText },
+          { where: "cv", text: cvText, experience: payload ? payload.experience : result.experience },
           // The letter may quote the posting's facts about the company.
           { where: "coverLetter", text: letter ?? result.coverLetter ?? "", extraSources: [resultJd ?? jobDescription] },
         ],
@@ -1826,12 +1837,21 @@ export default function Home() {
                   <ul className="atsList">
                     {activeCheck.skillViolations.map((s, i) => (
                       <li key={`s${i}`}>
-                        <Badge variant="dot" tone={activeCheck.mode === "enforce" && s.confirmed ? "miss" : "rec"}>
-                          {activeCheck.mode === "enforce" && s.confirmed ? "✕" : "?"}
+                        <Badge variant="dot" tone={activeCheck.mode === "enforce" ? "miss" : "rec"}>
+                          {activeCheck.mode === "enforce" ? "✕" : "?"}
                         </Badge>
                         <span>
-                          <strong>{s.skill}</strong> is marked <em>learning</em> in your registry, and it appears in the{" "}
-                          {WHERE_LABEL[s.where]}.{!s.confirmed && " (Not confirmed yet, so this is a warning.)"}
+                          {s.level === "learning" ? (
+                            <>
+                              <strong>{s.skill}</strong> is marked <em>learning</em> in your registry, and it appears in the {WHERE_LABEL[s.where]}
+                              {s.claim ? <>: &ldquo;{s.claim}&rdquo;</> : null}.
+                            </>
+                          ) : (
+                            <>
+                              <strong>{s.skill}</strong> is registered as <em>project-only</em>, but the {WHERE_LABEL[s.where]} claims more — {s.claim}.
+                              Write it as &ldquo;built &lt;project&gt; with {s.skill}&rdquo;, or raise its level in Customize if you have used it at work.
+                            </>
+                          )}
                         </span>
                       </li>
                     ))}
@@ -1852,8 +1872,8 @@ export default function Home() {
                     {blocked
                       ? "Edit the preview below, then re-check. Download and Applied unlock when it passes."
                       : activeCheck.mode === "enforce"
-                        ? "Warnings don't block downloads; confirmed learning skills and figures missing from your CV would."
-                        : "Confirm your skill levels in Customize and these become blocking checks."}
+                        ? "Warnings don't block downloads; a figure missing from your CV or a skill claimed above its level would."
+                        : "Save a master CV in Customize and its skills become blocking checks."}
                   </p>
                 </div>
                 <div className="limitNotice__cta">

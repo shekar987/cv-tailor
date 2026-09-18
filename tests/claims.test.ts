@@ -6,6 +6,7 @@ import {
   extractFigures,
   checkClaims,
   seedClaims,
+  seedClaimsFromCv,
   mergeClaims,
   normalizeClaims,
   normalizeSkillGuesses,
@@ -128,31 +129,146 @@ test("checkClaims: learning skills are caught through the matcher's variants; bl
     seededFrom: null,
   };
   const out = [{ where: "cv" as const, text: "Deployed services to K8s clusters with Python tooling." }];
-  const warn = checkClaims(out, unconfirmed, [cv]);
-  assert.equal(warn.mode, "warn");
-  assert.equal(warn.skillViolations.length, 1);
-  assert.equal(warn.skillViolations[0].skill, "Kubernetes");
-  assert.equal(warn.blocking, false);
-
-  const confirmedButUnconfirmedSkill: ClaimsRegistry = { ...unconfirmed, confirmedAt: "2026-09-17T00:00:00Z" };
-  const enforceUnconfirmed = checkClaims(out, confirmedButUnconfirmedSkill, [cv]);
-  assert.equal(enforceUnconfirmed.mode, "enforce");
-  assert.equal(enforceUnconfirmed.blocking, false, "an unconfirmed learning skill warns even in enforce mode");
-
-  const confirmed: ClaimsRegistry = {
-    ...confirmedButUnconfirmedSkill,
-    skills: confirmedButUnconfirmedSkill.skills.map((s) => ({ ...s, confirmed: true })),
-  };
-  const enforce = checkClaims(out, confirmed, [cv]);
+  // Levels exist, so the check is blocking - confirmation is a review, not the switch.
+  const enforce = checkClaims(out, unconfirmed, [cv]);
+  assert.equal(enforce.mode, "enforce");
+  assert.equal(enforce.skillViolations.length, 1);
+  assert.equal(enforce.skillViolations[0].skill, "Kubernetes");
+  assert.equal(enforce.skillViolations[0].level, "learning");
+  assert.match(enforce.skillViolations[0].claim, /K8s clusters/);
   assert.equal(enforce.blocking, true);
+
+  const confirmed: ClaimsRegistry = { ...unconfirmed, confirmedAt: "2026-09-17T00:00:00Z", skills: unconfirmed.skills.map((s) => ({ ...s, confirmed: true })) };
+  assert.equal(checkClaims(out, confirmed, [cv]).blocking, true);
   assert.equal(checkClaims([{ where: "cv", text: "Built Python tooling." }], confirmed, [cv]).blocking, false);
-  // an absent figure blocks in enforce mode, warns otherwise
+  // an absent figure blocks whenever levels exist; with no registry it only warns
   assert.equal(checkClaims([{ where: "cv", text: "Cut costs 35% with Python tooling" }], confirmed, [cv]).blocking, true);
-  assert.equal(checkClaims([{ where: "cv", text: "Cut costs 35% with Python tooling" }], unconfirmed, [cv]).blocking, false);
-  // no registry: figures are still checked, skills are not
+  assert.equal(checkClaims([{ where: "cv", text: "Cut costs 35% with Python tooling" }], null, [cv]).blocking, false);
+  // no registry: figures are still checked, skills are not, nothing blocks
   const none = checkClaims(out, null, [cv]);
   assert.equal(none.skillViolations.length, 0);
   assert.equal(none.mode, "warn");
+  const empty: ClaimsRegistry = { version: 1, skills: [], confirmedAt: null, seededFrom: null };
+  assert.equal(claimMode(empty), "warn");
+});
+
+test("checkClaims: a project-only skill claimed above its level blocks and names the claim", () => {
+  const cv = `SKILLS
+Core: Python, FastAPI
+PROJECTS
+RideX
+React 19, Firebase
+- Built a three-portal marketplace in React.`;
+  const registry: ClaimsRegistry = {
+    version: 1,
+    skills: [
+      { name: "Python", level: "production", confirmed: false },
+      { name: "React", level: "project", confirmed: false },
+    ],
+    confirmedAt: null,
+    seededFrom: null,
+  };
+  // Written into the work-experience section: a production claim.
+  const asWork = checkClaims(
+    [{ where: "cv", text: "Backend Engineer | Acme | 2022 – Present\n• Built React dashboards for 3 enterprise workflow areas.", experience: "Backend Engineer | Acme | 2022 – Present\n• Built React dashboards for 3 enterprise workflow areas." }],
+    registry,
+    [cv]
+  );
+  assert.equal(asWork.skillViolations.length, 1);
+  assert.equal(asWork.skillViolations[0].level, "project");
+  assert.match(asWork.skillViolations[0].claim, /^written as work experience: "Built React dashboards/);
+  assert.equal(asWork.blocking, true);
+  // Proficiency wording anywhere: a competency claim.
+  for (const line of ["Proficient in React and Python.", "Two years' industry experience building React frontends.", "Strong React skills."]) {
+    const c = checkClaims([{ where: "coverLetter", text: line }], registry, [cv]);
+    assert.equal(c.skillViolations.length, 1, line);
+    assert.match(c.skillViolations[0].claim, /^described as a competency/);
+  }
+  // The honest framing passes: built <project> with X, or listed in skills.
+  for (const line of ["Built RideX, a three-portal marketplace, in React.", "Skills: Python, FastAPI, React"]) {
+    assert.equal(checkClaims([{ where: "cv", text: line, experience: "" }], registry, [cv]).skillViolations.length, 0, line);
+  }
+  // A production skill is never a violation.
+  assert.equal(checkClaims([{ where: "cv", text: "Proficient in Python.", experience: "• Proficient in Python." }], registry, [cv]).skillViolations.length, 0);
+});
+
+test("figures: a count noun in an achievement sentence is not a skill claim, and a swapped noun is the same count", () => {
+  // The owner's real false positive: "11 tools" flagged against this CV line.
+  const cv = "• Analysed 11 industry asset-management platforms (Axonius, Qualys, Tenable, runZero) from verified user reviews and industry reports.";
+  const c = checkClaims([{ where: "cv", text: "Evaluated 11 tools across the cyber asset-management market." }], null, [cv]);
+  assert.deepEqual(c.numberViolations, []);
+  // And the skills seed never reads that sentence: no skill named "platforms" or "tools".
+  const seeded = seedClaimsFromCv(`SKILLS\nPython, FastAPI\nEXPERIENCE\nResearch Assistant | UEL | 2026 – Present\n${cv}`);
+  assert.deepEqual(seeded.skills.map((s) => s.name), ["Python", "FastAPI"]);
+});
+
+test("seedClaimsFromCv: every skill in the skills section and tech lines, levels from where the CV shows them used", () => {
+  const cv = `SOMA SHEKAR
+Full-Stack Engineer
+
+SKILLS
+Core: Python · FastAPI · REST API design · React · TypeScript · SQL (PostgreSQL, MySQL) · Redis
+AI & LLM: Anthropic Claude API · LangChain
+Currently studying: Kubernetes
+
+EXPERIENCE
+Full Stack Engineer — Brane Group
+Jul 2023 – Sep 2024 (full-time)
+- Engineered backend services in Python, FastAPI, React and TypeScript, delivering 20+ production API modules.
+- Optimised data access across PostgreSQL, MySQL and Redis using indexing and caching.
+
+PROJECTS
+Jobhuntz — Full-Stack AI Application · 2026
+Next.js 16, TypeScript, Supabase (Postgres, Auth, RLS), Anthropic Claude API, Vercel
+Live: https://www.jobhuntz.app/
+- Architected an 8-step LLM pipeline with the Anthropic Claude API.
+RideX — Ride-Hailing Platform · 2025
+React 19, Firebase, Stripe
+- Built a three-portal marketplace.
+
+EDUCATION
+MSc Computer Science — University of East London`;
+  const seed = seedClaimsFromCv(cv);
+  const level = Object.fromEntries(seed.skills.map((s) => [s.name, s.level]));
+  assert.equal(level["Python"], "production");
+  assert.equal(level["FastAPI"], "production");
+  assert.equal(level["TypeScript"], "production");
+  assert.equal(level["PostgreSQL"], "production");
+  assert.equal(level["Redis"], "production");
+  assert.equal(level["SQL"], "project", "listed only");
+  assert.equal(level["Anthropic Claude API"], "project", "only under Projects");
+  assert.equal(level["LangChain"], "project", "listed, never shown used");
+  assert.equal(level["Next.js"], "project", "from a project's tech line");
+  assert.equal(level["Supabase"], "project");
+  assert.equal(level["Firebase"], "project");
+  assert.equal(level["Kubernetes"], "learning", "the CV's own 'currently studying' line wins");
+  assert.ok(!("Jobhuntz — Full-Stack AI Application" in level), "a project title line is not a tech line");
+  assert.ok(!("2026" in level));
+  assert.ok(seed.skills.every((s) => !s.confirmed));
+  assert.equal(claimMode(seed), "enforce", "levels exist, so the check blocks");
+  // The extraction model's extra guesses are held at what the CV evidences.
+  const withModel = seedClaimsFromCv(cv, [
+    { name: "Docker", level: "production" }, // never shown in experience -> project
+    { name: "Python", level: "learning" }, // already seeded from the CV -> ignored
+    { name: "Terraform", level: "learning" },
+  ]);
+  const lv = Object.fromEntries(withModel.skills.map((s) => [s.name, s.level]));
+  assert.equal(lv["Docker"], "project");
+  assert.equal(lv["Python"], "production");
+  assert.equal(lv["Terraform"], "learning");
+  assert.deepEqual(seedClaimsFromCv("").skills, []);
+  // A CV with no headings: an inline "Skills:" line is the skills section and
+  // the rest is its work history.
+  const flat = "SMOKE TESTER\nBackend Engineer — London\n\nSkills: Python 3, Django, PostgreSQL, Docker, AWS\nCurrently studying: Kubernetes, Kafka\n\nBackend Engineer | Acme | 2022 – Present\n• Built RESTful APIs in Django with unit tests (92% coverage).";
+  const fl = Object.fromEntries(seedClaimsFromCv(flat).skills.map((s) => [s.name, s.level]));
+  assert.equal(fl["Django"], "production");
+  assert.equal(fl["Python"], "project", "version suffix dropped; only listed");
+  assert.equal(fl["Kubernetes"], "learning");
+  assert.equal(fl["Kafka"], "learning");
+  // "Machine Learning (NPTEL)" is a subject, not a learning line.
+  const certs = "SKILLS\nAWS, Python\nCERTIFICATIONS\nAWS Certified AI Practitioner · Machine Learning (NPTEL) · Deep Learning (NPTEL)";
+  assert.equal(learningText(certs), "");
+  assert.equal(Object.fromEntries(seedClaimsFromCv(certs).skills.map((s) => [s.name, s.level]))["AWS"], "project");
 });
 
 test("seedClaims: the CV's own 'currently studying' framing overrides the model's guess; merge keeps confirmed levels", () => {
@@ -173,7 +289,7 @@ Currently studying: Kubernetes, Kafka, RAG`;
     [["Java", "production", false], ["Python", "project", false], ["Kubernetes", "learning", false], ["Kafka", "learning", false]]
   );
   assert.equal(seed.seededFrom, cvFingerprint(cv));
-  assert.equal(claimMode(seed), "warn");
+  assert.equal(claimMode(seed), "enforce", "levels exist, so the check blocks");
   assert.equal(countUnconfirmed(seed), 4);
 
   const confirmed: ClaimsRegistry = {

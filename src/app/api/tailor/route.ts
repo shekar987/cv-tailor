@@ -291,7 +291,7 @@ async function runPipeline(opts: {
   // as a source.
   const claimCheck = checkClaims(
     [
-      { where: "cv", text: tailoredText },
+      { where: "cv", text: tailoredText, experience: sections.experience },
       { where: "coverLetter", text: typeof coverLetter === "string" ? coverLetter : "", extraSources: [jd] },
     ],
     claims,

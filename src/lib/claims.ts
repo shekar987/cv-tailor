@@ -10,10 +10,12 @@
 // "registered" when it appears in the master CV (or project pool), read at
 // check time by the same extractFigures() — nothing to go stale.
 //
-// Migration path: seeded from the CV, confirmed once by the user. Until then
-// the check WARNS (mode "warn"); after confirmation it BLOCKS downloads until
-// the user edits the flagged text (mode "enforce"). A user who never touches
-// the registry keeps generating.
+// Seeded deterministically from the CV itself (seedClaimsFromCv) on the
+// first visit and after every extraction, so the registry is never empty
+// for a user with a CV. The check BLOCKS downloads as soon as levels exist
+// (mode "enforce"): a figure absent from the CV, a learning skill named, or
+// a project-only skill claimed above its level. "Confirm levels" is a
+// review. Only a user with no CV at all is in mode "warn".
 //
 // Import-free apart from the keyword matcher (relative, with the extension
 // Node's test runner needs), so it runs identically on the server, in the
@@ -101,8 +103,11 @@ export function normalizeClaims(v: unknown): ClaimsRegistry | null {
   };
 }
 
+// Blocking as soon as levels exist. The registry is seeded from the CV
+// itself (seedClaimsFromCv), so an empty registry is never the resting
+// state and "confirm" is a review, not the switch that turns the check on.
 export function claimMode(r: ClaimsRegistry | null | undefined): ClaimMode {
-  return r?.confirmedAt ? "enforce" : "warn";
+  return r && r.skills.length > 0 ? "enforce" : "warn";
 }
 
 // djb2 over whitespace-normalized text — stable, short, no crypto import.
@@ -123,12 +128,16 @@ const LEARNING_LINE_RE =
 const LEARNING_HEADING_RE = /^\s*(?:currently\s+)?(?:studying|learning|developing)\b[^a-z]*$/i;
 const HEADING_RE = /^\s*(?:[A-Z][A-Z\s&/-]{2,40}|[A-Z][\w\s&/-]{2,40}):?\s*$/;
 
+// "Machine Learning (NPTEL)", "Deep Learning" and the like are subjects, not
+// a statement that something is still being learned.
+const LEARNING_AS_SUBJECT_RE = /\b(?:machine|deep|reinforcement|transfer|supervised|unsupervised|self-supervised|federated|active|continual|online|lifelong|e)[\s-]?learning\b/gi;
+
 export function learningText(cvText: string): string {
   const lines = (cvText || "").split(/\r?\n/);
   const out: string[] = [];
   let underLearningHeading = false;
   for (const line of lines) {
-    const t = line.trim();
+    const t = line.trim().replace(LEARNING_AS_SUBJECT_RE, "");
     if (!t) continue;
     if (HEADING_RE.test(t) && t.length <= 45) {
       underLearningHeading = LEARNING_HEADING_RE.test(t);
@@ -138,6 +147,129 @@ export function learningText(cvText: string): string {
     if (underLearningHeading || LEARNING_LINE_RE.test(t)) out.push(t);
   }
   return out.join("\n");
+}
+
+// ── Deterministic seed from the CV itself ────────────────────────────────────
+//
+// Every skill the CV names in its skills section (and in a project's tech
+// line) gets an inferred level from where the CV shows it used: production
+// when it appears in the work-experience section, project when it appears
+// only under Projects, project (the safe floor) when it is only listed. A
+// "currently studying" line still wins (seedClaims). Achievement sentences
+// are never mined for claims - "Analysed 11 industry asset-management
+// platforms" names no skill - so extraction stays in the skills section and
+// tech lines. Nothing is promoted above what the CV evidences.
+
+type CvSection = "skills" | "experience" | "projects" | "other";
+const SKILLS_HEADING_RE = /^(?:(?:technical|core|key)\s+)?(?:skills|competencies|technologies|tools|tech(?:nical)?\s+stack|toolkit)\b/i;
+const EXPERIENCE_HEADING_RE = /^(?:(?:work|professional|relevant)\s+)?(?:experience|employment(?:\s+history)?|work\s+history|career(?:\s+history)?)\b/i;
+const PROJECTS_HEADING_RE = /^(?:(?:personal|selected|key|side)\s+)?projects?\b|^portfolio\b/i;
+const TECH_LINE_PREFIX_RE = /^(?:tech(?:nologies)?|stack|tech\s+stack|built\s+with|tools)\s*:\s*/i;
+const LINK_LINE_RE = /^(?:live|github|demo|url|link|repo)\b|https?:\/\//i;
+const SPLIT_RE = /\s*(?:[|·•;,]|\s\/\s)\s*/;
+const NOT_A_SKILL_RE = /^(?:and|or|etc\.?|others?|more|various|including|e\.g\.?|i\.e\.?|with|using|via)$/i;
+
+// An inline "Skills: Python, Django" line counts as the skills section even
+// on a CV with no headings at all; so does "Currently studying: X", whose
+// items must be in the registry (as learning) to be forbidden in output.
+const INLINE_SKILLS_RE = /^(?:(?:technical|core|key)\s+)?(?:skills|technologies|tools|tech(?:nical)?\s+stack)\s*:\s*\S|^(?:currently\s+)?(?:studying|learning)\s*:\s*\S/i;
+
+const KNOWN_HEADING_RE =
+  /^(?:(?:professional\s+)?summary|profile|objective|about(?:\s+me)?|(?:technical|core|key)?\s*(?:skills|competencies|technologies|tools)|tech(?:nical)?\s+stack|(?:work|professional|relevant)?\s*experience|employment(?:\s+history)?|work\s+history|career(?:\s+history)?|(?:personal|selected|key|side)?\s*projects?|portfolio|education|academic\s+background|qualifications|certifications?|certificates|awards|honou?rs|publications|languages|interests|volunteering|references|right\s+to\s+work|work\s+authori[sz]ation)\b/i;
+
+function sectionsOf(cvText: string): Record<CvSection, string[]> {
+  const out: Record<CvSection, string[]> = { skills: [], experience: [], projects: [], other: [] };
+  let current: CvSection = "other";
+  // A known section heading ("SKILLS", "CERTIFICATIONS") means the CV is
+  // sectioned; a name line in capitals ("SMOKE TESTER") does not.
+  let sectioned = false;
+  for (const raw of (cvText || "").split(/\r?\n/)) {
+    const t = raw.trim();
+    if (!t) continue;
+    if (HEADING_RE.test(t) && t.length <= 45) {
+      const h = t.replace(/:$/, "");
+      current = SKILLS_HEADING_RE.test(h) ? "skills" : EXPERIENCE_HEADING_RE.test(h) ? "experience" : PROJECTS_HEADING_RE.test(h) ? "projects" : "other";
+      if (current !== "other" || KNOWN_HEADING_RE.test(h)) sectioned = true;
+      continue;
+    }
+    if (current !== "skills" && INLINE_SKILLS_RE.test(t)) {
+      out.skills.push(t);
+      continue;
+    }
+    out[current].push(t);
+  }
+  // A CV with no section headings at all: whatever is not a skills line is
+  // where its work history lives. A sectioned CV without EXPERIENCE
+  // (certifications and education only) evidences no production use.
+  if (!sectioned && out.experience.length === 0 && out.projects.length === 0) out.experience = out.other;
+  return out;
+}
+
+// "Next.js 16" and "Python 3" name the tool, not the version.
+const VERSION_SUFFIX_RE = /\s+v?\d+(?:\.\d+)*\+?$/;
+
+function cleanSkill(s: string): string {
+  return s.replace(/^[\s(]+|[\s)]+$/g, "").replace(VERSION_SUFFIX_RE, "").trim();
+}
+
+function splitSkillItems(line: string): string[] {
+  const items: string[] = [];
+  // Bracketed lists first, before any comma inside them can split the line:
+  // "SQL (PostgreSQL, MySQL)" names SQL and each item inside.
+  const rest = line.replace(/([^()|·•;,]+?)\s*\(([^()]+)\)/g, (_m, outer: string, inner: string) => {
+    items.push(cleanSkill(outer));
+    for (const i of inner.split(SPLIT_RE)) items.push(cleanSkill(i));
+    return " · ";
+  });
+  for (const piece of rest.split(SPLIT_RE)) items.push(cleanSkill(piece));
+  return items.filter((s) => s.length >= 2 && s.length <= MAX_SKILL_NAME && /[a-z]/i.test(s) && !NOT_A_SKILL_RE.test(s));
+}
+
+export function skillsFromCv(cvText: string): { name: string; level: ClaimLevel }[] {
+  const sec = sectionsOf(cvText);
+  const names: string[] = [];
+  for (const line of sec.skills) {
+    // "Core: Python · FastAPI" - a short label before the first colon.
+    const body = /^[^:|·•;,]{1,40}:\s*/.test(line) ? line.replace(/^[^:|·•;,]{1,40}:\s*/, "") : line;
+    names.push(...splitSkillItems(body));
+  }
+  for (const line of sec.projects) {
+    if (/^[•\-*]\s/.test(line) || LINK_LINE_RE.test(line) || /\b(?:19|20)\d{2}\b/.test(line)) continue;
+    const isTech = TECH_LINE_PREFIX_RE.test(line) || (line.split(",").length >= 3 && line.length <= 200);
+    if (isTech) names.push(...splitSkillItems(line.replace(TECH_LINE_PREFIX_RE, "")));
+  }
+  const experience = sec.experience.join("\n");
+  const projects = sec.projects.join("\n");
+  const seen = new Set<string>();
+  const out: { name: string; level: ClaimLevel }[] = [];
+  for (const name of names) {
+    const k = skillKey(name);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    const level: ClaimLevel = experience && matchAtsKeywords(experience, [name]).matched > 0 ? "production" : "project";
+    void projects;
+    out.push({ name, level });
+    if (out.length >= MAX_CLAIM_SKILLS) break;
+  }
+  return out;
+}
+
+// The seed the pages use: the CV's own skills with evidenced levels, plus
+// any skill the extraction model named that the CV's lists did not, held at
+// or below what the experience section evidences (never promoted).
+export function seedClaimsFromCv(cvText: string, modelGuesses: { name: string; level: ClaimLevel }[] = []): ClaimsRegistry {
+  const det = skillsFromCv(cvText);
+  const seen = new Set(det.map((s) => skillKey(s.name)));
+  const experience = sectionsOf(cvText).experience.join("\n");
+  const extra: { name: string; level: ClaimLevel }[] = [];
+  for (const g of normalizeSkillGuesses(modelGuesses)) {
+    const k = skillKey(g.name);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    const evidenced = experience && matchAtsKeywords(experience, [g.name]).matched > 0;
+    extra.push({ name: g.name, level: g.level === "learning" ? "learning" : evidenced ? "production" : "project" });
+  }
+  return seedClaims(cvText, [...det, ...extra]);
 }
 
 export function seedClaims(cvText: string, guesses: { name: string; level: ClaimLevel }[]): ClaimsRegistry {
@@ -390,7 +522,10 @@ function contentTokens(sentence: string): Set<string> {
 
 export type ClaimWhere = "cv" | "coverLetter" | "email" | "extra";
 export type NumberViolation = { figure: string; sentence: string; kind: "absent" | "context_mismatch"; where: ClaimWhere };
-export type SkillViolation = { skill: string; level: "learning"; confirmed: boolean; where: ClaimWhere };
+// A skill claimed above its registered level: a learning skill named at all,
+// or a project-only skill written as work experience or with proficiency
+// wording. `claim` names the offending text.
+export type SkillViolation = { skill: string; level: "learning" | "project"; confirmed: boolean; where: ClaimWhere; claim: string };
 export type ClaimCheck = {
   mode: ClaimMode;
   skillViolations: SkillViolation[];
@@ -403,7 +538,26 @@ export type ClaimCheck = {
 // A part may carry extra sources of its own: the cover letter legitimately
 // quotes facts about the company from the job description ("your 14 product
 // teams"), which would be an invented claim inside the CV itself.
-export type ClaimPart = { where: ClaimWhere; text: string; extraSources?: (string | null | undefined)[] };
+// `experience` is the work-experience section alone, when the part is the
+// CV: a project-only skill appearing there is a production claim.
+export type ClaimPart = { where: ClaimWhere; text: string; extraSources?: (string | null | undefined)[]; experience?: unknown };
+
+// Wording that turns a mention into a competency claim: "proficient in X",
+// "experienced with X", "strong X skills", "3 years of X".
+const PROFICIENCY_RE =
+  /\b(?:proficien(?:t|cy)|expert(?:ise)?|experienced|experience\s+(?:in|with|of|building|using|developing|delivering)|strong|advanced|extensive|deep|solid|skilled|fluen(?:t|cy)|competent|specialis(?:t|ed|ing)|specializ(?:ed|ing)|mastery|\d+\+?\s+years?)\b/i;
+
+function sentencesOf(text: string): string[] {
+  return text
+    .replace(/\*\*/g, "")
+    .split(/(?<=[.!?;])\s+|\n+|\s+[•▪●◦]\s*/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+function excerpt(s: string): string {
+  const t = s.replace(/^[•\-*]\s+/, "").replace(/\s+/g, " ").trim();
+  return t.length > 120 ? `${t.slice(0, 119)}…` : t;
+}
 
 function figureIndex(sources: (string | null | undefined)[]): Map<string, Figure[]> {
   const byKey = new Map<string, Figure[]>();
@@ -423,6 +577,7 @@ export function checkClaims(
   const mode = claimMode(registry);
   const baseIndex = figureIndex(sources);
   const learningSkills = (registry?.skills ?? []).filter((s) => s.level === "learning");
+  const projectSkills = (registry?.skills ?? []).filter((s) => s.level === "project");
 
   const numberViolations: NumberViolation[] = [];
   const skillViolations: SkillViolation[] = [];
@@ -463,14 +618,33 @@ export function checkClaims(
     }
     for (const s of learningSkills) {
       if (matchAtsKeywords(part.text, [s.name]).matched > 0) {
-        skillViolations.push({ skill: s.name, level: "learning", confirmed: s.confirmed, where: part.where });
+        const hit = sentencesOf(part.text).find((x) => matchAtsKeywords(x, [s.name]).matched > 0);
+        skillViolations.push({ skill: s.name, level: "learning", confirmed: s.confirmed, where: part.where, claim: hit ? excerpt(hit) : "" });
+      }
+    }
+    // A project-only skill claimed above its level: written into the
+    // work-experience section, or with proficiency wording anywhere.
+    for (const s of projectSkills) {
+      if (matchAtsKeywords(part.text, [s.name]).matched === 0) continue;
+      // Bullets only: a "Role | Employer | Dates" header line names no skill.
+      const expLine =
+        typeof part.experience === "string"
+          ? sentencesOf(part.experience).find((x) => !/\|/.test(x) && matchAtsKeywords(x, [s.name]).matched > 0)
+          : undefined;
+      if (expLine) {
+        skillViolations.push({ skill: s.name, level: "project", confirmed: s.confirmed, where: part.where, claim: `written as work experience: "${excerpt(expLine)}"` });
+        continue;
+      }
+      const claimed = sentencesOf(part.text).find((x) => matchAtsKeywords(x, [s.name]).matched > 0 && PROFICIENCY_RE.test(x));
+      if (claimed) {
+        skillViolations.push({ skill: s.name, level: "project", confirmed: s.confirmed, where: part.where, claim: `described as a competency: "${excerpt(claimed)}"` });
       }
     }
   }
 
-  const blocking =
-    mode === "enforce" &&
-    (numberViolations.some((n) => n.kind === "absent") || skillViolations.some((s) => s.confirmed));
+  // Blocking as soon as the registry has levels: a figure absent from the
+  // sources, or any skill claimed above its level.
+  const blocking = mode === "enforce" && (numberViolations.some((n) => n.kind === "absent") || skillViolations.length > 0);
   return { mode, skillViolations, numberViolations, blocking };
 }
 

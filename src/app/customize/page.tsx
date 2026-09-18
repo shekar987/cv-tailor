@@ -31,7 +31,7 @@ import {
 import {
   normalizeClaims,
   normalizeSkillGuesses,
-  seedClaims,
+  seedClaimsFromCv,
   mergeClaims,
   extractFigures,
   cvFingerprint,
@@ -262,7 +262,17 @@ export default function CustomizePage() {
       const settings = await getUserSettings();
       if (active) {
         setSettingsMissing(settings.missingTable);
-        setClaims(normalizeClaims(settings.claims));
+        // An empty registry is never the resting state: seed it from the CV's
+        // own skills section and keep it (best effort, degrades quietly).
+        let registry = normalizeClaims(settings.claims);
+        if ((!registry || registry.skills.length === 0) && stored?.text.trim()) {
+          const seeded = seedClaimsFromCv(stored.text);
+          if (seeded.skills.length > 0) {
+            registry = seeded;
+            void saveClaims(seeded);
+          }
+        }
+        setClaims(registry);
         setVariantsColumnMissing(settings.variantsColumnMissing);
         setPrefs(normalizePreferences(settings.preferences));
         setPrefsColumnMissing(settings.preferencesColumnMissing);
@@ -383,11 +393,12 @@ export default function CustomizePage() {
     }
   }
 
-  // Seed or refresh the claims registry from an extraction result. Confirmed
-  // levels survive (mergeClaims); an extraction that named no skills leaves
-  // the registry alone rather than wiping it.
+  // Seed or refresh the claims registry from the CV itself plus the
+  // extraction's skill guesses (seedClaimsFromCv: levels read from where the
+  // CV shows each skill used, never promoted). Confirmed levels survive
+  // (mergeClaims); a seed that named no skills leaves the registry alone.
   async function reseedClaims(cvText: string, guesses: unknown) {
-    const seed = seedClaims(cvText, normalizeSkillGuesses(guesses));
+    const seed = seedClaimsFromCv(cvText, normalizeSkillGuesses(guesses));
     if (seed.skills.length === 0) return;
     const merged = mergeClaims(claims, seed);
     setClaims(merged);
@@ -1097,15 +1108,14 @@ export default function CustomizePage() {
                         {claimsSaving ? "Saving…" : `Confirm levels (${unconfirmedCount})`}
                       </Button>
                       <span className="cvSavedMeta">
-                        {claims.confirmedAt
-                          ? "New skills warn rather than block until you confirm them."
-                          : "Until you confirm, a claim problem in a result warns rather than blocking the download."}
+                        Levels were read from your CV and are already enforced: a result that claims a skill above its level, or a
+                        figure that isn&apos;t on your CV, blocks the download. Confirm once you&apos;ve reviewed them.
                       </span>
                     </>
                   ) : (
                     <span className="cvSavedLabel">
-                      ✓ Levels confirmed — a figure that isn&apos;t on your CV, or a learning skill in the output, blocks
-                      the download until you fix it.
+                      ✓ Levels reviewed — a figure that isn&apos;t on your CV, a learning skill in the output, or a project-only
+                      skill written as work experience blocks the download until you fix it.
                     </span>
                   )}
                 </div>
