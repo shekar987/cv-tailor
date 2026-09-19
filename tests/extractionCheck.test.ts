@@ -40,6 +40,12 @@ test("expectedCounts reads entry-shaped lines under the three headings", () => {
   assert.deepEqual(expectedCounts(CV), { projects: 4, education: 2, certifications: 2 });
   assert.deepEqual(expectedCounts("JANE\nEXPERIENCE\n- x"), { projects: null, education: null, certifications: null });
   assert.deepEqual(expectedCounts("Projects:\nAlpha\n- did\nBeta\n- did"), { projects: 2, education: null, certifications: null });
+  // A bare stack line under a title is the project's tech, not a second
+  // project (this false positive showed a red "2 listed, 1 extracted"
+  // warning on Customize for a correctly extracted CV).
+  assert.deepEqual(expectedCounts("PROJECTS\nWidget Tracker | 2024\nGo, PostgreSQL, Docker\n- Tracks widgets.\nRideX\nReact Native, Firebase, Google Maps API\n- Ride hailing."), { projects: 2, education: null, certifications: null });
+  // A title that happens to contain a comma is still a title.
+  assert.deepEqual(expectedCounts("PROJECTS\nAlpha, the Widget Tracker | 2024\n- did\nBeta\n- did"), { projects: 2, education: null, certifications: null });
 });
 
 test("extractionFlags names the shortfall (the audited case: 4 listed, 2 extracted)", () => {

@@ -2022,7 +2022,7 @@ export default function Home() {
                   </div>
                 )}
                 <p className="scoreNote">
-                  {`How likely a recruiter searching their pipeline for this role's terms is to surface your CV: ${result.atsScore.keyword_coverage} of the role's terms are in the tailored text.`}
+                  How likely a recruiter searching their pipeline for this role&apos;s terms is to surface your CV — the count is how many of those terms the tailored text carries.
                 </p>
 
                 {Array.isArray(result.atsScore.hits) && result.atsScore.hits.length > 0 && (

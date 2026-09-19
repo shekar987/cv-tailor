@@ -26,6 +26,9 @@ const OTHER_SECTION_RE =
 const BULLET_RE = /^[-•*▪●◦]\s+/;
 const META_LINE_RE = /^(?:tech(?:nologies|\s*stack)?|stack|tools|built\s+with|links?|live|code|demo|repo|github|url|website)\s*:/i;
 const URL_RE = /^(?:https?:\/\/|www\.)/i;
+// Two or more comma-separated items of at most three words each, nothing
+// else on the line — how a CV writes a project's stack without a "Tech:" label.
+const TECH_LIST_RE = /^[\w.+#/-]+(?:\s[\w.+#/-]+){0,2}(?:,\s*[\w.+#/-]+(?:\s[\w.+#/-]+){0,2}){1,}\.?$/;
 const YEAR_RE = /\b(?:19|20)\d{2}\b/;
 const DEGREE_RE = /\b(?:b\.?sc|m\.?sc|b\.?a|m\.?a|b\.?eng|m\.?eng|mba|phd|ph\.d|bachelor|master|diploma|degree|a[- ]levels?|gcse|btec|hnd|hnc|foundation)\b/i;
 
@@ -73,6 +76,10 @@ function countEntries(key: SectionKey, lines: string[]): number {
     }
     if (isBullet || META_LINE_RE.test(line) || URL_RE.test(line)) continue;
     if (key === "projects") {
+      // A bare stack line ("Go, PostgreSQL, Docker") under a title is the
+      // project's tech, not a second project: a comma list of short items
+      // with no title separator and no sentence punctuation.
+      if (TECH_LIST_RE.test(line) && !/\|/.test(line)) continue;
       if (/^[A-Z0-9]/.test(line) && line.length <= 120) n++;
     } else if (key === "education") {
       if (DEGREE_RE.test(line) || YEAR_RE.test(line)) n++;
