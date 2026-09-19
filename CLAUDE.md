@@ -48,7 +48,7 @@ src/
     app/page.tsx              ← Main tool: JD → pre-check gate (keyword match, required skills, eligibility gates + read, duplicate/partial JD notices) → tailor → results + claims-check notice/highlights + Applied button; usage chip, stale-result + partial-failure notices (each auth-gated page also has a tiny layout.tsx that only exports its <title>)
     customize/page.tsx        ← Master CV (paste or upload), extracted profile fields + extracted-content summary + re-run extraction, Eligibility card, Claims registry card, section order
     settings/page.tsx         ← Account & usage card + user's own encrypted keys (OpenRouter primary — it runs tailoring; Gemini optional, not used for tailoring yet)
-    applications/page.tsx     ← Application tracker: spreadsheet-style sheet, "What's working" insights card (progression by score band / eligibility read / role / company), CV/JD/Notes panels (the CV panel also shows the snapshot's search-visibility breakdown and the cover letter as sent for rows that stored them), CSV export, per-row Prep link
+    applications/page.tsx     ← Application tracker: spreadsheet-style sheet, "What's working" insights card (progression by score band / eligibility read / role / company), CV/JD/Notes panels (the CV panel also shows the snapshot's search-visibility breakdown and the cover letter as sent for rows that stored them), search box over company / role / date applied (lib/trackerSearch, combined with the status, period and follow-up filters), CSV export (same filters + search), per-row Prep link
     applications/[id]/prep/   ← Stage 4 interview prep (the app's first dynamic route): page.tsx (states + generate/regenerate/PDF), PrepPackView.tsx (reading view with per-answer CV evidence + tracer verdicts), PracticeMode.tsx (keyboard flashcards + self-rating)
     auth/
       login/page.tsx          ← Email/password login AND signup (mode toggle) + Google/GitHub OAuth + forgot-password
@@ -72,7 +72,7 @@ src/
       download-cover/route.ts ← Cover letter .docx
       download-cover-pdf/route.ts ← Cover letter PDF — Node runtime
       applications/route.ts   ← Tracker CRUD (GET list / GET ?id= / POST / PUT / DELETE); POST scores the snapshot's `ats` lists server-side from the stored text (never trusts client verdicts)
-      applications/export/route.ts ← Tracker CSV export (honours ?status/?from/?to)
+      applications/export/route.ts ← Tracker CSV export (honours ?status/?from/?to and the page's search term ?q via lib/trackerSearch, applied after the read)
       applications/insights/route.ts ← GET: progression rate by score band / eligibility read / role / company over the caller's rows (lib/insights); no LLM
       prep/route.ts           ← Stage 4 prep pack: free reads → cached pack (free) → resolveLlmRoute (1 tailor credit) → ONE interviewPrepPrompt call → normalize + evidence tracer → cached on applications.prep_pack; refund on throw / unusable pack
       prep-pdf/route.ts       ← Prep pack PDF (real text layer, "[traced]"/"[not traced]" as text) — Node runtime
@@ -104,6 +104,7 @@ src/
     insights.ts               ← rowFromApplication()/computeInsights(): tracker progression rate by band (import-free, tests/); seniorityOf() (stored with every tailored save); scoreOutcome(): decided applications against their stored score, Mann-Whitney AUC, the top-N read — the "does the score predict the outcome?" panel
     quality.ts                ← estimatePages() (same line/heading arithmetic as cvDensity → the download's real length; `pages` is the stretched length the builders pick, `fitsOnePage` the honest one-page fit at the tightest spacing), onePageExpected(years) (< ONE_PAGE_MAX_YEARS = 3, from the user's own eligibility answer, never inferred), findDuplicateContent(), hasEvidence()/weakBullets(), inflationHits(), orderingSignature() for the harness (tests/)
     formatRules.ts            ← Hard post-generation formatting rules (imports only ./atsMatch.ts, tests/): capTechnicalTools() cuts the "Technical Tools:" line to MAX_TECHNICAL_TOOLS (15), keeping required-skill matches, then keyword matches, then the model's order; capSummary() cuts a summary to MAX_SUMMARY_SENTENCES (3), one per line; applyFormatRules() runs both in /api/tailor after wave 1 and reports `formatFixes` (what was dropped) for the /app notice. Drops only — never adds or rewrites
+    trackerSearch.ts          ← The tracker's search box (import-free, tests/): foldText() (case + accents), dateForms() (every spelling of a YYYY-MM-DD the sheet's "18 Sep 2026" invites — ISO, 18 sep, 18/09/2026, sep 2026…), matchesSearch(row, q) — every token must hit company, role or a date spelling; notes/salary/JD are not searched. One matcher for /applications and the CSV export's ?q, so the file always equals the screen
     extractionCheck.ts        ← expectedCounts()/extractionFlags(): entry-shaped lines under the CV's Projects/Education/Certifications headings vs what extraction returned (Bug C); mergeProfileEdits() keeps the user's contact fields on re-extraction (tests/)
     variants.ts               ← Positioning variants: normalizeVariants(), pickVariant() (override → role_type → lone catch-all → none, with the reason), renderVariantBlock() for the summary/skills prompts (tests/)
     fetchPage.ts              ← Stage 3 page fetcher: assertSafeUrl() SSRF guard (DNS-resolved private/metadata refusal, re-applied per redirect hop), capped bodies, regex HTML helpers
@@ -129,7 +130,7 @@ src/
     steps.ts                  ← All prompt templates (summaryPrompt, skillsPrompt, etc.)
     masterCV.ts               ← Owner's CV — DEV FALLBACK ONLY, never imported by a production path
 supabase/migrations/          ← Checked-in SQL (applications table, tailored_cv, company_profiles, projects_pool, prep_pack, user_settings + find_applications_by_jd, user_settings.variants …); see supabase/schema.md
-tests/                        ← node:test unit suites (atsMatch, companyMatch, knockouts, claims, insights, quality, extractionCheck, variants, preferences, visibilityVerdict, formatRules) — `npm test`, zero dependencies
+tests/                        ← node:test unit suites (atsMatch, companyMatch, knockouts, claims, insights, quality, extractionCheck, variants, preferences, visibilityVerdict, formatRules, trackerSearch) — `npm test`, zero dependencies
 scripts/backfill-tracker-scores.mjs ← one-off: tracker rows saved before the snapshot carried a score get counts from the notes' reconciled "Search visibility: 13/15 keywords" line, a recomputed eligibility read and the role seniority (reads SUPABASE_SECRET_KEY from .env.local; dry run by default, --apply writes)
 eval/                         ← Tailoring evaluation harness: pairs.json (5 synthetic CVs × 2 JDs), run.mjs (PAID: 10 tailors → eval/out/<label>), assert.mjs (free: the four assertions + metrics, two labels = a delta), inspect.mjs (filler words / weak bullets of a run)
 ```

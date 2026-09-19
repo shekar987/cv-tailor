@@ -9,6 +9,12 @@ import { createClient } from "@/lib/supabase/server";
 //   ?from=YYYY-MM-DD&to=YYYY-MM-DD   inclusive range on date_applied. The client
 //                                computes these in its own timezone, so "today"
 //                                means the user's today, not the server's.
+//   ?q=acme                      the page's search term, applied with the same
+//                                matcher (lib/trackerSearch: company, role and
+//                                the date's spellings) after the read — a
+//                                typed "18 sep" has no ilike form.
+
+import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
 
 const STATUSES = new Set(["Applied", "Screening", "Interview", "Offer", "Rejected", "Withdrawn"]);
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -54,6 +60,10 @@ export async function GET(req: NextRequest) {
     if ((from && !ISO_DATE_RE.test(from)) || (to && !ISO_DATE_RE.test(to))) {
       return NextResponse.json({ error: "Invalid date filter (use YYYY-MM-DD)." }, { status: 400 });
     }
+    const q = (params.get("q") ?? "").trim();
+    if (q.length > MAX_SEARCH_CHARS) {
+      return NextResponse.json({ error: `Search term too long (max ${MAX_SEARCH_CHARS} characters).` }, { status: 400 });
+    }
 
     let query = supabase
       .from("applications")
@@ -74,7 +84,7 @@ export async function GET(req: NextRequest) {
     }
 
     const lines = [COLUMNS.map((c) => csvField(c.header)).join(",")];
-    for (const row of (rows ?? []) as Record<string, unknown>[]) {
+    for (const row of ((rows ?? []) as Record<string, unknown>[]).filter((r) => matchesSearch(r, q))) {
       lines.push(COLUMNS.map((c) => csvField(row[c.key])).join(","));
     }
     // BOM so Excel reads the file as UTF-8; CRLF row endings per RFC 4180.
@@ -86,6 +96,10 @@ export async function GET(req: NextRequest) {
     if (from && to) nameParts.push(from === to ? from : `${from}_to_${to}`);
     else if (from) nameParts.push(`from_${from}`);
     else if (to) nameParts.push(`to_${to}`);
+    if (q) {
+      const slug = q.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24);
+      if (slug) nameParts.push(`search-${slug}`);
+    }
 
     return new NextResponse(csv, {
       headers: {

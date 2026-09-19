@@ -7,6 +7,7 @@ import CoverLetterPreview from "../CoverLetterPreview";
 import { getProfile, type Profile } from "@/lib/cvStore";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
+import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
 import { MAX_JD_CHARS as JD_LIMIT, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
 import { MIN_DECIDED, MIN_FOR_VERDICT, type Insights, type Bucket, type ScoreOutcome } from "@/lib/insights";
 import AppHeader from "@/components/ui/AppHeader";
@@ -430,6 +431,10 @@ export default function ApplicationsPage() {
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // "Follow-ups due" computed filter — combines with, not replaces, status/period.
   const [dueOnly, setDueOnly] = useState(false);
+  // Free-text search over company, role and date applied (lib/trackerSearch —
+  // the same matcher the CSV export applies, so the file matches the screen).
+  const [query, setQuery] = useState("");
+  const searchTerm = query.trim();
   // The row that just saved, for a brief success flash on its cells.
   const [flashRowId, setFlashRowId] = useState<string | null>(null);
   const rowFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -503,7 +508,8 @@ export default function ApplicationsPage() {
       (r) =>
         (statusFilter === "All" || r.status === statusFilter) &&
         (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
-        (!dueOnly || isDue(r))
+        (!dueOnly || isDue(r)) &&
+        matchesSearch(r, searchTerm)
     );
     // Empty values always sort last, whichever direction is active. Status
     // sorts in funnel order (Applied → … → Withdrawn), salary by its number.
@@ -531,7 +537,7 @@ export default function ApplicationsPage() {
       if (cmp !== 0) return sortDir === "asc" ? cmp : -cmp;
       return b.created_at.localeCompare(a.created_at);
     });
-  }, [rows, statusFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly]);
+  }, [rows, statusFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, searchTerm]);
 
   // The export carries the same filters, so the file matches the screen.
   const exportHref = useMemo(() => {
@@ -541,11 +547,12 @@ export default function ApplicationsPage() {
       params.set("from", bounds.from);
       params.set("to", bounds.to);
     }
+    if (searchTerm) params.set("q", searchTerm);
     const qs = params.toString();
     return `/api/applications/export${qs ? `?${qs}` : ""}`;
-  }, [statusFilter, bounds?.from, bounds?.to]);
+  }, [statusFilter, bounds?.from, bounds?.to, searchTerm]);
 
-  // What the export FILE will contain: the server honours status/period only,
+  // What the export FILE will contain: the server honours status/period/search,
   // never the computed follow-ups-due filter — so the count on the button
   // must match the file, not the (possibly due-filtered) table.
   const exportCount = useMemo(
@@ -553,9 +560,10 @@ export default function ApplicationsPage() {
       rows.filter(
         (r) =>
           (statusFilter === "All" || r.status === statusFilter) &&
-          (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to))
+          (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
+          matchesSearch(r, searchTerm)
       ).length,
-    [rows, statusFilter, bounds?.from, bounds?.to]
+    [rows, statusFilter, bounds?.from, bounds?.to, searchTerm]
   );
 
   // The CV shown in the open panel. Memoised so CvPreview's React.memo holds.
@@ -1177,6 +1185,24 @@ export default function ApplicationsPage() {
 
         <div className="appsToolbar">
           <div className="appsToolbarGroup">
+            <div className="appsSearchWrap">
+              <input
+                type="search"
+                className="appsSearch"
+                placeholder="Search company, role, date"
+                aria-label="Search applications by company, role or date applied"
+                value={query}
+                maxLength={MAX_SEARCH_CHARS}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") setQuery(""); }}
+                data-apps-search
+              />
+              {query && (
+                <button type="button" className="appsSearchClear" onClick={() => setQuery("")} aria-label="Clear search" data-apps-search-clear>
+                  ×
+                </button>
+              )}
+            </div>
             <label className="appsFilterLabel" htmlFor="statusFilter">Status</label>
             <select
               id="statusFilter"
@@ -1224,7 +1250,7 @@ export default function ApplicationsPage() {
             {/* Only offered when the current filters leave something to export. */}
             {exportCount > 0 && (
               <button type="button" className="customizeLink" onClick={exportCsv} disabled={exporting}>
-                {exporting ? "Exporting…" : `Export CSV${periodFilter !== "all" || statusFilter !== "All" ? ` (${exportCount})` : ""}`}
+                {exporting ? "Exporting…" : `Export CSV${periodFilter !== "all" || statusFilter !== "All" || searchTerm ? ` (${exportCount})` : ""}`}
               </button>
             )}
             <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired}>+ Add row</Button>
@@ -1263,12 +1289,13 @@ export default function ApplicationsPage() {
                   {periodFilter !== "all" ? ` ${PERIODS.find((p) => p.key === periodFilter)?.label.toLowerCase()}` : ""}
                   {statusFilter !== "All" ? ` with status “${statusFilter}”` : ""}
                   {dueOnly ? " with a follow-up due" : ""}
+                  {searchTerm ? ` matching “${searchTerm}”` : ""}
                 </>
               }
               actions={
                 <Button
                   variant="secondary"
-                  onClick={() => { setPeriodFilter("all"); setStatusFilter("All"); setDueOnly(false); }}
+                  onClick={() => { setPeriodFilter("all"); setStatusFilter("All"); setDueOnly(false); setQuery(""); }}
                 >
                   Clear filters
                 </Button>

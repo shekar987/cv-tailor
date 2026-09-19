@@ -394,7 +394,7 @@ html, body {
    One skin for every text control. Sizes: default 44px; .appsSelect 36px
    (toolbar); the table's cell inputs are borderless and live in the tracker
    section below. */
-:is(textarea, .textInput, .authInput, .keyInput, .profileGrid input, .providerPick select, .appsSelect) {
+:is(textarea, .textInput, .authInput, .keyInput, .profileGrid input, .providerPick select, .appsSelect, .appsSearch) {
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -436,7 +436,8 @@ textarea { resize: vertical; min-height: 96px; }
    the toolbar select stretches across the page. */
 .providerPick select,
 .appsToolbar .appsSelect,
-.appsSelect.appsSelect {
+.appsSelect.appsSelect,
+.appsToolbar .appsSearch {
   width: auto;
   min-height: 36px;
   padding: var(--space-1) var(--space-3);
@@ -1557,6 +1558,41 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   letter-spacing: var(--tracking-label);
 }
 .appsCount { font-size: var(--text-sm); color: var(--muted); }
+
+/* Search — shares the field skin (36px in the toolbar, like the select).
+   The native search-clear glyph is suppressed so the one clear control is
+   ours, with the same hover / focus / active states as every button. */
+.appsSearchWrap { position: relative; display: inline-flex; align-items: center; }
+.appsToolbar .appsSearch {
+  width: clamp(160px, 26vw, 260px);
+  padding-right: calc(var(--space-3) + 24px);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.appsSearch::-webkit-search-cancel-button,
+.appsSearch::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
+.appsSearchClear {
+  position: absolute;
+  right: var(--space-1);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: pointer;
+  transition: opacity var(--duration-fast) var(--ease), transform var(--duration-fast) var(--ease);
+}
+.appsSearchClear:hover { color: var(--text); background: var(--surface-2); }
+.appsSearchClear:focus-visible { outline: none; box-shadow: var(--focus-ring); color: var(--text); }
+.appsSearchClear:active { transform: translateY(-50%) scale(0.92); }
 
 /* Period filter — a segmented control. The active segment is neutral, not
    amber: it's a filter state, not the page's primary action. */
