@@ -37,6 +37,10 @@ test("capTechnicalTools: 25 tools → the 15 most JD-relevant, required skills f
   const lines = (skills as string).split("\n");
   assert.equal(lines[0], "Functional Competencies: Backend development | API design | CI/CD | Observability");
   assert.equal(lines[1], `Technical Tools: ${tools25.filter((t) => fix.kept.includes(t)).join(" | ")}`);
+  // The bold label the skills prompt produces is capped the same way, markers kept.
+  const bold = capTechnicalTools(`**Functional Competencies:** APIs\n**Technical Tools:** ${tools25.join(" | ")}`, keywords, required);
+  assert.ok(bold.fix && bold.fix.kept.length === 15, "bold label is recognised");
+  assert.match(String(bold.skills).split("\n")[1], /^\*\*Technical Tools:\*\* /);
   assert.equal(lines[1].split(" | ").length, 15);
 });
 

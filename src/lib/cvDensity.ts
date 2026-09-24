@@ -36,7 +36,10 @@ export const PAGE_HEIGHT = 16838; // A4 height in twips
 const BODY_LINE = 250;            // rendered height of one 10.5pt line
 const HEADING_LINE = 290;         // section headings are 12pt + a rule
 const CHARS_PER_LINE = 95;        // ~10.5pt Calibri across the usable measure
-const TARGET_PAGES = 2;
+// The default target. A candidate with under three years of experience gets
+// a ONE-page target instead (lib/quality onePageExpected → lib/onePage trims
+// the content, and the downloads lay it out to one page).
+export const TARGET_PAGES = 2;
 
 // A short CV should still look like a short CV, not a normal one with absurd
 // gaps stretched through it, so the fill-out expansion is capped.
@@ -68,22 +71,22 @@ export function estimatedHeight(size: ContentSize, d: Density): number {
   );
 }
 
-export function capacity(d: Density): number {
-  return TARGET_PAGES * (PAGE_HEIGHT - 2 * d.margin);
+export function capacity(d: Density, pages: number = TARGET_PAGES): number {
+  return pages * (PAGE_HEIGHT - 2 * d.margin);
 }
 
 // Pick the roomiest density that still fits two pages, then spend any leftover
 // space on extra breathing room between paragraphs so the content reaches the
 // bottom of page two instead of stopping halfway down it.
-export function chooseDensity(size: ContentSize): Density {
-  const fitting = DENSITIES.find((d) => estimatedHeight(size, d) <= capacity(d));
+export function chooseDensity(size: ContentSize, pages: number = TARGET_PAGES): Density {
+  const fitting = DENSITIES.find((d) => estimatedHeight(size, d) <= capacity(d, pages));
   // Nothing fits: the content is over budget even at the tightest setting. Use
   // the tightest and let it run long rather than silently dropping anything —
   // the user can trim in the editable preview.
   const base = fitting ?? DENSITIES[DENSITIES.length - 1];
   if (!fitting || size.paragraphs === 0) return base;
 
-  const slack = capacity(base) - estimatedHeight(size, base);
+  const slack = capacity(base, pages) - estimatedHeight(size, base);
   if (slack <= 0) return base;
 
   const extraPerParagraph = Math.floor((slack * SLACK_USE) / size.paragraphs);

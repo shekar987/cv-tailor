@@ -343,11 +343,14 @@ const extraSections = filterExtraSections(profile.extraSections);
       (rightToWork.length > 0 ? 1 : 0) + extraSections.length +
       (projectMetaText ? 1 : 0);
 
+    // One page for a candidate with under three years (the preview sends
+    // targetPages: 1 — lib/onePage trimmed the content to fit it); two otherwise.
+    const targetPages = body.targetPages === 1 ? 1 : 2;
     const density = chooseDensity({
       lines: wrappedLines(bodyText) + contactLines,
       paragraphs: bodyText.split("\n").filter((l) => l.trim()).length + contactLines,
       headings: headingCount,
-    });
+    }, targetPages);
 
     const children: Paragraph[] = [];
 

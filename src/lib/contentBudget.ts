@@ -154,8 +154,26 @@ export function normalizeExperienceOutput(text: string): string {
     .join("\n");
 }
 
+// One page (under three years of experience — lib/quality onePageExpected):
+// the most recent role keeps up to 4 bullets, every earlier role 3, never
+// below 2. lib/onePage then trims the finished text to what one page holds.
+export function onePageExperienceBudget(cvText: string): string {
+  const shape = parseExperienceShape(cvText);
+  const caps = shape ? shape.bulletsPerRole.map((have, i) => Math.max(2, Math.min(have, i === 0 ? 4 : 3))) : [];
+  const perRole = caps.length
+    ? caps.map((c, i) => `- Role ${i + 1} (in master-CV order): at most ${c} bullets.`).join("\n")
+    : "- At most 4 bullets for the most recent role and 3 for each earlier role.";
+  return `LENGTH BUDGET — this candidate has under three years of experience, so the finished CV must fit on ONE A4 page:
+${perRole}
+- Keep the bullets with the strongest evidence for THIS job (a figure, a scale, a named system); drop the rest entirely, oldest roles first.
+${SHARED_RULES}`;
+}
+
 // Per-project bullet allowance scaled by how many projects there are.
-export function projectsBudget(projectCount: number): string {
+export function projectsBudget(projectCount: number, onePage = false): string {
+  if (onePage) {
+    return `LENGTH BUDGET — this candidate has under three years of experience, so the finished CV must fit on ONE A4 page, and projects sit after experience. This CV has ${projectCount} project(s): write at most 2 bullets per project (1 is fine) — use the project's REAL bullets from the master CV as the base (rephrased and reordered for this JD), never pad with invented ones. Keep each bullet to a single printed line. Trim by dropping a whole bullet, never by merging two achievements or combining their metrics into one sentence.`;
+  }
   const per = projectCount <= 2 ? 4 : projectCount <= 4 ? 3 : 2;
   return `LENGTH BUDGET — the finished CV must fit on TWO A4 pages, and projects sit after experience, so they are what pushes it over. This CV has ${projectCount} project(s): write up to ${per} bullets per project — use the project's REAL bullets from the master CV as the base (rephrased and reordered for this JD), never pad with invented ones, and fewer is fine when the master CV has fewer. Keep each bullet to a single printed line where possible and never more than two. Trim by dropping a whole bullet, never by merging two achievements or combining their metrics into one sentence.`;
 }

@@ -11,7 +11,7 @@
 // runs on the server, in the browser and under node:test. Nothing here
 // edits text: it reports, and the prompts / the user act.
 
-import { DENSITIES, PAGE_HEIGHT, wrappedLines, chooseDensity, estimatedHeight, capacity } from "./cvDensity.ts";
+import { DENSITIES, PAGE_HEIGHT, TARGET_PAGES, wrappedLines, chooseDensity, estimatedHeight, capacity } from "./cvDensity.ts";
 import { extractFigures } from "./claims.ts";
 
 export type ProfileLike = {
@@ -63,7 +63,9 @@ export function onePageExpected(yearsExperience: number | null | undefined): boo
   return typeof yearsExperience === "number" && Number.isFinite(yearsExperience) && yearsExperience < ONE_PAGE_MAX_YEARS;
 }
 
-export function estimatePages(sections: Sections, profile: ProfileLike): PageEstimate {
+// targetPages: the layout the downloads will pick — 2 by default, 1 when the
+// user has under three years (lib/onePage). `pages` is read against it.
+export function estimatePages(sections: Sections, profile: ProfileLike, targetPages: number = TARGET_PAGES): PageEstimate {
   const p = profile ?? {};
   const summary = str(sections.summary);
   const skills = str(sections.skills);
@@ -91,7 +93,7 @@ export function estimatePages(sections: Sections, profile: ProfileLike): PageEst
     paragraphs: bodyText.split("\n").filter((l) => l.trim()).length + contactLines,
     headings,
   };
-  const chosen = chooseDensity(size);
+  const chosen = chooseDensity(size, targetPages);
   const tightest = DENSITIES[DENSITIES.length - 1];
   const overBudget = estimatedHeight(size, tightest) > capacity(tightest);
   // capacity() is the two-page budget; one page is half of it.
@@ -298,10 +300,10 @@ export type QualityReport = {
   boltOns: string[];
 };
 
-export function qualityReport(sections: Sections, profile: ProfileLike, coverLetter?: unknown, company?: string): QualityReport {
+export function qualityReport(sections: Sections, profile: ProfileLike, coverLetter?: unknown, company?: string, targetPages: number = TARGET_PAGES): QualityReport {
   const prose = [str(sections.summary), str(sections.experience), projectBullets(sections.projects).join("\n"), str(coverLetter)].join("\n");
   return {
-    pages: estimatePages(sections, profile),
+    pages: estimatePages(sections, profile, targetPages),
     duplicates: findDuplicateContent(sections, profile),
     weakBullets: weakBullets(sections.experience, sections.projects),
     inflation: inflationHits(prose),

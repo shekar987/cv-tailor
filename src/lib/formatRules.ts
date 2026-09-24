@@ -15,7 +15,11 @@ import { matchAtsKeywords } from "./atsMatch.ts";
 export const MAX_TECHNICAL_TOOLS = 15;
 export const MAX_SUMMARY_SENTENCES = 3;
 
-const TOOLS_LABEL = /^(\s*)(technical tools)(\s*:\s*)(.*)$/i;
+// The label as the model writes it, bold or plain: "Technical Tools:",
+// "**Technical Tools:**" or "**Technical Tools**:". Groups 1 and 3 keep the
+// markers so the rebuilt line reads exactly as it did. (The plain-only form
+// silently skipped every bold line — the 15-tool cap never ran on real output.)
+const TOOLS_LABEL = /^(\s*\**\s*)(technical tools)(\s*\**\s*:\s*\**\s*)(.*)$/i;
 const SEP = " | ";
 
 export type ToolsFix = { kept: string[]; dropped: string[] };

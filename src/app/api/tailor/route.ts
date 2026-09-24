@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { callLLM, Provider, ProviderRateLimitError, ProviderCreditError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
-import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
+import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
 import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillMentioned, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, type Variant } from "@/lib/variants";
 import { normalizePreferences } from "@/lib/preferences";
@@ -22,10 +22,13 @@ import {
   JD_ANALYZER_PROMPT,
   rejectedBulletsBlock,
 } from "@/prompts/steps";
-import { lintBullets, countFlags } from "@/lib/quality";
+import { lintBullets, countFlags, onePageExpected } from "@/lib/quality";
+import { fitOnePage, type OnePageReport } from "@/lib/onePage";
+import { normalizeEligibility } from "@/lib/knockouts";
+import { normalizeProfile } from "@/lib/profile";
 import { coreTitle, titleInText } from "@/lib/roleTitle";
 import { unsupportedProperNouns, sentencesNaming, dropSentences } from "@/lib/properNouns";
-import { experienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
+import { experienceBudget, onePageExperienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
@@ -75,6 +78,11 @@ async function runPipeline(opts: {
   // the bullets or the letter — the models write from the master CV text,
   // which states it, so the finished text is filtered deterministically.
   omitRightToWork: boolean;
+  // Under three years of experience (the user's own eligibility answer): the
+  // prompts get a one-page budget and lib/onePage trims the finished text to
+  // what one page holds, measured with the document profile below.
+  onePage: boolean;
+  profile: unknown;
   // Result of the pre-tailoring ATS gate's Step 1 call (/api/analyze with
   // cvText). When present and well-formed, Step 0 below is SKIPPED — this is
   // the whole point of the gate: the user already paid for this exact call
@@ -100,7 +108,7 @@ async function runPipeline(opts: {
   // CV's own positioning.
   variant?: Variant | null;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, onePage, profile } = opts;
   const claimsBlock = renderClaimsBlock(claims);
   const variantBlock = renderVariantBlock(variant);
 
@@ -137,8 +145,8 @@ async function runPipeline(opts: {
   // Adaptive content budget: only ask the model to trim what two pages truly
   // can't hold (lib/contentBudget.ts). When the CV can't be parsed, the
   // prompts fall back to their fixed defaults — behaviour as before.
-  const expBudget = experienceBudget(cv) ?? undefined;
-  const projBudget = projectsBudget(projectNames.length);
+  const expBudget = onePage ? onePageExperienceBudget(cv) : experienceBudget(cv) ?? undefined;
+  const projBudget = projectsBudget(projectNames.length, onePage);
 
   // Wave 1 — parallel; individual step failures produce empty values,
   // but ProviderRateLimitError propagates.
@@ -355,6 +363,24 @@ async function runPipeline(opts: {
     rtwStripped.cv.push(...p.removed);
   }
 
+  // One page (lib/onePage): trim by relevance until the document measures one
+  // page, and report what was left out. Runs before the score so the score
+  // reads the text the user will actually send.
+  let onePageReport: OnePageReport | null = null;
+  if (onePage) {
+    const t = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
+    const fitted = fitOnePage(
+      { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal },
+      (profile ?? null) as Parameters<typeof fitOnePage>[1],
+      { keywords: t.top_15_ats_keywords, required: t.required_skills }
+    );
+    summary = fitted.sections.summary;
+    skillsFinal = fitted.sections.skills;
+    experienceFinal = fitted.sections.experience as typeof experienceFinal;
+    projectsFinal = fitted.sections.projects;
+    onePageReport = fitted.report;
+  }
+
   const sections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
   const tailoredText = tailoredSectionsText(sections);
   const terms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
@@ -448,6 +474,7 @@ async function runPipeline(opts: {
     formatFixes,
     letterCheck,
     rtwStripped,
+    onePage: onePageReport,
     ...(projectsPool ? { selectedProjects: selectedFinal } : {}),
   };
 }
@@ -514,6 +541,17 @@ export async function POST(req: NextRequest) {
     // Document switches (lib/preferences), sent along by the client like the
     // registry — the server reads no per-user table here. Absent = defaults.
     const preferences = normalizePreferences(body.preferences);
+    // Eligibility answers (years → one-page target) and the document profile
+    // (for the page estimate), both sent by the client like the registry.
+    if (body.eligibility !== undefined && JSON.stringify(body.eligibility).length > MAX_ELIGIBILITY_JSON) {
+      return NextResponse.json({ error: "Eligibility profile is too large." }, { status: 400 });
+    }
+    const eligibility = normalizeEligibility(body.eligibility);
+    const onePage = onePageExpected(eligibility.yearsExperience);
+    if (body.profile !== undefined && JSON.stringify(body.profile).length > MAX_CV_CHARS) {
+      return NextResponse.json({ error: "Profile is too large." }, { status: 400 });
+    }
+    const bodyProfile = body.profile && typeof body.profile === "object" ? normalizeProfile(body.profile) : null;
     // One variant, bounded like a stored one; anything malformed = none.
     const bodyVariant = body.variant ? (normalizeVariants({ variants: [body.variant] })?.variants[0] ?? null) : null;
 
@@ -546,6 +584,8 @@ export async function POST(req: NextRequest) {
         claims: bodyClaims,
         variant: bodyVariant,
         omitRightToWork: !preferences.includeRightToWorkOnCv,
+        onePage,
+        profile: bodyProfile,
       });
       // The unlimited (owner) path reports which provider ran, for the dropdown.
       return NextResponse.json(route.reason === "unlimited" ? { provider: route.provider, ...result } : result);

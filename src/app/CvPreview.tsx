@@ -65,6 +65,9 @@ type CvPreviewProps = {
   // the first flagged sentence and the rule it breaks as the reason.
   downloadsDisabled?: boolean;
   downloadsDisabledReason?: string;
+  // The page target the downloads lay out to: 1 for a candidate with under
+  // three years of experience (lib/onePage trimmed the content to fit), else 2.
+  targetPages?: 1 | 2;
   // The CV's Right to Work wording, offered beside the downloads as a
   // copy-to-clipboard block for application forms. The document itself
   // carries the section only when the Customize switch is on (the page
@@ -85,13 +88,14 @@ export type CvPreviewHandle = {
     profile: Profile | null;
     fileBaseName: string;
     sectionOrder: SectionId[];
+    targetPages: 1 | 2;
   } | null;
   // The editable root, for the page's claim-check highlights.
   getRoot: () => HTMLDivElement | null;
 };
 
 const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvPreview(
-  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "" },
+  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "", targetPages = 2 },
   fwdRef
 ) {
   const order = resolveSectionOrder(sectionOrder);
@@ -490,6 +494,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
       // .docx (and therefore the PDF, which renders that .docx) is laid out in
       // exactly the sequence the user is looking at on screen.
       sectionOrder: order,
+      targetPages,
     };
   }
 

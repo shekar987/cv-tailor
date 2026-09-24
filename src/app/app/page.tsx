@@ -117,6 +117,14 @@ type Result = {
   // Visa / sponsorship sentences the server removed from the CV text and the
   // letter because Right to Work is off the document (lib/rightToWorkText).
   rtwStripped?: { cv: string[]; letter: string[] };
+  // One-page fit for a candidate with under three years (lib/onePage): what
+  // was left out for length, and whether the result now fits one page.
+  onePage?: {
+    fits: boolean;
+    pagesBefore: number;
+    pagesAfter: number;
+    leftOut: { summary: string[]; tools: string[]; experience: { role: string; bullet: string }[]; projects: { project: string; bullet: string }[] };
+  } | null;
 };
 
 const WHERE_LABEL: Record<ClaimWhere, string> = { cv: "CV", coverLetter: "cover letter", email: "email", extra: "text" };
@@ -801,6 +809,10 @@ export default function Home() {
           // Document switches: Right to Work off the CV (default) also keeps
           // visa / sponsorship sentences out of the generated text.
           preferences,
+          // The eligibility answers (years → one-page target) and the document
+          // profile (education, certifications… for the server's page estimate).
+          ...(eligibility ? { eligibility } : {}),
+          ...(profile ? { profile: profileForDocument(profile, preferences) } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -915,7 +927,8 @@ export default function Home() {
           { summary: payload.summary, skills: payload.skills, experience: payload.experience, projects: payload.projects },
           payload.profile ? { ...payload.profile, projects: payload.projectsMeta } : null,
           letter ?? result.coverLetter ?? "",
-          companyOf(result.analysis)
+          companyOf(result.analysis),
+          payload.targetPages
         )
       );
     }
@@ -1126,9 +1139,10 @@ export default function Home() {
       { summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects },
       displayProfile,
       result.coverLetter,
-      companyOf(result.analysis)
+      companyOf(result.analysis),
+      onePageExpected(eligibility?.yearsExperience) ? 1 : 2
     );
-  }, [liveQuality, result, displayProfile]);
+  }, [liveQuality, result, displayProfile, eligibility]);
   // Under three years of experience (the user's own eligibility answer —
   // never inferred) a recruiter expects one page. Two readings: the content
   // genuinely cannot fit one page at the tightest spacing, or it could but
@@ -1964,6 +1978,32 @@ export default function Home() {
                 </div>
               </div>
             )}
+            {result.onePage && (
+              <div className="limitNotice" role="status" data-one-page={result.onePage.fits ? "fits" : "over"}>
+                <div className="limitNotice__title">
+                  {result.onePage.fits ? "Fitted to one page" : "Could not fit one page"}
+                </div>
+                <div className="limitNotice__body">
+                  Under three years of experience calls for one page, so the download is laid out to one.
+                  {result.onePage.leftOut.experience.length + result.onePage.leftOut.projects.length + result.onePage.leftOut.summary.length + result.onePage.leftOut.tools.length > 0
+                    ? " Left out for length — paste one back into the preview if it matters more than what stayed:"
+                    : " Nothing had to be left out."}
+                  {!result.onePage.fits && " Even at the tightest spacing it still runs over: shorten the remaining bullets in the preview."}
+                  <ul className="atsList">
+                    {result.onePage.leftOut.summary.map((s, i) => (
+                      <li key={`s${i}`}>Summary: {s}</li>
+                    ))}
+                    {result.onePage.leftOut.tools.length > 0 && <li>Technical Tools: {result.onePage.leftOut.tools.join(", ")}</li>}
+                    {result.onePage.leftOut.experience.map((e, i) => (
+                      <li key={`e${i}`}>{e.role ? `${e.role}: ` : ""}{e.bullet}</li>
+                    ))}
+                    {result.onePage.leftOut.projects.map((p, i) => (
+                      <li key={`p${i}`}>{p.project}: {p.bullet}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
             {result.rtwStripped && (result.rtwStripped.cv.length > 0 || result.rtwStripped.letter.length > 0) && (
               <div className="limitNotice" role="status" data-rtw-stripped>
                 <div className="limitNotice__title">Right to Work kept off the document</div>
@@ -2224,6 +2264,7 @@ export default function Home() {
                 data={cvData}
                 profile={displayProfile}
                 rightToWorkForForms={rtwForForms}
+                targetPages={onePageExpected(eligibility?.yearsExperience) ? 1 : 2}
                 downloadsDisabledReason={downloadReason}
                 sectionOrder={sectionOrder}
                 fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}

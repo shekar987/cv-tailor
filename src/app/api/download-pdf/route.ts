@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
       projectsMeta: Array.isArray(body.projectsMeta) ? body.projectsMeta : [],
       profile,
       sectionOrder: body.sectionOrder,
+      targetPages: body.targetPages === 1 ? 1 : 2,
     });
 
     // Text-layer check (lib/pdfTextCheck): read the text back out of the

@@ -208,10 +208,12 @@ export type CvPdfPayload = {
   projectsMeta?: any[];
   profile?: any;
   sectionOrder?: unknown;
+  // 1 for a candidate with under three years (lib/onePage), 2 otherwise.
+  targetPages?: number;
 };
 
 export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
-  const { summary = "", skills = "", experience = "", projects = {}, projectsMeta = [], profile, sectionOrder } = payload;
+  const { summary = "", skills = "", experience = "", projects = {}, projectsMeta = [], profile, sectionOrder, targetPages = 2 } = payload;
 
   // Same fallback/cleanup rules as the docx route — missing fields render
   // blank, never fall back to owner data.
@@ -263,7 +265,7 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
     lines: wrappedLines(bodyText) + contactLines,
     paragraphs: bodyText.split("\n").filter((l) => l.trim()).length + contactLines,
     headings: headingCount,
-  });
+  }, targetPages === 1 ? 1 : 2);
 
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
   registerFonts(doc);
