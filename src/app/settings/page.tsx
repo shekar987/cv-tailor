@@ -9,6 +9,7 @@ import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
+import Icon from "@/components/ui/Icon";
 import Skeleton from "@/components/ui/Skeleton";
 import StatusText from "@/components/ui/StatusText";
 
@@ -253,7 +254,7 @@ export default function SettingsPage() {
         <div className="keyList">
           <Card>
             <div className="keyCardHeader">
-              <span className="keyLabel">Account &amp; usage</span>
+              <span className="keyLabel"><Icon name="gauge" />Account &amp; usage</span>
               {email && <Badge variant="pill">{email}</Badge>}
             </div>
             {usage === undefined ? (
@@ -289,7 +290,7 @@ export default function SettingsPage() {
               <Card key={slot.provider} className={slot.muted ? "keyCardMuted" : undefined}>
                 {/* Card header — provider name + masked badge */}
                 <div className="keyCardHeader">
-                  <span className="keyLabel">{slot.label}</span>
+                  <span className="keyLabel"><Icon name="key" />{slot.label}</span>
                   {saved && !isReplacing && (
                     <Badge variant="pill">✓ Saved ••••{saved.hint}</Badge>
                   )}

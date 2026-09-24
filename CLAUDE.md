@@ -46,7 +46,7 @@ src/
     page.tsx                  ← Landing page ("use client" — scroll-reveal + count-up; nav adapts to a signed-in session)
     error.tsx / not-found.tsx ← Route-level error boundary and 404, in the auth-card style
     app/page.tsx              ← Main tool: JD → pre-check gate (keyword match, required skills, eligibility gates + read, duplicate/partial JD notices) → tailor → results + claims-check notice/highlights + Applied button; usage chip, stale-result + partial-failure notices (each auth-gated page also has a tiny layout.tsx that only exports its <title>)
-    customize/page.tsx        ← Master CV (paste or upload), extracted profile fields + extracted-content summary + re-run extraction, Eligibility card, Claims registry card, section order
+    customize/page.tsx        ← Master CV (paste or upload) and extracted profile fields — the two cards that stay open — plus six `<CollapsibleSection>`s you set once (eligibility, claims registry, positioning, section order, Right to Work, project pool) behind a sticky section nav. Each collapsed section's summary line states its own state ("7 of 9 answered", "5 skills — 5 to confirm"), so folding hides nothing. Bodies are hidden with `hidden`, never unmounted — an unsaved draft must survive collapsing
     settings/page.tsx         ← Account & usage card + user's own encrypted keys (OpenRouter primary — it runs tailoring; Gemini optional, not used for tailoring yet)
     applications/page.tsx     ← Application tracker: spreadsheet-style sheet, "What's working" insights card (progression by score band / eligibility read / role / company), CV/JD/Notes panels (the CV panel also shows the snapshot's search-visibility breakdown and the cover letter as sent for rows that stored them), search box over company / role / date applied (lib/trackerSearch, combined with the status, period and follow-up filters), CSV export (same filters + search), per-row Prep link
     applications/[id]/prep/   ← Stage 4 interview prep (the app's first dynamic route): page.tsx (states + generate/regenerate/PDF), PrepPackView.tsx (reading view with per-answer CV evidence + tracer verdicts), PracticeMode.tsx (keyboard flashcards + self-rating)
@@ -81,6 +81,11 @@ src/
       feedback/route.ts       ← Insert-only feedback
   components/ui/              ← Thin wrappers over the globals.css classes: Button, Card, Input, Textarea,
                                  FormField, Badge, StatusText, AppHeader, EmptyState, Skeleton. Use these.
+                                 Icon (one 24px stroke-only line set, sized by --icon-size, currentColor),
+                                 SectionHeading (icon + .label for an always-open card) and
+                                 CollapsibleSection (a card whose header is the disclosure, with a
+                                 summary line; open state is owned by the PARENT so a nav can open and
+                                 scroll in one click).
   lib/
     claude.ts                 ← callClaude() / callLLM() — every model call goes through here
     limits.ts                 ← MAX_JD_CHARS, MAX_CV_CHARS, notes/feedback/cover-letter caps, DAILY_TAILOR_LIMIT + CLAUDE_LIFETIME_LIMIT (one definition — UI and /api/tailor share these)
@@ -431,7 +436,8 @@ Anything that writes to the live database or triggers a deploy is an outward-fac
 
 The app has a deliberate look — a dark, warm, amber-accented interface — and every design decision already lives as a token in `src/app/globals.css`. Use them; don't reinvent.
 
-- **Colors come from tokens only:** `--bg`, `--surface(-2/-3/-glass)`, `--border(-strong)`, `--text` / `--text-subtle` / `--muted`, `--amber` / `--amber-bright` / `--amber-dim` / `--amber-border` / `--amber-ink`, `--success(-dim/-border)`, `--danger(-dim/-border)`, and the `--doc-*` palette for the white CV document. Never ad-hoc hex values in components or rules. If you need a new colour, add a token and derive it from the existing ones.
+- **Three border tokens, and they are not interchangeable** (each measured against the plane it sits on — re-measure before changing one): `--border` 1.2:1 on `--surface` is the QUIET hairline for dense grids (every tracker table cell) and dividers inside a card; `--border-card` 1.9:1 is the card/panel edge, and is what makes base → surface → floating visible at all (at the old 1.2:1 every card melted into the page); `--border-strong` 3.0:1 on `--bg` is every input's boundary, which is what meets WCAG 1.4.11 for non-text contrast, plus the sheet frame and drag states. Raising `--border` globally is the trap: it would turn a 10-column tracker row into a heavy grid.
+- **Colors come from tokens only:** `--bg`, `--surface(-2/-3/-glass)`, `--border(-card/-strong)`, `--text` / `--text-subtle` / `--muted`, `--amber` / `--amber-bright` / `--amber-dim` / `--amber-border` / `--amber-ink`, `--success(-dim/-border)`, `--danger(-dim/-border)`, and the `--doc-*` palette for the white CV document. Never ad-hoc hex values in components or rules. If you need a new colour, add a token and derive it from the existing ones.
 - **Type scale, radii, shadows, motion are tokens too:** `--text-xs…3xl`, `--leading-*`, `--tracking-*`, `--space-1…24`, `--radius-xs/sm/md/lg/pill`, `--shadow-xs/sm/md/lg/doc` (layered, not flat), `--surface-inset`, `--focus-ring`, `--ease`, `--duration-fast/--duration/--duration-slow`.
 - **Fonts:** Geist via `next/font/google` in `layout.tsx`, applied through `--font-sans`. Don't add fonts through a `<link>` or CDN. There is no Tailwind in this project; it's plain CSS in `globals.css`.
 - **Shared skins:** every text control (`textarea`, `.textInput`, `.authInput`, `.keyInput`, `.profileGrid input`, selects) shares one `:is()` field rule, and every button-like control shares one base with hover/active/disabled. Add a new control to those lists rather than writing a fresh skin.

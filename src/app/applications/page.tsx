@@ -1108,7 +1108,7 @@ export default function ApplicationsPage() {
         )}
 
         {hasRows && (
-          <div className="appsFunnel" role="group" aria-label="Applications by status">
+          <div className="appsFunnel riseIn" role="group" aria-label="Applications by status">
             {STATUSES.map((s) => (
               <button
                 key={s}
@@ -1184,7 +1184,7 @@ export default function ApplicationsPage() {
         )}
 
         <div className="appsToolbar">
-          <div className="appsToolbarGroup">
+          <div className="appsToolbarGroup appsToolbarSearch">
             <div className="appsSearchWrap">
               <input
                 type="search"
@@ -1203,6 +1203,17 @@ export default function ApplicationsPage() {
                 </button>
               )}
             </div>
+          </div>
+          <div className="appsToolbarGroup appsToolbarActions">
+            {/* Only offered when the current filters leave something to export. */}
+            {exportCount > 0 && (
+              <button type="button" className="customizeLink" onClick={exportCsv} disabled={exporting}>
+                {exporting ? "Exporting…" : `Export CSV${periodFilter !== "all" || statusFilter !== "All" || searchTerm ? ` (${exportCount})` : ""}`}
+              </button>
+            )}
+            <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired}>+ Add row</Button>
+          </div>
+          <div className="appsToolbarGroup appsToolbarFilters">
             <label className="appsFilterLabel" htmlFor="statusFilter">Status</label>
             <select
               id="statusFilter"
@@ -1245,15 +1256,6 @@ export default function ApplicationsPage() {
                 )}
               </StatusText>
             )}
-          </div>
-          <div className="appsToolbarGroup">
-            {/* Only offered when the current filters leave something to export. */}
-            {exportCount > 0 && (
-              <button type="button" className="customizeLink" onClick={exportCsv} disabled={exporting}>
-                {exporting ? "Exporting…" : `Export CSV${periodFilter !== "all" || statusFilter !== "All" || searchTerm ? ` (${exportCount})` : ""}`}
-              </button>
-            )}
-            <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired}>+ Add row</Button>
           </div>
         </div>
 
@@ -1305,7 +1307,7 @@ export default function ApplicationsPage() {
         )}
 
         {showTable && (
-          <div className="appsTableWrap">
+          <div className="appsTableWrap riseIn riseIn--delayed">
             <table className="appsTable">
               <thead>
                 <tr>

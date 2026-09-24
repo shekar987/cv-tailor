@@ -17,8 +17,20 @@
   --surface-glass: rgba(14, 14, 16, 0.78);
   /* A hairline top highlight — a glass edge, not a flat card. */
   --surface-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  /* Three edges, because they do different jobs. Measured against the plane
+     they sit on — don't regress these without re-measuring:
+       --border        1.2:1 on --surface. The QUIET hairline: gridlines in
+                       the tracker sheet, dividers inside a card. At this
+                       weight a 10-column table reads as one object.
+       --border-card   1.9:1 on --surface. The card/panel edge. This is what
+                       makes base → surface → floating actually visible;
+                       at the old 1.2:1 every card melted into the page.
+       --border-strong 3.0:1 on --bg (the fill every input uses), so a field
+                       boundary meets WCAG 1.4.11 for non-text contrast.
+                       Also the sheet's outer frame and drag/emphasis states. */
   --border: #2A2A2E;
-  --border-strong: #3A3A41;
+  --border-card: #48484F;
+  --border-strong: #5F5F66;
   --text: #EDEDED;
   --text-subtle: #C8C8CC;
   /* Measured ~5.3:1 on --surface: AA with headroom at 12-14px. Don't regress. */
@@ -139,6 +151,19 @@ html, body {
     scroll-behavior: auto !important;
   }
 }
+
+/* Content that ARRIVES — a finished tailoring result, the tracker sheet once
+   its rows load — settles in rather than snapping into place. Only transform
+   and opacity, and the reduced-motion block above already zeroes it.
+   Deliberately applied to the CONTAINER, not to each row: a per-row animation
+   would replay on every keystroke in the tracker's search box, which is
+   exactly the fidgeting this is meant to avoid. */
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.riseIn { animation: riseIn var(--duration-slow) var(--ease) both; }
+.riseIn--delayed { animation-delay: 60ms; }
 
 .srOnly {
   position: absolute;
@@ -350,7 +375,7 @@ html, body {
 .scoreCard,
 .loading {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-card);
   border-radius: var(--radius-lg);
   padding: var(--space-6);
   box-shadow: var(--shadow-sm), var(--surface-inset);
@@ -379,6 +404,24 @@ html, body {
   text-transform: uppercase;
   letter-spacing: var(--tracking-label);
 }
+/* Line icons (components/ui/Icon.tsx). Sized by --icon-size on the parent so
+   a heading declares the size once instead of every caller passing numbers.
+   Stroke-only and currentColor: an icon inherits its label's colour and never
+   becomes decoration competing with the one amber accent. */
+.icon { width: var(--icon-size, 1em); height: var(--icon-size, 1em); flex: none; }
+
+/* An icon beside a card's label, so an always-open card and a collapsible one
+   read as the same kind of thing. */
+.sectionHead {
+  --icon-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  margin-bottom: var(--space-2);
+}
+.sectionHead .label { margin-bottom: 0; }
+
 /* Helper text sits under a .label and above the control it explains, so it
    needs to read as guidance, not as another label. */
 .cvHelp {
@@ -397,7 +440,7 @@ html, body {
 :is(textarea, .textInput, .authInput, .keyInput, .profileGrid input, .providerPick select, .appsSelect, .appsSearch) {
   width: 100%;
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   color: var(--text);
   padding: var(--space-3) var(--space-4);
@@ -852,6 +895,133 @@ textarea { resize: vertical; min-height: 96px; }
    view belongs to Download. */
 .appliedRow { margin-top: var(--space-4); margin-bottom: var(--space-2); }
 
+/* ── Customize: section nav + collapsible sections ───────────────────────────
+   The page was nine equal always-open cards, ~3,900px tall. Now: the two that
+   matter every visit (master CV, your details) stay open, and the six you set
+   once collapse behind a summary line that still states their state. A sticky
+   nav appears only when there is room beside a 768px reading column. */
+.cstContainer { max-width: var(--container); }
+.cstLayout { display: block; }
+.cstNav { display: none; }
+
+@media (min-width: 1160px) {
+  .cstContainer { max-width: 990px; }
+  .cstLayout {
+    display: grid;
+    grid-template-columns: 190px minmax(0, 1fr);
+    gap: var(--space-8);
+    align-items: start;
+  }
+  /* Clears the sticky app bar (its content is ~36px inside space-3 padding). */
+  .cstNav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    position: sticky;
+    top: calc(var(--space-16) + var(--space-3));
+  }
+}
+
+.cstNavItem {
+  --icon-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease), background var(--duration-fast) var(--ease);
+}
+.cstNavItem:hover { color: var(--text); background: var(--surface-2); }
+.cstNavItem:focus-visible { outline: none; box-shadow: var(--focus-ring); color: var(--text); }
+.cstNavItem:active { background: var(--surface-3); }
+.cstNavGroup {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  padding: var(--space-4) var(--space-3) var(--space-2);
+}
+.cstNavGroup:first-child { padding-top: 0; }
+
+/* A collapsed section is a card whose whole header is the disclosure button. */
+.cstSection { padding: 0; }
+.cstSectionHead {
+  --icon-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-5) var(--space-6);
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-lg);
+  transition: background var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease);
+}
+.cstSectionHead:hover { background: var(--surface-2); color: var(--text); }
+.cstSectionHead:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.cstSectionTitle {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  white-space: nowrap;
+}
+.cstSectionHead:hover .cstSectionTitle { color: var(--text); }
+/* The state, legible without opening the section. */
+.cstSectionSummary {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cstSectionSummary[data-tone="ok"] { color: var(--success); }
+.cstSectionSummary[data-tone="warn"] { color: var(--amber-bright); }
+.cstChevron {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  transition: transform var(--duration) var(--ease);
+}
+.cstSection[data-open] .cstChevron { transform: rotate(180deg); }
+.cstSection[data-open] .cstSectionHead { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+/* The divider is inset from the card edge, so the header reads as a lid on
+   the body rather than a separate strip. */
+.cstSectionBody {
+  margin: 0 var(--space-6);
+  padding: var(--space-5) 0 var(--space-6);
+  border-top: 1px solid var(--border);
+}
+/* A note about the control above it, not its own card. */
+.cstFootnote {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+  .cstSectionHead { padding: var(--space-4) var(--space-5); gap: var(--space-2); }
+  /* The summary would squeeze the title to nothing on a phone. */
+  .cstSectionSummary { display: none; }
+  .cstSectionBody { margin: 0 var(--space-5); padding-bottom: var(--space-5); }
+}
+
 /* ── Pre-tailoring gate ────────────────────────────────────────────────────── */
 .gateLabel {
   font-size: var(--text-xs);
@@ -931,7 +1101,7 @@ textarea { resize: vertical; min-height: 96px; }
    edge-to-edge on a phone. */
 .feedbackWidget {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-card);
   border-top: 3px solid var(--amber);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md), var(--surface-inset);
@@ -1015,7 +1185,17 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* ── /settings — API key cards ──────────────────────────────────────────── */
 .keyList { display: flex; flex-direction: column; gap: var(--space-4); }
 .keyCardHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-1); }
-.keyLabel { font-size: var(--text-base); font-weight: 600; color: var(--text); }
+.keyLabel {
+  --icon-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text);
+}
+/* The icon anchors the heading; it must not compete with the heading's text. */
+.keyLabel .icon { color: var(--muted); }
 
 .keyDetails { margin-top: var(--space-1); }
 .keySummary {
@@ -1183,7 +1363,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   width: 100%;
   max-width: 440px;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-card);
   border-radius: var(--radius-lg);
   padding: var(--space-8) var(--space-8) var(--space-6);
   box-shadow: var(--shadow-md), var(--surface-inset);
@@ -1541,13 +1721,32 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
    each row re-lays as a card and every cell prints its own label via
    data-label (nine columns don't fit a tablet either — the previous 640px
    cut-off left a horizontally scrolling strip between the two). */
+/* Two rows, because one was too many things: finding a row and narrowing the
+   set are different jobs, and on one line the search box competed with four
+   segmented buttons (and wrapped to three rows on a phone).
+     row 1   search ............................ Export CSV  + Add row
+     row 2   STATUS [All] [All|Today|Week|Month]  4 of 4
+   DOM order matches that reading order, so tab order needs no grid tricks. */
 .appsToolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
-  flex-wrap: wrap;
   margin-bottom: var(--space-4);
+}
+.appsToolbarSearch { grid-column: 1; grid-row: 1; }
+.appsToolbarActions { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+.appsToolbarFilters { grid-column: 1 / -1; grid-row: 2; }
+@media (max-width: 720px) {
+  /* Stacked: find, then narrow, then act — the action last so it isn't
+     wedged between the two controls that describe what it will export. */
+  .appsToolbar { grid-template-columns: minmax(0, 1fr); }
+  .appsToolbarSearch,
+  .appsToolbarActions,
+  .appsToolbarFilters { grid-column: 1; grid-row: auto; }
+  .appsToolbarActions { order: 3; }
+  .appsToolbarSearch .appsSearchWrap { width: 100%; }
+  .appsToolbar .appsSearch { width: 100%; }
 }
 .appsToolbarGroup { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .appsFilterLabel {

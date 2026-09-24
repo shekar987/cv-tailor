@@ -41,6 +41,7 @@ import {
 } from "@/lib/claims";
 
 const NEXT_LEVEL: Record<ClaimLevel, ClaimLevel> = { production: "project", project: "learning", learning: "production" };
+
 import { splitTrailingDate } from "@/lib/projectDate";
 import { stripMarkdown } from "@/lib/markdownText";
 import { extractionFlags, mergeProfileEdits } from "@/lib/extractionCheck";
@@ -64,6 +65,9 @@ import Input from "@/components/ui/Input";
 import Textarea from "@/components/ui/Textarea";
 import FormField from "@/components/ui/FormField";
 import StatusText from "@/components/ui/StatusText";
+import SectionHeading from "@/components/ui/SectionHeading";
+import CollapsibleSection from "@/components/ui/CollapsibleSection";
+import Icon, { type IconName } from "@/components/ui/Icon";
 import {
   DEFAULT_SECTION_ORDER,
   SECTION_LABELS,
@@ -71,6 +75,52 @@ import {
   isDefaultOrder,
   type SectionId,
 } from "@/lib/sectionOrder";
+
+// The nine questions the Eligibility card asks. Counted for the section's
+// summary line so an unanswered profile is visible without opening it —
+// collapsing a section must never hide that something still needs doing.
+const ELIGIBILITY_QUESTIONS = 9;
+function eligibilityAnswered(e: Eligibility): number {
+  let n = 0;
+  if (e.rightToWork.status !== "unknown") n++;
+  if (e.clearance.held !== "unknown") n++;
+  if (e.yearsExperience !== null) n++;
+  if (e.location.base.length > 0) n++;
+  if (e.location.onsiteOk !== null) n++;
+  if (e.location.hybridOk !== null) n++;
+  if (e.degree.level !== "unknown") n++;
+  if (e.licences.length > 0) n++;
+  if (e.employmentTypes.length > 0) n++;
+  return n;
+}
+
+// The section nav. Ids match the section elements; `always` marks the two
+// that are never collapsed, so clicking them only scrolls.
+const NAV_GROUPS: { group: string; items: { id: string; icon: IconName; label: string; always?: boolean }[] }[] = [
+  {
+    group: "Your CV",
+    items: [
+      { id: "master-cv", icon: "document", label: "Master CV", always: true },
+      { id: "your-details", icon: "user", label: "Your details", always: true },
+    ],
+  },
+  {
+    group: "Tailoring",
+    items: [
+      { id: "eligibility", icon: "shield", label: "Eligibility" },
+      { id: "claims", icon: "verified", label: "Claims registry" },
+      { id: "variants", icon: "target", label: "Positioning" },
+    ],
+  },
+  {
+    group: "Document",
+    items: [
+      { id: "section-order", icon: "list", label: "Section order" },
+      { id: "right-to-work", icon: "globe", label: "Right to Work" },
+      { id: "advanced", icon: "sliders", label: "Project pool" },
+    ],
+  },
+];
 
 // Reorder the CV's standard sections. Section ORDER only — bullet counts and
 // content are untouched and still come from the tailoring run.
@@ -123,7 +173,6 @@ export default function CustomizePage() {
   // Advanced customization — the full project pool (master_cvs.projects_pool).
   // When saved, every tailor run selects the 2 most relevant pool projects
   // instead of tailoring the master CV's own projects.
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [poolDraft, setPoolDraft] = useState("");
   const [poolSaved, setPoolSaved] = useState(false);
   const [poolSaving, setPoolSaving] = useState(false);
@@ -168,6 +217,25 @@ export default function CustomizePage() {
   const [prefsColumnMissing, setPrefsColumnMissing] = useState(false);
   const [prefsMsg, setPrefsMsg] = useState("");
   const [prefsError, setPrefsError] = useState("");
+
+  // ── Section disclosure ────────────────────────────────────────────────────
+  // Held here rather than inside CollapsibleSection so the nav can open a
+  // section and scroll to it in one click. Master CV and Your details are not
+  // in this set — they are always open.
+  const [openSections, setOpenSections] = useState<ReadonlySet<string>>(() => new Set<string>());
+  function toggleSection(id: string) {
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
+  function goToSection(id: string, always?: boolean) {
+    if (!always) setOpenSections((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+    // Scrolling to the header is safe before the expansion paints: a section
+    // grows downward, so its own top doesn't move.
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   async function toggleRightToWorkOnCv(next: boolean) {
     const previous = prefs;
     const updated: Preferences = { ...prefs, includeRightToWorkOnCv: next };
@@ -569,7 +637,6 @@ export default function CustomizePage() {
     // The row delete below takes projects_pool with it — mirror that in the UI.
     setPoolDraft("");
     setPoolSaved(false);
-    setShowAdvanced(false);
     setPoolMsg("");
     setPoolError("");
     invalidateWorkspaceResult();
@@ -664,15 +731,45 @@ export default function CustomizePage() {
     }
   }
 
+  // Summary lines for the collapsed sections. A folded section still states
+  // what it holds, so nothing is hidden — only put away.
+  const eligAnswered = eligibilityAnswered(eligibility);
+  const eligSet = isEligibilitySet(eligibility);
+  const claimsTotal = claims?.skills.length ?? 0;
+  const claimsUnconfirmed = countUnconfirmed(claims);
+  const orderIsCustom = order.join() !== DEFAULT_SECTION_ORDER.join();
+  const poolLength = poolDraft.trim().length;
+
   return (
     <main className="page">
-      <div className="container">
+      <div className="container cstContainer">
         <AppHeader
           title="Customize"
           tagline="Manage your master CV, your details, and how your tailored CV is laid out."
         />
 
-        <Card>
+        <div className="cstLayout">
+          <nav className="cstNav" aria-label="Sections">
+            {NAV_GROUPS.map((g) => (
+              <div key={g.group}>
+                <div className="cstNavGroup">{g.group}</div>
+                {g.items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="cstNavItem"
+                    onClick={() => goToSection(item.id, item.always)}
+                  >
+                    <Icon name={item.icon} />
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </nav>
+
+          <div className="cstMain">
+        <Card id="master-cv">
           {cvLoading ? (
             <>
               <div className="label">Master CV</div>
@@ -759,10 +856,10 @@ export default function CustomizePage() {
           )}
         </Card>
 
-        <Card>
-          <div className="label">
+        <Card id="your-details">
+          <SectionHeading icon="user">
             Your details {extracting && <span className="cvSavedMeta">— extracting…</span>}
-          </div>
+          </SectionHeading>
           {profileError && <p role="alert" className="keyError">{profileError}</p>}
           {profileLoading ? (
             <Skeleton lines={2} label="Loading your details" />
@@ -873,8 +970,19 @@ export default function CustomizePage() {
 
         {/* Eligibility — the form questions that get an application rejected
             before the CV is read. Compared by the pre-check on /app. */}
-        <Card>
-          <div className="label">Eligibility</div>
+        <CollapsibleSection
+          id="eligibility"
+          icon="shield"
+          title="Eligibility"
+          open={openSections.has("eligibility")}
+          onToggle={toggleSection}
+          tone={eligSet ? (eligAnswered === ELIGIBILITY_QUESTIONS ? "ok" : "neutral") : "warn"}
+          summary={
+            eligSet
+              ? `${eligAnswered} of ${ELIGIBILITY_QUESTIONS} answered`
+              : "Not set — the pre-check can't warn you"
+          }
+        >
           <p className="cvHelp">
             The questions an application form asks before anyone reads your CV: right to work, clearance,
             years, location, degree, licences, contract type. Answer once; the pre-check on the tailoring
@@ -1055,13 +1163,26 @@ export default function CustomizePage() {
               {eligMsg && <StatusText tone="success" className="msgBelow" role="status">{eligMsg}</StatusText>}
             </>
           )}
-        </Card>
+        </CollapsibleSection>
 
         {/* Claims registry — what each skill can honestly be called. Seeded on
             extraction, so it only exists once a CV is saved. */}
         {masterCvText && (
-          <Card>
-            <div className="label">Claims registry</div>
+          <CollapsibleSection
+            id="claims"
+            icon="verified"
+            title="Claims registry"
+            open={openSections.has("claims")}
+            onToggle={toggleSection}
+            tone={claimsTotal === 0 ? "neutral" : claimsUnconfirmed > 0 ? "warn" : "ok"}
+            summary={
+              claimsTotal === 0
+                ? "Seeded when your CV is extracted"
+                : claimsUnconfirmed > 0
+                  ? `${claimsTotal} skills — ${claimsUnconfirmed} to confirm`
+                  : `${claimsTotal} skills confirmed`
+            }
+          >
             <p className="cvHelp">
               Tailoring may describe a skill only at the level you set here. <strong>Production</strong> = used in
               paid work; <strong>project</strong> = personal projects only (written as &quot;built X with it&quot;, never
@@ -1137,14 +1258,24 @@ export default function CustomizePage() {
                 {claimsMsg && <StatusText tone="success" className="msgBelow" role="status">{claimsMsg}</StatusText>}
               </>
             )}
-          </Card>
+          </CollapsibleSection>
         )}
 
         {/* Positioning variants — one headline + lead skills per role family,
             applied to the one master CV. Only meaningful once a CV exists. */}
         {masterCvText && (
-          <Card>
-            <div className="label">Positioning variants</div>
+          <CollapsibleSection
+            id="variants"
+            icon="target"
+            title="Positioning"
+            open={openSections.has("variants")}
+            onToggle={toggleSection}
+            summary={
+              variantsDraft.length === 0
+                ? "None — your CV's own positioning"
+                : `${variantsDraft.length} variant${variantsDraft.length === 1 ? "" : "s"}`
+            }
+          >
             <p className="cvHelp">
               A headline naming two roles (&quot;Full Stack Engineer | AI Engineer&quot;) halves the impact of both. Set one
               positioning per kind of role: the summary opens with that headline and the skills section leads with those
@@ -1210,10 +1341,17 @@ export default function CustomizePage() {
             </div>
             {variantsError && <StatusText className="msgBelow" role="alert">{variantsError}</StatusText>}
             {variantsMsg && <StatusText tone="success" className="msgBelow" role="status">{variantsMsg}</StatusText>}
-          </Card>
+          </CollapsibleSection>
         )}
 
-        <Card>
+        <CollapsibleSection
+          id="section-order"
+          icon="list"
+          title="Section order"
+          open={openSections.has("section-order")}
+          onToggle={toggleSection}
+          summary={orderIsCustom ? "Custom order" : "Standard order"}
+        >
           <FormField
             label="Section order"
             help="Drag a section, or use the arrows. This changes the order only — how many bullets each section gets is still decided by the tailoring for each specific job."
@@ -1293,22 +1431,27 @@ export default function CustomizePage() {
             </>
           )}
           </FormField>
-        </Card>
-
-        <Card>
-          <div className="label">Not affected by this</div>
-          <p className="cvHelp cvHelpTight">
-            Your name and contact details stay at the top. Certifications and any extra sections from
-            your CV stay after the sections above, in that order. Right to Work is a separate switch below.
+          {/* Was its own card headed "Not affected by this" — a whole card for
+              one sentence about the card above it. It belongs here. */}
+          <p className="cvHelp cvHelpTight cstFootnote">
+            Not affected by this: your name and contact details stay at the top, and certifications and
+            any extra sections from your CV stay after the sections above, in that order. Right to Work
+            is a separate switch.
           </p>
-        </Card>
+        </CollapsibleSection>
 
         {/* Right to Work stays off the CV document by default: a reviewer who
             sees immigration status before any experience screens on it, and
             the form asks the question in a better context. The wording is
             kept and offered for forms; the cover letter is unchanged. */}
-        <Card>
-          <div className="label">Right to Work on the CV</div>
+        <CollapsibleSection
+          id="right-to-work"
+          icon="globe"
+          title="Right to Work"
+          open={openSections.has("right-to-work")}
+          onToggle={toggleSection}
+          summary={prefs.includeRightToWorkOnCv ? "Shown on the CV" : "Off the CV — offered for forms"}
+        >
           <p className="cvHelp">
             Off by default. A reviewer who sees your immigration status before reading a line of your experience
             screens on it, and the application form asks the same question in a better place. Your CV&apos;s wording
@@ -1337,29 +1480,28 @@ export default function CustomizePage() {
           </div>
           {prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
           {prefsError && <StatusText as="span" role="alert">{prefsError}</StatusText>}
-        </Card>
+        </CollapsibleSection>
 
         {/* Advanced customization — the full project pool. Only meaningful
             once a master CV exists (the pool augments it, and the DB write is
             an update against that row). */}
         {masterCvText && (
-          <Card>
-            <div className="label">Advanced customization</div>
-            {!showAdvanced ? (
-              <>
-                <p className="cvHelp cvHelpTight">
-                  {poolSaved
-                    ? "A project pool is saved — every tailor run picks the 2 most relevant projects from it."
-                    : "Paste ALL your projects once; each tailor run then picks the 2 most relevant for that job."}
-                </p>
-                <div className="actions">
-                  <Button variant="secondary" onClick={() => { setShowAdvanced(true); setPoolMsg(""); setPoolError(""); }}>
-                    Advanced customization
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <FormField
+          <CollapsibleSection
+            id="advanced"
+            icon="sliders"
+            title="Project pool"
+            open={openSections.has("advanced")}
+            onToggle={toggleSection}
+            summary={
+              poolLength > 0
+                ? `${poolLength.toLocaleString()} characters saved`
+                : "Not set — tailoring uses your CV's projects"
+            }
+          >
+            {/* No inner "Advanced customization" button any more: the section
+                header IS the disclosure, and a disclosure inside a disclosure
+                made the user click twice to reach one textarea. */}
+            <FormField
                 label="Project pool"
                 help="Paste ALL your projects here, in your own words — names, dates, tech, and what you did. On every tailor run the 2 most relevant to that job (1 if you only add one) are selected and get tailored bullets, replacing the projects from your master CV for that run. Remove the pool to switch back. Replacing your master CV also deletes the pool."
               >
@@ -1382,16 +1524,17 @@ export default function CustomizePage() {
                       Remove pool
                     </Button>
                   )}
-                  <Button variant="ghost" onClick={() => setShowAdvanced(false)} disabled={poolSaving}>
+                  <Button variant="ghost" onClick={() => toggleSection("advanced")} disabled={poolSaving}>
                     Close
                   </Button>
                 </div>
                 {poolError && <StatusText className="msgBelow" role="alert">{poolError}</StatusText>}
                 {poolMsg && <StatusText tone="success" className="msgBelow" role="status">{poolMsg}</StatusText>}
-              </FormField>
-            )}
-          </Card>
+            </FormField>
+          </CollapsibleSection>
         )}
+          </div>
+        </div>
       </div>
     </main>
   );

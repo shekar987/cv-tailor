@@ -1799,7 +1799,7 @@ export default function Home() {
         )}
 
         {!cvLoading && result && (
-          <section className="results">
+          <section className="results riseIn">
             {resultInfo && (
               <div className="resultsContext">
                 <span>
@@ -1940,7 +1940,10 @@ export default function Home() {
                         <span>
                           About <strong>{quality.pages.pages} pages</strong> for under three years of experience — recruiters expect one.{" "}
                           {quality.pages.fitsOnePage
-                            ? "The content would fit one page at tight spacing; the download's layout stretches a short CV towards two, so cut the weakest bullets until it reads as one page."
+                            ? // Deliberately NOT "cut until it fits one page": the document is laid
+                              // out over two pages by design, so trimming content only buys roomier
+                              // spacing, never a one-page file. Say what the length actually is.
+                              "The content itself would fit one page — the length here is spacing, not substance. Worth asking whether every bullet earns its place."
                             : "Even the tightest spacing can't hold this on one page: cut the least relevant bullets and projects in the preview below."}
                         </span>
                       </li>
