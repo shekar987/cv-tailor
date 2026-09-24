@@ -53,41 +53,6 @@ function Reveal({
   return <div ref={ref} id={id} className={cls} style={style}>{children}</div>;
 }
 
-// Counts up from 0 to `target` once `active` flips true — used for the score
-// mockup below, so it reads as a live result rather than a static number.
-function useCountUp(target: number, active: boolean, duration = 900): number {
-  const [value, setValue] = useState(0);
-  useEffect(() => {
-    if (!active) return;
-    // CSS can't stop a requestAnimationFrame loop; honour reduced motion here.
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setValue(target);
-      return;
-    }
-    let raf = 0;
-    const start = performance.now();
-    function tick(now: number) {
-      const p = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setValue(Math.round(target * eased));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    }
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [active, target, duration]);
-  return value;
-}
-
-function AnimatedScoreValue({ target, total }: { target: number; total: number }) {
-  const { ref, inView } = useInView<HTMLDivElement>(0.5);
-  const value = useCountUp(target, inView);
-  return (
-    <div ref={ref} className="lpShowScoreValue">
-      {value}/{total}
-    </div>
-  );
-}
-
 // ─── Icons — small hand-drawn line icons, no icon library ──────────────────
 function IconWarning() {
   return (
@@ -229,7 +194,7 @@ export default function Landing() {
         <div className="lpSteps">
           <div className="lpStep">
             <span className="lpStepNum">1</span>
-            <p><strong>Paste your CV and the job description.</strong></p>
+            <p><strong>Save your CV once, then paste a job description.</strong> A free pre-check reads the conditions the form screens on — right to work, years, location — and your keyword match before a tailor is spent.</p>
           </div>
           <div className="lpStep">
             <span className="lpStepNum">2</span>
@@ -250,6 +215,7 @@ export default function Landing() {
       <Reveal as="section" className="lpSection lpBand lpShow" id="example">
         <span className="lpKicker">See it for yourself</span>
         <h2 className="lpH2">This is what comes out the other end.</h2>
+        <p className="lpShowNote">A worked example: Jordan and Northwind are made up. The layout, the score and the two lists are exactly what the tool produces for a real CV and posting.</p>
         <div className="lpShowStage">
           <Reveal>
             <div className="lpShowTag">Tailored CV</div>
@@ -272,7 +238,7 @@ export default function Landing() {
             <div className="lpShowTag">Search visibility</div>
             <div className="lpShowScore">
               <div className="lpShowScoreLabel">Hey Jordan, here&apos;s your recruiter search visibility</div>
-              <AnimatedScoreValue target={12} total={15} />
+              <div className="lpShowScoreValue">12/15</div>
               <div className="lpShowScoreSub">Ready to send. · Required skills in the tailored CV: 8/10 — not present: Go, Kafka</div>
               <div className="lpShowScoreGroup">
                 <div className="lpShowScoreGroupLabel hits">Matched (12)</div>
@@ -280,12 +246,15 @@ export default function Landing() {
                   <li className="hit"><span className="dot">✓</span>PostgreSQL — Experience</li>
                   <li className="hit"><span className="dot">✓</span>Kubernetes — Experience</li>
                   <li className="hit"><span className="dot">✓</span>Distributed systems — Summary</li>
+                  <li className="hit"><span className="dot">…</span>and 9 more</li>
                 </ul>
               </div>
               <div className="lpShowScoreGroup">
                 <div className="lpShowScoreGroupLabel misses">Missing (3)</div>
                 <ul className="lpShowScoreList">
                   <li className="miss"><span className="dot">✕</span>GraphQL — not mentioned anywhere in your CV</li>
+                  <li className="miss"><span className="dot">✕</span>Go — not mentioned anywhere in your CV</li>
+                  <li className="miss"><span className="dot">✕</span>Kafka — not mentioned anywhere in your CV</li>
                 </ul>
               </div>
             </div>
@@ -352,7 +321,9 @@ export default function Landing() {
             <div className="lpCostTitle">Then bring your own key</div>
             <p className="lpCostBody">
               Add a free OpenRouter API key in Settings — it takes about two minutes — and keep
-              tailoring at no cost. The tool itself stays free.
+              tailoring at no cost, still 3 a day. The tool itself stays free. One honest note:
+              OpenRouter&apos;s free models may use what you send for training; Settings says how
+              to check that in your OpenRouter account.
             </p>
           </div>
         </div>

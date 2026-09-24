@@ -16,7 +16,7 @@ const DESCRIPTION =
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.jobhuntz.app"),
   title: {
-    default: "Jobhuntz",
+    default: "Jobhuntz — honest CV tailoring",
     template: "%s · Jobhuntz",
   },
   description: DESCRIPTION,

@@ -1628,6 +1628,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   display: grid; grid-template-columns: 1.3fr 1fr; gap: var(--space-6);
   margin-top: var(--space-8); align-items: start;
 }
+.lpShowNote { color: var(--muted); font-size: var(--text-sm); line-height: var(--leading-snug); max-width: 62ch; margin: var(--space-2) 0 var(--space-5); }
 .lpShowTag {
   font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: var(--tracking-label);
   color: var(--muted); margin-bottom: var(--space-3);
