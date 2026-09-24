@@ -121,7 +121,8 @@ src/
     techFingerprint.ts        ← Curated website-stack detection — labelled websiteStack, never presented as the engineering stack
     jobBoards.ts              ← Greenhouse/Lever/Ashby/Workable board discovery + free public JSON APIs; deterministic tech-keyword harvest from job ads
     fitScore.ts               ← Fit weights/tiers + reconcileFitScore() (caps the model's hard-skill score with the deterministic CV↔stack overlap)
-    llmRouting.ts             ← resolveLlmRoute(): the shared quota + provider routing brain (daily RPC, lifetime RPC, Path C own-key) used by /api/tailor and /api/research
+    llmRouting.ts             ← resolveLlmRoute(): the shared quota + provider routing brain (daily RPC, lifetime RPC, Path C own-key) used by /api/tailor and /api/research; loadOwnOpenRouterKey() is the one decrypting read of the user's OpenRouter key (Path C and the fallback)
+    fallbackRoute.ts          ← chooseFallback() (import-free, tests/): when the shared Claude account cannot serve a run (ProviderCreditError, or Anthropic rate-limiting it), /api/tailor retries ONCE on the user's own OpenRouter key — the owner's unlimited path may use the deployment's OPENROUTER_API_KEY — and /api/analyze does the same for the pre-check; an own-key run never falls back, and a free-credit user without a key still gets the 503 with the Settings pointer. The counters were already refunded, so the fallback run is not charged; the response's `fallback` (and the pre-check's) says what ran and why, and /app shows fallbackNotice()
     companyResearch.ts        ← sanitizeCompanyResearch(): rebuilds client-forwarded research from typed, size-capped fields before it may enter a prompt
     markdownText.ts           ← parseBoldSegments() — the **bold** contract all three CV renderers share — and stripMarkdown() (master-CV save cleanup)
     contentBudget.ts          ← adaptive LENGTH BUDGET for the experience/projects prompts, computed from the actual master CV (fixed default on parse failure)
@@ -141,7 +142,7 @@ src/
     steps.ts                  ← All prompt templates (summaryPrompt, skillsPrompt, etc.)
     masterCV.ts               ← Owner's CV — DEV FALLBACK ONLY, never imported by a production path
 supabase/migrations/          ← Checked-in SQL (applications table, tailored_cv, company_profiles, projects_pool, prep_pack, user_settings + find_applications_by_jd, user_settings.variants …); see supabase/schema.md
-tests/                        ← node:test unit suites (atsMatch, companyMatch, knockouts, claims, insights, quality, extractionCheck, variants, preferences, visibilityVerdict, formatRules, trackerSearch, seniority, roleTitle, properNouns, providerErrors, rightToWorkText, pdfTextCheck, onePage, headline, graduateMode, bulletIds) — `npm test`, zero dependencies
+tests/                        ← node:test unit suites (atsMatch, companyMatch, knockouts, claims, insights, quality, extractionCheck, variants, preferences, visibilityVerdict, formatRules, trackerSearch, seniority, roleTitle, properNouns, providerErrors, rightToWorkText, pdfTextCheck, onePage, headline, graduateMode, bulletIds, fallbackRoute) — `npm test`, zero dependencies
 scripts/backfill-tracker-scores.mjs ← one-off: tracker rows saved before the snapshot carried a score get counts from the notes' reconciled "Search visibility: 13/15 keywords" line, a recomputed eligibility read and the role seniority (reads SUPABASE_SECRET_KEY from .env.local; dry run by default, --apply writes)
 eval/                         ← Tailoring evaluation harness: pairs.json (5 synthetic CVs × 2 JDs), run.mjs (PAID: 10 tailors → eval/out/<label>), assert.mjs (free: the four assertions + metrics, two labels = a delta), inspect.mjs (filler words / weak bullets of a run)
 ```
@@ -643,6 +644,12 @@ matter if you touch this:
 The quota refund is what stops the user paying for it — verified for real
 during that outage: `tailor_count` and `claude_tailors_used` both stayed 0
 across two failed runs.
+
+Since Prompt 8 (24 Sep) the 503 is the LAST resort: `lib/fallbackRoute`
+retries the run once on the user's own OpenRouter key (or the deployment's,
+on the unlimited path), and the pre-check does the same, so a user who has
+saved the key never sees the notice at all — the run just says it used
+OpenRouter.
 
 ### React Compiler: a const declared after the function that closes over it costs two lint errors
 

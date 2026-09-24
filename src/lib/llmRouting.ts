@@ -49,6 +49,36 @@ export function formatDuration(ms: number): string {
 
 export type RouteDenied = { ok: false; status: number; body: Record<string, unknown> };
 
+// The user's own OpenRouter key, decrypted for this request only — never
+// logged, never returned to the client. Used by Path C below and by the
+// routes' fallback when the shared account cannot serve a run
+// (lib/fallbackRoute). geminiOnly: the user saved a Gemini key but no
+// OpenRouter key (a different message from "no key at all").
+export async function loadOwnOpenRouterKey(
+  supabase: Supabase,
+  userId: string
+): Promise<{ key: string | null; geminiOnly: boolean; error: "lookup" | "decrypt" | null }> {
+  // key_enc is column-revoked from `authenticated`; this SECURITY DEFINER
+  // RPC is the only read path. Check BOTH data and error: a failed lookup
+  // previously read as "no key saved", which told a user who had saved a
+  // key that they had none.
+  const [orLookup, geminiLookup] = await Promise.all([
+    supabase.rpc("get_encrypted_key", { p_user_id: userId, p_provider: "openrouter" }),
+    supabase.rpc("get_encrypted_key", { p_user_id: userId, p_provider: "gemini" }),
+  ]);
+  if (orLookup.error || geminiLookup.error) {
+    console.error("Key lookup RPC failed:", orLookup.error?.message ?? geminiLookup.error?.message ?? "unknown");
+    return { key: null, geminiOnly: false, error: "lookup" };
+  }
+  try {
+    const key = orLookup.data ? decrypt(orLookup.data) : null;
+    return { key, geminiOnly: !key && !!geminiLookup.data, error: null };
+  } catch (e) {
+    console.error("OpenRouter key decryption failed (KEY_ENCRYPTION_SECRET rotation?):", e instanceof Error ? e.message : String(e));
+    return { key: null, geminiOnly: !!geminiLookup.data, error: "decrypt" };
+  }
+}
+
 export type RouteGranted = {
   ok: true;
   provider: Provider;
@@ -157,40 +187,18 @@ export async function resolveLlmRoute(
   // Saving a Gemini key in Settings is still supported; it just isn't used
   // for automatic tailoring.
   if (lifetimeReason === "claude_limit_reached") {
-    // key_enc is column-revoked from `authenticated`; this SECURITY DEFINER
-    // RPC is the only read path. Check BOTH data and error: a failed lookup
-    // previously read as "no key saved", which told a user who had saved a
-    // key that they had none.
-    const [orLookup, geminiLookup] = await Promise.all([
-      supabase.rpc("get_encrypted_key", { p_user_id: userId, p_provider: "openrouter" }),
-      supabase.rpc("get_encrypted_key", { p_user_id: userId, p_provider: "gemini" }),
-    ]);
-
-    if (orLookup.error || geminiLookup.error) {
+    const own = await loadOwnOpenRouterKey(supabase, userId);
+    if (own.error === "lookup") {
       // Never claim "you have no key" when we simply failed to look.
-      console.error(
-        "Key lookup RPC failed:",
-        orLookup.error?.message ?? geminiLookup.error?.message ?? "unknown"
-      );
       return {
         ok: false,
         status: 503,
         body: { error: "Couldn't check your saved API key just now. Please try again in a moment." },
       };
     }
-
-    // Decrypt server-side only — keys live only in this request scope, never logged
-    let openrouterKey: string | null = null;
-    let decryptFailed = false;
-    try {
-      if (orLookup.data) openrouterKey = decrypt(orLookup.data);
-    } catch (e) {
-      console.error(
-        "OpenRouter key decryption failed (KEY_ENCRYPTION_SECRET rotation?):",
-        e instanceof Error ? e.message : String(e)
-      );
-      decryptFailed = true;
-    }
+    const openrouterKey = own.key;
+    const decryptFailed = own.error === "decrypt";
+    const geminiLookup = { data: own.geminiOnly };
 
     if (!openrouterKey) {
       if (decryptFailed) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { callClaude, ProviderCreditError } from "@/lib/claude";
+import { callClaude, callLLM, ProviderCreditError } from "@/lib/claude";
+import { loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { JD_ANALYZER_PROMPT } from "@/prompts/steps";
 import { matchAtsKeywords } from "@/lib/atsMatch";
@@ -64,7 +65,8 @@ export async function POST(req: NextRequest) {
     // analysis alone, a fraction of a full tailor run) must not consume one of
     // the paid-tailor quota slots. Those RPCs only fire inside /api/tailor when
     // the full pipeline actually runs.
-    const burst = await checkBurstLimit(data.claims.sub as string, "analyze");
+    const userId = data.claims.sub as string;
+    const burst = await checkBurstLimit(userId, "analyze");
     if (!burst.ok) {
       return NextResponse.json(
         { error: `Too many requests. Please wait ${burst.retryAfterSeconds}s and try again.` },
@@ -104,11 +106,24 @@ export async function POST(req: NextRequest) {
     // Free, and independent of the model call — run it alongside.
     const duplicatesPromise = findDuplicates(supabase, jobDescription);
 
-    const result = await callClaude({
-      system: JD_ANALYZER_PROMPT,
-      userInput: jobDescription,
-      expectJson: true,
-    });
+    // The shared account out of credit: the same analysis on the user's own
+    // OpenRouter key, once (lib/fallbackRoute); without a key, the 503 below.
+    let result: unknown;
+    let fallback: { from: "anthropic"; to: "openrouter"; source: "own_key"; reason: "provider_credit" } | null = null;
+    try {
+      result = await callClaude({
+        system: JD_ANALYZER_PROMPT,
+        userInput: jobDescription,
+        expectJson: true,
+      });
+    } catch (e) {
+      if (!(e instanceof ProviderCreditError)) throw e;
+      const own = await loadOwnOpenRouterKey(supabase, userId);
+      if (!own.key) throw e;
+      console.warn("Analyze fallback: anthropic → openrouter (own_key) after provider_credit");
+      result = await callLLM({ provider: "openrouter", apiKeyOverride: own.key, system: JD_ANALYZER_PROMPT, userInput: jobDescription, expectJson: true });
+      fallback = { from: "anthropic", to: "openrouter", source: "own_key", reason: "provider_credit" };
+    }
 
     const analysis = (result && typeof result === "object" ? result : {}) as {
       top_15_ats_keywords?: unknown;
@@ -142,6 +157,7 @@ export async function POST(req: NextRequest) {
         seniority,
         jdQuality: quality,
         duplicateOf,
+        fallback,
       });
     }
 
@@ -152,6 +168,7 @@ export async function POST(req: NextRequest) {
       seniority,
       jdQuality: quality,
       duplicateOf,
+      fallback,
     });
   } catch (error) {
     if (error instanceof ProviderCreditError) {

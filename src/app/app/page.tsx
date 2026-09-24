@@ -24,6 +24,7 @@ import { normalizePreferences, profileForDocument, rightToWorkForForms, DEFAULT_
 import type { SeniorityFit } from "@/lib/seniority";
 import { isGraduateScheme, graduateSectionOrder } from "@/lib/graduateMode";
 import type { BulletChanges, RoleChanges } from "@/lib/bulletIds";
+import { fallbackNotice } from "@/lib/fallbackRoute";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { bandFor, parseCoverage, combineWithFit, type VisibilityBand, type CombinedVerdict } from "@/lib/visibilityVerdict";
@@ -125,6 +126,9 @@ type Result = {
   // "Changes vs master CV" (lib/bulletIds): the finished bullets against the
   // master's own — kept, edited (which words), reverted, dropped, new.
   bulletChanges?: { protocol: boolean; experience: BulletChanges | null; projects: RoleChanges[] };
+  // The run was retried on an OpenRouter key because the shared Claude
+  // account could not serve it (lib/fallbackRoute).
+  fallback?: { from: string; to: "openrouter"; source: "own_key" | "env_key"; reason: "provider_credit" | "provider_limit" } | null;
   // One-page fit for a candidate with under three years (lib/onePage): what
   // was left out for length, and whether the result now fits one page.
   onePage?: {
@@ -159,6 +163,8 @@ type GateExtras = {
   // (lib/seniority). fits === false is a blocking warning: the continue
   // button demotes to "Tailor anyway" exactly as a skip read does.
   seniority: SeniorityFit | null;
+  // The pre-check ran on the user's own OpenRouter key (shared account out of credit).
+  fallback: { source: "own_key" | "env_key"; reason: "provider_credit" | "provider_limit" } | null;
 };
 
 const READ_LABEL: Record<GateRead, string> = {
@@ -690,6 +696,7 @@ export default function Home() {
         setGateExtras({
           required: data.requiredPreCheck ?? null,
           knockouts: data.knockouts ?? null,
+          fallback: data.fallback ?? null,
           duplicateOf: Array.isArray(data.duplicateOf) && data.duplicateOf.length > 0 ? data.duplicateOf : null,
           sameCompany: same.length
             ? {
@@ -1664,6 +1671,11 @@ export default function Home() {
                     {JD_PARTIAL_NOTICE}
                   </div>
                 )}
+                {gateExtras?.fallback && (
+                  <p className="gateNote" data-fallback-notice>
+                    {fallbackNotice(gateExtras.fallback)}
+                  </p>
+                )}
                 {gateExtras?.seniority && gateExtras.seniority.level !== "unknown" && (
                   <div
                     className={gateExtras.seniority.fits === false ? "limitNotice" : "gateNote"}
@@ -2006,6 +2018,12 @@ export default function Home() {
                     )}
                   </ul>
                 </div>
+              </div>
+            )}
+            {result.fallback && (
+              <div className="limitNotice" role="status" data-fallback-notice>
+                <div className="limitNotice__title">Ran on OpenRouter</div>
+                <div className="limitNotice__body">{fallbackNotice(result.fallback)}</div>
               </div>
             )}
             {graduateLayout?.changed && (

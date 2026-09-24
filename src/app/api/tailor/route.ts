@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callLLM, Provider, ProviderRateLimitError, ProviderCreditError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
-import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
+import { resolveLlmRoute, formatDuration, loadOwnOpenRouterKey } from "@/lib/llmRouting";
+import { chooseFallback, type FallbackReason } from "@/lib/fallbackRoute";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
 import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillMentioned, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, type Variant } from "@/lib/variants";
@@ -603,8 +604,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    try {
-      const result = await runOrRefund({
+    const pipelineOpts = {
         provider: route.provider,
         apiKeyOverride: route.apiKeyOverride,
         jd,
@@ -619,10 +619,39 @@ export async function POST(req: NextRequest) {
         onePage,
         profile: bodyProfile,
         yearsExperience: eligibility.yearsExperience,
-      });
+    };
+    try {
+      const result = await runOrRefund(pipelineOpts);
       // The unlimited (owner) path reports which provider ran, for the dropdown.
       return NextResponse.json(route.reason === "unlimited" ? { provider: route.provider, ...result } : result);
     } catch (err) {
+      // The shared account cannot serve the run (balance at zero, or Anthropic
+      // rate-limiting it): retry ONCE on the user's own OpenRouter key — or the
+      // deployment's, for the unlimited path — instead of a 503 that tells
+      // them to add a key they may already have (lib/fallbackRoute). The
+      // counters were refunded by runOrRefund, so the fallback run is not
+      // charged to their free tailors.
+      const sharedFailure =
+        err instanceof ProviderCreditError || (err instanceof ProviderRateLimitError && route.provider === "anthropic");
+      if (sharedFailure && route.reason !== "own_key") {
+        const own = await loadOwnOpenRouterKey(supabase, userId);
+        const fb = chooseFallback({
+          failedProvider: route.provider,
+          routeReason: route.reason,
+          ownKey: own.key,
+          envOpenRouterKey: !!process.env.OPENROUTER_API_KEY,
+        });
+        if (fb) {
+          const reason: FallbackReason = err instanceof ProviderCreditError ? "provider_credit" : "provider_limit";
+          console.warn(`Tailor fallback: ${route.provider} → openrouter (${fb.source}) after ${reason}`);
+          const result = await runPipeline({ ...pipelineOpts, provider: fb.provider, apiKeyOverride: fb.apiKeyOverride });
+          return NextResponse.json({
+            ...(route.reason === "unlimited" ? { provider: "openrouter" } : {}),
+            ...result,
+            fallback: { from: route.provider, to: "openrouter", source: fb.source, reason },
+          });
+        }
+      }
       if (route.reason === "own_key" && err instanceof ProviderRateLimitError) {
         // OpenRouter's own limit — the app imposes no cap of its own here.
         return NextResponse.json(
