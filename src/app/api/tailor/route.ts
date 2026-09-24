@@ -6,6 +6,8 @@ import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
 import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillMentioned, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, type Variant } from "@/lib/variants";
+import { normalizePreferences } from "@/lib/preferences";
+import { stripRightToWorkSentences, stripRightToWorkLines, stripRightToWorkBullets } from "@/lib/rightToWorkText";
 import {
   summaryPrompt,
   skillsPrompt,
@@ -68,6 +70,11 @@ async function runPipeline(opts: {
   jd: string;
   cv: string;
   projectNames: string[];
+  // The user's document switch (lib/preferences): Right to Work off the CV
+  // (the default) also means no visa / sponsorship sentence in the summary,
+  // the bullets or the letter — the models write from the master CV text,
+  // which states it, so the finished text is filtered deterministically.
+  omitRightToWork: boolean;
   // Result of the pre-tailoring ATS gate's Step 1 call (/api/analyze with
   // cvText). When present and well-formed, Step 0 below is SKIPPED — this is
   // the whole point of the gate: the user already paid for this exact call
@@ -93,7 +100,7 @@ async function runPipeline(opts: {
   // CV's own positioning.
   variant?: Variant | null;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork } = opts;
   const claimsBlock = renderClaimsBlock(claims);
   const variantBlock = renderVariantBlock(variant);
 
@@ -323,6 +330,31 @@ async function runPipeline(opts: {
     claimFix.remaining = checkClaims([cvPart(experienceFinal, summary)], claims, [cv, projectsPool]).skillViolations.length;
   }
 
+  // Right to Work off the document (lib/rightToWorkText): any sentence or
+  // bullet that states the visa / sponsorship position is removed from the
+  // finished CV text before it is scored, and reported as rtwStripped.
+  const rtwStripped = { cv: [] as string[], letter: [] as string[] };
+  if (omitRightToWork) {
+    if (typeof summary === "string") {
+      const r = stripRightToWorkSentences(summary);
+      summary = r.text;
+      rtwStripped.cv.push(...r.removed);
+    }
+    if (typeof skillsFinal === "string") {
+      const r = stripRightToWorkLines(skillsFinal);
+      skillsFinal = r.text;
+      rtwStripped.cv.push(...r.removed);
+    }
+    if (typeof experienceFinal === "string") {
+      const r = stripRightToWorkLines(experienceFinal);
+      experienceFinal = r.text;
+      rtwStripped.cv.push(...r.removed);
+    }
+    const p = stripRightToWorkBullets(projectsFinal);
+    projectsFinal = p.projects;
+    rtwStripped.cv.push(...p.removed);
+  }
+
   const sections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
   const tailoredText = tailoredSectionsText(sections);
   const terms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
@@ -346,7 +378,7 @@ async function runPipeline(opts: {
   });
 
   const [coverLetterRaw, atsAnnotation] = await Promise.all([
-    callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv, claimsBlock), userInput: coverLetterInput, maxTokens: 1200 })
+    callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv, claimsBlock, omitRightToWork), userInput: coverLetterInput, maxTokens: 1200 })
       .catch(swallowStep("")),
     coverage.total > 0
       ? callLLM({ provider, apiKeyOverride, system: atsScoringPrompt(renderBandBlock(coverage, required)), userInput: atsInput, expectJson: true })
@@ -377,6 +409,11 @@ async function runPipeline(opts: {
         letterCheck.dropped = offending.length;
       }
     }
+  }
+  if (omitRightToWork && typeof coverLetter === "string") {
+    const r = stripRightToWorkSentences(coverLetter);
+    coverLetter = r.text;
+    rtwStripped.letter = r.removed;
   }
   // No terms to score against (analysis failed) → no score; otherwise the
   // deterministic score stands even when the annotation call failed.
@@ -410,6 +447,7 @@ async function runPipeline(opts: {
     titleCheck,
     formatFixes,
     letterCheck,
+    rtwStripped,
     ...(projectsPool ? { selectedProjects: selectedFinal } : {}),
   };
 }
@@ -473,6 +511,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Claims registry is too large." }, { status: 400 });
     }
     const bodyClaims = normalizeClaims(body.claims);
+    // Document switches (lib/preferences), sent along by the client like the
+    // registry — the server reads no per-user table here. Absent = defaults.
+    const preferences = normalizePreferences(body.preferences);
     // One variant, bounded like a stored one; anything malformed = none.
     const bodyVariant = body.variant ? (normalizeVariants({ variants: [body.variant] })?.variants[0] ?? null) : null;
 
@@ -504,6 +545,7 @@ export async function POST(req: NextRequest) {
         ...(projectsPool ? { projectsPool } : {}),
         claims: bodyClaims,
         variant: bodyVariant,
+        omitRightToWork: !preferences.includeRightToWorkOnCv,
       });
       // The unlimited (owner) path reports which provider ran, for the dropdown.
       return NextResponse.json(route.reason === "unlimited" ? { provider: route.provider, ...result } : result);

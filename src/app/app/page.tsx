@@ -114,6 +114,9 @@ type Result = {
     tools?: { kept: string[]; dropped: string[] } | null;
     summary?: { sentences: number; kept: number } | null;
   };
+  // Visa / sponsorship sentences the server removed from the CV text and the
+  // letter because Right to Work is off the document (lib/rightToWorkText).
+  rtwStripped?: { cv: string[]; letter: string[] };
 };
 
 const WHERE_LABEL: Record<ClaimWhere, string> = { cv: "CV", coverLetter: "cover letter", email: "email", extra: "text" };
@@ -795,6 +798,9 @@ export default function Home() {
           ...(claims ? { claims } : {}),
           // The positioning variant for this run (headline + lead skills).
           ...(variantPick.variant ? { variant: variantPick.variant } : {}),
+          // Document switches: Right to Work off the CV (default) also keeps
+          // visa / sponsorship sentences out of the generated text.
+          preferences,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1954,6 +1960,25 @@ export default function Home() {
                         </span>
                       </li>
                     )}
+                  </ul>
+                </div>
+              </div>
+            )}
+            {result.rtwStripped && (result.rtwStripped.cv.length > 0 || result.rtwStripped.letter.length > 0) && (
+              <div className="limitNotice" role="status" data-rtw-stripped>
+                <div className="limitNotice__title">Right to Work kept off the document</div>
+                <div className="limitNotice__body">
+                  Your setting keeps immigration status off the CV, so these sentences were removed
+                  {result.rtwStripped.cv.length > 0 && result.rtwStripped.letter.length > 0
+                    ? " from the CV and the cover letter"
+                    : result.rtwStripped.cv.length > 0
+                      ? " from the CV"
+                      : " from the cover letter"}
+                  . The wording is still in the copy block below for application forms.
+                  <ul className="atsList">
+                    {[...result.rtwStripped.cv, ...result.rtwStripped.letter].map((s, i) => (
+                      <li key={i}>{s}</li>
+                    ))}
                   </ul>
                 </div>
               </div>

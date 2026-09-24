@@ -66,7 +66,11 @@ export type Gate = {
 
 export type Eligibility = {
   version: 1;
-  rightToWork: { status: "full" | "needs_sponsorship" | "unknown"; countries: string[] };
+  // "full" = permanent (settled status, ILR, citizenship). "time_limited" = a
+  // visa that allows work now without sponsorship but will need it later
+  // (Student, Graduate, some Skilled Worker routes); permissionEnds is the
+  // month it runs to ("2027-01"), typed by the user, never inferred.
+  rightToWork: { status: "full" | "time_limited" | "needs_sponsorship" | "unknown"; countries: string[]; permissionEnds: string | null };
   clearance: { held: "none" | "bpss" | "ctc" | "sc" | "dv" | "unknown"; eligible: boolean | null };
   yearsExperience: number | null;
   location: { base: string[]; onsiteOk: boolean | null; hybridOk: boolean | null; relocateOk: boolean | null };
@@ -108,7 +112,7 @@ export const YEARS_SOFT_SHORTFALL = 2;
 
 export const EMPTY_ELIGIBILITY: Eligibility = {
   version: 1,
-  rightToWork: { status: "unknown", countries: [] },
+  rightToWork: { status: "unknown", countries: [], permissionEnds: null },
   clearance: { held: "unknown", eligible: null },
   yearsExperience: null,
   location: { base: [], onsiteOk: null, hybridOk: null, relocateOk: null },
@@ -157,8 +161,10 @@ export function normalizeEligibility(v: unknown): Eligibility {
   return {
     version: 1,
     rightToWork: {
-      status: oneOf(rtw.status, ["full", "needs_sponsorship", "unknown"] as const, "unknown"),
+      status: oneOf(rtw.status, ["full", "time_limited", "needs_sponsorship", "unknown"] as const, "unknown"),
       countries: strList(rtw.countries, 10, 40),
+      permissionEnds:
+        typeof rtw.permissionEnds === "string" && /^\d{4}-(?:0[1-9]|1[0-2])$/.test(rtw.permissionEnds) ? rtw.permissionEnds : null,
     },
     clearance: {
       held: oneOf(cl.held, ["none", "bpss", "ctc", "sc", "dv", "unknown"] as const, "unknown"),
@@ -302,8 +308,10 @@ const SPONSOR_OK_RE =
   /\bsponsorship\b[^.;\n]{0,25}?\b(?:is\s+)?(?:available|offered|provided|possible|considered)\b|\b(?:can|will|able to|happy to|willing to|open to)\s+(?:offer\s+|provide\s+|consider\s+)?(?:visa\s+)?sponsor(?:ship|ing)?\b/i;
 const RTW_REQ_RE =
   /\b(?:must|need to|needs to|required to|should|will need to)\s+(?:already\s+)?(?:have|hold|possess)\b[^.;\n]{0,30}?\b(?:right to work|work authori[sz]ation|eligib\w+ to work)\b|\b(?:right to work|eligib\w+ to work|authori[sz]ed to work|work authori[sz]ation|legally (?:able|entitled) to work)\b[^.;\n]{0,50}?\b(?:required|essential|is a must|is mandatory|without (?:the need for )?(?:visa )?sponsorship|is necessary)\b/i;
+// Permanent status: citizenship, ILR / settled status, or a "permanent /
+// indefinite right to work" — a time-limited visa never satisfies these.
 const CITIZEN_RE =
-  /\b(?:british|uk|u\.?s\.?|american|irish|eu|australian|canadian)\s+citizen(?:s|ship)?\b|\bindefinite leave to remain\b|\bILR\b|\bsettled status\b|\bgreen card\b|\bpermanent residen(?:t|cy)\b|\bcitizenship\s+(?:is\s+)?required\b/i;
+  /\b(?:british|uk|u\.?s\.?|american|irish|eu|australian|canadian)\s+citizen(?:s|ship)?\b|\bindefinite leave to remain\b|\bILR\b|\bsettled status\b|\bgreen card\b|\bpermanent residen(?:t|cy)\b|\bcitizenship\s+(?:is\s+)?required\b|\b(?:permanent|indefinite)\s+(?:right to (?:live and )?work|work authori[sz]ation)\b/i;
 const RTW_COUNTRY_RE =
   /\b(?:right|rights|eligib\w+|entitle\w+|authori[sz]\w+|able|permitted|allowed)\s+to\s+(?:live\s+and\s+)?work\s+in\s+(?:the\s+)?([a-z][a-z .]{1,30}?)(?=\s+(?:without|and|is|are|with|at|from|on|for|who)\b|[,.;:)!?]|$)/i;
 
@@ -313,7 +321,7 @@ const CLEARANCE_SPONSOR_RE = /\bsponsor\w*\s+(?:(?:the|your|an?|for)\s+)?(?:sc|d
 function detectSponsorship(u: Unit): Gate | null {
   const t = u.text;
   const relevant =
-    /\bsponsor|\bright to work|\bwork authori|\beligib\w+ to work|\bauthori[sz]ed to work|\bentitled to work|\bcitizen|\bILR\b|\bindefinite leave|\bsettled status|\bgreen card|\bpermanent residen/i.test(t);
+    /\bsponsor|\bright to work|\bwork authori|\beligib\w+ to work|\bauthori[sz]ed to work|\bentitled to work|\bcitizen|\bILR\b|\bindefinite leave|\bsettled status|\bgreen card|\bpermanent residen|\b(?:permanent|indefinite) right/i.test(t);
   if (!relevant) return null;
   if (CLEARANCE_SPONSOR_RE.test(t) && !/\bvisa\b|\bright to work\b|\bwork authori|\bcitizen/i.test(t)) return null;
   const countryMatch = RTW_COUNTRY_RE.exec(t);
@@ -675,6 +683,14 @@ function countryOk(country: string | null, countries: string[]): boolean | null 
   return countries.some((c) => normalizeCountry(c) === normalizeCountry(country));
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// "2027-01" → "Jan 2027", for verdict text and the Customize summary line.
+export function monthLabel(ym: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(ym);
+  if (!m) return ym;
+  return `${MONTHS[Number(m[2]) - 1] ?? m[2]} ${m[1]}`;
+}
+
 export function compareGate(gate: Gate, e: Eligibility): GateVerdict {
   const val = gate.value;
   const pref = gate.strictness === "preferred";
@@ -690,6 +706,17 @@ export function compareGate(gate: Gate, e: Eligibility): GateVerdict {
         if (val.sponsorship === "unavailable")
           return hard("This role won't sponsor a visa and your profile says you need sponsorship. Applications failing this are usually rejected automatically, without the CV being read.");
         return v(gate, "soft", "The posting asks about your right to work without saying whether it sponsors.", "State plainly that you would need visa sponsorship and ask whether they can offer it.");
+      }
+      if (s === "time_limited") {
+        // Work is allowed now without sponsorship; it ends when the visa does.
+        const ends = e.rightToWork.permissionEnds ? ` (until ${monthLabel(e.rightToWork.permissionEnds)})` : "";
+        if (val.citizenship)
+          return hard(`This asks for permanent right to work, settled status or citizenship; your permission is time-limited${ends}. Applications failing this are usually rejected automatically, without the CV being read.`);
+        const ok = countryOk(val.country, e.rightToWork.countries);
+        if (ok === false) return v(gate, "unknown", `You've listed right to work in ${e.rightToWork.countries.join(", ")}; this role needs it in ${val.country}. Check before applying.`);
+        if (val.sponsorship === "unavailable")
+          return v(gate, "soft", `You can start without sponsorship${ends}, but this employer says it won't sponsor and you will need it when your permission ends.`, "State plainly that you can start without sponsorship and the month from which you would need it.");
+        return v(gate, "pass", `You can work this role without sponsorship now${ends}; the form may ask when you would need it.`);
       }
       if (val.citizenship) return v(gate, "unknown", "This asks for citizenship or settled status, not just the right to work; confirm yours qualifies.");
       const ok = countryOk(val.country, e.rightToWork.countries);

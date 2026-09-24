@@ -80,6 +80,8 @@ import {
 // summary line so an unanswered profile is visible without opening it —
 // collapsing a section must never hide that something still needs doing.
 const ELIGIBILITY_QUESTIONS = 9;
+const rtwBannerKey = (userId: string) => `jobhuntz:rtw-full-banner:${userId}`;
+
 function eligibilityAnswered(e: Eligibility): number {
   let n = 0;
   if (e.rightToWork.status !== "unknown") n++;
@@ -185,6 +187,10 @@ export default function CustomizePage() {
   // inferred from the CV; "not set" answers "unknown", never pass or fail.
   const [eligibility, setEligibility] = useState<Eligibility>(EMPTY_ELIGIBILITY);
   const [eligLoaded, setEligLoaded] = useState(false);
+  // One-time nudge for a "Full right to work" answer: "full" means permanent,
+  // and a visa holder who picked it gets no warning on postings that ask for
+  // permanent status. Dismissed per user in localStorage.
+  const [rtwBannerDismissed, setRtwBannerDismissed] = useState(false);
   const [settingsMissing, setSettingsMissing] = useState(false);
   const [eligSaving, setEligSaving] = useState(false);
   const [eligMsg, setEligMsg] = useState("");
@@ -288,6 +294,11 @@ export default function CustomizePage() {
         return;
       }
       setUserId(session.user.id);
+      try {
+        setRtwBannerDismissed(localStorage.getItem(rtwBannerKey(session.user.id)) === "1");
+      } catch {
+        // Storage blocked: the nudge just shows each visit.
+      }
 
       try {
         const res = await fetch("/api/section-order");
@@ -1002,6 +1013,33 @@ export default function CustomizePage() {
               {profile && profile.rightToWork.length > 0 && (
                 <p className="fitEvidence">Your CV says: {profile.rightToWork.join(" · ")}</p>
               )}
+              {eligibility.rightToWork.status === "full" && !rtwBannerDismissed && (
+                <div className="limitNotice" role="status" data-rtw-full-banner>
+                  <div className="limitNotice__title">Is your right to work permanent?</div>
+                  <div className="limitNotice__body">
+                    &quot;Full right to work&quot; means settled status, indefinite leave to remain or citizenship. On a
+                    Student, Graduate or Skilled Worker visa, choose &quot;Time-limited visa&quot; instead: postings that
+                    ask for permanent right to work are then flagged before a credit is spent, and the answer stays
+                    true when a form asks whether you will ever need sponsorship.
+                  </div>
+                  <div className="limitNotice__cta">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        setRtwBannerDismissed(true);
+                        try {
+                          if (userId) localStorage.setItem(rtwBannerKey(userId), "1");
+                        } catch {
+                          // Storage blocked: dismissed for this visit only.
+                        }
+                      }}
+                    >
+                      Mine is permanent
+                    </Button>
+                  </div>
+                </div>
+              )}
               <div className="profileGrid eligGrid">
                 <label>
                   Right to work
@@ -1014,7 +1052,8 @@ export default function CustomizePage() {
                     }}
                   >
                     <option value="unknown">Not set</option>
-                    <option value="full">Full right to work — no sponsorship needed</option>
+                    <option value="full">Full right to work — permanent, no sponsorship ever needed</option>
+                    <option value="time_limited">Time-limited visa — no sponsorship needed to start, will need it later</option>
                     <option value="needs_sponsorship">I need visa sponsorship</option>
                   </select>
                 </label>
@@ -1022,6 +1061,19 @@ export default function CustomizePage() {
                   Countries you can work in
                   <Input value={eligCountries} onChange={(e) => { setEligCountries(e.target.value); setEligMsg(""); }} placeholder="e.g. UK, Ireland" />
                 </label>
+                {eligibility.rightToWork.status === "time_limited" && (
+                  <label>
+                    Current permission ends (month/year, optional)
+                    <Input
+                      type="month"
+                      value={eligibility.rightToWork.permissionEnds ?? ""}
+                      onChange={(e) => {
+                        const permissionEnds = e.target.value || null;
+                        updateElig((x) => ({ ...x, rightToWork: { ...x.rightToWork, permissionEnds } }));
+                      }}
+                    />
+                  </label>
+                )}
                 <label>
                   Security clearance held
                   <select

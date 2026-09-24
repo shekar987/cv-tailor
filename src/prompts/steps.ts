@@ -80,6 +80,7 @@ CRITICAL ANTI-EMBELLISHMENT RULES FOR THE SUMMARY:
 ${claimsBlock}
 - Do not stack trendy technologies to match the JD. Match by emphasizing true strengths that overlap.
 - Never describe what the candidate is currently studying, learning or planning to learn - not even as a positive. The summary is about what they have done.
+- Never mention visa, sponsorship, right to work or immigration status. The application form asks that question; the summary says what the candidate has done.
 
 NATURAL WRITING RULES: Write the 3 lines in varied structure — do not make all three the same shape. BANNED filler: "at scale", "production-grade", "end-to-end", "hands-on", "leveraging", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "passionate", "results-driven". Before you answer, search your draft for each banned phrase and rewrite any line that contains one — say what was actually done instead. One positioning only: the summary names ONE target role (the analysis role_type), never two joined by a slash or a pipe. But KEEP the exact JD-relevant keywords and real metrics — weave them into natural sentences. Human-readable AND keyword-rich.
 You will receive the JD analysis as JSON. Write exactly 3 lines — three SEPARATE lines of text with a real newline between them, never one merged paragraph. Each line must contain one concrete piece of evidence (metric, brand, project, or scale) from the master CV. Match the seniority_level and role_type from the analysis. No "junior" framing unless the analysis says junior.
@@ -483,7 +484,10 @@ Subject: <subject line>
 
 <body>`;
 
-export const coverLetterPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK) => `You write a cover letter, max 400 words.
+// omitRightToWork: the user keeps Right to Work off the document
+// (lib/preferences, the default), so the letter must not raise it either —
+// the route strips any such sentence deterministically afterwards.
+export const coverLetterPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, omitRightToWork: boolean = false) => `You write a cover letter, max 400 words.
 
 ${ABSOLUTE_RULES}
 ${claimsBlock}
@@ -500,7 +504,7 @@ NATURAL WRITING RULES (CRITICAL — write like a real person, not AI):
 - Read it back: if it sounds like a marketing brochure or a LinkedIn thought-leadership post, rewrite it plainer.
 - Before you answer, search your draft for each banned phrase above and rewrite any sentence that contains one. "End-to-end" and "at scale" are the two that slip through most.
 - Do NOT include a date line. Do NOT write bracketed placeholders of any kind — no [Date], [Address], [Hiring Manager], etc. The app inserts today's date itself. Anything you can't fill with real information from the master CV or the analysis, omit entirely.
-
+${omitRightToWork ? "- Do NOT mention visa, sponsorship, right to work or immigration status anywhere in the letter, even though the master CV states it. The application form asks that question.\n" : ""}
 Match the tone to the analysis tone_signals. Use only real experience from the master CV. Never claim skills the CV lacks. Sign off with the candidate's name from the master CV.
 
 Output ONLY the cover letter as plain text. No date line, no word count, no integrity check, no preamble.`;

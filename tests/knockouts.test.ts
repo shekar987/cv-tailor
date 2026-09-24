@@ -59,22 +59,52 @@ test("acceptance: nothing is ever inferred - an empty profile yields only unknow
 
 test("sponsorship: 'unable to offer sponsorship' is hard for needs_sponsorship, pass for full right to work", () => {
   const jd = "Please note we are unable to offer visa sponsorship for this role.";
-  assert.equal(verdictOf(jd, "sponsorship", profile({ rightToWork: { status: "needs_sponsorship", countries: [] } })).verdict, "hard");
-  assert.equal(verdictOf(jd, "sponsorship", profile({ rightToWork: { status: "full", countries: ["UK"] } })).verdict, "pass");
+  assert.equal(verdictOf(jd, "sponsorship", profile({ rightToWork: { status: "needs_sponsorship", countries: [], permissionEnds: null } })).verdict, "hard");
+  assert.equal(verdictOf(jd, "sponsorship", profile({ rightToWork: { status: "full", countries: ["UK"], permissionEnds: null } })).verdict, "pass");
 });
 
 test("sponsorship: right-to-work country mismatch is unknown, never a guess", () => {
   const jd = "You must have the right to work in the United States without sponsorship.";
   const g = one(jd, "sponsorship");
   assert.equal(g.value.kind === "sponsorship" && g.value.country, "us");
-  const r = verdictOf(jd, "sponsorship", profile({ rightToWork: { status: "full", countries: ["UK"] } }));
+  const r = verdictOf(jd, "sponsorship", profile({ rightToWork: { status: "full", countries: ["UK"], permissionEnds: null } }));
   assert.equal(r.verdict, "unknown");
 });
 
 test("sponsorship: 'sponsorship available' passes even for needs_sponsorship; citizenship is unknown for full", () => {
-  assert.equal(verdictOf("Visa sponsorship is available for the right candidate.", "sponsorship", profile({ rightToWork: { status: "needs_sponsorship", countries: [] } })).verdict, "pass");
-  const r = verdictOf("Requirements:\n- British citizenship required for this post.", "sponsorship", profile({ rightToWork: { status: "full", countries: ["UK"] } }));
+  assert.equal(verdictOf("Visa sponsorship is available for the right candidate.", "sponsorship", profile({ rightToWork: { status: "needs_sponsorship", countries: [], permissionEnds: null } })).verdict, "pass");
+  const r = verdictOf("Requirements:\n- British citizenship required for this post.", "sponsorship", profile({ rightToWork: { status: "full", countries: ["UK"], permissionEnds: null } }));
   assert.equal(r.verdict, "unknown");
+});
+
+test("sponsorship: a time-limited visa passes 'no sponsorship' softly and fails 'permanent right to work' hard", () => {
+  const tl = profile({ rightToWork: { status: "time_limited", countries: ["UK"], permissionEnds: "2027-01" } });
+  // Can start without sponsorship: not a knockout, but the employer won't sponsor later.
+  const soft = verdictOf("Please note we are unable to offer visa sponsorship for this role.", "sponsorship", tl);
+  assert.equal(soft.verdict, "soft");
+  assert.match(soft.reason, /until Jan 2027/);
+  assert.equal(verdictOf("You must have the right to work in the UK without sponsorship.", "sponsorship", tl).verdict, "soft");
+  // Permanent status is asked for: a visa never satisfies it.
+  for (const jd of [
+    "Requirements:\n- Permanent right to work in the UK is required.",
+    "Requirements:\n- Indefinite leave to remain or British citizenship required.",
+    "Requirements:\n- Applicants must have settled status.",
+  ]) {
+    const r = verdictOf(jd, "sponsorship", tl);
+    assert.equal(r.verdict, "hard", jd);
+    assert.match(r.reason, /permanent right to work, settled status or citizenship/);
+  }
+  // A preferred phrasing still never fails hard.
+  assert.equal(verdictOf("Ideally you hold permanent right to work in the UK.", "sponsorship", tl).verdict, "soft");
+  // Sponsorship offered, or nothing said beyond "right to work in the UK": pass.
+  assert.equal(verdictOf("Visa sponsorship is available for the right candidate.", "sponsorship", tl).verdict, "pass");
+  assert.equal(verdictOf("You must be eligible to work in the UK.", "sponsorship", tl).verdict, "pass", "eligible now, nothing said about sponsorship");
+  // Without the end month the wording has no date in it.
+  const noDate = verdictOf("We cannot sponsor visas.", "sponsorship", profile({ rightToWork: { status: "time_limited", countries: [], permissionEnds: null } }));
+  assert.equal(noDate.verdict, "soft");
+  assert.doesNotMatch(noDate.reason, /until/);
+  // "full" is unchanged: permanent status asked for → unknown (confirm yours qualifies).
+  assert.equal(verdictOf("Permanent right to work in the UK is required.", "sponsorship", profile({ rightToWork: { status: "full", countries: ["UK"], permissionEnds: null } })).verdict, "unknown");
 });
 
 test("sponsorship: 'cannot sponsor clearance' is about vetting, not visas", () => {
@@ -88,7 +118,7 @@ test("sponsorship: 'cannot sponsor clearance' is about vetting, not visas", () =
 
 test("sponsorship: a nice-to-have phrasing never yields hard", () => {
   const jd = "Ideally you would already have the right to work in the UK without sponsorship.";
-  const r = verdictOf(jd, "sponsorship", profile({ rightToWork: { status: "needs_sponsorship", countries: [] } }));
+  const r = verdictOf(jd, "sponsorship", profile({ rightToWork: { status: "needs_sponsorship", countries: [], permissionEnds: null } }));
   assert.equal(r.gate.strictness, "preferred");
   assert.notEqual(r.verdict, "hard");
 });
@@ -251,7 +281,7 @@ test("model gates are kept only when quoted verbatim from the JD, re-parsed, and
 
 test("normalizeEligibility clamps, defaults and drops junk", () => {
   const e = normalizeEligibility({
-    rightToWork: { status: "full", countries: ["UK", "UK", 42, " Ireland "] },
+    rightToWork: { status: "full", countries: ["UK", "UK", 42, " Ireland "], permissionEnds: "2027-13" },
     clearance: { held: "wizard", eligible: "yes" },
     yearsExperience: 99.6,
     location: { base: ["London"], onsiteOk: "true", relocateOk: false },
@@ -260,7 +290,8 @@ test("normalizeEligibility clamps, defaults and drops junk", () => {
     employmentTypes: ["permanent", "gig", "contract"],
     updatedAt: 5,
   });
-  assert.deepEqual(e.rightToWork, { status: "full", countries: ["UK", "Ireland"] });
+  assert.deepEqual(e.rightToWork, { status: "full", countries: ["UK", "Ireland"], permissionEnds: null }, "a malformed month is dropped");
+  assert.equal(normalizeEligibility({ rightToWork: { status: "time_limited", permissionEnds: "2027-01" } }).rightToWork.permissionEnds, "2027-01");
   assert.deepEqual(e.clearance, { held: "unknown", eligible: null });
   assert.equal(e.yearsExperience, 60);
   assert.deepEqual(e.location, { base: ["London"], onsiteOk: null, hybridOk: null, relocateOk: false });
