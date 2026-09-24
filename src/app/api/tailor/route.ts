@@ -24,6 +24,7 @@ import {
 } from "@/prompts/steps";
 import { lintBullets, countFlags, onePageExpected } from "@/lib/quality";
 import { fitOnePage, type OnePageReport } from "@/lib/onePage";
+import { buildHeadline } from "@/lib/headline";
 import { normalizeEligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
 import { coreTitle, titleInText } from "@/lib/roleTitle";
@@ -83,6 +84,8 @@ async function runPipeline(opts: {
   // what one page holds, measured with the document profile below.
   onePage: boolean;
   profile: unknown;
+  // The user's stated years (eligibility), for the header line — never inferred.
+  yearsExperience: number | null;
   // Result of the pre-tailoring ATS gate's Step 1 call (/api/analyze with
   // cvText). When present and well-formed, Step 0 below is SKIPPED — this is
   // the whole point of the gate: the user already paid for this exact call
@@ -108,7 +111,7 @@ async function runPipeline(opts: {
   // CV's own positioning.
   variant?: Variant | null;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, onePage, profile } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, onePage, profile, yearsExperience } = opts;
   const claimsBlock = renderClaimsBlock(claims);
   const variantBlock = renderVariantBlock(variant);
 
@@ -475,6 +478,19 @@ async function runPipeline(opts: {
     letterCheck,
     rtwStripped,
     onePage: onePageReport,
+    // The header line under the name (lib/headline): qualification with its
+    // stated status · the top production-level skill this posting asks for ·
+    // the stated years · the posting's title. Replaces the extracted tagline
+    // for this run; the preview, both downloads and the Applied snapshot all
+    // read it through the display profile.
+    headline: buildHeadline({
+      education: (profile as { education?: { degree?: string; dates?: string; note?: string }[] } | null)?.education,
+      claims,
+      requiredSkills: terms.required_skills,
+      keywords: terms.top_15_ats_keywords,
+      yearsExperience,
+      roleTitle: terms.role_title,
+    }).headline,
     ...(projectsPool ? { selectedProjects: selectedFinal } : {}),
   };
 }
@@ -586,6 +602,7 @@ export async function POST(req: NextRequest) {
         omitRightToWork: !preferences.includeRightToWorkOnCv,
         onePage,
         profile: bodyProfile,
+        yearsExperience: eligibility.yearsExperience,
       });
       // The unlimited (owner) path reports which provider ran, for the dropdown.
       return NextResponse.json(route.reason === "unlimited" ? { provider: route.provider, ...result } : result);

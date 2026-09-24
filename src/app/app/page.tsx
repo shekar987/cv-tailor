@@ -117,6 +117,9 @@ type Result = {
   // Visa / sponsorship sentences the server removed from the CV text and the
   // letter because Right to Work is off the document (lib/rightToWorkText).
   rtwStripped?: { cv: string[]; letter: string[] };
+  // The header line under the name for this run (lib/headline); replaces the
+  // extracted tagline in the display profile when present.
+  headline?: string;
   // One-page fit for a candidate with under three years (lib/onePage): what
   // was left out for length, and whether the result now fits one page.
   onePage?: {
@@ -1108,10 +1111,13 @@ export default function Home() {
     // Right to Work is dropped here unless the Customize switch is on
     // (lib/preferences), so preview, downloads (via the preview's DOM read),
     // the page estimate and the Applied snapshot all see one document.
-    if (sel.length === 0) return profileForDocument(profile, preferences);
+    // The run's header line (lib/headline) stands in for the extracted tagline.
+    const headline = typeof result?.headline === "string" && result.headline.trim() ? result.headline.trim() : "";
+    const withHeadline = <T extends Profile | null>(p: T): T => (p && headline ? { ...p, tagline: headline } : p);
+    if (sel.length === 0) return withHeadline(profileForDocument(profile, preferences));
     // A pool can exist without an extracted profile; render the selection on
     // an empty-but-well-formed base rather than dropping it.
-    const base = profileForDocument(profile ?? normalizeProfile({}), preferences);
+    const base = withHeadline(profileForDocument(profile ?? normalizeProfile({}), preferences));
     return {
       ...base,
       projects: sel.map((s) => ({
