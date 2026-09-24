@@ -30,6 +30,7 @@ import { normalizeProfile } from "@/lib/profile";
 import { coreTitle, titleInText } from "@/lib/roleTitle";
 import { unsupportedProperNouns, sentencesNaming, dropSentences } from "@/lib/properNouns";
 import { experienceBudget, onePageExperienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
+import { parseMasterExperience, renderIdBlock, reconcileExperience, diffAgainstMaster, diffProjects } from "@/lib/bulletIds";
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
@@ -150,6 +151,10 @@ async function runPipeline(opts: {
   // prompts fall back to their fixed defaults — behaviour as before.
   const expBudget = onePage ? onePageExperienceBudget(cv) : experienceBudget(cv) ?? undefined;
   const projBudget = projectsBudget(projectNames.length, onePage);
+  // Bullets by id (lib/bulletIds): the experience step selects and reorders
+  // the master CV's numbered bullets; the output is reconciled against them.
+  const masterRoles = parseMasterExperience(cv);
+  const idBlock = renderIdBlock(masterRoles);
 
   // Wave 1 — parallel; individual step failures produce empty values,
   // but ProviderRateLimitError propagates.
@@ -162,7 +167,7 @@ async function runPipeline(opts: {
       .catch(swallowStep("")),
     callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv, claimsBlock, variantBlock), userInput: analysisStr })
       .catch(swallowStep("")),
-    callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, "", idBlock), userInput: analysisStr })
       .catch(swallowStep("")),
     projectsPool
       // Pool mode: select + tailor from the pasted pool. Runs even when the
@@ -217,7 +222,11 @@ async function runPipeline(opts: {
   // repair the markers deterministically so every renderer draws real
   // bullets. Done BEFORE ATS scoring, so the score sees exactly the text the
   // user gets.
-  const experienceOut = typeof experience === "string" ? normalizeExperienceOutput(experience) : experience;
+  // Id protocol first: every bullet must resolve to a master bullet, with at
+  // most MAX_SUBSTITUTIONS changed words, or it is reverted / dropped.
+  const reconciled = typeof experience === "string" ? reconcileExperience(experience, masterRoles) : { experience, changes: null };
+  const idProtocol = reconciled.changes !== null;
+  const experienceOut = typeof reconciled.experience === "string" ? normalizeExperienceOutput(reconciled.experience) : reconciled.experience;
 
   // Bullet lint, then ONE retry per flagged section. The same deterministic
   // checks the UI shows (lib/quality: relevance bolt-ons, filler) run on the
@@ -236,7 +245,7 @@ async function runPipeline(opts: {
   if (countFlags(draftLint) > 0) {
     const [experienceRetry, projectsRetry] = await Promise.all([
       draftLint.experience.length > 0
-        ? callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, rejectedBulletsBlock(draftLint.experience)), userInput: analysisStr })
+        ? callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, rejectedBulletsBlock(draftLint.experience), idBlock), userInput: analysisStr })
             .catch(swallowStep(""))
         : Promise.resolve<unknown>(""),
       draftLint.projects.length > 0
@@ -249,7 +258,7 @@ async function runPipeline(opts: {
     ]);
     if (draftLint.experience.length > 0) {
       const candidate = dropRefusal(experienceRetry);
-      const candidateOut = typeof candidate === "string" && candidate.trim() ? normalizeExperienceOutput(candidate) : "";
+      const candidateOut = typeof candidate === "string" && candidate.trim() ? normalizeExperienceOutput(reconcileExperience(candidate, masterRoles).experience) : "";
       if (candidateOut && lintBullets({ experience: candidateOut }, company).experience.length < draftLint.experience.length) {
         experienceFinal = candidateOut;
         retried.experience = true;
@@ -478,6 +487,13 @@ async function runPipeline(opts: {
     letterCheck,
     rtwStripped,
     onePage: onePageReport,
+    // "Changes vs master CV": the finished text against the master's own
+    // bullets (lib/bulletIds) — kept, edited (which words), dropped, new.
+    bulletChanges: {
+      protocol: idProtocol,
+      experience: typeof sections.experience === "string" ? diffAgainstMaster(sections.experience, masterRoles) : null,
+      projects: projectsPool ? [] : diffProjects(sections.projects, (profile as { projects?: { name?: string; originalBullets?: string[] }[] } | null)?.projects),
+    },
     // The header line under the name (lib/headline): qualification with its
     // stated status · the top production-level skill this posting asks for ·
     // the stated years · the posting's title. Replaces the extracted tagline

@@ -1241,6 +1241,21 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .scoreMark circle { stroke: var(--bg); stroke-width: 2; }
 .scoreMark.progressed circle { fill: var(--success); }
 .scoreMark.rejected circle { fill: var(--surface-2); stroke: var(--danger); }
+/* "Changes vs master CV" under the CV preview (lib/bulletIds). */
+.changesView { margin-top: var(--space-4); font-size: var(--text-sm); color: var(--text-subtle); }
+.changesView > summary { cursor: pointer; color: var(--text); font-weight: 600; }
+.changesView > summary:hover { color: var(--amber-bright); }
+.changesView > summary:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-xs); }
+.changesView__counts { font-weight: 400; color: var(--muted); }
+.changesView__role { margin-top: var(--space-3); }
+.changesView__title { font-weight: 600; color: var(--text); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); align-items: baseline; }
+.changesView__tag { font-size: var(--text-xs); font-weight: 500; color: var(--amber); border: 1px solid var(--amber-border); border-radius: var(--radius-pill); padding: 0 var(--space-2); }
+.changesView__status { flex: 0 0 8.5em; font-size: var(--text-xs); color: var(--muted); }
+.changesView li[data-status="edited"] .changesView__status { color: var(--amber); }
+.changesView li[data-status="reverted"] .changesView__status,
+.changesView li[data-status="new"] .changesView__status { color: var(--danger); }
+.changesView li[data-status="dropped"] > span:last-child { color: var(--muted); text-decoration: line-through; }
+.changesView__diff { color: var(--muted); }
 .scoreTable { margin-top: var(--space-3); font-size: var(--text-xs); color: var(--text-subtle); }
 .scoreTable summary { cursor: pointer; color: var(--muted); }
 .scoreTable table { width: 100%; border-collapse: collapse; margin-top: var(--space-2); }

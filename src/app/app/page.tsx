@@ -23,6 +23,7 @@ import { normalizeVariants, pickVariant, type VariantsConfig } from "@/lib/varia
 import { normalizePreferences, profileForDocument, rightToWorkForForms, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import type { SeniorityFit } from "@/lib/seniority";
 import { isGraduateScheme, graduateSectionOrder } from "@/lib/graduateMode";
+import type { BulletChanges, RoleChanges } from "@/lib/bulletIds";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { bandFor, parseCoverage, combineWithFit, type VisibilityBand, type CombinedVerdict } from "@/lib/visibilityVerdict";
@@ -121,6 +122,9 @@ type Result = {
   // The header line under the name for this run (lib/headline); replaces the
   // extracted tagline in the display profile when present.
   headline?: string;
+  // "Changes vs master CV" (lib/bulletIds): the finished bullets against the
+  // master's own — kept, edited (which words), reverted, dropped, new.
+  bulletChanges?: { protocol: boolean; experience: BulletChanges | null; projects: RoleChanges[] };
   // One-page fit for a candidate with under three years (lib/onePage): what
   // was left out for length, and whether the result now fits one page.
   onePage?: {
@@ -2310,6 +2314,53 @@ export default function Home() {
                 fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}
                 downloadsDisabled={blocked}
               />
+              {result.bulletChanges && (result.bulletChanges.experience || result.bulletChanges.projects.length > 0) && (
+                <details className="changesView" data-bullet-changes>
+                  <summary>
+                    Changes vs master CV
+                    {result.bulletChanges.experience && (
+                      <span className="changesView__counts">
+                        {" "}— {result.bulletChanges.experience.kept} kept, {result.bulletChanges.experience.edited} edited,{" "}
+                        {result.bulletChanges.experience.dropped} left out
+                        {result.bulletChanges.experience.added > 0 ? `, ${result.bulletChanges.experience.added} not in the master CV` : ""}
+                      </span>
+                    )}
+                  </summary>
+                  <p className="fitEvidence">
+                    Every experience bullet is one of the master CV&apos;s, chosen and reordered for this posting, with at most two words
+                    changed. {result.bulletChanges.protocol ? "Ids were checked on this run." : "This run came back without bullet ids, so the comparison below is by closest match."}
+                  </p>
+                  {[...(result.bulletChanges.experience?.roles ?? []), ...result.bulletChanges.projects].map((r, ri) => (
+                    <div key={ri} className="changesView__role">
+                      <div className="changesView__title">
+                        {r.role}
+                        {r.reordered && <span className="changesView__tag">reordered</span>}
+                      </div>
+                      <ul className="atsList">
+                        {r.bullets.map((b, bi) => (
+                          <li key={bi} data-status={b.status}>
+                            <span className="changesView__status">{b.status === "kept" ? "kept" : b.status === "edited" ? "edited" : b.status === "reverted" ? "reverted to master" : "not in master"}</span>
+                            <span>
+                              {b.output}
+                              {b.status === "edited" && (b.from.length > 0 || b.to.length > 0) && (
+                                <span className="changesView__diff">
+                                  {" "}({b.from.length > 0 ? b.from.join(" ") : "—"} → {b.to.length > 0 ? b.to.join(" ") : "—"})
+                                </span>
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                        {r.dropped.map((d, di) => (
+                          <li key={`d${di}`} data-status="dropped">
+                            <span className="changesView__status">left out</span>
+                            <span>{d.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </details>
+              )}
               {result.coverLetter && (
                 <>
                   <h2 className="clHeading">Cover Letter</h2>

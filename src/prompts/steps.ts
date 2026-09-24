@@ -134,14 +134,26 @@ ${lines.join("\n")}
 `;
 }
 
-export const experiencePrompt = (cv: string, budget: string = LENGTH_BUDGET, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "") => `You rewrite the CV work experience section, tailored to a specific job.
+// idBlock: the master CV's experience bullets numbered by lib/bulletIds. With
+// it, the step SELECTS and REORDERS those bullets by id — at most two word
+// substitutions each — instead of writing new ones; the route checks every
+// id and reverts any bullet that changed more. Empty when the master CV's
+// experience section could not be parsed (the step then writes as before).
+export const experiencePrompt = (cv: string, budget: string = LENGTH_BUDGET, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "", idBlock: string = "") => `You rewrite the CV work experience section, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
 ${claimsBlock}
 
 MASTER CV:
 ${cv}
+${idBlock ? `
+BULLET SELECTION PROTOCOL — the master CV's experience bullets are numbered below. You SELECT and REORDER them; you do not write new bullets.
+${idBlock}
 
+- Output every bullet as "• [R1.3] <text>" — the id first, then that bullet's master wording with AT MOST TWO word substitutions. A substitution swaps one word for the posting's exact term ONLY where the master CV already shows that work (e.g. "frontend" → "front-end", "tests" → "unit tests" when they were unit tests). Never add a figure, a technology, a scale or a claim; never merge two bullets.
+- A checker counts the substitutions in every bullet and reverts any bullet that changed by more than two words to its master wording, drops any bullet without an id it can match, and drops an id used twice.
+- Keep each bullet under the role its id belongs to. You may leave a bullet out; you may not invent one.
+` : ""}
 ${BULLET_SHAPE_RULE}
 
 NATURAL WRITING RULES (write like a human, not an AI):
