@@ -3,8 +3,10 @@
 // CV and the one claims registry - a headline (one positioning per CV), the
 // skills to lead with, and the role types it is meant for. Tailoring picks
 // the variant whose role types include the analysis's role_type, says which
-// it chose and why, and the user can override for that run. Import-free,
-// unit-tested.
+// it chose and why, and the user can override for that run. Imports only
+// ./atsMatch.ts (lead skills are checked against the claims registry with
+// the same matcher that scores the CV); unit-tested.
+import { matchAtsKeywords } from "./atsMatch.ts";
 
 export const ROLE_TYPES = ["backend", "frontend", "fullstack", "ai_engineering", "data_engineering", "ml_engineering", "devops", "other"] as const;
 export type RoleType = (typeof ROLE_TYPES)[number];
@@ -22,6 +24,36 @@ export type VariantsConfig = { version: 1; variants: Variant[] };
 
 export const MAX_VARIANTS = 6;
 export const MAX_LEAD_SKILLS = 12;
+
+// A variant's lead skills are the first things a recruiter reads, so only a
+// skill the claims registry holds at PRODUCTION level may lead. A project or
+// learning skill is skipped (and named), and so is a skill the registry does
+// not know — the registry is the candidate's own statement of what each
+// skill can be called. With no registry there is nothing to check against.
+export type LeadSkillDrop = { skill: string; reason: "project" | "learning" | "unregistered" };
+export function productionLeadSkills(
+  leadSkills: string[],
+  claims: { skills: { name: string; level: string }[] } | null | undefined
+): { kept: string[]; dropped: LeadSkillDrop[] } {
+  if (!claims || claims.skills.length === 0) return { kept: [...leadSkills], dropped: [] };
+  const kept: string[] = [];
+  const dropped: LeadSkillDrop[] = [];
+  for (const skill of leadSkills) {
+    const matches = claims.skills.filter(
+      (s) => matchAtsKeywords(s.name, [skill]).matched > 0 || matchAtsKeywords(skill, [s.name]).matched > 0
+    );
+    if (matches.some((s) => s.level === "production")) kept.push(skill);
+    else if (matches.length === 0) dropped.push({ skill, reason: "unregistered" });
+    else dropped.push({ skill, reason: matches.some((s) => s.level === "project") ? "project" : "learning" });
+  }
+  return { kept, dropped };
+}
+
+export function leadSkillsNotice(dropped: LeadSkillDrop[]): string {
+  if (dropped.length === 0) return "";
+  const word = (r: LeadSkillDrop["reason"]) => (r === "project" ? "project-level" : r === "learning" ? "still being learned" : "not on your claims registry");
+  return `Only production-level skills can lead. Skipped: ${dropped.map((d) => `${d.skill} (${word(d.reason)})`).join(", ")}.`;
+}
 
 export const ROLE_TYPE_LABEL: Record<RoleType, string> = {
   backend: "Backend",

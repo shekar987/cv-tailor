@@ -19,7 +19,7 @@ import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLette
 import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
 import { normalizeClaims, checkClaims, seedClaimsFromCv, SKILL_RULE_TEXT, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
 import { qualityReport, onePageExpected, type QualityReport } from "@/lib/quality";
-import { normalizeVariants, pickVariant, type VariantsConfig } from "@/lib/variants";
+import { normalizeVariants, pickVariant, leadSkillsNotice, type VariantsConfig, type LeadSkillDrop } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import type { SeniorityFit } from "@/lib/seniority";
 import { isGraduateScheme, graduateSectionOrder } from "@/lib/graduateMode";
@@ -126,6 +126,9 @@ type Result = {
   // "Changes vs master CV" (lib/bulletIds): the finished bullets against the
   // master's own — kept, edited (which words), reverted, dropped, new.
   bulletChanges?: { protocol: boolean; experience: BulletChanges | null; projects: RoleChanges[] };
+  // The variant's lead skills the run could not use (lib/variants): only
+  // production-level registry skills lead.
+  variantLeadSkills?: { kept: string[]; dropped: LeadSkillDrop[] } | null;
   // The run was retried on an OpenRouter key because the shared Claude
   // account could not serve it (lib/fallbackRoute).
   fallback?: { from: string; to: "openrouter"; source: "own_key" | "env_key"; reason: "provider_credit" | "provider_limit" } | null;
@@ -2017,6 +2020,14 @@ export default function Home() {
                       </li>
                     )}
                   </ul>
+                </div>
+              </div>
+            )}
+            {result.variantLeadSkills && result.variantLeadSkills.dropped.length > 0 && (
+              <div className="limitNotice" role="status" data-lead-skills-skipped>
+                <div className="limitNotice__title">Lead skills skipped</div>
+                <div className="limitNotice__body">
+                  {leadSkillsNotice(result.variantLeadSkills.dropped)} Change the level on Customize if it is production work, or take it out of the variant.
                 </div>
               </div>
             )}

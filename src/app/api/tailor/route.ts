@@ -6,7 +6,7 @@ import { resolveLlmRoute, formatDuration, loadOwnOpenRouterKey } from "@/lib/llm
 import { chooseFallback, type FallbackReason } from "@/lib/fallbackRoute";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
 import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillMentioned, type ClaimsRegistry } from "@/lib/claims";
-import { normalizeVariants, renderVariantBlock, type Variant } from "@/lib/variants";
+import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
 import { normalizePreferences } from "@/lib/preferences";
 import { stripRightToWorkSentences, stripRightToWorkLines, stripRightToWorkBullets } from "@/lib/rightToWorkText";
 import {
@@ -115,7 +115,10 @@ async function runPipeline(opts: {
 }) {
   const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, onePage, profile, yearsExperience } = opts;
   const claimsBlock = renderClaimsBlock(claims);
-  const variantBlock = renderVariantBlock(variant);
+  // Only production-level registry skills may lead (lib/variants); the
+  // skipped ones are reported so the user can fix the variant or the level.
+  const leadSkills = variant ? productionLeadSkills(variant.leadSkills, claims) : { kept: [] as string[], dropped: [] };
+  const variantBlock = renderVariantBlock(variant ? { ...variant, leadSkills: leadSkills.kept } : null);
 
   // Step 0 — JD analysis. Reused from the pre-tailoring gate when available and
   // well-formed; otherwise run fresh (this is also the fallback for a caller
@@ -488,6 +491,7 @@ async function runPipeline(opts: {
     letterCheck,
     rtwStripped,
     onePage: onePageReport,
+    variantLeadSkills: variant ? leadSkills : null,
     // "Changes vs master CV": the finished text against the master's own
     // bullets (lib/bulletIds) — kept, edited (which words), dropped, new.
     bulletChanges: {

@@ -1,7 +1,28 @@
 // Unit tests for role-targeted variants (Brief 3, part 3). node:test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeVariants, pickVariant, renderVariantBlock, MAX_VARIANTS } from "../src/lib/variants.ts";
+import { normalizeVariants, pickVariant, renderVariantBlock, productionLeadSkills, leadSkillsNotice, MAX_VARIANTS } from "../src/lib/variants.ts";
+
+test("productionLeadSkills: only production-level registry skills lead; the rest are named with why", () => {
+  const claims = { skills: [
+    { name: "Java", level: "production" },
+    { name: "Spring Boot", level: "project" },
+    { name: "PostgreSQL", level: "production" },
+    { name: "Kubernetes", level: "learning" },
+    { name: "RAG and knowledge retrieval", level: "production" },
+  ] };
+  const r = productionLeadSkills(["Java", "Spring Boot", "PostgreSQL", "Kubernetes", "RAG", "Terraform"], claims);
+  assert.deepEqual(r.kept, ["Java", "PostgreSQL", "RAG"]);
+  assert.deepEqual(r.dropped, [
+    { skill: "Spring Boot", reason: "project" },
+    { skill: "Kubernetes", reason: "learning" },
+    { skill: "Terraform", reason: "unregistered" },
+  ]);
+  assert.equal(leadSkillsNotice(r.dropped), "Only production-level skills can lead. Skipped: Spring Boot (project-level), Kubernetes (still being learned), Terraform (not on your claims registry).");
+  // No registry: nothing to check against, nothing skipped.
+  assert.deepEqual(productionLeadSkills(["Java"], null), { kept: ["Java"], dropped: [] });
+  assert.equal(leadSkillsNotice([]), "");
+});
 
 const config = normalizeVariants({
   variants: [

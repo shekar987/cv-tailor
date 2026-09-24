@@ -54,6 +54,8 @@ import {
   type VariantsConfig,
   type Variant,
   type RoleType,
+  productionLeadSkills,
+  leadSkillsNotice,
 } from "@/lib/variants";
 import { normalizePreferences, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import CvUpload from "../CvUpload";
@@ -1352,13 +1354,21 @@ export default function CustomizePage() {
                     <Input value={v.headline} onChange={(e) => updateVariant(v.id, { headline: e.target.value })} placeholder="e.g. Backend engineer (Java, Spring Boot)" />
                   </label>
                   <label>
-                    Lead with these skills (comma-separated, must be on your CV)
+                    Lead with these skills (comma-separated, production-level on your claims registry)
                     <Input
                       value={leadSkillsText[v.id] ?? ""}
                       onChange={(e) => { const t = e.target.value; setLeadSkillsText((m) => ({ ...m, [v.id]: t })); setVariantsMsg(""); }}
                       placeholder="e.g. Java, Spring Boot, PostgreSQL"
                     />
                   </label>
+                  {(() => {
+                    const check = productionLeadSkills(splitList(leadSkillsText[v.id] ?? ""), claims);
+                    return check.dropped.length > 0 ? (
+                      <p className="fitEvidence" data-warn data-lead-skills-warn>
+                        {leadSkillsNotice(check.dropped)}
+                      </p>
+                    ) : null;
+                  })()}
                 </div>
                 <div className="eligChecks">
                   <span className="eligChecksLabel">Use for these kinds of role</span>

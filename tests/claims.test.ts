@@ -249,6 +249,16 @@ test("figures: a count noun in an achievement sentence is not a skill claim, and
   assert.deepEqual(seeded.skills.map((s) => s.name), ["Python", "FastAPI"]);
 });
 
+test("seed: a group label is not a skill, its items are; slashes split; versions and duplicates fold", () => {
+  const cv = "SKILLS\nSupabase (Postgres, Auth, RLS) · Auth · JWT / OAuth 2.0 / RBAC · Security · SQL (PostgreSQL, MySQL) · React 19\nEXPERIENCE\nEngineer | Acme | 2022 – 2024\n- Built things.";
+  const names = seedClaimsFromCv(cv).skills.map((s) => s.name);
+  for (const want of ["Supabase", "Postgres", "JWT", "OAuth", "RBAC", "SQL", "PostgreSQL", "MySQL", "React"]) assert.ok(names.includes(want), `${want} in ${names.join(", ")}`);
+  for (const not of ["Auth", "RLS", "Security", "React 19", "JWT / OAuth 2.0 / RBAC"]) assert.ok(!names.includes(not), `${not} not in ${names.join(", ")}`);
+  // The extraction model's guesses get the same cleaning.
+  const guessed = normalizeSkillGuesses([{ name: "React 19", level: "production" }, { name: "JWT / OAuth 2.0 / RBAC", level: "project" }, { name: "Auth", level: "project" }, { name: "Next.js 16", level: "project" }]).map((g) => g.name);
+  assert.deepEqual(guessed, ["React", "JWT", "OAuth", "RBAC", "Next.js"], "a version suffix folds, OAuth 2.0 included");
+});
+
 test("seedClaimsFromCv: every skill in the skills section and tech lines, levels from where the CV shows them used", () => {
   const cv = `SOMA SHEKAR
 Full-Stack Engineer

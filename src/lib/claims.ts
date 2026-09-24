@@ -63,7 +63,21 @@ export function normalizeSkillGuesses(v: unknown): { name: string; level: ClaimL
   const seen = new Set<string>();
   for (const raw of v) {
     const g = obj(raw);
-    const name = typeof g.name === "string" ? g.name.trim().replace(/\s+/g, " ").slice(0, MAX_SKILL_NAME) : "";
+    // The same cleaning the CV's own lists get: no version suffix ("React
+    // 19" is React), no group label, and a "JWT / OAuth 2.0 / RBAC" guess is
+    // three skills, not one.
+    const raw0 = typeof g.name === "string" ? g.name.trim().replace(/\s+/g, " ").slice(0, MAX_SKILL_NAME) : "";
+    const parts = raw0.split(/\s+\/\s+/).map((p) => cleanSkill(p)).filter((p) => p.length >= 2 && !GROUP_LABEL_RE.test(p));
+    if (parts.length > 1) {
+      for (const p of parts) {
+        const pk = skillKey(p);
+        if (!pk || seen.has(pk)) continue;
+        seen.add(pk);
+        out.push({ name: p, level: (LEVELS as readonly string[]).includes(g.level as string) ? (g.level as ClaimLevel) : "project" });
+      }
+      continue;
+    }
+    const name = parts[0] ?? "";
     if (!name) continue;
     const k = skillKey(name);
     if (!k || seen.has(k)) continue;
@@ -168,6 +182,12 @@ const TECH_LINE_PREFIX_RE = /^(?:tech(?:nologies)?|stack|tech\s+stack|built\s+wi
 const LINK_LINE_RE = /^(?:live|github|demo|url|link|repo)\b|https?:\/\//i;
 const SPLIT_RE = /\s*(?:[|·•;,]|\s\/\s)\s*/;
 const NOT_A_SKILL_RE = /^(?:and|or|etc\.?|others?|more|various|including|e\.g\.?|i\.e\.?|with|using|via)$/i;
+// A group label, not a skill: "Auth (JWT, OAuth 2.0, RBAC)" registers JWT,
+// OAuth 2.0 and RBAC — the items a recruiter searches for — never "Auth".
+// The same words alone ("RLS", "Security") are dropped for the same reason:
+// a registry entry nobody would claim or search is only noise to confirm.
+const GROUP_LABEL_RE =
+  /^(?:auth|authentication|authori[sz]ation|security|rls|row[-\s]level security|tools?|tooling|other|others|misc|miscellaneous|frameworks?|libraries|languages?|databases?|cloud|testing|devops|methodologies|concepts|core|stack|platforms?|infrastructure|services|apis?|backend|frontend|full[-\s]?stack|web|mobile|data|ai|ml)$/i;
 
 // An inline "Skills: Python, Django" line counts as the skills section even
 // on a CV with no headings at all; so does "Currently studying: X", whose
@@ -217,12 +237,17 @@ function splitSkillItems(line: string): string[] {
   // Bracketed lists first, before any comma inside them can split the line:
   // "SQL (PostgreSQL, MySQL)" names SQL and each item inside.
   const rest = line.replace(/([^()|·•;,]+?)\s*\(([^()]+)\)/g, (_m, outer: string, inner: string) => {
-    items.push(cleanSkill(outer));
+    // The label stays only when it is a skill in its own right ("SQL
+    // (PostgreSQL, MySQL)"); a group word ("Auth (JWT, OAuth 2.0)") does not.
+    const label = cleanSkill(outer);
+    if (!GROUP_LABEL_RE.test(label)) items.push(label);
     for (const i of inner.split(SPLIT_RE)) items.push(cleanSkill(i));
     return " · ";
   });
   for (const piece of rest.split(SPLIT_RE)) items.push(cleanSkill(piece));
-  return items.filter((s) => s.length >= 2 && s.length <= MAX_SKILL_NAME && /[a-z]/i.test(s) && !NOT_A_SKILL_RE.test(s));
+  return items.filter(
+    (s) => s.length >= 2 && s.length <= MAX_SKILL_NAME && /[a-z]/i.test(s) && !NOT_A_SKILL_RE.test(s) && !GROUP_LABEL_RE.test(s)
+  );
 }
 
 export function skillsFromCv(cvText: string): { name: string; level: ClaimLevel }[] {
