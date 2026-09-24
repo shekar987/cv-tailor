@@ -2213,6 +2213,10 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 }
 .stackChip.matched { color: var(--success); border-color: var(--success-border); background: var(--success-dim); }
 .stackChip.muted { color: var(--muted); }
+/* Tracker "Gate" column (lib/knockouts gateLine). */
+.stackChip.knockout { color: var(--danger); border-color: var(--danger-border); background: var(--danger-dim); }
+.stackChip.longshot { color: var(--amber); border-color: var(--amber-border); background: var(--amber-dim); }
+.gateChip { cursor: help; white-space: nowrap; }
 
 .openingsList { list-style: none; display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-3); }
 .openingBtn {

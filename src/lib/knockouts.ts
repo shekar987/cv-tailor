@@ -98,8 +98,36 @@ export type GatesSummary = {
   hard: number;
   soft: number;
   unknown: number;
-  items: { category: GateCategory; verdict: Verdict }[];
+  // requirement: the JD sentence the gate was read from, so a tracker row can
+  // say "Knockout: <quote>" months later.
+  items: { category: GateCategory; verdict: Verdict; requirement?: string }[];
 };
+
+// The one-line copy for a stored read (tracker sheet and CV panel):
+// "Knockout: <quote>" when a condition failed hard, "Long shot" for soft
+// ones, "Clear" when nothing failed, "Not checked" when no read was stored.
+export type GateLine = { label: "Knockout" | "Long shot" | "Clear" | "Not checked"; detail: string };
+export function gateLine(g: GatesSummary | null | undefined): GateLine {
+  if (!g) return { label: "Not checked", detail: "No eligibility read was stored with this application." };
+  const items = Array.isArray(g.items) ? g.items : [];
+  const quote = (v: Verdict) => {
+    const it = items.find((x) => x.verdict === v);
+    if (!it) return "";
+    return it.requirement?.trim() || CATEGORY_LABEL[it.category] || "";
+  };
+  const hard = items.filter((x) => x.verdict === "hard").length || g.hard;
+  const soft = items.filter((x) => x.verdict === "soft").length || g.soft;
+  const unknown = items.filter((x) => x.verdict === "unknown").length || g.unknown;
+  if (hard > 0 || g.read === "skip") {
+    const q = quote("hard");
+    return { label: "Knockout", detail: q ? `Knockout: ${q}` : "Knockout: a condition the form screens on was failed." };
+  }
+  if (soft > 0 || g.read === "long_shot") {
+    const q = quote("soft");
+    return { label: "Long shot", detail: q ? `Long shot: ${q}` : "Long shot: a condition was borderline." };
+  }
+  return { label: "Clear", detail: unknown > 0 ? `Clear — nothing failed; ${unknown} condition${unknown === 1 ? "" : "s"} to check yourself.` : "Clear — no knockout condition failed." };
+}
 
 export const MAX_GATES = 20;
 export const MAX_GATE_SNIPPET = 200;
@@ -866,7 +894,7 @@ export function summarizeGates(verdicts: GateVerdict[], read: GateRead): GatesSu
     hard: count("hard"),
     soft: count("soft"),
     unknown: count("unknown"),
-    items: verdicts.slice(0, MAX_GATES).map((x) => ({ category: x.gate.category, verdict: x.verdict })),
+    items: verdicts.slice(0, MAX_GATES).map((x) => ({ category: x.gate.category, verdict: x.verdict, requirement: x.gate.requirement })),
   };
 }
 

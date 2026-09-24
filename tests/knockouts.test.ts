@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  gateLine,
   detectGates,
   compareGates,
   mergeModelGates,
@@ -318,6 +319,25 @@ test("readVerdict: hard -> skip; soft or weak required coverage -> long shot; ot
   assert.ok(/1 to check yourself/.test(apply.reason)); // the licence is unknown (no licences listed)
   const summary = summarizeGates(compareGates(gates, profile({ clearance: { held: "sc", eligible: null }, yearsExperience: 5 })), apply.read);
   assert.deepEqual([summary.read, summary.hard, summary.soft, summary.unknown, summary.items.length], ["apply", 0, 0, 1, 3]);
+  // Every stored item carries the JD sentence it was read from.
+  assert.ok(summary.items.every((i) => typeof i.requirement === "string" && i.requirement.length > 0), JSON.stringify(summary.items));
+});
+
+test("gateLine: Knockout with the quoted sentence, Long shot, Clear, Not checked", () => {
+  const jd = "Requirements:\n- We cannot offer visa sponsorship for this role.\n- 5+ years of experience.";
+  const hard = summarizeGates(compareGates(detectGates(jd), profile({ rightToWork: { status: "needs_sponsorship", countries: [], permissionEnds: null }, yearsExperience: 4 })), "skip");
+  const k = gateLine(hard);
+  assert.equal(k.label, "Knockout");
+  assert.equal(k.detail, "Knockout: We cannot offer visa sponsorship for this role.");
+  const soft = summarizeGates(compareGates(detectGates("- 5+ years of experience."), profile({ yearsExperience: 4 })), "long_shot");
+  assert.equal(gateLine(soft).label, "Long shot");
+  assert.match(gateLine(soft).detail, /^Long shot: 5\+ years/);
+  const clear = summarizeGates(compareGates(detectGates("- Must hold a full UK driving licence."), profile({ yearsExperience: 4 })), "apply");
+  assert.equal(gateLine(clear).label, "Clear");
+  assert.match(gateLine(clear).detail, /1 condition to check yourself/);
+  assert.deepEqual(gateLine(null).label, "Not checked");
+  // A stored summary without requirements (rows saved before this) falls back to the category label.
+  assert.equal(gateLine({ read: "skip", hard: 1, soft: 0, unknown: 0, items: [{ category: "sponsorship", verdict: "hard" }] }).detail, "Knockout: Right to work");
 });
 
 test("jdQuality: partial below the threshold, never for an empty box", () => {

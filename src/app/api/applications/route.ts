@@ -37,7 +37,9 @@ function isStatus(value: unknown): value is Status {
 // exists — so the tracker can label its Prep action without the payload.
 const SELECT_COLUMNS =
   "id, company_name, role, cv_reference, tailor_session_id, status, salary, date_applied, followup_date, notes, job_description, source, created_at, updated_at";
-const LIST_COLUMNS = `${SELECT_COLUMNS}, prep_generated_at:prep_pack->>generatedAt`;
+// gates: the pre-check's eligibility read stored with the snapshot, so the
+// sheet can show "Knockout: <quote>" / "Clear" per row without the detail read.
+const LIST_COLUMNS = `${SELECT_COLUMNS}, prep_generated_at:prep_pack->>generatedAt, gates:tailored_cv->gates`;
 const DETAIL_COLUMNS_NO_PREP = `${SELECT_COLUMNS}, tailored_cv`;
 const DETAIL_COLUMNS = `${DETAIL_COLUMNS_NO_PREP}, prep_pack`;
 
@@ -119,14 +121,19 @@ function cleanGates(value: unknown): Record<string, unknown> | null {
   const items = Array.isArray(g.items)
     ? g.items
         .filter(
-          (x): x is { category: string; verdict: string } =>
+          (x): x is { category: string; verdict: string; requirement?: unknown } =>
             !!x &&
             typeof x === "object" &&
             (GATE_CATEGORIES as readonly string[]).includes((x as { category?: unknown }).category as string) &&
             (GATE_VERDICTS as readonly string[]).includes((x as { verdict?: unknown }).verdict as string)
         )
         .slice(0, 20)
-        .map((x) => ({ category: x.category, verdict: x.verdict }))
+        .map((x) => ({
+          category: x.category,
+          verdict: x.verdict,
+          // The JD sentence the gate was read from, bounded like the detector's snippet.
+          ...(typeof x.requirement === "string" && x.requirement.trim() ? { requirement: x.requirement.trim().slice(0, 200) } : {}),
+        }))
     : [];
   return { read: g.read, hard: count(g.hard), soft: count(g.soft), unknown: count(g.unknown), items };
 }

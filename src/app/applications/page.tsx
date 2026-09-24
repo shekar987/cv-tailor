@@ -10,6 +10,7 @@ import { saveBlob } from "@/lib/saveBlob";
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
 import { MAX_JD_CHARS as JD_LIMIT, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
 import { MIN_DECIDED, MIN_FOR_VERDICT, type Insights, type Bucket, type ScoreOutcome } from "@/lib/insights";
+import { gateLine, type GatesSummary } from "@/lib/knockouts";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -45,6 +46,9 @@ type Application = {
   // Stage 4: set (via a JSON-path alias in the list query) when a prep pack
   // is cached on the row; absent until the prep_pack migration is applied.
   prep_generated_at?: string | null;
+  // The pre-check's eligibility read stored with the snapshot (JSON-path
+  // alias in the list query): "Knockout: <quote>" / "Clear" per row.
+  gates?: unknown;
 };
 
 // What the Applied button stored: the generated sections plus the profile and
@@ -60,6 +64,7 @@ type TailoredCv = {
   // keyword analysis of this exact snapshot; older rows have neither.
   coverLetter?: string;
   ats?: unknown;
+  gates?: unknown;
 };
 
 type StoredAts = {
@@ -74,6 +79,22 @@ function stringList(value: unknown): string[] {
 // A user can write their own row under RLS, so the stored analysis is read
 // defensively: only well-formed string lists count, and an empty result is
 // treated as "not scored" rather than "0/0".
+// The stored eligibility read, bounded to the shape gateLine() reads.
+function readStoredGates(value: unknown): GatesSummary | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (v.read !== "apply" && v.read !== "long_shot" && v.read !== "skip") return null;
+  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+  const items = Array.isArray(v.items)
+    ? v.items
+        .filter((x): x is { category: GatesSummary["items"][number]["category"]; verdict: GatesSummary["items"][number]["verdict"]; requirement?: string } =>
+          !!x && typeof x === "object" && typeof (x as { category?: unknown }).category === "string" && typeof (x as { verdict?: unknown }).verdict === "string"
+        )
+        .map((x) => ({ category: x.category, verdict: x.verdict, ...(typeof x.requirement === "string" ? { requirement: x.requirement } : {}) }))
+    : [];
+  return { read: v.read, hard: n(v.hard), soft: n(v.soft), unknown: n(v.unknown), items };
+}
+
 function readStoredAts(value: unknown): StoredAts | null {
   if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
@@ -248,11 +269,12 @@ type SortKey = TextField | "status";
 type SortDir = "asc" | "desc";
 type PanelKind = "cv" | "jd" | "notes";
 
-const COLUMNS: { key: SortKey | PanelKind; label: string; sortable: boolean }[] = [
+const COLUMNS: { key: SortKey | PanelKind | "gate"; label: string; sortable: boolean }[] = [
   { key: "company_name", label: "Company Name", sortable: true },
   { key: "role", label: "Role", sortable: true },
   { key: "cv", label: "CV", sortable: false },
   { key: "jd", label: "JD", sortable: false },
+  { key: "gate", label: "Gate", sortable: false },
   { key: "status", label: "Status", sortable: true },
   { key: "salary", label: "Salary", sortable: true },
   { key: "date_applied", label: "Date Applied", sortable: true },
@@ -939,6 +961,14 @@ export default function ApplicationsPage() {
                 sectionOrder={snap.sectionOrder ?? sectionOrder}
                 fileBaseName={row.cv_reference ?? "CV"}
               />
+              {(() => {
+                const line = gateLine(readStoredGates(row.gates ?? snap.gates));
+                return (
+                  <p className="fitEvidence" data-gate-line={line.label} data-warn={line.label === "Knockout" ? "" : undefined}>
+                    {line.detail}
+                  </p>
+                );
+              })()}
               {storedAts && (
                 <div className="atsGroup">
                   <div className="atsGroupLabel recs">Recruiter search visibility · saved CV</div>
@@ -1368,6 +1398,7 @@ export default function ApplicationsPage() {
                       </td>
                       <td data-label="CV"><span className="appsCellStatic">—</span></td>
                       <td data-label="JD"><span className="appsCellStatic">after save</span></td>
+                      <td data-label="Gate"><span className="appsCellStatic">—</span></td>
                       <td data-label="Status">
                         <select
                           className="appsCellSelect"
@@ -1468,6 +1499,20 @@ export default function ApplicationsPage() {
                           >
                             {row.job_description ? "View JD" : "Add JD"}
                           </button>
+                        </td>
+                        <td data-label="Gate">
+                          {(() => {
+                            const line = gateLine(readStoredGates(row.gates));
+                            return (
+                              <span
+                                className={"stackChip gateChip " + (line.label === "Knockout" ? "knockout" : line.label === "Clear" ? "matched" : line.label === "Long shot" ? "longshot" : "muted")}
+                                title={line.detail}
+                                data-gate={line.label}
+                              >
+                                {line.label}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td data-label="Status">
                           <span className="appsStatusWrap">
