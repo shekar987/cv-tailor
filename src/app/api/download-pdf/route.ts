@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { buildCvPdf } from "@/lib/buildCvPdf";
 import { normalizeProfile } from "@/lib/profile";
 import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
+import { extractPdfText, checkPdfTextLayer, countWords } from "@/lib/pdfTextCheck";
 
 // 'nodejs' is already the Next 16 default; pinned because src/lib/pdfText.ts
 // reads the embedded font files with fs at import time.
@@ -34,15 +35,31 @@ export async function POST(req: NextRequest) {
     }
 
     const text = (v: unknown) => (typeof v === "string" ? v : "");
+    const profile = normalizeProfile(body.profile);
+    const projects = body.projects && typeof body.projects === "object" ? (body.projects as Record<string, string[]>) : {};
     const bytes = buildCvPdf({
       summary: text(body.summary),
       skills: text(body.skills),
       experience: text(body.experience),
-      projects: body.projects && typeof body.projects === "object" ? (body.projects as Record<string, string[]>) : {},
+      projects,
       projectsMeta: Array.isArray(body.projectsMeta) ? body.projectsMeta : [],
-      profile: normalizeProfile(body.profile),
+      profile,
       sectionOrder: body.sectionOrder,
     });
+
+    // Text-layer check (lib/pdfTextCheck): read the text back out of the
+    // bytes just built, the way an ATS parser would, and refuse to send a
+    // file that does not carry the name, the email and the document's words.
+    // A rasterised PDF shipped once; this is what would have caught it.
+    const sourceWords = countWords([text(body.summary), text(body.skills), text(body.experience), Object.values(projects).flat().filter((b) => typeof b === "string").join("\n")].join("\n"));
+    const check = checkPdfTextLayer(await extractPdfText(bytes), { name: profile.name, email: String(profile.email || ""), sourceWords });
+    if (!check.ok) {
+      console.error("PDF text-layer check failed:", check.problems.join("; "));
+      return NextResponse.json(
+        { error: `The PDF failed its text-layer check and was not sent: ${check.problems.join("; ")}. Use the Word download and report this.`, errorType: "pdf_text_layer" },
+        { status: 500 }
+      );
+    }
 
     // The client names the saved file (see saveBlob in CvPreview); this header
     // is a safe constant so no profile text ever reaches a response header.

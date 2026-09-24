@@ -68,9 +68,9 @@ src/
       extract-profile/route.ts← Extracts + normalises the structured profile, plus the claims-registry seed (`skills` with evidence levels) — auth-gated, burst limit
       parse-cv/route.ts       ← Uploaded PDF/.docx → text via lib/parseCv.ts (unpdf/mammoth) — auth-gated, Node runtime
       download/route.ts       ← CV Word .docx from the DOM-extracted payload
-      download-pdf/route.ts   ← CV PDF (real text layer, mirrors download/route.ts) — Node runtime
+      download-pdf/route.ts   ← CV PDF (real text layer, mirrors download/route.ts) — Node runtime; reads the text back out of the built bytes (lib/pdfTextCheck) and refuses the file (500 `pdf_text_layer`) when the name, the email or the words are missing
       download-cover/route.ts ← Cover letter .docx
-      download-cover-pdf/route.ts ← Cover letter PDF — Node runtime
+      download-cover-pdf/route.ts ← Cover letter PDF — Node runtime; same text-layer check, judged against the letter's own word count
       applications/route.ts   ← Tracker CRUD (GET list / GET ?id= / POST / PUT / DELETE); POST scores the snapshot's `ats` lists server-side from the stored text (never trusts client verdicts)
       applications/export/route.ts ← Tracker CSV export (honours ?status/?from/?to and the page's search term ?q via lib/trackerSearch, applied after the read)
       applications/insights/route.ts ← GET: progression rate by score band / eligibility read / role / company over the caller's rows (lib/insights); no LLM
@@ -124,7 +124,8 @@ src/
     cvDensity.ts / projectDate.ts / saveBlob.ts / pastePlainText.ts
     parseCv.ts                ← PDF/DOCX/TXT → text (byte sniffing, scanned-image detection)
     keyEncryption.ts          ← AES-256-GCM for users' provider keys (KEY_ENCRYPTION_SECRET)
-    buildCvPdf.ts / buildCoverLetterPdf.ts / pdfText.ts ← jsPDF generators with a real text layer (NotoSans embedded from lib/fonts/)
+    buildCvPdf.ts / buildCoverLetterPdf.ts / pdfText.ts ← jsPDF generators with a real text layer (NotoSans embedded from lib/fonts/); header contact pieces are real link annotations (doc.link)
+    pdfTextCheck.ts           ← The PDF text-layer gate (rules import-free, tests/): checkPdfTextLayer(extracted, { name, email, sourceWords }) — name and email present when supplied (spacing/case folded), ≥ MIN_WORDS (150) or 80% of the source; extractPdfText() reads the built bytes with unpdf. Both PDF routes run it before sending — the check that would have caught the rasterised-PDF bug the day it shipped
     apiRateLimit.ts           ← Burst limiter: Upstash when configured, in-process sliding window otherwise
     supabase/
       env.ts                  ← Fail-loud readers for the two NEXT_PUBLIC_SUPABASE_* vars
@@ -136,7 +137,7 @@ src/
     steps.ts                  ← All prompt templates (summaryPrompt, skillsPrompt, etc.)
     masterCV.ts               ← Owner's CV — DEV FALLBACK ONLY, never imported by a production path
 supabase/migrations/          ← Checked-in SQL (applications table, tailored_cv, company_profiles, projects_pool, prep_pack, user_settings + find_applications_by_jd, user_settings.variants …); see supabase/schema.md
-tests/                        ← node:test unit suites (atsMatch, companyMatch, knockouts, claims, insights, quality, extractionCheck, variants, preferences, visibilityVerdict, formatRules, trackerSearch, seniority, roleTitle, properNouns, providerErrors, rightToWorkText) — `npm test`, zero dependencies
+tests/                        ← node:test unit suites (atsMatch, companyMatch, knockouts, claims, insights, quality, extractionCheck, variants, preferences, visibilityVerdict, formatRules, trackerSearch, seniority, roleTitle, properNouns, providerErrors, rightToWorkText, pdfTextCheck) — `npm test`, zero dependencies
 scripts/backfill-tracker-scores.mjs ← one-off: tracker rows saved before the snapshot carried a score get counts from the notes' reconciled "Search visibility: 13/15 keywords" line, a recomputed eligibility read and the role seniority (reads SUPABASE_SECRET_KEY from .env.local; dry run by default, --apply writes)
 eval/                         ← Tailoring evaluation harness: pairs.json (5 synthetic CVs × 2 JDs), run.mjs (PAID: 10 tailors → eval/out/<label>), assert.mjs (free: the four assertions + metrics, two labels = a delta), inspect.mjs (filler words / weak bullets of a run)
 ```
@@ -568,6 +569,10 @@ Consequences for anyone touching this:
   projectDate) must accept en-dash, "to", month-name and MM/YYYY forms —
   an unrecognised format used to blank the preview's whole Experience
   section.
+- **Every download now runs that extraction itself** (`lib/pdfTextCheck`, both PDF
+  routes): a file whose text layer lacks the name, the email or the words is
+  refused with a 500 and the reason, and the previews show it. Keep the check
+  in front of the response; never move it behind a flag.
 - **Any change to the PDF generators must be verified by actually extracting
   text back out of the generated PDF** (e.g. via `unpdf`, already a
   dependency, used elsewhere for parsing uploaded resumes) and confirming the

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { buildCoverLetterPdf } from "@/lib/buildCoverLetterPdf";
 import { MAX_COVER_LETTER_CHARS, MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
+import { extractPdfText, checkPdfTextLayer, countWords } from "@/lib/pdfTextCheck";
 
 // 'nodejs' is already the Next 16 default; pinned because src/lib/pdfText.ts
 // reads the embedded font files with fs at import time.
@@ -37,6 +38,17 @@ export async function POST(req: NextRequest) {
     }
 
     const bytes = buildCoverLetterPdf(text);
+
+    // Same text-layer check as the CV PDF (lib/pdfTextCheck): the letter's
+    // words must come back out of the file, judged against the letter itself.
+    const check = checkPdfTextLayer(await extractPdfText(bytes), { sourceWords: countWords(text) });
+    if (!check.ok) {
+      console.error("Cover letter PDF text-layer check failed:", check.problems.join("; "));
+      return NextResponse.json(
+        { error: `The PDF failed its text-layer check and was not sent: ${check.problems.join("; ")}. Use the Word download and report this.`, errorType: "pdf_text_layer" },
+        { status: 500 }
+      );
+    }
 
     return new Response(new Uint8Array(bytes), {
       status: 200,

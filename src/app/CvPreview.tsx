@@ -285,12 +285,16 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error("Could not build the document");
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data && typeof data.error === "string" ? data.error : "Could not build the document");
+      }
       const blob = await res.blob();
       saveBlob(blob, `${fileBaseName}.pdf`);
     } catch (e) {
-      console.error("PDF generation failed:", e instanceof Error ? e.message : String(e));
-      setDocErr("PDF generation failed. Try the Word download, or retry.");
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("PDF generation failed:", message);
+      setDocErr(message.startsWith("The PDF failed") ? message : "PDF generation failed. Try the Word download, or retry.");
     } finally {
       setBusy(false);
     }
