@@ -109,6 +109,7 @@ src/
     insights.ts               ← rowFromApplication()/computeInsights(): tracker progression rate by band (import-free, tests/); seniorityOf() (stored with every tailored save); scoreOutcome(): decided applications against their stored score, Mann-Whitney AUC, the top-N read — the "does the score predict the outcome?" panel
     quality.ts                ← estimatePages() (same line/heading arithmetic as cvDensity → the download's real length; `pages` is the stretched length the builders pick, `fitsOnePage` the honest one-page fit at the tightest spacing), onePageExpected(years) (< ONE_PAGE_MAX_YEARS = 3, from the user's own eligibility answer, never inferred), findDuplicateContent(), hasEvidence()/weakBullets(), inflationHits(), orderingSignature() for the harness (tests/)
     rightToWorkText.ts        ← Right-to-work wording in GENERATED text (import-free, tests/): stripRightToWorkSentences() (summary, letter — the sentence goes, the line stays), stripRightToWorkLines() (experience, skills), stripRightToWorkBullets() (projects). /api/tailor runs them when `preferences.includeRightToWorkOnCv` is false (the default) — the models write from the master CV text, which states the status, so "Student visa … Graduate Route" kept landing in summaries and letters — and reports `rtwStripped` for the /app notice. "Visa" capitalised alone (a company) is never matched
+    graduateMode.ts           ← Graduate-scheme layout (imports ./sectionOrder.ts, tests/): isGraduateScheme(title, jd) reads graduate / placement / intern / early-careers / trainee off the title, or "graduate scheme / programme" off the posting; graduateSectionOrder(stored) moves Education directly under the summary for that run unless the user's own order already lists it before Experience. Applied on /app only (the saved order is untouched), with a per-run "Use my standard order" button; the preview and the Applied snapshot read the run's order
     headline.ts               ← The header line under the name, per run (imports ./atsMatch.ts, tests/): buildHeadline() = qualification with its stated status (first education entry; "Present"/"expected" → "(in progress, expected 2026)", a completion year → "(2025)") · the first posting term the claims registry holds at PRODUCTION level (project/learning never headline; no registry → no skill) · the user's stated years ("2 years' experience", never inferred) · the posting's title literally. /api/tailor returns `headline`; /app's display profile uses it as the tagline, so preview, downloads and the Applied snapshot show one header. The contact line under it is hyperlinked in all three renderers (mailto + LinkedIn/GitHub/Portfolio)
     onePage.ts                ← One-page enforcement for under three years (imports ./quality.ts, ./atsMatch.ts, ./formatRules.ts; tests/): fitOnePage(sections, profile, terms) measures the document with estimatePages at a ONE-page target and trims BY RELEVANCE (required-skill hits × 4 + keyword hits × 2 + evidence; the model's order breaks ties): summary ≤ 60 words (whole leading sentences, the first always stays), Technical Tools ≤ 12, the most recent role ≤ 4 bullets / earlier roles ≤ 3 / never below 2, projects ≤ 2 / never below 1, then the least relevant bullet anywhere until it fits (projects give way first, then the oldest role). Nothing is rewritten; the report lists every piece left out and `fits` says whether it made it. /api/tailor runs it when the body's `eligibility.yearsExperience` is under ONE_PAGE_MAX_YEARS (the prompts also get onePageExperienceBudget / projectsBudget(n, true)), returns `onePage`, and /app shows "Left out for length"; CvPreview sends `targetPages: 1` so both downloads lay the content out to one page (chooseDensity(size, pages)) instead of stretching it to two
     formatRules.ts            ← Hard post-generation formatting rules (imports only ./atsMatch.ts, tests/): capTechnicalTools() cuts the "Technical Tools:" line (plain or **bold** label — the plain-only regex silently skipped every bold line the model actually writes) to MAX_TECHNICAL_TOOLS (15), keeping required-skill matches, then keyword matches, then the model's order; capSummary() cuts a summary to MAX_SUMMARY_SENTENCES (3), one per line; applyFormatRules() runs both in /api/tailor after wave 1 and reports `formatFixes` (what was dropped) for the /app notice. Drops only — never adds or rewrites
@@ -139,7 +140,7 @@ src/
     steps.ts                  ← All prompt templates (summaryPrompt, skillsPrompt, etc.)
     masterCV.ts               ← Owner's CV — DEV FALLBACK ONLY, never imported by a production path
 supabase/migrations/          ← Checked-in SQL (applications table, tailored_cv, company_profiles, projects_pool, prep_pack, user_settings + find_applications_by_jd, user_settings.variants …); see supabase/schema.md
-tests/                        ← node:test unit suites (atsMatch, companyMatch, knockouts, claims, insights, quality, extractionCheck, variants, preferences, visibilityVerdict, formatRules, trackerSearch, seniority, roleTitle, properNouns, providerErrors, rightToWorkText, pdfTextCheck, onePage, headline) — `npm test`, zero dependencies
+tests/                        ← node:test unit suites (atsMatch, companyMatch, knockouts, claims, insights, quality, extractionCheck, variants, preferences, visibilityVerdict, formatRules, trackerSearch, seniority, roleTitle, properNouns, providerErrors, rightToWorkText, pdfTextCheck, onePage, headline, graduateMode) — `npm test`, zero dependencies
 scripts/backfill-tracker-scores.mjs ← one-off: tracker rows saved before the snapshot carried a score get counts from the notes' reconciled "Search visibility: 13/15 keywords" line, a recomputed eligibility read and the role seniority (reads SUPABASE_SECRET_KEY from .env.local; dry run by default, --apply writes)
 eval/                         ← Tailoring evaluation harness: pairs.json (5 synthetic CVs × 2 JDs), run.mjs (PAID: 10 tailors → eval/out/<label>), assert.mjs (free: the four assertions + metrics, two labels = a delta), inspect.mjs (filler words / weak bullets of a run)
 ```
@@ -639,6 +640,18 @@ matter if you touch this:
 The quota refund is what stops the user paying for it — verified for real
 during that outage: `tailor_count` and `claude_tailors_used` both stayed 0
 across two failed runs.
+
+### React Compiler: a const declared after the function that closes over it costs two lint errors
+
+`npm run lint` runs the React Compiler rules. A `const` computed in the
+component body but declared BELOW a hoisted `async function` handler that
+reads it (fine at runtime — the handler runs later) makes the compiler give
+up on every manual `useMemo` above it ("Compilation Skipped: Existing
+memoization could not be preserved", reported twice, with a misleading
+"this dependency may be mutated later" pointing at an unrelated memo dep).
+Declare run-derived values right after the state they read, above the
+handlers (`runSectionOrder` in `app/page.tsx` is the example). The lint
+baseline is 28 problems; a change that moves it is a change to look at.
 
 ### Rate limiting is two layers, and one of them is optional
 

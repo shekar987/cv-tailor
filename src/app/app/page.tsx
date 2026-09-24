@@ -22,6 +22,7 @@ import { qualityReport, onePageExpected, type QualityReport } from "@/lib/qualit
 import { normalizeVariants, pickVariant, type VariantsConfig } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import type { SeniorityFit } from "@/lib/seniority";
+import { isGraduateScheme, graduateSectionOrder } from "@/lib/graduateMode";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { bandFor, parseCoverage, combineWithFit, type VisibilityBand, type CombinedVerdict } from "@/lib/visibilityVerdict";
@@ -136,6 +137,10 @@ const WHERE_LABEL: Record<ClaimWhere, string> = { cv: "CV", coverLetter: "cover 
 function companyOf(analysis: unknown): string | undefined {
   const a = analysis as { company_name?: unknown } | null | undefined;
   return typeof a?.company_name === "string" ? a.company_name : undefined;
+}
+function roleTitleOf(analysis: unknown): string | undefined {
+  const a = analysis as { role_title?: unknown } | null | undefined;
+  return typeof a?.role_title === "string" ? a.role_title : undefined;
 }
 
 // What /api/analyze returns beside the keyword pre-check.
@@ -343,6 +348,18 @@ export default function Home() {
   // The JD the current result was generated from, so editing the textarea can
   // flag the results below as stale. Null for results saved before this field.
   const [resultJd, setResultJd] = useState<string | null>(null);
+  // Graduate-scheme layout (lib/graduateMode) applies per run; this holds the
+  // run the user switched back to their standard order.
+  const [standardOrderFor, setStandardOrderFor] = useState<string | null>(null);
+  // A graduate / placement / early-careers posting is screened on the degree
+  // first: Education moves under the summary for this run (lib/graduateMode),
+  // unless the user's own order already has it there or they switched this
+  // run back. The preview and the Applied snapshot read runSectionOrder.
+  // Declared here, above the handlers that close over it: the React Compiler
+  // will not memoise around a const declared after the function using it.
+  const graduateRun = !!result && isGraduateScheme(roleTitleOf(result.analysis), resultJd ?? jobDescription);
+  const graduateLayout = graduateRun && standardOrderFor !== (tailorSessionId ?? "run") ? graduateSectionOrder(sectionOrder) : null;
+  const runSectionOrder: unknown = graduateLayout?.changed ? graduateLayout.order : sectionOrder;
   // Which flow produced the result. Only "jd" runs arm the stale-JD banner;
   // an outreach run is tailored from a research brief, not the JD box.
   const [resultSource, setResultSource] = useState<"jd" | "outreach" | null>(null);
@@ -1055,7 +1072,7 @@ export default function Home() {
               // projects, not the master CV's, and Right to Work only when
               // the switch is on.
               : displayProfile,
-            sectionOrder: edited ? edited.sectionOrder : sectionOrder,
+            sectionOrder: edited ? edited.sectionOrder : runSectionOrder,
             // The letter as it stands in the preview — edits included, date
             // line first — so the tracker holds it as sent. And the role's
             // terms: the server scores this exact snapshot against them, so
@@ -1138,6 +1155,9 @@ export default function Home() {
   // Deterministic quality read (lib/quality) of what is on screen: the page
   // estimate the download layout implies, content repeated across sections,
   // bullets with no evidence, filler words. Never blocks; it says what to fix.
+  // 1 for under three years (the user's own eligibility answer), else 2 —
+  // the page target the estimate, the preview and the downloads all use.
+  const onePageTarget: 1 | 2 = onePageExpected(eligibility?.yearsExperience) ? 1 : 2;
   const quality: QualityReport | null = useMemo(() => {
     if (liveQuality) return liveQuality;
     if (!result) return null;
@@ -1146,9 +1166,9 @@ export default function Home() {
       displayProfile,
       result.coverLetter,
       companyOf(result.analysis),
-      onePageExpected(eligibility?.yearsExperience) ? 1 : 2
+      onePageTarget
     );
-  }, [liveQuality, result, displayProfile, eligibility]);
+  }, [liveQuality, result, displayProfile, onePageTarget]);
   // Under three years of experience (the user's own eligibility answer —
   // never inferred) a recruiter expects one page. Two readings: the content
   // genuinely cannot fit one page at the tightest spacing, or it could but
@@ -1984,6 +2004,20 @@ export default function Home() {
                 </div>
               </div>
             )}
+            {graduateLayout?.changed && (
+              <div className="limitNotice" role="status" data-graduate-layout>
+                <div className="limitNotice__title">Graduate-scheme layout</div>
+                <div className="limitNotice__body">
+                  This posting is screened on the degree first, so Education sits under the summary for this run.
+                  Your saved section order is unchanged.
+                </div>
+                <div className="limitNotice__cta">
+                  <Button type="button" variant="secondary" onClick={() => setStandardOrderFor(tailorSessionId ?? "run")}>
+                    Use my standard order for this run
+                  </Button>
+                </div>
+              </div>
+            )}
             {result.onePage && (
               <div className="limitNotice" role="status" data-one-page={result.onePage.fits ? "fits" : "over"}>
                 <div className="limitNotice__title">
@@ -2270,9 +2304,9 @@ export default function Home() {
                 data={cvData}
                 profile={displayProfile}
                 rightToWorkForForms={rtwForForms}
-                targetPages={onePageExpected(eligibility?.yearsExperience) ? 1 : 2}
+                targetPages={onePageTarget}
                 downloadsDisabledReason={downloadReason}
-                sectionOrder={sectionOrder}
+                sectionOrder={runSectionOrder}
                 fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}
                 downloadsDisabled={blocked}
               />
