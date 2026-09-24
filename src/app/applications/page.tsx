@@ -1194,6 +1194,10 @@ export default function ApplicationsPage() {
                 <InsightGroup title="By role seniority" buckets={insights.bySeniority} />
                 <InsightGroup title="By role" buckets={insights.byRole} />
                 <InsightGroup title="By company" buckets={insights.byCompany} />
+                <InsightGroup title="By how the row was made" buckets={insights.bySource} />
+                <InsightGroup title="By follow-up date" buckets={insights.byFollowup} />
+                <InsightGroup title="By page count of the CV sent" buckets={insights.byPages} />
+                <InsightGroup title="By posting age when you applied" buckets={insights.byPostingAge} />
                 {insights.byVisibility.length + insights.byRequired.length + insights.byGate.length === 0 && (
                   <p className="fitEvidence">
                     Score and eligibility bands appear once applications saved from a tailored run have outcomes.

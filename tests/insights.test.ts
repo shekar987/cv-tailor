@@ -90,11 +90,11 @@ test("computeInsights: outcomes, bands, withdrawn excluded, rate null under the 
   assert.equal(i.scored, 6);
   assert.equal(i.gated, 6);
   assert.deepEqual([i.progressed, i.rejected, i.decided], [3, 3, 6]);
-  assert.equal(i.overallRate, 0.5);
+  assert.equal(i.overallRate, null, "6 decided is under the 8-per-group rule");
 
   const high = i.byVisibility.find((b) => b.key === "high");
   assert.ok(high);
-  assert.deepEqual([high.n, high.progressed, high.rejected, high.rate], [3, 2, 1, 2 / 3]);
+  assert.deepEqual([high.n, high.progressed, high.rejected, high.rate], [3, 2, 1, null]);
   const low = i.byVisibility.find((b) => b.key === "low");
   assert.ok(low);
   assert.deepEqual([low.n, low.rejected, low.rate], [2, 2, null]); // only 2 decided
@@ -103,13 +103,34 @@ test("computeInsights: outcomes, bands, withdrawn excluded, rate null under the 
   const skip = i.byGate.find((b) => b.key === "skip");
   assert.ok(skip && skip.n === 2 && skip.rejected === 2 && skip.rate === null);
   const apply = i.byGate.find((b) => b.key === "apply");
-  assert.ok(apply && apply.n === 3 && apply.rate === 2 / 3); // the withdrawn row is not counted
+  assert.ok(apply && apply.n === 3 && apply.rate === null); // the withdrawn row is not counted; 3 decided < 8
 
   const acme = i.byCompany.find((b) => b.key === "acme");
   assert.ok(acme && acme.n === 6 && acme.label === "Acme");
   assert.equal(i.byCompany.find((b) => b.key === "globex"), undefined); // n < 2 is cut
   assert.deepEqual(i.byRole.map((b) => [b.label, b.n]), [["Backend Engineer", 5], ["Data Engineer", 2]]);
-  assert.equal(MIN_DECIDED, 3);
+  assert.equal(MIN_DECIDED, 8);
+});
+
+test("computeInsights: source, follow-up, page count and posting age groups; a rate only from 8 decided", () => {
+  const rows: InsightRow[] = [];
+  for (let k = 0; k < 10; k++) rows.push(row(k < 4 ? "Interview" : "Rejected", { source: "tailored", followupSet: true, pages: 1, postingAgeDays: 2 }));
+  for (let k = 0; k < 3; k++) rows.push(row("Rejected", { source: "manual", followupSet: false, pages: 2, postingAgeDays: 20 }));
+  rows.push(row("Applied", { source: "tailored", followupSet: true, pages: 2, postingAgeDays: 9 }));
+  const i = computeInsights(rows);
+  const tailored = i.bySource.find((b) => b.key === "tailored")!;
+  assert.deepEqual([tailored.n, tailored.progressed, tailored.rejected, tailored.rate], [11, 4, 6, 0.4]);
+  const manual = i.bySource.find((b) => b.key === "manual")!;
+  assert.deepEqual([manual.n, manual.rate], [3, null]);
+  assert.deepEqual(i.byFollowup.map((b) => [b.key, b.n]), [["set", 11], ["none", 3]]);
+  assert.deepEqual(i.byPages.map((b) => [b.label, b.n]), [["One-page CV", 10], ["2-page CV", 4]]);
+  assert.deepEqual(i.byPostingAge.map((b) => [b.key, b.n]), [["fresh", 10], ["week", 1], ["old", 3]]);
+  assert.equal(i.byPostingAge[0].rate, 0.4);
+  // Rows read from the list query carry the fields as JSON-path aliases.
+  const r = rowFromApplication({ status: "Rejected", role: "x", company_name: "y", source: "tailored", followup_date: "2026-10-01", pages: "1", posting_age_days: "3" });
+  assert.deepEqual([r.source, r.followupSet, r.pages, r.postingAgeDays], ["tailored", true, 1, 3]);
+  const s = rowFromApplication({ status: "Rejected", role: "x", company_name: "y", followup_date: null, tailored_cv: { pages: 2, postingAgeDays: 40 } });
+  assert.deepEqual([s.source, s.followupSet, s.pages, s.postingAgeDays], [undefined, false, 2, 40]);
 });
 
 test("computeInsights on nothing", () => {

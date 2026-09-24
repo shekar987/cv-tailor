@@ -162,6 +162,12 @@ function cleanTailoredCv(value: unknown, role: string): { snapshot: Record<strin
   if (ats) snapshot.ats = ats;
   const gates = cleanGates(input.gates);
   if (gates) snapshot.gates = gates;
+  // Prompt 13: the page count the CV was sent at and the posting's age at
+  // application (both read client-side, both bounded here).
+  const pages = Number(input.pages);
+  if (Number.isFinite(pages) && pages >= 1 && pages <= 5) snapshot.pages = Math.round(pages);
+  const age = Number(input.postingAgeDays);
+  if (Number.isFinite(age) && age >= 0 && age <= 365) snapshot.postingAgeDays = Math.round(age);
   // Role seniority, read off the title here so every save carries it.
   if (role) snapshot.seniority = seniorityOf(role);
   if (JSON.stringify(snapshot).length > MAX_TAILORED_CV_JSON) {

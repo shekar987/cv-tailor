@@ -11,6 +11,8 @@
 // null until at least MIN_DECIDED applications in it have an outcome - a
 // 1-of-1 "100%" would mislead.
 
+import { POSTING_AGE_BANDS } from "./postingAge.ts";
+
 export type GateRead = "apply" | "long_shot" | "skip";
 export type Seniority = "junior" | "mid" | "senior";
 
@@ -24,6 +26,12 @@ export type InsightRow = {
   reqTotal?: number;
   gateRead?: GateRead;
   seniority?: Seniority;
+  // Prompt 13: how the row was made, whether a follow-up date was set, the
+  // page count of the CV sent, and how old the posting was at application.
+  source?: "tailored" | "manual";
+  followupSet?: boolean;
+  pages?: number;
+  postingAgeDays?: number;
 };
 
 // Role seniority read off the title, stored with every tailored save and
@@ -73,9 +81,16 @@ export type Insights = {
   bySeniority: Bucket[];
   byRole: Bucket[];
   byCompany: Bucket[];
+  bySource: Bucket[];
+  byFollowup: Bucket[];
+  byPages: Bucket[];
+  byPostingAge: Bucket[];
 };
 
-export const MIN_DECIDED = 3;
+// A group's progression rate shows only once at least this many of its
+// applications have an outcome (the ≥8-per-group rule): below that a 2-of-3
+// reads as 67% and sends the user chasing noise.
+export const MIN_DECIDED = 8;
 const PROGRESSED = new Set(["Screening", "Interview", "Offer"]);
 
 function obj(v: unknown): Record<string, unknown> {
@@ -92,6 +107,12 @@ export function rowFromApplication(row: unknown): InsightRow {
     company: typeof r.company_name === "string" ? r.company_name.trim() : "",
   };
   const snapshot = obj(r.tailored_cv);
+  if (r.source === "tailored" || r.source === "manual") out.source = r.source;
+  if (r.followup_date !== undefined) out.followupSet = typeof r.followup_date === "string" && r.followup_date.trim() !== "";
+  const pages = Number(r.pages ?? snapshot.pages);
+  if (Number.isFinite(pages) && pages >= 1 && pages <= 5) out.pages = Math.round(pages);
+  const age = Number(r.posting_age_days ?? snapshot.postingAgeDays);
+  if (Number.isFinite(age) && age >= 0 && age <= 365) out.postingAgeDays = Math.round(age);
   const ats = obj(r.ats ?? snapshot.ats);
   const kw = countPair(obj(ats.keywords));
   if (kw) {
@@ -164,6 +185,10 @@ export function computeInsights(rows: InsightRow[]): Insights {
   const bySeniority = new Map<string, Acc>();
   const byRole = new Map<string, Acc>();
   const byCompany = new Map<string, Acc>();
+  const bySource = new Map<string, Acc>();
+  const byFollowup = new Map<string, Acc>();
+  const byPages = new Map<string, Acc>();
+  const byPostingAge = new Map<string, Acc>();
   let scored = 0;
   let gated = 0;
   let progressed = 0;
@@ -188,6 +213,13 @@ export function computeInsights(rows: InsightRow[]): Insights {
     if (row.seniority) bucketOf(bySeniority, row.seniority, SENIORITY_LABEL[row.seniority], row);
     if (row.role) bucketOf(byRole, row.role.toLowerCase(), row.role, row);
     if (row.company) bucketOf(byCompany, row.company.toLowerCase(), row.company, row);
+    if (row.source) bucketOf(bySource, row.source, row.source === "tailored" ? "Tailored here" : "Added by hand", row);
+    if (row.followupSet !== undefined) bucketOf(byFollowup, row.followupSet ? "set" : "none", row.followupSet ? "Follow-up date set" : "No follow-up date", row);
+    if (row.pages !== undefined) bucketOf(byPages, String(row.pages), row.pages === 1 ? "One-page CV" : `${row.pages}-page CV`, row);
+    if (row.postingAgeDays !== undefined) {
+      const band = POSTING_AGE_BANDS.find((b) => b.test(row.postingAgeDays!));
+      if (band) bucketOf(byPostingAge, band.key, band.label, row);
+    }
   }
 
   const ordered = (map: Map<string, Acc>, order: string[]) =>
@@ -215,6 +247,10 @@ export function computeInsights(rows: InsightRow[]): Insights {
     bySeniority: ordered(bySeniority, ["junior", "mid", "senior"]),
     byRole: top(byRole),
     byCompany: top(byCompany),
+    bySource: ordered(bySource, ["tailored", "manual"]),
+    byFollowup: ordered(byFollowup, ["set", "none"]),
+    byPages: ordered(byPages, ["1", "2", "3", "4", "5"]),
+    byPostingAge: ordered(byPostingAge, ["fresh", "week", "old"]),
   };
 }
 

@@ -25,6 +25,7 @@ import type { SeniorityFit } from "@/lib/seniority";
 import { isGraduateScheme, graduateSectionOrder } from "@/lib/graduateMode";
 import type { BulletChanges, RoleChanges } from "@/lib/bulletIds";
 import { fallbackNotice } from "@/lib/fallbackRoute";
+import { postingAgeDays } from "@/lib/postingAge";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { bandFor, parseCoverage, combineWithFit, type VisibilityBand, type CombinedVerdict } from "@/lib/visibilityVerdict";
@@ -390,6 +391,11 @@ export default function Home() {
   // Reaches into CvPreview for the EDITED document when saving to the tracker.
   const previewRef = useRef<CvPreviewHandle>(null);
   const coverRef = useRef<CoverLetterPreviewHandle>(null);
+  // The current page estimate, mirrored into a ref by an effect so the
+  // Applied handler (a hoisted function) can read it without referencing the
+  // quality memo declared below it — the React Compiler refuses to preserve a
+  // memo that a function declared above it closes over.
+  const pagesRef = useRef<number | null>(null);
   // The run cleared after Applied, kept for one undo in this session.
   const undoRef = useRef<{ result: Result; resultJd: string | null; resultSource: "jd" | "outreach" | null; tailorSessionId: string | null; jobDescription: string } | null>(null);
 
@@ -1095,6 +1101,13 @@ export default function Home() {
               // the switch is on.
               : displayProfile,
             sectionOrder: edited ? edited.sectionOrder : runSectionOrder,
+            // Prompt 13: the page count this CV was sent at (the download's
+            // own estimate) and how old the posting was, read off the JD.
+            ...(pagesRef.current !== null ? { pages: Math.max(1, Math.round(pagesRef.current)) } : {}),
+            ...((): { postingAgeDays?: number } => {
+              const age = postingAgeDays(jdForRow, localIsoDate(today));
+              return age === null ? {} : { postingAgeDays: age };
+            })(),
             // The letter as it stands in the preview — edits included, date
             // line first — so the tracker holds it as sent. And the role's
             // terms: the server scores this exact snapshot against them, so
@@ -1230,6 +1243,9 @@ export default function Home() {
       onePageTarget
     );
   }, [liveQuality, result, displayProfile, onePageTarget]);
+  useEffect(() => {
+    pagesRef.current = quality ? quality.pages.pages : null;
+  }, [quality]);
   // Under three years of experience (the user's own eligibility answer —
   // never inferred) a recruiter expects one page. Two readings: the content
   // genuinely cannot fit one page at the tightest spacing, or it could but

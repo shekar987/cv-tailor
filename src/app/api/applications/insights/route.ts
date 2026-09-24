@@ -8,8 +8,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { computeInsights, rowFromApplication, scoreOutcome } from "@/lib/insights";
 
-const WITH_SNAPSHOT_PATHS = "status, role, company_name, ats:tailored_cv->ats, gates:tailored_cv->gates";
-const PLAIN = "status, role, company_name";
+const WITH_SNAPSHOT_PATHS =
+  "status, role, company_name, source, followup_date, ats:tailored_cv->ats, gates:tailored_cv->gates, pages:tailored_cv->>pages, posting_age_days:tailored_cv->>postingAgeDays";
+const PLAIN = "status, role, company_name, source, followup_date";
 
 export async function GET() {
   try {
