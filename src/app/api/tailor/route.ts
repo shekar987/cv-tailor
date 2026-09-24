@@ -4,7 +4,7 @@ import { callLLM, Provider, ProviderRateLimitError, ProviderCreditError } from "
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
-import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, type ClaimsRegistry } from "@/lib/claims";
+import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillMentioned, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, type Variant } from "@/lib/variants";
 import {
   summaryPrompt,
@@ -15,6 +15,7 @@ import {
   COMPANY_RESEARCH_PROMPT,
   coverLetterPrompt,
   coverLetterFixPrompt,
+  claimsFixPrompt,
   atsScoringPrompt,
   JD_ANALYZER_PROMPT,
   rejectedBulletsBlock,
@@ -254,7 +255,75 @@ async function runPipeline(opts: {
   // on Applied, and the scoring call below receives it as settled. The model
   // annotates the lists and proposes edits inside the band; it never picks
   // the verdict (lib/visibilityVerdict).
-  const sections = { summary, skills, experience: experienceFinal, projects: projectsFinal };
+  // Claims levels enforced on the generated text per section (lib/claims),
+  // BEFORE the score so it reads the final text. The registry is the
+  // candidate's statement; a master-CV bullet that carries a project-level
+  // skill under a paid role is the overclaim it corrects. Lead Technical
+  // Tools are fixed deterministically; Experience and Summary get one model
+  // rewrite of the offending sentences; anything that survives blocks the
+  // download with the sentence and the rule named.
+  let skillsFinal: unknown = skills;
+  const claimFix = { toolsDemoted: [] as string[], rewritten: [] as string[], remaining: 0 };
+  if (claims && claims.skills.length > 0) {
+    const projectNames = claims.skills.filter((s) => s.level === "project").map((s) => s.name);
+    const demoted = demoteProjectTools(skillsFinal, projectNames);
+    skillsFinal = demoted.skills;
+    claimFix.toolsDemoted = demoted.demoted;
+    const cvPart = (exp: unknown, sum: unknown) => ({
+      where: "cv" as const,
+      text: tailoredSectionsText({ summary: sum, skills: skillsFinal, experience: exp, projects: projectsFinal }),
+      experience: exp,
+      skills: skillsFinal,
+    });
+    const draft = checkClaims([cvPart(experienceFinal, summary)], claims, [cv, projectsPool]);
+    const unquote = (claim: string) => claim.replace(/^[^"]*"/, "").replace(/"$/, "");
+    const expV = draft.skillViolations.filter(
+      (v) => v.rule === "project_in_experience" || (v.rule === "learning_anywhere" && typeof experienceFinal === "string" && skillMentioned(experienceFinal, v.skill))
+    );
+    if (expV.length > 0 && typeof experienceFinal === "string") {
+      const retry = dropRefusal(
+        await callLLM({
+          provider,
+          apiKeyOverride,
+          system: claimsFixPrompt("EXPERIENCE", expV.map((v) => ({ skill: v.skill, sentence: unquote(v.claim) }))),
+          userInput: experienceFinal,
+        }).catch(swallowStep(""))
+      );
+      if (typeof retry === "string" && retry.trim()) {
+        const candidate = normalizeExperienceOutput(retry);
+        const after = checkClaims([cvPart(candidate, summary)], claims, [cv, projectsPool]);
+        const left = after.skillViolations.filter((v) => v.rule === "project_in_experience" || v.rule === "learning_anywhere").length;
+        if (left < expV.length) {
+          experienceFinal = candidate;
+          claimFix.rewritten.push("experience");
+        }
+      }
+    }
+    const sumV = draft.skillViolations.filter(
+      (v) => (v.rule === "project_as_competency" || v.rule === "learning_anywhere") && typeof summary === "string" && skillMentioned(summary, v.skill)
+    );
+    if (sumV.length > 0 && typeof summary === "string") {
+      const retry = dropRefusal(
+        await callLLM({
+          provider,
+          apiKeyOverride,
+          system: claimsFixPrompt("SUMMARY", sumV.map((v) => ({ skill: v.skill, sentence: unquote(v.claim) }))),
+          userInput: summary,
+        }).catch(swallowStep(""))
+      );
+      if (typeof retry === "string" && retry.trim()) {
+        const after = checkClaims([cvPart(experienceFinal, retry)], claims, [cv, projectsPool]);
+        const left = after.skillViolations.filter((v) => sumV.some((s) => s.skill === v.skill) && skillMentioned(retry, v.skill)).length;
+        if (left < sumV.length) {
+          summary = retry;
+          claimFix.rewritten.push("summary");
+        }
+      }
+    }
+    claimFix.remaining = checkClaims([cvPart(experienceFinal, summary)], claims, [cv, projectsPool]).skillViolations.length;
+  }
+
+  const sections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
   const tailoredText = tailoredSectionsText(sections);
   const terms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
   const coverage = matchAtsKeywords(tailoredText, terms.top_15_ats_keywords);
@@ -271,7 +340,7 @@ async function runPipeline(opts: {
       ...(required ? { required_skill_coverage: `${required.matched}/${required.total}`, required_absent: required.missedKeywords } : {}),
     },
     summary,
-    skills,
+    skills: skillsFinal,
     experience: experienceFinal,
     projects: projectsFinal,
   });
@@ -319,7 +388,7 @@ async function runPipeline(opts: {
   // as a source.
   const claimCheck = checkClaims(
     [
-      { where: "cv", text: tailoredText, experience: sections.experience },
+      { where: "cv", text: tailoredText, experience: sections.experience, skills: sections.skills },
       { where: "coverLetter", text: typeof coverLetter === "string" ? coverLetter : "", extraSources: [jd] },
     ],
     claims,
@@ -330,12 +399,13 @@ async function runPipeline(opts: {
     analysis,
     research,
     summary,
-    skills,
+    skills: skillsFinal,
     experience: experienceFinal,
     projects: projectsFinal,
     coverLetter,
     atsScore,
     claimCheck,
+    claimFix,
     bulletLint,
     titleCheck,
     formatFixes,

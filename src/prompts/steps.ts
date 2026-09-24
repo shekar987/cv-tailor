@@ -505,6 +505,21 @@ Match the tone to the analysis tone_signals. Use only real experience from the m
 
 Output ONLY the cover letter as plain text. No date line, no word count, no integrity check, no preamble.`;
 
+// The claims registry's levels are enforced on the generated text per
+// section, even where the master CV's own bullet carries the phrase: a
+// project-level skill written into Experience is rewritten out once by the
+// model (this prompt), and blocks the download if it survives.
+export const claimsFixPrompt = (section: string, removals: { skill: string; sentence: string }[]) => `You fix one section of a tailored CV. Output the FULL "${section}" section with ONLY the sentences listed below rewritten; every other line must stay exactly as it is, in the same format (same bullet markers, same "Role | Employer | Dates" header lines).
+
+${ABSOLUTE_RULES}
+
+The candidate's own claims registry says these skills were used only in personal projects, never in paid work, so they may not appear in this section:
+${removals.map((r) => `- remove "${r.skill}" from: ${r.sentence}`).join("\n")}
+
+Rules for each rewrite: drop the named skill and any clause that only exists to carry it; keep every other fact, figure and technology in the sentence; do not add any other skill or figure in its place; if nothing is left, remove the sentence.
+
+Output ONLY the section text. No preamble, no notes.`;
+
 // A cover letter named a place that appears nowhere in the job description,
 // the research or the CV ("available for on-site work in Shoreditch").
 // lib/properNouns finds such names; this asks for the offending sentences

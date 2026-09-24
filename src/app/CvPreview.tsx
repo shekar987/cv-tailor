@@ -61,8 +61,10 @@ type CvPreviewProps = {
   // all resolve to the default order, so an untouched account renders exactly
   // as it did before this feature existed.
   sectionOrder?: unknown;
-  // Downloads held shut by the page while the claims check is blocking.
+  // Downloads held shut by the page while the claims check is blocking, with
+  // the first flagged sentence and the rule it breaks as the reason.
   downloadsDisabled?: boolean;
+  downloadsDisabledReason?: string;
   // The CV's Right to Work wording, offered beside the downloads as a
   // copy-to-clipboard block for application forms. The document itself
   // carries the section only when the Customize switch is on (the page
@@ -89,7 +91,7 @@ export type CvPreviewHandle = {
 };
 
 const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvPreview(
-  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, rightToWorkForForms = "" },
+  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "" },
   fwdRef
 ) {
   const order = resolveSectionOrder(sectionOrder);
@@ -656,7 +658,12 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
   return (
     <div className="cvDocWrap">
       <div className="cvActions">
-        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason="Fix the flagged claims first" />
+        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason={downloadsDisabledReason || "Fix the flagged claims first"} />
+        {downloadsDisabled && downloadsDisabledReason && (
+          <StatusText as="span" role="alert" data-download-blocked-reason>
+            {downloadsDisabledReason}
+          </StatusText>
+        )}
       </div>
       {rightToWorkForForms && (
         <div className="rtwForms" data-rtw-forms>

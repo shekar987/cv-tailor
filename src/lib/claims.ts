@@ -523,9 +523,75 @@ function contentTokens(sentence: string): Set<string> {
 export type ClaimWhere = "cv" | "coverLetter" | "email" | "extra";
 export type NumberViolation = { figure: string; sentence: string; kind: "absent" | "context_mismatch"; where: ClaimWhere };
 // A skill claimed above its registered level: a learning skill named at all,
-// or a project-only skill written as work experience or with proficiency
-// wording. `claim` names the offending text.
-export type SkillViolation = { skill: string; level: "learning" | "project"; confirmed: boolean; where: ClaimWhere; claim: string };
+// or a project-only skill written as work experience, with proficiency
+// wording, or among the lead Technical Tools. `claim` names the offending
+// text and `rule` the rule it breaks — shown beside the Download button.
+export type SkillRule = "learning_anywhere" | "project_in_experience" | "project_as_competency" | "project_lead_tool";
+export const SKILL_RULE_TEXT: Record<SkillRule, string> = {
+  learning_anywhere: "a learning-level skill must not appear anywhere in the output",
+  project_in_experience: "a project-level skill may not appear in Experience — write it under Projects as \"built <project> with X\"",
+  project_as_competency: "a project-level skill may not be described as a competency or years of experience",
+  project_lead_tool: `a project-level skill may not sit among the first ${8} Technical Tools`,
+};
+export type SkillViolation = { skill: string; level: "learning" | "project"; confirmed: boolean; where: ClaimWhere; claim: string; rule: SkillRule };
+
+// How many Technical Tools a recruiter reads as the lead skills.
+export const TOOLS_LEAD_SLOTS = 8;
+
+// Whether a text names a registered skill. The matcher needs every specific
+// token of a multi-word name in a tight window, so "RAG and knowledge
+// retrieval" never matched the CV's own "LLM/RAG knowledge solutions" and
+// the rule was silently skipped. A name's DISTINCTIVE tokens — an acronym
+// (RAG, LLM, AWS) or a product-spelled word (LangChain, FastAPI) — count on
+// their own; generic words ("knowledge", "design") and generic acronyms
+// (API, REST, UI) do not.
+const GENERIC_ACRONYMS = new Set(["API", "APIS", "REST", "UI", "UX", "CI", "CD", "IT", "AI", "ML", "QA", "HR", "ETL", "CRUD", "SDK", "IDE", "OS", "DB", "URL", "HTTP", "HTTPS", "JSON", "XML", "CSV", "PDF"]);
+export function distinctiveTokens(name: string): string[] {
+  const out: string[] = [];
+  for (const raw of name.split(/[\s/,()]+/)) {
+    const t = raw.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9+#.]+$/g, "");
+    if (t.length < 2) continue;
+    if (/^[A-Z][A-Z0-9]{1,5}$/.test(t) && !GENERIC_ACRONYMS.has(t)) out.push(t);
+    else if (/^[A-Za-z][a-z]+[A-Z][A-Za-z0-9.]*$/.test(t) || /^[A-Z][a-z]+\.[a-z]+$/.test(t)) out.push(t);
+  }
+  return out;
+}
+export function skillMentioned(text: string, name: string): boolean {
+  if (!text) return false;
+  if (matchAtsKeywords(text, [name]).matched > 0) return true;
+  const tokens = distinctiveTokens(name);
+  return tokens.length > 0 && matchAtsKeywords(text, tokens).matched > 0;
+}
+
+// The bold contract puts the closing ** on either side of the colon
+// ("**Technical Tools:**" or "**Technical Tools**:"); both stay in the prefix.
+const TOOLS_LINE_RE = /^(\s*\**\s*technical tools\s*\**\s*:\s*\**\s*)(.*)$/im;
+
+// The items on the "Technical Tools:" line, in order.
+export function technicalTools(skills: unknown): string[] {
+  if (typeof skills !== "string") return [];
+  const m = TOOLS_LINE_RE.exec(skills);
+  if (!m) return [];
+  return m[2].split(/\s*[|·•,]\s*/).map((t) => t.trim()).filter(Boolean);
+}
+
+// Moves any project-level skill out of the first TOOLS_LEAD_SLOTS Technical
+// Tools (to the end of the line) — deterministic, so no model call is needed
+// to satisfy the lead-tool rule. Returns the demoted names.
+export function demoteProjectTools(skills: unknown, projectSkillNames: string[]): { skills: unknown; demoted: string[] } {
+  if (typeof skills !== "string") return { skills, demoted: [] };
+  const m = TOOLS_LINE_RE.exec(skills);
+  if (!m) return { skills, demoted: [] };
+  const items = m[2].split(/\s*\|\s*/).map((t) => t.trim()).filter(Boolean);
+  if (items.length <= TOOLS_LEAD_SLOTS) return { skills, demoted: [] };
+  const isProject = (item: string) => projectSkillNames.some((n) => skillMentioned(item, n));
+  const lead = items.slice(0, TOOLS_LEAD_SLOTS);
+  const demoted = lead.filter(isProject);
+  if (demoted.length === 0) return { skills, demoted: [] };
+  const kept = items.filter((i) => !demoted.includes(i));
+  const line = `${m[1]}${[...kept, ...demoted].join(" | ")}`;
+  return { skills: skills.replace(TOOLS_LINE_RE, line.replace(/\$/g, "$$$$")), demoted };
+}
 export type ClaimCheck = {
   mode: ClaimMode;
   skillViolations: SkillViolation[];
@@ -540,7 +606,9 @@ export type ClaimCheck = {
 // teams"), which would be an invented claim inside the CV itself.
 // `experience` is the work-experience section alone, when the part is the
 // CV: a project-only skill appearing there is a production claim.
-export type ClaimPart = { where: ClaimWhere; text: string; extraSources?: (string | null | undefined)[]; experience?: unknown };
+// `skills` is the skills section alone: a project-only skill among the lead
+// Technical Tools is a claim too.
+export type ClaimPart = { where: ClaimWhere; text: string; extraSources?: (string | null | undefined)[]; experience?: unknown; skills?: unknown };
 
 // Wording that turns a mention into a competency claim: "proficient in X",
 // "experienced with X", "strong X skills", "3 years of X".
@@ -617,27 +685,36 @@ export function checkClaims(
       if (!shares) numberViolations.push({ figure: f.text, sentence: f.sentence, kind: "context_mismatch", where: part.where });
     }
     for (const s of learningSkills) {
-      if (matchAtsKeywords(part.text, [s.name]).matched > 0) {
-        const hit = sentencesOf(part.text).find((x) => matchAtsKeywords(x, [s.name]).matched > 0);
-        skillViolations.push({ skill: s.name, level: "learning", confirmed: s.confirmed, where: part.where, claim: hit ? excerpt(hit) : "" });
+      if (skillMentioned(part.text, s.name)) {
+        const hit = sentencesOf(part.text).find((x) => skillMentioned(x, s.name));
+        skillViolations.push({ skill: s.name, level: "learning", confirmed: s.confirmed, where: part.where, claim: hit ? excerpt(hit) : "", rule: "learning_anywhere" });
       }
     }
     // A project-only skill claimed above its level: written into the
-    // work-experience section, or with proficiency wording anywhere.
+    // work-experience section (even when the master CV's own bullet says so
+    // — the registry is the candidate's statement, the CV bullet is the
+    // overclaim it corrects), among the lead Technical Tools, or with
+    // proficiency wording anywhere.
+    const leadTools = technicalTools(part.skills).slice(0, TOOLS_LEAD_SLOTS);
     for (const s of projectSkills) {
-      if (matchAtsKeywords(part.text, [s.name]).matched === 0) continue;
+      if (!skillMentioned(part.text, s.name)) continue;
       // Bullets only: a "Role | Employer | Dates" header line names no skill.
       const expLine =
         typeof part.experience === "string"
-          ? sentencesOf(part.experience).find((x) => !/\|/.test(x) && matchAtsKeywords(x, [s.name]).matched > 0)
+          ? sentencesOf(part.experience).find((x) => !/\|/.test(x) && skillMentioned(x, s.name))
           : undefined;
       if (expLine) {
-        skillViolations.push({ skill: s.name, level: "project", confirmed: s.confirmed, where: part.where, claim: `written as work experience: "${excerpt(expLine)}"` });
+        skillViolations.push({ skill: s.name, level: "project", confirmed: s.confirmed, where: part.where, claim: `written as work experience: "${excerpt(expLine)}"`, rule: "project_in_experience" });
         continue;
       }
-      const claimed = sentencesOf(part.text).find((x) => matchAtsKeywords(x, [s.name]).matched > 0 && PROFICIENCY_RE.test(x));
+      const leadTool = leadTools.find((t) => skillMentioned(t, s.name));
+      if (leadTool) {
+        skillViolations.push({ skill: s.name, level: "project", confirmed: s.confirmed, where: part.where, claim: `listed among the first ${TOOLS_LEAD_SLOTS} Technical Tools as "${leadTool}"`, rule: "project_lead_tool" });
+        continue;
+      }
+      const claimed = sentencesOf(part.text).find((x) => skillMentioned(x, s.name) && PROFICIENCY_RE.test(x));
       if (claimed) {
-        skillViolations.push({ skill: s.name, level: "project", confirmed: s.confirmed, where: part.where, claim: `described as a competency: "${excerpt(claimed)}"` });
+        skillViolations.push({ skill: s.name, level: "project", confirmed: s.confirmed, where: part.where, claim: `described as a competency: "${excerpt(claimed)}"`, rule: "project_as_competency" });
       }
     }
   }

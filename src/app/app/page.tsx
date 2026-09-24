@@ -17,7 +17,7 @@ import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
 import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
-import { normalizeClaims, checkClaims, seedClaimsFromCv, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
+import { normalizeClaims, checkClaims, seedClaimsFromCv, SKILL_RULE_TEXT, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
 import { qualityReport, onePageExpected, type QualityReport } from "@/lib/quality";
 import { normalizeVariants, pickVariant, type VariantsConfig } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
@@ -705,6 +705,16 @@ export default function Home() {
   const activeCheck: ClaimCheck | null = liveCheck ?? result?.claimCheck ?? null;
   const claimIssues = activeCheck ? activeCheck.skillViolations.length + activeCheck.numberViolations.length : 0;
   const blocked = !!activeCheck?.blocking;
+  // The first thing holding the download shut, as the sentence and the rule
+  // it breaks — shown beside the Download button, not only in the notice.
+  const downloadReason: string | undefined = (() => {
+    if (!blocked || !activeCheck) return undefined;
+    const s = activeCheck.skillViolations[0];
+    if (s) return `${s.skill}: ${s.claim || `appears in the ${WHERE_LABEL[s.where]}`} — ${SKILL_RULE_TEXT[s.rule]}.`;
+    const n = activeCheck.numberViolations.find((x) => x.kind === "absent");
+    if (n) return `${n.figure} isn't on your master CV: "${n.sentence.length > 100 ? `${n.sentence.slice(0, 99)}…` : n.sentence}".`;
+    return undefined;
+  })();
 
   // The positioning variant for this run: the override, else the one whose
   // role types include the posting's role_type. Declared above executeTailor
@@ -885,7 +895,7 @@ export default function Home() {
     setLiveCheck(
       checkClaims(
         [
-          { where: "cv", text: cvText, experience: payload ? payload.experience : result.experience },
+          { where: "cv", text: cvText, experience: payload ? payload.experience : result.experience, skills: payload ? payload.skills : result.skills },
           // The letter may quote the posting's facts about the company.
           { where: "coverLetter", text: letter ?? result.coverLetter ?? "", extraSources: [resultJd ?? jobDescription] },
         ],
@@ -1888,7 +1898,7 @@ export default function Home() {
                           ) : (
                             <>
                               <strong>{s.skill}</strong> is registered as <em>project-only</em>, but the {WHERE_LABEL[s.where]} claims more — {s.claim}.
-                              Write it as &ldquo;built &lt;project&gt; with {s.skill}&rdquo;, or raise its level in Customize if you have used it at work.
+                              Rule: {SKILL_RULE_TEXT[s.rule]}. Raise its level in Customize only if you have used it at work.
                             </>
                           )}
                         </span>
@@ -2189,6 +2199,7 @@ export default function Home() {
                 data={cvData}
                 profile={displayProfile}
                 rightToWorkForForms={rtwForForms}
+                downloadsDisabledReason={downloadReason}
                 sectionOrder={sectionOrder}
                 fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}
                 downloadsDisabled={blocked}
