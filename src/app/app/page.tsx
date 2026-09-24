@@ -58,6 +58,7 @@ const ERROR_TYPES_WITH_OWN_NOTICE = new Set([
   "needs_openrouter_key",
   "user_key_limit",
   "key_decrypt_failed",
+  "provider_credit",
 ]);
 
 function hasOwnNotice(errorType: string | null): boolean {
@@ -636,7 +637,15 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setGateError(data.error || "Couldn't check keyword match. You can still tailor without it.");
+        // An exhausted shared account fails the pre-check too, and "you can
+        // still tailor without it" would be a lie — the tailor would fail the
+        // same way. Raise the dedicated notice instead.
+        if (data.errorType === "provider_credit") {
+          setErrorType("provider_credit");
+          setError(data.error);
+        } else {
+          setGateError(data.error || "Couldn't check keyword match. You can still tailor without it.");
+        }
       } else {
         const company = realValue(typeof data.result?.company_name === "string" ? data.result.company_name : "");
         const rows = company ? await rowsPromise : [];
@@ -1722,6 +1731,25 @@ export default function Home() {
             )}
 
             {/* ── Saved key unreadable — re-entry needed (e.g. after KEY_ENCRYPTION_SECRET rotation) ── */}
+            {/* ── The SHARED account has run out of credit ──
+                Not the user's fault and not fixable by retrying, but the app
+                has an answer: their own free OpenRouter key runs tailoring
+                instead. Found by the first real paid run on 2026-09-24, when
+                every tailor returned a bare "Tailoring failed". */}
+            {errorType === "provider_credit" && (
+              <div className="limitNotice" role="alert" data-provider-credit>
+                <div className="limitNotice__title">Tailoring is temporarily unavailable.</div>
+                <div className="limitNotice__body">
+                  The shared Claude account has run out of credit — this isn&apos;t your account, and you
+                  haven&apos;t been charged a tailor. Add your own free OpenRouter key and tailoring runs on
+                  it instead, starting immediately.
+                </div>
+                <Button href="/settings" className="limitNotice__cta">
+                  Add your key in Settings →
+                </Button>
+              </div>
+            )}
+
             {errorType === "key_decrypt_failed" && (
               <div className="limitNotice" role="alert">
                 <div className="limitNotice__title">Your API key needs to be re-entered.</div>

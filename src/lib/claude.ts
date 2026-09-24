@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { looksLikeBilling } from "./providerErrors";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -39,6 +40,24 @@ export class ProviderRateLimitError extends Error {
     this.name = "ProviderRateLimitError";
     this.provider = provider;
     this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+// Thrown when the provider refuses because the ACCOUNT has run out of credit /
+// is not billable. Distinct from a 429: waiting does not fix it, and the app
+// has a designed answer (the user adds their own OpenRouter key in Settings),
+// so it must never be swallowed into an empty section or shown as a generic
+// "Tailoring failed".
+//
+// Found by the first real paid run against production on 2026-09-24: the
+// owner's Anthropic balance hit zero and every tailor returned a bare 500, with
+// nothing telling the user it wasn't their fault or what to do next.
+export class ProviderCreditError extends Error {
+  provider: Provider;
+  constructor(provider: Provider, message: string) {
+    super(message);
+    this.name = "ProviderCreditError";
+    this.provider = provider;
   }
 }
 
@@ -109,12 +128,24 @@ async function anthropicRaw(options: BaseCallOptions): Promise<{ text: string; t
     maxTokens = 2000,
   } = options;
 
-  const message = await anthropic.messages.create({
-    model,
-    max_tokens: maxTokens,
-    system,
-    messages: [{ role: "user", content: userInput }],
-  });
+  let message;
+  try {
+    message = await anthropic.messages.create({
+      model,
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: "user", content: userInput }],
+    });
+  } catch (err) {
+    // Anthropic reports an exhausted balance as a 400 invalid_request_error,
+    // which would otherwise read as "our request was malformed".
+    const status = (err as { status?: number })?.status;
+    const text = err instanceof Error ? err.message : String(err);
+    if (looksLikeBilling(status, text)) {
+      throw new ProviderCreditError("anthropic", "Anthropic credit balance exhausted");
+    }
+    throw err;
+  }
 
   const textBlock = message.content.find((b) => b.type === "text");
   return {
@@ -201,6 +232,9 @@ async function openRouterRaw(options: BaseCallOptions, apiKeyOverride?: string):
         extractRetryAfterSeconds(res, body)
       );
     }
+    if (looksLikeBilling(res.status, body)) {
+      throw new ProviderCreditError("openrouter", "OpenRouter credit exhausted");
+    }
     throw new Error(`OpenRouter request failed (${res.status}, ${body.length}-char body)`);
   }
 
@@ -281,6 +315,9 @@ async function geminiRaw(options: BaseCallOptions, apiKeyOverride?: string): Pro
         "Gemini rate limit exceeded",
         extractRetryAfterSeconds(res, body)
       );
+    }
+    if (looksLikeBilling(res.status, body)) {
+      throw new ProviderCreditError("gemini", "Gemini quota exhausted");
     }
     throw new Error(`Gemini request failed (${res.status})`);
   }

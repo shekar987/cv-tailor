@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { callClaude } from "@/lib/claude";
+import { callClaude, ProviderCreditError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { JD_ANALYZER_PROMPT } from "@/prompts/steps";
 import { matchAtsKeywords } from "@/lib/atsMatch";
@@ -154,6 +154,18 @@ export async function POST(req: NextRequest) {
       duplicateOf,
     });
   } catch (error) {
+    if (error instanceof ProviderCreditError) {
+      console.error("Provider credit exhausted:", error.provider);
+      return NextResponse.json(
+        {
+          error:
+            "The pre-check is temporarily unavailable — the shared Claude account has run out of credit. " +
+            "This isn't your account: add your own free OpenRouter key in Settings.",
+          errorType: "provider_credit",
+        },
+        { status: 503 }
+      );
+    }
     console.error("Analyze API error:", error instanceof Error ? error.message : "Unknown error");
     return NextResponse.json({ error: "Failed to analyze JD" }, { status: 500 });
   }

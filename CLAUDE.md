@@ -606,6 +606,32 @@ The projects AI step returns `{ "0": [...bullets], "1": [...] }`. The index corr
 
 `/applications/[id]/prep` is the app's first dynamic segment. In Next 16 a page's `params` prop is a `Promise` — a client page reads it with `use(params)` from React, not by destructuring. After adding a new route, `npm run typecheck` can fail inside `.next/dev/types/validator.ts` with "Type '"/applications/[id]/prep"' is not assignable to type 'LayoutRoutes'": the dev server regenerated `.next/dev/types` but the last production build's `.next/types` predates the route. `npm run build` (or deleting `.next/`) regenerates it; the app source is fine.
 
+### An exhausted provider account is a 400, not a 402
+
+Anthropic reports a zero balance as a **400 `invalid_request_error`** — "Your
+credit balance is too low to access the Anthropic API" — which reads like our
+request was malformed. On 2026-09-24 the owner's balance hit zero and every
+tailor on production answered a bare `500 {"error":"Tailoring failed"}`:
+nothing told the user it wasn't their account, and nothing pointed at the
+answer the app already has (their own free OpenRouter key in Settings).
+
+`lib/providerErrors.ts#looksLikeBilling` (import-free, tested) recognises it
+across all three adapters, `lib/claude.ts` throws `ProviderCreditError`, and
+`/api/tailor` + `/api/analyze` answer **503 with `errorType: "provider_credit"`**
+so `/app` can show the dedicated notice with a Settings button. Two things
+matter if you touch this:
+
+- **`swallowStep()` must re-throw it**, exactly as it does `ProviderRateLimitError`.
+  Otherwise credit running out mid-run degrades to an empty section and the
+  user gets a CV with a silently blank Skills or Experience block.
+- **Keep the predicate narrow.** A provider 400 is normally OUR bug; only an
+  explicit billing phrase or a 402 counts. Mislabelling a malformed request as
+  "you're out of credit" sends the user to buy something they don't need.
+
+The quota refund is what stops the user paying for it — verified for real
+during that outage: `tailor_count` and `claude_tailors_used` both stayed 0
+across two failed runs.
+
 ### Rate limiting is two layers, and one of them is optional
 
 The DB quota RPC (fail-closed, `/api/tailor` only) and the Upstash burst gate (fail-open, every Claude-spending route) are different things — see *Rate limiting — two layers*. If burst limiting "isn't working", the first check is whether `UPSTASH_REDIS_REST_URL`/`TOKEN` are set in that environment; a one-time `[apiRateLimit] … DISABLED` warning in the logs is the tell. The old in-memory per-IP limiter is gone — don't recreate it.

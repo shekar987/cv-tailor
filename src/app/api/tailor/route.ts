@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { callLLM, Provider, ProviderRateLimitError } from "@/lib/claude";
+import { callLLM, Provider, ProviderRateLimitError, ProviderCreditError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
@@ -50,6 +50,9 @@ function looksLikeJdAnalysis(value: unknown): value is Record<string, unknown> {
 function swallowStep<T>(fallback: T) {
   return (err: unknown): T => {
     if (err instanceof ProviderRateLimitError) throw err;
+    // An exhausted account is not a flaky step: swallowing it would hand the
+    // user a CV with a silently blank section instead of an explanation.
+    if (err instanceof ProviderCreditError) throw err;
     return fallback;
   };
 }
@@ -463,6 +466,18 @@ export async function POST(req: NextRequest) {
           retryAfter: error.retryAfterSeconds ?? null,
         },
         { status: 429 }
+      );
+    }
+    if (error instanceof ProviderCreditError) {
+      console.error("Provider credit exhausted:", error.provider);
+      return NextResponse.json(
+        {
+          error:
+            "Tailoring is temporarily unavailable — the shared Claude account has run out of credit. " +
+            "This isn't your account: add your own free OpenRouter key in Settings and tailoring runs on it instead.",
+          errorType: "provider_credit",
+        },
+        { status: 503 }
       );
     }
     const msg = error instanceof Error ? error.message : "Unknown error";
