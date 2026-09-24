@@ -182,7 +182,9 @@ function formatDay(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-type AppliedState = "idle" | "saving" | "saved" | "already" | "error";
+// "cleared": the run was saved to the tracker and the workspace emptied for
+// the next posting (undo keeps the last run for the session).
+type AppliedState = "idle" | "saving" | "saved" | "already" | "error" | "cleared";
 
 // ── Stage 3: company research (the /api/research payload, typed loosely — the
 // server owns the shape; the UI renders what's present and skips what isn't).
@@ -376,6 +378,10 @@ export default function Home() {
   // Which flow produced the result. Only "jd" runs arm the stale-JD banner;
   // an outreach run is tailored from a research brief, not the JD box.
   const [resultSource, setResultSource] = useState<"jd" | "outreach" | null>(null);
+  // The JD box no longer holds the text this result was tailored from: the
+  // downloads and Applied are held shut until the user restores that text or
+  // clears the result — a CV must never go out under a different posting.
+  const staleRun = !!result && resultJd !== null && resultSource !== "outreach" && jobDescription.trim() !== resultJd.trim();
   // The company whose research the in-flight run is using (null when none is
   // applied), for the progress list — the binding is visible during the run.
   const [runResearchCompany, setRunResearchCompany] = useState<string | null>(null);
@@ -384,6 +390,8 @@ export default function Home() {
   // Reaches into CvPreview for the EDITED document when saving to the tracker.
   const previewRef = useRef<CvPreviewHandle>(null);
   const coverRef = useRef<CoverLetterPreviewHandle>(null);
+  // The run cleared after Applied, kept for one undo in this session.
+  const undoRef = useRef<{ result: Result; resultJd: string | null; resultSource: "jd" | "outreach" | null; tailorSessionId: string | null; jobDescription: string } | null>(null);
 
   // On load: fetch CV + profile from Supabase.
   // If the DB has nothing but localStorage does, import it once then clear localStorage.
@@ -1111,10 +1119,49 @@ export default function Home() {
       setAppliedState(data.alreadySaved ? "already" : "saved");
       // Saved, but without the CV snapshot (database migration pending).
       setAppliedNotice(typeof data.warning === "string" ? data.warning : "");
+      // Saved: the tracker holds the CV, the letter and the posting, so the
+      // workspace clears for the next one (undo brings it back this session).
+      if (!data.alreadySaved && result) {
+        undoRef.current = { result, resultJd, resultSource, tailorSessionId, jobDescription };
+        const warning = typeof data.warning === "string" ? data.warning : "";
+        clearRun();
+        setJobDescription("");
+        setAppliedNotice(warning);
+        setAppliedState("cleared");
+      }
     } catch {
       setAppliedState("error");
       setAppliedError("Couldn't reach the server. Try again.");
     }
+  }
+
+  // Empty the workspace: result, its JD, session, gate and quality state.
+  function clearRun() {
+    setResult(null);
+    setResultJd(null);
+    setResultSource(null);
+    setTailorSessionId(null);
+    setLiveQuality(null);
+    setAppliedError("");
+    setAppliedNotice("");
+    setPreCheck(null);
+    setGateAnalysis(null);
+    setGateExtras(null);
+  }
+  function clearResult() {
+    clearRun();
+    setAppliedState("idle");
+  }
+  function undoClear() {
+    const u = undoRef.current;
+    if (!u) return;
+    undoRef.current = null;
+    setResult(u.result);
+    setResultJd(u.resultJd);
+    setResultSource(u.resultSource);
+    setTailorSessionId(u.tailorSessionId);
+    setJobDescription(u.jobDescription);
+    setAppliedState("already");
   }
 
   // Stable reference so React.memo on CvPreview can skip re-renders when only the JD
@@ -1547,6 +1594,21 @@ export default function Home() {
         {/* JD card — only show once a master CV exists */}
         {masterCvText && (
           <Card>
+            {appliedState === "cleared" && !result && (
+              <div className="limitNotice" role="status" data-applied-cleared style={{ marginTop: 0, marginBottom: "var(--space-4)" }}>
+                <div className="limitNotice__title">Saved to your tracker</div>
+                <div className="limitNotice__body">
+                  The CV, the cover letter and the posting are on the tracker, so the workspace is clear for the next one.
+                  {appliedNotice ? ` ${appliedNotice}` : ""}
+                </div>
+                <div className="limitNotice__cta" style={{ gap: "var(--space-2)" }}>
+                  <Button type="button" variant="secondary" onClick={undoClear}>
+                    Bring the last result back
+                  </Button>
+                  <Link href="/applications" className="customizeLink">View tracker →</Link>
+                </div>
+              </div>
+            )}
             <FormField label="Job description" htmlFor="jd">
               <Textarea
                 id="jd"
@@ -1928,10 +1990,22 @@ export default function Home() {
                 </button>
               </div>
             )}
-            {resultJd !== null && resultSource !== "outreach" && jobDescription.trim() !== resultJd.trim() && (
-              <div className="limitNotice" role="status">
-                These results were tailored for your previous job description — the text above has
-                changed since. Run another tailor to refresh them.
+            {staleRun && (
+              <div className="limitNotice" role="alert" data-stale-jd>
+                <div className="limitNotice__title">The job description changed since this CV was tailored</div>
+                <div className="limitNotice__body">
+                  Downloads are held until the text above matches the posting this was tailored for (Applied still
+                  saves the run with the posting it was tailored from). Restore that text, or clear this result and
+                  tailor the new posting.
+                </div>
+                <div className="limitNotice__cta" style={{ gap: "var(--space-2)" }}>
+                  <Button type="button" variant="secondary" onClick={() => setJobDescription(resultJd ?? "")}>
+                    Restore that job description
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={clearResult}>
+                    Clear this result
+                  </Button>
+                </div>
               </div>
             )}
             {partialIssues.length > 0 && (
@@ -2338,10 +2412,10 @@ export default function Home() {
                 profile={displayProfile}
                 rightToWorkForForms={rtwForForms}
                 targetPages={onePageTarget}
-                downloadsDisabledReason={downloadReason}
+                downloadsDisabledReason={downloadReason ?? (staleRun ? "The job description changed since this CV was tailored — restore it or clear the result." : undefined)}
                 sectionOrder={runSectionOrder}
                 fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}
-                downloadsDisabled={blocked}
+                downloadsDisabled={blocked || staleRun}
               />
               {result.bulletChanges && (result.bulletChanges.experience || result.bulletChanges.projects.length > 0) && (
                 <details className="changesView" data-bullet-changes>
@@ -2397,7 +2471,7 @@ export default function Home() {
                     ref={coverRef}
                     coverLetter={result.coverLetter}
                     fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CoverLetter")}
-                    downloadsDisabled={blocked}
+                    downloadsDisabled={blocked || staleRun}
                   />
                 </>
               )}
