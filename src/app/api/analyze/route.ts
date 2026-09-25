@@ -113,12 +113,41 @@ export async function POST(req: NextRequest) {
     // OpenRouter key, once (lib/fallbackRoute); without a key, the 503 below.
     let result: unknown;
     let fallback: { from: "anthropic"; to: "openrouter"; source: "own_key"; reason: "provider_credit" } | null = null;
+    // An unlimited account's provider choice applies to the pre-check too
+    // (the owner's dropdown on /app). Checked against the profile row, never
+    // trusted from the body. OpenRouter with no deployment key runs on the
+    // user's own saved key, as the tailor route does.
+    const chosen = body.provider === "openrouter" || body.provider === "gemini" ? body.provider : null;
+    let pinned: { provider: "openrouter" | "gemini"; apiKeyOverride: string | undefined } | null = null;
+    if (chosen) {
+      const { data: prof } = await supabase.from("profiles").select("is_unlimited").eq("id", userId).maybeSingle();
+      if (prof?.is_unlimited === true) {
+        let apiKeyOverride: string | undefined;
+        if (chosen === "openrouter" && !process.env.OPENROUTER_API_KEY) {
+          const own = await loadOwnOpenRouterKey(supabase, userId);
+          if (!own.key) return NextResponse.json({ error: "OpenRouter is selected but no OpenRouter key is available — add one in Settings.", errorType: "needs_openrouter_key" }, { status: 402 });
+          apiKeyOverride = own.key;
+        }
+        pinned = { provider: chosen, apiKeyOverride };
+      }
+    }
     try {
-      result = await callClaude({
-        system: JD_ANALYZER_PROMPT,
-        userInput: jobDescription,
-        expectJson: true,
-      });
+      if (pinned) {
+        try {
+          result = await callLLM({ provider: pinned.provider, apiKeyOverride: pinned.apiKeyOverride, system: JD_ANALYZER_PROMPT, userInput: jobDescription, expectJson: true });
+        } catch (pErr) {
+          if (pErr instanceof ProviderRateLimitError && pinned.provider === "openrouter") {
+            return NextResponse.json({ limitReached: true, error: openRouterLimitMessage(pErr), errorType: "user_key_limit" }, { status: 429 });
+          }
+          throw pErr;
+        }
+      } else {
+        result = await callClaude({
+          system: JD_ANALYZER_PROMPT,
+          userInput: jobDescription,
+          expectJson: true,
+        });
+      }
     } catch (e) {
       if (!(e instanceof ProviderCreditError)) throw e;
       const own = await loadOwnOpenRouterKey(supabase, userId);

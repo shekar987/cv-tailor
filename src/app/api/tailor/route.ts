@@ -614,6 +614,19 @@ export async function POST(req: NextRequest) {
     if (!route.ok) {
       return NextResponse.json(route.body, { status: route.status });
     }
+    // The unlimited path honours the dropdown with the deployment's env key;
+    // when OpenRouter is chosen and no OPENROUTER_API_KEY is deployed, the
+    // user's own saved key runs it (the adapter would otherwise throw
+    // "OPENROUTER_API_KEY is not set" and the run would 500).
+    let routeKey = route.apiKeyOverride;
+    if (route.provider === "openrouter" && !routeKey && !process.env.OPENROUTER_API_KEY) {
+      const own = await loadOwnOpenRouterKey(supabase, userId);
+      if (!own.key) {
+        await route.refund();
+        return NextResponse.json({ needsKeys: true, error: "OpenRouter is selected but no OpenRouter key is available — add one in Settings.", errorType: "needs_openrouter_key" }, { status: 402 });
+      }
+      routeKey = own.key;
+    }
 
     async function runOrRefund(opts: Parameters<typeof runPipeline>[0]) {
       if (!route.ok) throw new Error("unreachable");
@@ -627,7 +640,7 @@ export async function POST(req: NextRequest) {
 
     const pipelineOpts = {
         provider: route.provider,
-        apiKeyOverride: route.apiKeyOverride,
+        apiKeyOverride: routeKey,
         jd,
         cv,
         projectNames: safeProjectNames,

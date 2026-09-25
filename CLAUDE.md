@@ -194,6 +194,8 @@ Auth-gated pages are listed in `PROTECTED_PREFIXES` in `src/lib/supabase/proxy.t
 | Server Components / Route Handlers | `createServerClient()` from `@/lib/supabase/server.ts` | Requires `await cookies()`; reads from request headers |
 | Session-refresh middleware | `updateSession()` from `@/lib/supabase/proxy.ts` | Called by `src/proxy.ts`; refreshes session cookie on every request |
 
+**The owner's provider dropdown** (unlimited accounts) sits on the first action row of /app, before the pre-check, and both `/api/analyze` (checked against `profiles.is_unlimited` server-side) and `/api/tailor` honour it. OpenRouter chosen with no `OPENROUTER_API_KEY` deployed runs on the user's own saved key; Vercel currently has no OpenRouter env key and its Gemini one is misnamed `Gemini_API_Key`, so "Claude" and "OpenRouter (own key)" are the two that work in production.
+
 **Auth verification in Route Handlers: always use `getClaims()`.** It verifies the JWT locally (no network call) and returns `claims.sub` as the user ID. Never use `getSession()` in server contexts — it makes a network round-trip and can return stale data.
 
 ```ts

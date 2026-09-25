@@ -693,7 +693,7 @@ export default function Home() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobDescription, cvText: masterCvText, ...(eligibility ? { eligibility } : {}) }),
+        body: JSON.stringify({ jobDescription, cvText: masterCvText, ...(eligibility ? { eligibility } : {}), ...(isUnlimited ? { provider } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1664,13 +1664,30 @@ export default function Home() {
               </p>
             )}
             {/* Step 1: cheap pre-check (JD analysis only) — shown until a gate
-                result exists. Provider choice doesn't apply here: the gate
-                always runs on Claude, same as profile extraction. */}
+                result exists. An unlimited account picks the provider here,
+                before anything runs: the pre-check and the tailor both honour
+                it (the picker used to sit only on the gate card, so when the
+                pre-check itself failed there was no way to switch provider). */}
             {!preCheck && (
               <div className="actions">
                 <Button onClick={handlePreCheck} disabled={gateLoading || loading}>
                   {gateLoading ? "Checking keyword match…" : "Tailor my CV"}
                 </Button>
+                {isUnlimited && (
+                  <span className="providerPick" data-provider-pick="pre">
+                    <label htmlFor="providerSelectPre">Provider</label>
+                    <select
+                      id="providerSelectPre"
+                      value={provider}
+                      onChange={(e) => setProvider(e.target.value as TailorProvider)}
+                      disabled={gateLoading || loading}
+                    >
+                      <option value="anthropic">Claude</option>
+                      <option value="gemini">Gemini</option>
+                      <option value="openrouter">OpenRouter</option>
+                    </select>
+                  </span>
+                )}
                 {error && !hasOwnNotice(errorType) && (
                   <StatusText as="span" role="alert">{error}</StatusText>
                 )}
