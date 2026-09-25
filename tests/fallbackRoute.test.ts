@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chooseFallback, fallbackNotice, openRouterLimitMessage } from "../src/lib/fallbackRoute.ts";
+import { chooseFallback, fallbackNotice, openRouterLimitMessage, fallbackExhaustedMessage } from "../src/lib/fallbackRoute.ts";
 
 test("chooseFallback: the user's own OpenRouter key first, the deployment's only for the unlimited path, never from an own-key run", () => {
   assert.deepEqual(chooseFallback({ failedProvider: "anthropic", routeReason: "ok", ownKey: "sk-or-v1-x", envOpenRouterKey: true }), { provider: "openrouter", apiKeyOverride: "sk-or-v1-x", source: "own_key" });
@@ -14,6 +14,13 @@ test("chooseFallback: the user's own OpenRouter key first, the deployment's only
 test("openRouterLimitMessage names the free-model daily cap and the $10 unlock", () => {
   assert.match(openRouterLimitMessage({ message: "OpenRouter free-model daily limit reached" }), /50 free-model requests.*\$10 of credit/);
   assert.equal(openRouterLimitMessage({ message: "OpenRouter rate limit exceeded" }), "Your OpenRouter key has hit its usage limit. Try again later.");
+});
+
+test("fallbackExhaustedMessage names both closed roads", () => {
+  const m = fallbackExhaustedMessage("provider_credit", { message: "OpenRouter free-model daily limit reached" });
+  assert.match(m, /^The shared Claude account is still out of credit/);
+  assert.match(m, /Anthropic Console, not a Claude\.ai plan/);
+  assert.match(m, /50 free-model requests/);
 });
 
 test("fallbackNotice says what ran and why, and that no free tailor was spent", () => {

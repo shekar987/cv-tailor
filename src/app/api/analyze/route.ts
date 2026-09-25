@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callClaude, callLLM, ProviderCreditError, ProviderRateLimitError } from "@/lib/claude";
 import { loadOwnOpenRouterKey } from "@/lib/llmRouting";
-import { openRouterLimitMessage } from "@/lib/fallbackRoute";
+import { openRouterLimitMessage, fallbackExhaustedMessage } from "@/lib/fallbackRoute";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { JD_ANALYZER_PROMPT } from "@/prompts/steps";
 import { matchAtsKeywords } from "@/lib/atsMatch";
@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
         result = await callLLM({ provider: "openrouter", apiKeyOverride: own.key, system: JD_ANALYZER_PROMPT, userInput: jobDescription, expectJson: true });
       } catch (fbErr) {
         if (fbErr instanceof ProviderRateLimitError) {
-          return NextResponse.json({ limitReached: true, error: openRouterLimitMessage(fbErr), errorType: "user_key_limit" }, { status: 429 });
+          return NextResponse.json({ limitReached: true, error: fallbackExhaustedMessage("provider_credit", fbErr), errorType: "user_key_limit" }, { status: 429 });
         }
         throw fbErr;
       }

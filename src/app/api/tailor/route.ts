@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { callLLM, Provider, ProviderRateLimitError, ProviderCreditError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration, loadOwnOpenRouterKey } from "@/lib/llmRouting";
-import { chooseFallback, openRouterLimitMessage, type FallbackReason } from "@/lib/fallbackRoute";
+import { chooseFallback, openRouterLimitMessage, fallbackExhaustedMessage, type FallbackReason } from "@/lib/fallbackRoute";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
 import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillMentioned, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
@@ -683,7 +683,7 @@ export async function POST(req: NextRequest) {
             result = await runPipeline({ ...pipelineOpts, provider: fb.provider, apiKeyOverride: fb.apiKeyOverride });
           } catch (fbErr) {
             if (fbErr instanceof ProviderRateLimitError) {
-              return NextResponse.json({ limitReached: true, error: openRouterLimitMessage(fbErr), errorType: "user_key_limit" }, { status: 429 });
+              return NextResponse.json({ limitReached: true, error: fallbackExhaustedMessage(reason, fbErr), errorType: "user_key_limit" }, { status: 429 });
             }
             throw fbErr;
           }
