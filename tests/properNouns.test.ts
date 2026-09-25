@@ -52,3 +52,9 @@ test("sentencesNaming and dropSentences: the offending sentence goes, the paragr
   const two = "First paragraph here.\n\nOnly Shoreditch here.\n\nLast paragraph.";
   assert.equal(dropSentences(two, ["Only Shoreditch here."]), "First paragraph here.\n\nLast paragraph.");
 });
+
+test("sentencesNaming: a possessive still names the noun (AssetGuard's platform)", () => {
+  const letter = "I admire AssetGuard's platform.\n\nAt Brane Group I shipped 20+ API modules.";
+  assert.deepEqual(sentencesNaming(letter, ["AssetGuard"]), ["I admire AssetGuard's platform."]);
+  assert.equal(dropSentences(letter, sentencesNaming(letter, ["AssetGuard"])), "At Brane Group I shipped 20+ API modules.");
+});

@@ -27,6 +27,13 @@ export function chooseFallback(a: {
   return null;
 }
 
+// What to tell the user when the OpenRouter key itself is out of road.
+export function openRouterLimitMessage(err: { message: string }): string {
+  return /daily limit/i.test(err.message)
+    ? "Your OpenRouter key has used today's 50 free-model requests (a tailor is about 10). Add $10 of credit at openrouter.ai for 1,000 a day, or try again tomorrow."
+    : "Your OpenRouter key has hit its usage limit. Try again later.";
+}
+
 export function fallbackNotice(f: { source: FallbackSource; reason: FallbackReason }): string {
   const why = f.reason === "provider_credit" ? "the shared Claude account is out of credit" : "the shared Claude account is being rate-limited";
   const on = f.source === "own_key" ? "your OpenRouter key" : "the deployment's OpenRouter key";

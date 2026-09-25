@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { callLLM, Provider, ProviderRateLimitError, ProviderCreditError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration, loadOwnOpenRouterKey } from "@/lib/llmRouting";
-import { chooseFallback, type FallbackReason } from "@/lib/fallbackRoute";
+import { chooseFallback, openRouterLimitMessage, type FallbackReason } from "@/lib/fallbackRoute";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
 import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillMentioned, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
@@ -114,6 +114,14 @@ async function runPipeline(opts: {
   variant?: Variant | null;
 }) {
   const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, onePage, profile, yearsExperience } = opts;
+  // Fast mode on OpenRouter: free models take 30–50 s per call, so the four
+  // optional polish retries (title, bullet lint, claims rewrite, letter
+  // proper-noun rewrite) are skipped — the run stays inside the platform's
+  // time limit. Every deterministic guard still runs: format rules, id
+  // reconciliation, claims check (a violation blocks the download instead of
+  // being rewritten), proper-noun sentences are dropped instead of rewritten,
+  // one-page trim, right-to-work strip.
+  const fast = provider === "openrouter";
   const claimsBlock = renderClaimsBlock(claims);
   // Only production-level registry skills may lead (lib/variants); the
   // skipped ones are reported so the user can fix the variant or the level.
@@ -194,7 +202,7 @@ async function runPipeline(opts: {
   const summaryDraft = dropRefusal(summaryRaw);
   const titleCheck = { title: roleTitle, present: !roleTitle || titleInText(summaryDraft, roleTitle), retried: false };
   let summary: unknown = summaryDraft;
-  if (roleTitle && typeof summaryDraft === "string" && summaryDraft.trim() && !titleCheck.present) {
+  if (!fast && roleTitle && typeof summaryDraft === "string" && summaryDraft.trim() && !titleCheck.present) {
     const retryBlock = `\nREJECTED IN YOUR PREVIOUS DRAFT: the summary did not contain the exact role title "${roleTitle}". Rewrite all three lines so that title appears verbatim at least once, phrased naturally as the target role. Keep every fact and figure as it was.\n`;
     const retry = dropRefusal(
       await callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle, retryBlock), userInput: analysisStr }).catch(swallowStep(""))
@@ -246,7 +254,7 @@ async function runPipeline(opts: {
   let selectedFinal = selectedProjects;
   const draftLint = lintBullets({ experience: experienceOut, projects: projectsOut }, company);
   const retried = { experience: false, projects: false };
-  if (countFlags(draftLint) > 0) {
+  if (!fast && countFlags(draftLint) > 0) {
     const [experienceRetry, projectsRetry] = await Promise.all([
       draftLint.experience.length > 0
         ? callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, rejectedBulletsBlock(draftLint.experience), idBlock), userInput: analysisStr })
@@ -311,7 +319,7 @@ async function runPipeline(opts: {
     const expV = draft.skillViolations.filter(
       (v) => v.rule === "project_in_experience" || (v.rule === "learning_anywhere" && typeof experienceFinal === "string" && skillMentioned(experienceFinal, v.skill))
     );
-    if (expV.length > 0 && typeof experienceFinal === "string") {
+    if (!fast && expV.length > 0 && typeof experienceFinal === "string") {
       const retry = dropRefusal(
         await callLLM({
           provider,
@@ -333,7 +341,7 @@ async function runPipeline(opts: {
     const sumV = draft.skillViolations.filter(
       (v) => (v.rule === "project_as_competency" || v.rule === "learning_anywhere") && typeof summary === "string" && skillMentioned(summary, v.skill)
     );
-    if (sumV.length > 0 && typeof summary === "string") {
+    if (!fast && sumV.length > 0 && typeof summary === "string") {
       const retry = dropRefusal(
         await callLLM({
           provider,
@@ -440,9 +448,11 @@ async function runPipeline(opts: {
     if (unsupported.length > 0) {
       letterCheck.unsupported = unsupported;
       const offending = sentencesNaming(letterDraft, unsupported);
-      const retry = dropRefusal(
-        await callLLM({ provider, apiKeyOverride, system: coverLetterFixPrompt(unsupported, offending), userInput: letterDraft, maxTokens: 1200 }).catch(swallowStep(""))
-      );
+      const retry = fast
+        ? ""
+        : dropRefusal(
+            await callLLM({ provider, apiKeyOverride, system: coverLetterFixPrompt(unsupported, offending), userInput: letterDraft, maxTokens: 1200 }).catch(swallowStep(""))
+          );
       if (typeof retry === "string" && retry.trim() && unsupportedProperNouns(retry, letterSources).length === 0) {
         coverLetter = retry;
         letterCheck.rewritten = true;
@@ -491,6 +501,8 @@ async function runPipeline(opts: {
     letterCheck,
     rtwStripped,
     onePage: onePageReport,
+    // True when the polish retries were skipped to fit the time limit (OpenRouter).
+    fastMode: fast,
     variantLeadSkills: variant ? leadSkills : null,
     // "Changes vs master CV": the finished text against the master's own
     // bullets (lib/bulletIds) — kept, edited (which words), dropped, new.
@@ -515,6 +527,11 @@ async function runPipeline(opts: {
     ...(projectsPool ? { selectedProjects: selectedFinal } : {}),
   };
 }
+
+// A run on OpenRouter's free models takes ~30 s per call across two waves and
+// the retries; the platform default would cut it off. Vercel caps this at the
+// plan's maximum.
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
@@ -648,7 +665,15 @@ export async function POST(req: NextRequest) {
         if (fb) {
           const reason: FallbackReason = err instanceof ProviderCreditError ? "provider_credit" : "provider_limit";
           console.warn(`Tailor fallback: ${route.provider} → openrouter (${fb.source}) after ${reason}`);
-          const result = await runPipeline({ ...pipelineOpts, provider: fb.provider, apiKeyOverride: fb.apiKeyOverride });
+          let result: Awaited<ReturnType<typeof runPipeline>>;
+          try {
+            result = await runPipeline({ ...pipelineOpts, provider: fb.provider, apiKeyOverride: fb.apiKeyOverride });
+          } catch (fbErr) {
+            if (fbErr instanceof ProviderRateLimitError) {
+              return NextResponse.json({ limitReached: true, error: openRouterLimitMessage(fbErr), errorType: "user_key_limit" }, { status: 429 });
+            }
+            throw fbErr;
+          }
           return NextResponse.json({
             ...(route.reason === "unlimited" ? { provider: "openrouter" } : {}),
             ...result,
@@ -661,7 +686,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             limitReached: true,
-            error: "Your OpenRouter key has hit its usage limit. Try again later.",
+            error: openRouterLimitMessage(err),
             errorType: "user_key_limit",
           },
           { status: 429 }

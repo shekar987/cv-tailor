@@ -111,9 +111,13 @@ export function unsupportedProperNouns(text: string, sources: (string | null | u
 export function sentencesNaming(text: string, nouns: string[]): string[] {
   if (nouns.length === 0) return [];
   const keys = nouns.map(fold).filter(Boolean);
+  // A possessive or a trailing apostrophe ("AssetGuard's platform") still
+  // names the noun — a sentence that carries it must be found, or the
+  // deterministic drop has nothing to drop.
+  const patterns = keys.map((k) => new RegExp(`(^|\\s)${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|'|’|$)`));
   return sentences(text).filter((s) => {
     const f = ` ${fold(s)} `;
-    return keys.some((k) => f.includes(` ${k} `));
+    return patterns.some((p) => p.test(f));
   });
 }
 

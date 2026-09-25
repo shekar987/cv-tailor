@@ -17,7 +17,28 @@ export const MODELS = {
 // to pin a specific model (e.g. "meta-llama/llama-3.3-70b-instruct:free"). If a run
 // errors with a "model not found"-style message, check openrouter.ai/models
 // (Price -> Free) for what's currently live.
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "openrouter/free";
+// Unpinned, the request names a chain: a fast free model first, then the
+// router's own choice. Measured on the JD analyzer (24–25 Sep): the auto
+// router alone landed on nex-agi/nex-n2.5-pro at 160–300 s per call, which
+// blew the client's 5-minute limit; cohere/north-mini-code answered the same
+// prompt, valid JSON, in 15–27 s. OpenRouter falls through the chain when a
+// model is rate-limited or unavailable. OPENROUTER_MODEL pins one model.
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "cohere/north-mini-code:free";
+const OPENROUTER_MODEL_CHAIN = process.env.OPENROUTER_MODEL
+  ? [process.env.OPENROUTER_MODEL]
+  : ["cohere/north-mini-code:free", "google/gemma-4-26b-a4b-it:free", "openrouter/free"];
+// One slow model must not hold a whole wave: past this the call fails and
+// the step degrades (or the truncation retry runs), like any other error.
+const OPENROUTER_TIMEOUT_MS = 150_000;
+// The free router lands on reasoning models (cohere/north-mini-code, nex-n2.5)
+// whose thinking counts against max_tokens: at the Anthropic-sized 2000 budget
+// the JD analyzer came back with EMPTY content and 9,000 characters of
+// reasoning, and every fallback run on the owner's own key failed with
+// "Model returned invalid JSON". So OpenRouter calls get a 6,000-token floor,
+// switch reasoning OFF (measured on the analyzer: 5 s with it off, 44–77 s
+// with "low"/"minimal" effort, all valid JSON), and still read a JSON answer
+// out of `reasoning` when a model ignores that and leaves `content` empty.
+const OPENROUTER_MIN_TOKENS = 6000;
 
 // Pinned, not the "-latest" alias — Gemini's "-latest" aliases have a documented
 // history of silently resolving to a since-deprecated model and 404ing with no
@@ -86,6 +107,16 @@ function cleanText(raw: string): string {
 // call: if the repair is still invalid we throw, and the pipeline's per-step
 // .catch() degrades that section to empty as before. `regenerate` re-runs the
 // provider so any 429 surfaces as ProviderRateLimitError, preserving fallback.
+// The first balanced-looking JSON value inside prose ("Here is the JSON:
+// {...} Let me know…"), or null. Tried before the paid repair call.
+function extractJson(raw: string): string | null {
+  const start = raw.search(/[{[]/);
+  if (start === -1) return null;
+  const end = Math.max(raw.lastIndexOf("}"), raw.lastIndexOf("]"));
+  if (end <= start) return null;
+  return raw.slice(start, end + 1);
+}
+
 async function parseJsonWithRepair(
   rawText: string,
   regenerate: (repairInstruction: string) => Promise<string>
@@ -93,6 +124,14 @@ async function parseJsonWithRepair(
   try {
     return JSON.parse(rawText);
   } catch {
+    const inner = extractJson(rawText);
+    if (inner && inner !== rawText) {
+      try {
+        return JSON.parse(inner);
+      } catch {
+        // fall through to the repair call
+      }
+    }
     const repairInstruction =
       "Your previous response was NOT valid JSON and could not be parsed. " +
       "Output ONLY the corrected value as strictly-valid JSON — no prose, no explanation, no markdown fences. " +
@@ -188,7 +227,7 @@ export async function callClaude(options: BaseCallOptions) {
 // train, and keep prompt logging OFF (enabling it grants OpenRouter an
 // irrevocable commercial-use license on the logged content).
 // Raw OpenRouter call — returns cleaned text, no JSON parsing.
-async function openRouterRaw(options: BaseCallOptions, apiKeyOverride?: string): Promise<string> {
+async function openRouterRaw(options: BaseCallOptions, apiKeyOverride?: string): Promise<{ text: string; truncated: boolean }> {
   const {
     system,
     userInput,
@@ -208,9 +247,15 @@ async function openRouterRaw(options: BaseCallOptions, apiKeyOverride?: string):
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
+    signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
     body: JSON.stringify({
       model,
-      max_tokens: maxTokens,
+      // The fallback chain applies only to the default model; a caller that
+      // names a model (or an env pin) gets exactly that model.
+      ...(model === OPENROUTER_MODEL && OPENROUTER_MODEL_CHAIN.length > 1 ? { models: OPENROUTER_MODEL_CHAIN } : {}),
+      // Reasoning tokens share this budget (see OPENROUTER_MIN_TOKENS).
+      max_tokens: Math.max(maxTokens, OPENROUTER_MIN_TOKENS),
+      reasoning: { enabled: false },
       messages: [
         { role: "system", content: system },
         { role: "user", content: userInput },
@@ -226,9 +271,13 @@ async function openRouterRaw(options: BaseCallOptions, apiKeyOverride?: string):
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     if (res.status === 429) {
+      // OpenRouter's free tier: 50 free-model requests a day without credit,
+      // 1,000 with $10 on the account. A tailor is ~10 calls, so the day's
+      // allowance is five runs; say so, because "busy, try later" is wrong.
+      const daily = /free-models-per-day/i.test(body);
       throw new ProviderRateLimitError(
         "openrouter",
-        "OpenRouter rate limit exceeded",
+        daily ? "OpenRouter free-model daily limit reached" : "OpenRouter rate limit exceeded",
         extractRetryAfterSeconds(res, body)
       );
     }
@@ -239,15 +288,31 @@ async function openRouterRaw(options: BaseCallOptions, apiKeyOverride?: string):
   }
 
   const data = await res.json();
-  return cleanText(data.choices?.[0]?.message?.content ?? "");
+  const choice = data.choices?.[0] ?? {};
+  const message = choice.message ?? {};
+  let content: string = typeof message.content === "string" ? message.content : "";
+  const reasoning: string = typeof message.reasoning === "string" ? message.reasoning : "";
+  const finish = String(choice.finish_reason ?? choice.native_finish_reason ?? "");
+  const truncated = /length|max_tokens/i.test(finish);
+  // A reasoning model that spent its budget thinking answers with empty
+  // content and the work in `reasoning`; for a JSON step the object is often
+  // complete there. Only when content is empty, and never for prose.
+  if (!content.trim() && expectJson && reasoning.includes("{")) content = reasoning;
+  return { text: cleanText(content), truncated };
 }
 
 async function callOpenRouter(options: BaseCallOptions, apiKeyOverride?: string) {
-  const text = await openRouterRaw(options, apiKeyOverride);
-  if (!options.expectJson) return text;
-  return parseJsonWithRepair(text, (repair) =>
-    openRouterRaw({ ...options, userInput: `${options.userInput}\n\n${repair}` }, apiKeyOverride)
-  );
+  let result = await openRouterRaw(options, apiKeyOverride);
+  // Cut off by the budget, or nothing usable came back: once more with double
+  // the budget before the repair path (same reasoning as callClaude).
+  if (result.truncated || !result.text) {
+    result = await openRouterRaw({ ...options, maxTokens: Math.max(options.maxTokens ?? 2000, OPENROUTER_MIN_TOKENS) * 2 }, apiKeyOverride);
+  }
+  if (!options.expectJson) return result.text;
+  return parseJsonWithRepair(result.text, async (repair) => {
+    const retry = await openRouterRaw({ ...options, userInput: `${options.userInput}\n\n${repair}` }, apiKeyOverride);
+    return retry.text;
+  });
 }
 
 // PRIVACY (manual pre-flight — not enforced by this code): Gemini's free tier

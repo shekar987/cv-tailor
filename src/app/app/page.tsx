@@ -130,6 +130,8 @@ type Result = {
   // The variant's lead skills the run could not use (lib/variants): only
   // production-level registry skills lead.
   variantLeadSkills?: { kept: string[]; dropped: LeadSkillDrop[] } | null;
+  // The polish retries were skipped to fit the time limit (OpenRouter runs).
+  fastMode?: boolean;
   // The run was retried on an OpenRouter key because the shared Claude
   // account could not serve it (lib/fallbackRoute).
   fallback?: { from: string; to: "openrouter"; source: "own_key" | "env_key"; reason: "provider_credit" | "provider_limit" } | null;
@@ -1946,9 +1948,9 @@ export default function Home() {
             {/* ── User's own key quota exhausted ── */}
             {errorType === "user_key_limit" && (
               <div className="limitNotice" role="alert">
-                <div className="limitNotice__title">Today&apos;s tailoring limit is reached.</div>
+                <div className="limitNotice__title">Your OpenRouter key has hit its limit.</div>
                 <div className="limitNotice__body">
-                  Your key&apos;s free quota resets daily — come back tomorrow to continue.
+                  {error || "Your key's free quota resets daily — come back tomorrow to continue."}
                 </div>
                 <div className="limitNotice__body">
                   A subscription plan with higher limits is on the way.
@@ -2124,7 +2126,10 @@ export default function Home() {
             {result.fallback && (
               <div className="limitNotice" role="status" data-fallback-notice>
                 <div className="limitNotice__title">Ran on OpenRouter</div>
-                <div className="limitNotice__body">{fallbackNotice(result.fallback)}</div>
+                <div className="limitNotice__body">
+                  {fallbackNotice(result.fallback)}
+                  {result.fastMode && " Free models are slow, so the automatic polish retries were skipped; every honesty check still ran — fix anything flagged in the preview."}
+                </div>
               </div>
             )}
             {graduateLayout?.changed && (

@@ -61,6 +61,8 @@ type Row = {
   prep_pack?: unknown;
 };
 
+export const maxDuration = 300;
+
 export async function POST(req: NextRequest) {
   try {
     // ── Auth ──────────────────────────────────────────────────────────────────

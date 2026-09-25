@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { callClaude, callLLM, ProviderCreditError } from "@/lib/claude";
+import { callClaude, callLLM, ProviderCreditError, ProviderRateLimitError } from "@/lib/claude";
 import { loadOwnOpenRouterKey } from "@/lib/llmRouting";
+import { openRouterLimitMessage } from "@/lib/fallbackRoute";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { JD_ANALYZER_PROMPT } from "@/prompts/steps";
 import { matchAtsKeywords } from "@/lib/atsMatch";
@@ -50,6 +51,8 @@ async function findDuplicates(
     return null;
   }
 }
+
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
@@ -121,7 +124,14 @@ export async function POST(req: NextRequest) {
       const own = await loadOwnOpenRouterKey(supabase, userId);
       if (!own.key) throw e;
       console.warn("Analyze fallback: anthropic → openrouter (own_key) after provider_credit");
-      result = await callLLM({ provider: "openrouter", apiKeyOverride: own.key, system: JD_ANALYZER_PROMPT, userInput: jobDescription, expectJson: true });
+      try {
+        result = await callLLM({ provider: "openrouter", apiKeyOverride: own.key, system: JD_ANALYZER_PROMPT, userInput: jobDescription, expectJson: true });
+      } catch (fbErr) {
+        if (fbErr instanceof ProviderRateLimitError) {
+          return NextResponse.json({ limitReached: true, error: openRouterLimitMessage(fbErr), errorType: "user_key_limit" }, { status: 429 });
+        }
+        throw fbErr;
+      }
       fallback = { from: "anthropic", to: "openrouter", source: "own_key", reason: "provider_credit" };
     }
 

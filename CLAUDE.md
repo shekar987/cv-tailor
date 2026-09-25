@@ -494,7 +494,7 @@ UPSTASH_REDIS_REST_TOKEN=...
 # Optional — owner-account provider routing (src/lib/claude.ts, /api/tailor Path A)
 LLM_PROVIDER=anthropic            # anthropic | openrouter | gemini (default anthropic)
 OPENROUTER_API_KEY=sk-or-v1-...   # env key for the openrouter provider
-OPENROUTER_MODEL=openrouter/free  # pin a specific free model if the auto-router misbehaves
+OPENROUTER_MODEL=cohere/north-mini-code:free  # optional pin; unset = the chain cohere/north-mini-code:free → google/gemma-4-26b-a4b-it:free → openrouter/free
 GEMINI_API_KEY=AIza...            # env key for the gemini provider
 GEMINI_MODEL=gemini-2.5-flash
 
@@ -648,9 +648,34 @@ across two failed runs.
 
 Since Prompt 8 (24 Sep) the 503 is the LAST resort: `lib/fallbackRoute`
 retries the run once on the user's own OpenRouter key (or the deployment's,
-on the unlimited path), and the pre-check does the same, so a user who has
-saved the key never sees the notice at all — the run just says it used
-OpenRouter.
+on the unlimited path), and the pre-check and profile extraction do the
+same, so a user who has saved the key never sees the notice at all — the
+run just says it used OpenRouter.
+
+### OpenRouter's free router picks reasoning models — budget for the thinking
+
+The first fallback runs on the owner's key all died with "Model returned
+invalid JSON after repair retry (0 chars)". `openrouter/free` routes to
+reasoning models (cohere/north-mini-code, nex-n2.5) whose thinking counts
+against `max_tokens`: at 2,000 the JD analyzer returned EMPTY content and
+9,000 characters of `reasoning`. The adapter therefore uses a 6,000-token
+floor (`OPENROUTER_MIN_TOKENS`), sends `reasoning: { enabled: false }`
+(measured on the analyzer with cohere/north-mini-code: 5 s off, 44–77 s at
+"low"/"minimal" effort, all valid JSON), still reads a JSON answer out of
+`message.reasoning` when `content` is empty, retries once at double the
+budget on a cut-off or empty answer, and pulls a balanced JSON value out of
+surrounding prose before spending the repair call. The default model is a
+chain (`OPENROUTER_MODEL_CHAIN`: cohere/north-mini-code → gemma-4-26b →
+openrouter/free; the auto router alone landed on a 160–300 s model), each
+call has a 150 s abort, every model-calling route declares `maxDuration =
+300`, and a run on OpenRouter is **fast mode** (`fastMode` in the response):
+the four polish retries — title, bullet lint, claims rewrite, letter
+proper-noun rewrite — are skipped, every deterministic guard still runs.
+Two limits the code cannot fix: an OpenRouter account with under $10 of
+credit gets **50 free-model requests a day** (a tailor is ~10; the 429 body
+says `free-models-per-day` and the app now says so — `openRouterLimitMessage`),
+and most other free models answer 429 "temporarily rate-limited upstream"
+most of the day.
 
 ### React Compiler: a const declared after the function that closes over it costs two lint errors
 

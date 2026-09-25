@@ -13,6 +13,8 @@ import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { normalizeClaims, renderClaimsBlock, checkClaims } from "@/lib/claims";
 import { pitchScriptPrompt, talkingPointsPrompt, coldEmailPrompt } from "@/prompts/steps";
 
+export const maxDuration = 300;
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();

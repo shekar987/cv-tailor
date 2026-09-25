@@ -36,6 +36,8 @@ export const runtime = "nodejs";
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+export const maxDuration = 300;
+
 export async function POST(req: NextRequest) {
   try {
     // ── Auth ──────────────────────────────────────────────────────────────────

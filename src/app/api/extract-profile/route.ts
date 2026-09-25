@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { callClaude } from "@/lib/claude";
+import { callClaude, callLLM, ProviderCreditError } from "@/lib/claude";
+import { loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { PROFILE_EXTRACTION_PROMPT } from "@/prompts/steps";
 import { MAX_CV_CHARS, CV_TOO_LONG } from "@/lib/limits";
 import { normalizeProfile } from "@/lib/profile";
 import { normalizeSkillGuesses } from "@/lib/claims";
+
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
@@ -50,12 +53,23 @@ export async function POST(req: NextRequest) {
     // per-call cost cap (see checkBurstLimit above), so this raises the
     // theoretical max cost per call — in practice Claude only spends the
     // tokens it needs, so a typical CV's actual cost shouldn't change.
-    const raw = await callClaude({
-      system: PROFILE_EXTRACTION_PROMPT,
-      userInput: cvText,
-      expectJson: true,
-      maxTokens: 8000,
-    });
+    let raw: unknown;
+    try {
+      raw = await callClaude({
+        system: PROFILE_EXTRACTION_PROMPT,
+        userInput: cvText,
+        expectJson: true,
+        maxTokens: 8000,
+      });
+    } catch (e) {
+      // The shared account out of credit: the same extraction on the user's
+      // own OpenRouter key, once (lib/fallbackRoute); without a key, rethrow.
+      if (!(e instanceof ProviderCreditError)) throw e;
+      const own = await loadOwnOpenRouterKey(supabase, data.claims.sub as string);
+      if (!own.key) throw e;
+      console.warn("Extract-profile fallback: anthropic → openrouter (own_key) after provider_credit");
+      raw = await callLLM({ provider: "openrouter", apiKeyOverride: own.key, system: PROFILE_EXTRACTION_PROMPT, userInput: cvText, expectJson: true, maxTokens: 8000 });
+    }
     // Valid JSON is not the same as the right shape: coerce every field to
     // what the preview and download routes assume before it is stored.
     const profile = normalizeProfile(raw);
@@ -65,6 +79,18 @@ export async function POST(req: NextRequest) {
     const skills = normalizeSkillGuesses((raw as { skills?: unknown } | null)?.skills);
     return NextResponse.json({ profile, skills });
   } catch (error) {
+    if (error instanceof ProviderCreditError) {
+      console.error("Provider credit exhausted:", error.provider);
+      return NextResponse.json(
+        {
+          error:
+            "Extraction is temporarily unavailable — the shared Claude account has run out of credit. " +
+            "This isn't your account: add your own free OpenRouter key in Settings and it runs on that instead.",
+          errorType: "provider_credit",
+        },
+        { status: 503 }
+      );
+    }
     console.error("Profile extraction error:", error instanceof Error ? error.message : "Unknown error");
     return NextResponse.json({ error: "Failed to extract profile" }, { status: 500 });
   }
