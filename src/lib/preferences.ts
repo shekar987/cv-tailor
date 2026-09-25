@@ -11,18 +11,31 @@
 // reads the master CV text) is unchanged. The switch exists for the rare
 // posting that asks for it on the document itself.
 //
+// onePageCv, default false: the CV's length target. Two pages is the
+// default — the tailored CV keeps the master CV's content and lib/onePage
+// fits it to two pages (restoring left-out master bullets when there is
+// room). One page is opt-in: lib/onePage trims by relevance to fit. Until
+// 25 Sep one page was forced for anyone whose eligibility answer said under
+// three years; the owner found it cut too much of the master CV.
+//
 // Import-free, so it runs in the browser and under node:test.
 
 export type Preferences = {
   version: 1;
   includeRightToWorkOnCv: boolean;
+  onePageCv: boolean;
 };
 
-export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false };
+export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false };
 
 export function normalizePreferences(v: unknown): Preferences {
   const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
-  return { version: 1, includeRightToWorkOnCv: o.includeRightToWorkOnCv === true };
+  return { version: 1, includeRightToWorkOnCv: o.includeRightToWorkOnCv === true, onePageCv: o.onePageCv === true };
+}
+
+// The page count the downloads lay the CV out to.
+export function pageTarget(prefs: Preferences): 1 | 2 {
+  return prefs.onePageCv ? 1 : 2;
 }
 
 // The profile the CV document renders with: identical to the stored profile

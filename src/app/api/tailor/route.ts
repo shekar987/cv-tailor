@@ -8,7 +8,7 @@ import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIB
 import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillMentioned, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
 import { normalizePreferences } from "@/lib/preferences";
-import { stripRightToWorkSentences, stripRightToWorkLines, stripRightToWorkBullets } from "@/lib/rightToWorkText";
+import { stripRightToWorkSentences, stripRightToWorkLines, stripRightToWorkBullets, mentionsRightToWork } from "@/lib/rightToWorkText";
 import {
   summaryPrompt,
   skillsPrompt,
@@ -23,8 +23,8 @@ import {
   JD_ANALYZER_PROMPT,
   rejectedBulletsBlock,
 } from "@/prompts/steps";
-import { lintBullets, countFlags, onePageExpected } from "@/lib/quality";
-import { fitOnePage, type OnePageReport } from "@/lib/onePage";
+import { lintBullets, countFlags } from "@/lib/quality";
+import { fitOnePage, fitTwoPages, experienceRefillCandidates, projectRefillCandidates, type PageFitReport, type RefillCandidate } from "@/lib/onePage";
 import { buildHeadline } from "@/lib/headline";
 import { normalizeEligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
@@ -81,9 +81,10 @@ async function runPipeline(opts: {
   // the bullets or the letter — the models write from the master CV text,
   // which states it, so the finished text is filtered deterministically.
   omitRightToWork: boolean;
-  // Under three years of experience (the user's own eligibility answer): the
-  // prompts get a one-page budget and lib/onePage trims the finished text to
-  // what one page holds, measured with the document profile below.
+  // The user's one-page choice (Preferences.onePageCv): the prompts get a
+  // one-page budget and lib/onePage trims the finished text to one page.
+  // Otherwise (the default) the text is fitted to two pages. Both measure
+  // with the document profile below.
   onePage: boolean;
   profile: unknown;
   // The user's stated years (eligibility), for the header line — never inferred.
@@ -387,22 +388,45 @@ async function runPipeline(opts: {
     rtwStripped.cv.push(...p.removed);
   }
 
-  // One page (lib/onePage): trim by relevance until the document measures one
-  // page, and report what was left out. Runs before the score so the score
-  // reads the text the user will actually send.
-  let onePageReport: OnePageReport | null = null;
-  if (onePage) {
+  // Page fit (lib/onePage), before the score so the score reads the text the
+  // user will send. Two pages (the default): trimmed by relevance if it runs
+  // past two; otherwise the master CV's own left-out bullets are restored,
+  // most relevant first, while it still fits — each one cleared by the
+  // claims registry in its section and by the Right-to-Work switch, so a
+  // restored bullet can never bring back what the passes above removed.
+  // One page (the user's opt-in): trimmed by relevance to one page.
+  let pageFitReport: PageFitReport | null = null;
+  {
     const t = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
-    const fitted = fitOnePage(
-      { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal },
-      (profile ?? null) as Parameters<typeof fitOnePage>[1],
-      { keywords: t.top_15_ats_keywords, required: t.required_skills }
-    );
+    const fitTerms = { keywords: t.top_15_ats_keywords, required: t.required_skills };
+    const fitProfile = (profile ?? null) as Parameters<typeof fitOnePage>[1];
+    const current = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
+    let fitted: ReturnType<typeof fitOnePage>;
+    if (onePage) {
+      fitted = fitOnePage(current, fitProfile, fitTerms);
+    } else {
+      const allowed = (c: RefillCandidate) => {
+        if (omitRightToWork && mentionsRightToWork(c.text)) return false;
+        const check = checkClaims(
+          [{ where: "cv", text: c.text, ...(c.where === "experience" ? { experience: c.text } : {}) }],
+          claims,
+          [cv, projectsPool]
+        );
+        return check.skillViolations.length === 0 && !check.numberViolations.some((n) => n.kind === "absent");
+      };
+      const metas = (profile as { projects?: { name?: string; originalBullets?: string[] }[] } | null)?.projects;
+      const candidates = [
+        ...experienceRefillCandidates(experienceFinal, masterRoles),
+        // Pool mode renders the selected pool projects, not the profile's.
+        ...(projectsPool ? [] : projectRefillCandidates(projectsFinal, metas)),
+      ].filter(allowed);
+      fitted = fitTwoPages(current, fitProfile, fitTerms, candidates);
+    }
     summary = fitted.sections.summary;
     skillsFinal = fitted.sections.skills;
     experienceFinal = fitted.sections.experience as typeof experienceFinal;
     projectsFinal = fitted.sections.projects;
-    onePageReport = fitted.report;
+    pageFitReport = fitted.report;
   }
 
   const sections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
@@ -500,7 +524,7 @@ async function runPipeline(opts: {
     formatFixes,
     letterCheck,
     rtwStripped,
-    onePage: onePageReport,
+    pageFit: pageFitReport,
     // True when the polish retries were skipped to fit the time limit (OpenRouter).
     fastMode: fast,
     variantLeadSkills: variant ? leadSkills : null,
@@ -595,13 +619,14 @@ export async function POST(req: NextRequest) {
     // Document switches (lib/preferences), sent along by the client like the
     // registry — the server reads no per-user table here. Absent = defaults.
     const preferences = normalizePreferences(body.preferences);
-    // Eligibility answers (years → one-page target) and the document profile
-    // (for the page estimate), both sent by the client like the registry.
+    // Eligibility answers (years → the header line) and the document profile
+    // (for the page fit), both sent by the client like the registry.
     if (body.eligibility !== undefined && JSON.stringify(body.eligibility).length > MAX_ELIGIBILITY_JSON) {
       return NextResponse.json({ error: "Eligibility profile is too large." }, { status: 400 });
     }
     const eligibility = normalizeEligibility(body.eligibility);
-    const onePage = onePageExpected(eligibility.yearsExperience);
+    // The CV's length: two pages unless the user chose one (Customize).
+    const onePage = preferences.onePageCv;
     if (body.profile !== undefined && JSON.stringify(body.profile).length > MAX_CV_CHARS) {
       return NextResponse.json({ error: "Profile is too large." }, { status: 400 });
     }

@@ -36,9 +36,9 @@ export const PAGE_HEIGHT = 16838; // A4 height in twips
 const BODY_LINE = 250;            // rendered height of one 10.5pt line
 const HEADING_LINE = 290;         // section headings are 12pt + a rule
 const CHARS_PER_LINE = 95;        // ~10.5pt Calibri across the usable measure
-// The default target. A candidate with under three years of experience gets
-// a ONE-page target instead (lib/quality onePageExpected → lib/onePage trims
-// the content, and the downloads lay it out to one page).
+// The default target. A user who chose a one-page CV (Preferences.onePageCv)
+// gets a ONE-page target instead (lib/onePage trims the content, and the
+// downloads lay it out to one page).
 export const TARGET_PAGES = 2;
 
 // A short CV should still look like a short CV, not a normal one with absurd

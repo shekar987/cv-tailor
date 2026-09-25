@@ -105,3 +105,42 @@ test("diffProjects compares each project's bullets with its own master bullets",
   assert.deepEqual(d[0].dropped.map((x) => x.text), ["Wrote 90+ tests."]);
   assert.deepEqual(d[1].bullets.map((b) => b.status), ["kept"]);
 });
+
+test("parseMasterExperience: a title on the line above its dates belongs to the next role, not the previous one", () => {
+  // The owner's real layout: title line, then an employer/dates line; the
+  // next role's title follows the previous role's bullets directly.
+  const cv = [
+    "EXPERIENCE",
+    "",
+    "Research Assistant — AI & Full-Stack Development",
+    "University of East London — AssetGuard+ · London, UK · Jun 2026 – Present",
+    "",
+    "- Develop features for AssetGuard+ used by 40 analysts.",
+    "- Analysed 11 industry asset-management platforms.",
+    "",
+    "Full Stack Engineer — Brane Group",
+    "Jul 2023 – Sep 2024 (full-time); part-time alongside final-year study Jul 2022 – Jul 2023",
+    "",
+    "- Engineered enterprise web applications delivering 20+ production API modules.",
+    "- Built secure FastAPI backend services with JWT authentication.",
+    "",
+    "Full Stack Development Intern — CodSoft",
+    "Jan 2022 – Jun 2022",
+    "",
+    "- Delivered 9 end-to-end projects solo.",
+    "",
+    "PROJECTS",
+  ].join("\n");
+  const roles = parseMasterExperience(cv);
+  assert.equal(roles.length, 3);
+  assert.match(roles[0].header, /^Research Assistant — AI & Full-Stack Development \| University of East London/);
+  assert.match(roles[1].header, /^Full Stack Engineer — Brane Group \| Jul 2023 – Sep 2024/);
+  assert.match(roles[2].header, /^Full Stack Development Intern — CodSoft \| Jan 2022 – Jun 2022/);
+  assert.deepEqual(roles.map((r) => r.bullets.length), [2, 2, 1]);
+  assert.ok(roles[0].bullets.every((b) => !/Brane Group/.test(b.text)), "the next title is not a bullet of the previous role");
+  // A bullet-less master (glyphs lost in PDF extraction): an achievement
+  // line ending in a full stop is never taken for a title.
+  const flat = "EXPERIENCE\nEngineer | Acme | 2020 – 2022\nShipped the billing service.\nCut costs by 20%.\nAnalyst | Globex | 2018 – 2020\nBuilt reports.\n\nPROJECTS";
+  const f = parseMasterExperience(flat);
+  assert.deepEqual(f.map((r) => r.bullets.length), [2, 1]);
+});

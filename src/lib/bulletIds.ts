@@ -41,6 +41,8 @@ export function parseMasterExperience(cvText: string): MasterRole[] {
     }
   }
   const roles: { header: string; lines: string[]; marked: number }[] = [];
+  // The last line pushed as plain (unmarked) content, if it could be a title.
+  let lastPlain: string | null = null;
   for (let i = start + 1; i < end; i++) {
     const raw = lines[i];
     const line = raw.trim();
@@ -49,21 +51,36 @@ export function parseMasterExperience(cvText: string): MasterRole[] {
       // A two-line header (title line, then a dates line) folds into one.
       const prev = roles[roles.length - 1];
       if (prev && prev.lines.length === 0 && !ROLE_HEADER.test(prev.header)) prev.header = `${prev.header} | ${line}`;
-      else roles.push({ header: line, lines: [], marked: 0 });
+      else if (prev && lastPlain !== null && prev.lines[prev.lines.length - 1] === lastPlain) {
+        // This role's title sits directly above its dates line, after the
+        // previous role's bullets ("Full Stack Engineer — Brane Group", then
+        // "Jul 2023 – Sep 2024"): it was read as that role's last line.
+        prev.lines.pop();
+        roles.push({ header: `${lastPlain} | ${line}`, lines: [], marked: 0 });
+      } else roles.push({ header: line, lines: [], marked: 0 });
+      lastPlain = null;
       continue;
     }
     if (roles.length === 0) {
       // A title line that precedes its dates line.
       if (!BULLET.test(raw) && line.length < 120) roles.push({ header: line, lines: [], marked: 0 });
+      lastPlain = null;
       continue;
     }
     const role = roles[roles.length - 1];
     if (role.lines.length === 0 && !BULLET.test(raw) && !HIGHLIGHT.test(line) && !ROLE_HEADER.test(role.header) && line.length < 120) {
       role.header = `${role.header} | ${line}`;
+      lastPlain = null;
       continue;
     }
     role.lines.push(line);
-    if (BULLET.test(raw) || HIGHLIGHT.test(line)) role.marked += 1;
+    if (BULLET.test(raw) || HIGHLIGHT.test(line)) {
+      role.marked += 1;
+      lastPlain = null;
+    } else {
+      // A short line with no closing full stop can be the next role's title.
+      lastPlain = line.length < 100 && !/[.;]$/.test(line) ? line : null;
+    }
   }
   const anyMarked = roles.some((r) => r.marked > 0);
   return roles

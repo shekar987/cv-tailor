@@ -53,18 +53,14 @@ export type PageEstimate = {
   // `pages`, which reports the stretch the builders choose.
   fitsOnePage: boolean;
   bodyLines: number;
+  // The spacing the builders pick for this content at this target: "roomy",
+  // "normal", "snug" or "tight" (tight also when nothing fits). lib/onePage
+  // stops restoring bullets before a two-page CV reaches "tight".
+  density: string;
 };
 
-// Under this many years of experience a recruiter expects one page. The
-// user's years come from their own eligibility answers (lib/knockouts) and
-// are never inferred: null means no expectation is applied.
-export const ONE_PAGE_MAX_YEARS = 3;
-export function onePageExpected(yearsExperience: number | null | undefined): boolean {
-  return typeof yearsExperience === "number" && Number.isFinite(yearsExperience) && yearsExperience < ONE_PAGE_MAX_YEARS;
-}
-
 // targetPages: the layout the downloads will pick — 2 by default, 1 when the
-// user has under three years (lib/onePage). `pages` is read against it.
+// user chose a one-page CV (Preferences.onePageCv). `pages` is read against it.
 export function estimatePages(sections: Sections, profile: ProfileLike, targetPages: number = TARGET_PAGES): PageEstimate {
   const p = profile ?? {};
   const summary = str(sections.summary);
@@ -100,7 +96,7 @@ export function estimatePages(sections: Sections, profile: ProfileLike, targetPa
   const fitsOnePage = estimatedHeight(size, tightest) <= capacity(tightest) / 2;
   const usable = PAGE_HEIGHT - 2 * chosen.margin;
   const pages = Math.round((estimatedHeight(size, chosen) / usable) * 10) / 10;
-  return { pages, overBudget, fitsOnePage, bodyLines: size.lines };
+  return { pages, overBudget, fitsOnePage, bodyLines: size.lines, density: chosen.name };
 }
 
 // ── Duplicate content ────────────────────────────────────────────────────────

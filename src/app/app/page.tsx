@@ -18,9 +18,9 @@ import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
 import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
 import { normalizeClaims, checkClaims, seedClaimsFromCv, SKILL_RULE_TEXT, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
-import { qualityReport, onePageExpected, type QualityReport } from "@/lib/quality";
+import { qualityReport, type QualityReport } from "@/lib/quality";
 import { normalizeVariants, pickVariant, leadSkillsNotice, type VariantsConfig, type LeadSkillDrop } from "@/lib/variants";
-import { normalizePreferences, profileForDocument, rightToWorkForForms, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
+import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTarget, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import type { SeniorityFit } from "@/lib/seniority";
 import { isGraduateScheme, graduateSectionOrder } from "@/lib/graduateMode";
 import type { BulletChanges, RoleChanges } from "@/lib/bulletIds";
@@ -135,13 +135,16 @@ type Result = {
   // The run was retried on an OpenRouter key because the shared Claude
   // account could not serve it (lib/fallbackRoute).
   fallback?: { from: string; to: "openrouter"; source: "own_key" | "env_key"; reason: "provider_credit" | "provider_limit" } | null;
-  // One-page fit for a candidate with under three years (lib/onePage): what
-  // was left out for length, and whether the result now fits one page.
-  onePage?: {
+  // Page fit (lib/onePage): two pages by default — master bullets restored to
+  // fill them, or the least relevant left out when it ran past two; one page
+  // when the user chose it. What changed, and whether it now fits.
+  pageFit?: {
+    target: 1 | 2;
     fits: boolean;
     pagesBefore: number;
     pagesAfter: number;
     leftOut: { summary: string[]; tools: string[]; experience: { role: string; bullet: string }[]; projects: { project: string; bullet: string }[] };
+    restored: { section: string; bullet: string }[];
   } | null;
 };
 
@@ -859,8 +862,8 @@ export default function Home() {
           // Document switches: Right to Work off the CV (default) also keeps
           // visa / sponsorship sentences out of the generated text.
           preferences,
-          // The eligibility answers (years → one-page target) and the document
-          // profile (education, certifications… for the server's page estimate).
+          // The eligibility answers (years → the header line) and the document
+          // profile (education, certifications… for the server's page fit).
           ...(eligibility ? { eligibility } : {}),
           ...(profile ? { profile: profileForDocument(profile, preferences) } : {}),
         }),
@@ -1231,9 +1234,9 @@ export default function Home() {
   // Deterministic quality read (lib/quality) of what is on screen: the page
   // estimate the download layout implies, content repeated across sections,
   // bullets with no evidence, filler words. Never blocks; it says what to fix.
-  // 1 for under three years (the user's own eligibility answer), else 2 —
-  // the page target the estimate, the preview and the downloads all use.
-  const onePageTarget: 1 | 2 = onePageExpected(eligibility?.yearsExperience) ? 1 : 2;
+  // 2 by default, 1 when the user chose a one-page CV (Customize) — the page
+  // target the estimate, the preview and the downloads all use.
+  const onePageTarget: 1 | 2 = pageTarget(preferences);
   const quality: QualityReport | null = useMemo(() => {
     if (liveQuality) return liveQuality;
     if (!result) return null;
@@ -1248,11 +1251,8 @@ export default function Home() {
   useEffect(() => {
     pagesRef.current = quality ? quality.pages.pages : null;
   }, [quality]);
-  // Under three years of experience (the user's own eligibility answer —
-  // never inferred) a recruiter expects one page. Two readings: the content
-  // genuinely cannot fit one page at the tightest spacing, or it could but
-  // the download's layout stretches a short CV towards two.
-  const overOnePage = !!quality && onePageExpected(eligibility?.yearsExperience) && quality.pages.pages > 1;
+  // The user chose one page and the edited document runs over it.
+  const overOnePage = !!quality && onePageTarget === 1 && quality.pages.pages > 1;
   const qualityIssues = quality
     ? (quality.pages.overBudget ? 1 : 0) +
       (overOnePage && !quality.pages.overBudget ? 1 : 0) +
@@ -2163,32 +2163,46 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {result.onePage && (
-              <div className="limitNotice" role="status" data-one-page={result.onePage.fits ? "fits" : "over"}>
-                <div className="limitNotice__title">
-                  {result.onePage.fits ? "Fitted to one page" : "Could not fit one page"}
-                </div>
-                <div className="limitNotice__body">
-                  Under three years of experience calls for one page, so the download is laid out to one.
-                  {result.onePage.leftOut.experience.length + result.onePage.leftOut.projects.length + result.onePage.leftOut.summary.length + result.onePage.leftOut.tools.length > 0
-                    ? " Left out for length — paste one back into the preview if it matters more than what stayed:"
-                    : " Nothing had to be left out."}
-                  {!result.onePage.fits && " Even at the tightest spacing it still runs over: shorten the remaining bullets in the preview."}
-                  <ul className="atsList">
-                    {result.onePage.leftOut.summary.map((s, i) => (
-                      <li key={`s${i}`}>Summary: {s}</li>
-                    ))}
-                    {result.onePage.leftOut.tools.length > 0 && <li>Technical Tools: {result.onePage.leftOut.tools.join(", ")}</li>}
-                    {result.onePage.leftOut.experience.map((e, i) => (
-                      <li key={`e${i}`}>{e.role ? `${e.role}: ` : ""}{e.bullet}</li>
-                    ))}
-                    {result.onePage.leftOut.projects.map((p, i) => (
-                      <li key={`p${i}`}>{p.project}: {p.bullet}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
+            {result.pageFit &&
+              (() => {
+                const fit = result.pageFit;
+                const leftOutTotal = fit.leftOut.experience.length + fit.leftOut.projects.length + fit.leftOut.summary.length + fit.leftOut.tools.length;
+                // Two pages with nothing to report: the CV fitted as written.
+                if (fit.target === 2 && fit.fits && leftOutTotal === 0 && fit.restored.length === 0) return null;
+                const title =
+                  fit.target === 1
+                    ? fit.fits ? "Fitted to one page" : "Could not fit one page"
+                    : !fit.fits ? "Could not fit two pages" : fit.restored.length > 0 ? "Filled to two pages from your master CV" : "Fitted to two pages";
+                return (
+                  <div className="limitNotice" role="status" data-page-fit={`${fit.target}-${fit.fits ? "fits" : "over"}`}>
+                    <div className="limitNotice__title">{title}</div>
+                    <div className="limitNotice__body">
+                      {fit.target === 1
+                        ? "You chose a one-page CV on Customize, so the download is laid out to one."
+                        : "The download is laid out to two pages."}
+                      {fit.restored.length > 0 && " These bullets from your master CV were put back to fill the second page:"}
+                      {leftOutTotal > 0 && " Left out for length — paste one back into the preview if it matters more than what stayed:"}
+                      {fit.target === 1 && leftOutTotal === 0 && " Nothing had to be left out."}
+                      {!fit.fits && " Even at the tightest spacing it still runs over: shorten the remaining bullets in the preview."}
+                      <ul className="atsList">
+                        {fit.restored.map((r, i) => (
+                          <li key={`r${i}`}>{r.section ? `${r.section}: ` : ""}{r.bullet}</li>
+                        ))}
+                        {fit.leftOut.summary.map((s, i) => (
+                          <li key={`s${i}`}>Summary: {s}</li>
+                        ))}
+                        {fit.leftOut.tools.length > 0 && <li>Technical Tools: {fit.leftOut.tools.join(", ")}</li>}
+                        {fit.leftOut.experience.map((e, i) => (
+                          <li key={`e${i}`}>{e.role ? `${e.role}: ` : ""}{e.bullet}</li>
+                        ))}
+                        {fit.leftOut.projects.map((p, i) => (
+                          <li key={`p${i}`}>{p.project}: {p.bullet}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                );
+              })()}
             {result.rtwStripped && (result.rtwStripped.cv.length > 0 || result.rtwStripped.letter.length > 0) && (
               <div className="limitNotice" role="status" data-rtw-stripped>
                 <div className="limitNotice__title">Right to Work kept off the document</div>
@@ -2226,13 +2240,8 @@ export default function Home() {
                       <li data-quality-one-page={quality.pages.fitsOnePage ? "stretched" : "over"}>
                         <Badge variant="dot" tone="miss">✕</Badge>
                         <span>
-                          About <strong>{quality.pages.pages} pages</strong> for under three years of experience — recruiters expect one.{" "}
-                          {quality.pages.fitsOnePage
-                            ? // Deliberately NOT "cut until it fits one page": the document is laid
-                              // out over two pages by design, so trimming content only buys roomier
-                              // spacing, never a one-page file. Say what the length actually is.
-                              "The content itself would fit one page — the length here is spacing, not substance. Worth asking whether every bullet earns its place."
-                            : "Even the tightest spacing can't hold this on one page: cut the least relevant bullets and projects in the preview below."}
+                          About <strong>{quality.pages.pages} pages</strong> — over the one page you chose on Customize.{" "}
+                          Cut the least relevant bullets and projects in the preview below, or switch the CV length back to two pages.
                         </span>
                       </li>
                     )}
@@ -2439,7 +2448,7 @@ export default function Home() {
                 {quality.pages.overBudget
                   ? " — over the two-page limit."
                   : overOnePage
-                    ? " — over one page, which is what under three years of experience calls for. See Before you send above."
+                    ? " — over the one page you chose on Customize. See Before you send above."
                     : "."}
               </p>
             )}

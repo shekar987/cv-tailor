@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fitOnePage, capSummaryWords, bulletRelevance, leftOutCount, ONE_PAGE_ROLE_CAP_FIRST, ONE_PAGE_ROLE_CAP_REST } from "../src/lib/onePage.ts";
+import { fitOnePage, fitTwoPages, experienceRefillCandidates, projectRefillCandidates, capSummaryWords, bulletRelevance, leftOutCount, REFILL_DENSITIES, ONE_PAGE_ROLE_CAP_FIRST, ONE_PAGE_ROLE_CAP_REST, type RefillCandidate } from "../src/lib/onePage.ts";
+import { parseMasterExperience } from "../src/lib/bulletIds.ts";
 import { estimatePages } from "../src/lib/quality.ts";
 
 const terms = { keywords: ["React", "TypeScript", "AWS", "PostgreSQL", "CI/CD"], required: ["React", "Node.js"] };
@@ -98,4 +99,123 @@ test("fitOnePage: never trims a role below 2 bullets or a project below 1, and s
   for (const block of exp.split(/\n(?=[A-Z][^\n|]* \| )/)) assert.ok((block.match(/^• /gm) ?? []).length >= 2, block);
   for (const list of Object.values(sections.projects as Record<string, string[]>)) assert.ok(list.length >= 1);
   assert.equal(report.fits, false);
+});
+
+// ── Two pages (the default) ──────────────────────────────────────────────────
+
+const masterCv = [
+  "EXPERIENCE",
+  "",
+  "Research Assistant — AI & Full-Stack Development",
+  "University of East London — AssetGuard+ · London, UK · Jun 2026 – Present",
+  "",
+  "- Develop features for AssetGuard+ in React and Node.js used by 40 analysts.",
+  "- Analysed 11 industry asset-management platforms from verified user reviews.",
+  "",
+  "Full Stack Engineer — Brane Group",
+  "Jul 2023 – Sep 2024 (full-time)",
+  "",
+  "- Engineered enterprise web applications in Python, FastAPI, React and TypeScript, delivering 20+ production API modules.",
+  "- Built secure FastAPI backend services with JWT authentication and RBAC.",
+  "- Optimised data access across PostgreSQL and Redis, cutting query time by 30%.",
+  "- Built AI-enabled services including LLM/RAG knowledge solutions.",
+  "",
+  "Full Stack Development Intern — CodSoft",
+  "Jan 2022 – Jun 2022",
+  "",
+  "- Designed a Student Course Registration System across 4 layers.",
+  "- Delivered 9 end-to-end projects solo across 2 GitHub repositories.",
+  "",
+  "PROJECTS",
+].join("\n");
+
+const tailoredExp = [
+  "Research Assistant | University of East London | Jun 2026 – Present",
+  "• Develop features for AssetGuard+ in React and Node.js used by 40 analysts.",
+  "",
+  "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024",
+  "• Engineered enterprise web applications in Python, FastAPI, React and TypeScript, delivering 20+ production API modules.",
+  "• Built secure FastAPI backend services with JWT authentication and RBAC.",
+  "",
+  "Full Stack Development Intern | CodSoft | Jan 2022 – Jun 2022",
+  "• Designed a Student Course Registration System across 4 layers.",
+  "• Delivered 9 end-to-end projects solo across 2 GitHub repositories.",
+].join("\n");
+
+test("experienceRefillCandidates: the master bullets the tailored text left out, with their role", () => {
+  const c = experienceRefillCandidates(tailoredExp, parseMasterExperience(masterCv));
+  assert.deepEqual(
+    c.map((x) => (x.where === "experience" ? [x.role, x.text.slice(0, 20)] : null)),
+    [[1, "Analysed 11 industry"], [2, "Optimised data acces"], [2, "Built AI-enabled ser"]]
+  );
+});
+
+test("fitTwoPages: restores left-out master bullets under their own role, most relevant first", () => {
+  // The route clears candidates with the claims registry first; the RAG
+  // bullet (a project-level skill) is what that filter removes.
+  const candidates = experienceRefillCandidates(tailoredExp, parseMasterExperience(masterCv)).filter((c) => !/RAG/.test(c.text));
+  const sections = { summary: "Full Stack Engineer.", skills: "**Technical Tools:** Python | React", experience: tailoredExp, projects: { "0": ["Built a CV tool."] } };
+  const { sections: out, report } = fitTwoPages(sections, profile, terms, candidates);
+  assert.equal(report.target, 2);
+  assert.equal(report.fits, true);
+  assert.deepEqual(report.leftOut.experience, []);
+  // PostgreSQL is a keyword and the bullet carries a figure: it ranks first.
+  assert.deepEqual(report.restored.map((r) => r.bullet.slice(0, 20)), ["Optimised data acces", "Analysed 11 industry"]);
+  assert.deepEqual(report.restored.map((r) => r.section), ["Full Stack Engineer — Brane Group", "Research Assistant — AI & Full-Stack Development"]);
+  const lines = String(out.experience).split("\n");
+  const at = (s: string) => lines.findIndex((l) => l.includes(s));
+  assert.ok(at("Analysed 11") > at("Research Assistant |") && at("Analysed 11") < at("Full Stack Engineer |"), "under the Research Assistant role");
+  assert.ok(at("Optimised data access") > at("Built secure FastAPI") && at("Optimised data access") < at("Full Stack Development Intern |"), "last in the Brane role");
+  assert.ok(REFILL_DENSITIES.includes(estimatePages(out, profile, 2).density));
+});
+
+test("fitTwoPages: never places a bullet under a role its master header does not name, never repeats one, highlights lead", () => {
+  const sections = { summary: "x", skills: "y", experience: tailoredExp, projects: {} };
+  const candidates: RefillCandidate[] = [
+    { where: "experience", role: 2, masterHeader: "Senior Engineer — Globex | 2019 – 2021", text: "Ran the Globex migration for 12 teams." },
+    { where: "experience", role: 2, masterHeader: "Full Stack Engineer — Brane Group | Jul 2023 – Sep 2024", text: "Built secure FastAPI backend services with JWT authentication and RBAC for 3 clients." },
+    { where: "experience", role: 2, masterHeader: "Full Stack Engineer — Brane Group | Jul 2023 – Sep 2024", text: "Highlight: Shipped 20+ API modules across 2 product lines." },
+  ];
+  const { sections: out, report } = fitTwoPages(sections, profile, terms, candidates);
+  assert.deepEqual(report.restored.map((r) => r.bullet), ["Highlight: Shipped 20+ API modules across 2 product lines."]);
+  const lines = String(out.experience).split("\n");
+  assert.equal(lines[lines.findIndex((l) => l.startsWith("Full Stack Engineer |")) + 1], "• Highlight: Shipped 20+ API modules across 2 product lines.");
+  assert.ok(!String(out.experience).includes("Globex"));
+});
+
+test("projectRefillCandidates + fitTwoPages: a project's own left-out bullets go back at the end of its list", () => {
+  const projects = { "0": ["Built a CV tool with a real PDF text layer."] };
+  const metas = [{ name: "Jobhuntz", originalBullets: ["- Built a CV tool with a real PDF text layer.", "- Wrote 90+ automated tests in Jest."] }];
+  const c = projectRefillCandidates(projects, metas);
+  assert.deepEqual(c, [{ where: "projects", key: "0", project: "Jobhuntz", text: "Wrote 90+ automated tests in Jest." }]);
+  const { sections: out } = fitTwoPages({ summary: "x", skills: "y", experience: tailoredExp, projects }, profile, terms, c);
+  assert.deepEqual((out.projects as Record<string, string[]>)["0"], ["Built a CV tool with a real PDF text layer.", "Wrote 90+ automated tests in Jest."]);
+});
+
+test("fitTwoPages: stops restoring before the layout reaches the tightest spacing", () => {
+  const long = (i: number) => `Delivered platform improvement ${i} for the operations team, with a long explanation of scope, stakeholders and the measured outcome that wraps across two printed lines of the page.`;
+  const candidates: RefillCandidate[] = Array.from({ length: 40 }, (_, i) => ({
+    where: "experience" as const,
+    role: 2,
+    masterHeader: "Full Stack Engineer — Brane Group | Jul 2023 – Sep 2024",
+    text: long(i),
+  }));
+  const { sections: out, report } = fitTwoPages({ summary: "x", skills: "y", experience: tailoredExp, projects: {} }, profile, terms, candidates);
+  assert.ok(report.restored.length > 0 && report.restored.length < candidates.length, String(report.restored.length));
+  const est = estimatePages(out, profile, 2);
+  assert.equal(est.overBudget, false);
+  assert.ok(REFILL_DENSITIES.includes(est.density), est.density);
+});
+
+test("fitTwoPages: a CV that runs past two pages is trimmed by relevance, floors kept, nothing restored", () => {
+  const long = (i: number) => bullet(i, " — " + Array.from({ length: 40 }, () => "detail").join(" "));
+  const experience = ["Engineer", "Intern", "Assistant"].map((t) => role(t, 14, long)).join("\n\n");
+  const { sections: out, report } = fitTwoPages({ summary: "x", skills: "y", experience, projects: { "0": [long(90), long(91)] } }, profile, terms, [
+    { where: "experience", role: 1, masterHeader: "Engineer | Acme", text: "Should never be restored." },
+  ]);
+  assert.equal(report.fits, true);
+  assert.ok(report.leftOut.experience.length > 0);
+  assert.deepEqual(report.restored, []);
+  assert.equal(estimatePages(out, profile, 2).overBudget, false);
+  for (const block of String(out.experience).split(/\n(?=[A-Z][^\n|]* \| )/)) assert.ok((block.match(/^• /gm) ?? []).length >= 2, block);
 });

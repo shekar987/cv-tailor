@@ -65,8 +65,8 @@ type CvPreviewProps = {
   // the first flagged sentence and the rule it breaks as the reason.
   downloadsDisabled?: boolean;
   downloadsDisabledReason?: string;
-  // The page target the downloads lay out to: 1 for a candidate with under
-  // three years of experience (lib/onePage trimmed the content to fit), else 2.
+  // The page target the downloads lay out to: 2 by default, 1 when the user
+  // chose a one-page CV on Customize (lib/onePage trimmed the content to fit).
   targetPages?: 1 | 2;
   // The CV's Right to Work wording, offered beside the downloads as a
   // copy-to-clipboard block for application forms. The document itself

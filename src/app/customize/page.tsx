@@ -120,6 +120,7 @@ const NAV_GROUPS: { group: string; items: { id: string; icon: IconName; label: s
     group: "Document",
     items: [
       { id: "section-order", icon: "list", label: "Section order" },
+      { id: "cv-length", icon: "document", label: "CV length" },
       { id: "right-to-work", icon: "globe", label: "Right to Work" },
       { id: "advanced", icon: "sliders", label: "Project pool" },
     ],
@@ -225,6 +226,8 @@ export default function CustomizePage() {
   const [prefsColumnMissing, setPrefsColumnMissing] = useState(false);
   const [prefsMsg, setPrefsMsg] = useState("");
   const [prefsError, setPrefsError] = useState("");
+  // Which section the last preference save message belongs to.
+  const [prefsMsgAt, setPrefsMsgAt] = useState<"rtw" | "length">("rtw");
 
   // ── Section disclosure ────────────────────────────────────────────────────
   // Held here rather than inside CollapsibleSection so the nav can open a
@@ -244,15 +247,16 @@ export default function CustomizePage() {
     // grows downward, so its own top doesn't move.
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  async function toggleRightToWorkOnCv(next: boolean) {
+  async function updatePrefs(patch: Partial<Omit<Preferences, "version">>, at: "rtw" | "length", okMsg: string) {
     const previous = prefs;
-    const updated: Preferences = { ...prefs, includeRightToWorkOnCv: next };
+    const updated: Preferences = { ...prefs, ...patch };
     setPrefs(updated);
     setPrefsMsg("");
     setPrefsError("");
+    setPrefsMsgAt(at);
     const res = await savePreferences(updated);
     if (res.ok) {
-      setPrefsMsg(next ? "Saved — Right to Work will appear on the CV document." : "Saved — Right to Work stays off the CV document.");
+      setPrefsMsg(okMsg);
       return;
     }
     setPrefs(previous);
@@ -261,6 +265,22 @@ export default function CustomizePage() {
       setPrefsColumnMissing(true);
       setPrefsError("Your database doesn't have this setting's column yet — run supabase/migrations/20260918120000_user_settings_preferences.sql in the Supabase SQL editor, then try again.");
     } else setPrefsError("Couldn't save. Check your connection and try again.");
+  }
+  function toggleRightToWorkOnCv(next: boolean) {
+    void updatePrefs(
+      { includeRightToWorkOnCv: next },
+      "rtw",
+      next ? "Saved — Right to Work will appear on the CV document." : "Saved — Right to Work stays off the CV document."
+    );
+  }
+  function setCvLength(onePageCv: boolean) {
+    void updatePrefs(
+      { onePageCv },
+      "length",
+      onePageCv
+        ? "Saved — every CV you tailor from now on is fitted to one page."
+        : "Saved — every CV you tailor from now on is fitted to two pages."
+    );
   }
   const claimsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (claimsSaveTimer.current) clearTimeout(claimsSaveTimer.current); }, []);
@@ -1502,6 +1522,43 @@ export default function CustomizePage() {
           </p>
         </CollapsibleSection>
 
+        {/* CV length: two pages by default (lib/onePage fills them from the
+            master CV), one page as an opt-in trim. Stored in
+            user_settings.preferences.onePageCv. */}
+        <CollapsibleSection
+          id="cv-length"
+          icon="document"
+          title="CV length"
+          open={openSections.has("cv-length")}
+          onToggle={toggleSection}
+          summary={prefs.onePageCv ? "One page" : "Two pages"}
+        >
+          <p className="cvHelp">
+            Two pages is the default: the tailored CV keeps your master CV&apos;s content, and when the tailoring
+            leaves a bullet out and there is room, the most relevant ones are put back so both pages are used. Choose
+            one page only for a posting that asks for it — the least relevant bullets are then left out, and the
+            results page lists every one.
+          </p>
+          {prefsColumnMissing && (
+            <p className="fitEvidence">
+              This setting&apos;s database column isn&apos;t set up yet (migration 20260918120000_user_settings_preferences.sql).
+              The default — two pages — applies until it is.
+            </p>
+          )}
+          <div className="eligChecks" role="radiogroup" aria-label="CV length">
+            <label className="eligCheck">
+              <input type="radio" name="cvLength" checked={!prefs.onePageCv} onChange={() => setCvLength(false)} data-pref-length="2" />
+              Two pages — fill both with your strongest real content (recommended)
+            </label>
+            <label className="eligCheck">
+              <input type="radio" name="cvLength" checked={prefs.onePageCv} onChange={() => setCvLength(true)} data-pref-length="1" />
+              One page — trim the least relevant bullets to fit
+            </label>
+          </div>
+          {prefsMsgAt === "length" && prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
+          {prefsMsgAt === "length" && prefsError && <StatusText as="span" role="alert">{prefsError}</StatusText>}
+        </CollapsibleSection>
+
         {/* Right to Work stays off the CV document by default: a reviewer who
             sees immigration status before any experience screens on it, and
             the form asks the question in a better context. The wording is
@@ -1540,8 +1597,8 @@ export default function CustomizePage() {
               Include Right to Work on the CV
             </label>
           </div>
-          {prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
-          {prefsError && <StatusText as="span" role="alert">{prefsError}</StatusText>}
+          {prefsMsgAt === "rtw" && prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
+          {prefsMsgAt === "rtw" && prefsError && <StatusText as="span" role="alert">{prefsError}</StatusText>}
         </CollapsibleSection>
 
         {/* Advanced customization — the full project pool. Only meaningful

@@ -3,7 +3,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   estimatePages,
-  onePageExpected,
   findDuplicateContent,
   hasEvidence,
   weakBullets,
@@ -51,14 +50,12 @@ test("estimatePages: a short CV renders under two pages, a huge one is over budg
   assert.equal(medium.fitsOnePage, false, String(medium.bodyLines));
 });
 
-test("onePageExpected: only a stated figure under three years, never a guess", () => {
-  assert.equal(onePageExpected(2), true);
-  assert.equal(onePageExpected(0), true);
-  assert.equal(onePageExpected(3), false);
-  assert.equal(onePageExpected(7), false);
-  assert.equal(onePageExpected(null), false);
-  assert.equal(onePageExpected(undefined), false);
-  assert.equal(onePageExpected(NaN), false);
+test("estimatePages names the spacing the builders pick", () => {
+  const short = estimatePages({ summary: "One line.", skills: "Python", experience: role("Engineer", ["Cut latency 40%."]), projects: {} }, profile);
+  assert.equal(short.density, "roomy");
+  const bullets = Array.from({ length: 60 }, (_, i) => `Did a substantial piece of work number ${i} with a long explanation that wraps onto a second line easily.`);
+  const huge = estimatePages({ summary: "x", skills: "y", experience: role("Engineer", bullets) + "\n" + role("Lead", bullets), projects: {} }, profile);
+  assert.equal(huge.density, "tight", "nothing fits: the tightest is used");
 });
 
 test("findDuplicateContent: a project written up under experience or education, and a repeated bullet", () => {
