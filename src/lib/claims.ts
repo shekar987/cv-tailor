@@ -647,6 +647,17 @@ function sentencesOf(text: string): string[] {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 }
+// Every FULL sentence of `text` that mentions the skill — what a rewrite
+// must be shown. A violation's `claim` carries excerpt(), cut at 120
+// characters for display: handed to the model, a cut before the mention
+// asked it to remove a skill it could not see, and the flagged summary line
+// came back unchanged (the owner's download stayed blocked on 25 Sep).
+// "Role | Employer | Dates" header lines name no skill and are skipped.
+export function sentencesMentioning(text: string, skill: string): string[] {
+  if (!text) return [];
+  return sentencesOf(text).filter((s) => !/\|/.test(s) && skillMentioned(s, skill));
+}
+
 function excerpt(s: string): string {
   const t = s.replace(/^[•\-*]\s+/, "").replace(/\s+/g, " ").trim();
   return t.length > 120 ? `${t.slice(0, 119)}…` : t;

@@ -8,6 +8,7 @@ import {
   seedClaims,
   seedClaimsFromCv,
   skillMentioned,
+  sentencesMentioning,
   distinctiveTokens,
   demoteProjectTools,
   technicalTools,
@@ -419,4 +420,30 @@ test("renderClaimsBlock lists the three levels and falls back to the generic rul
   assert.ok(/PRODUCTION[^\n]*Java/.test(block));
   assert.ok(/PROJECT-ONLY[^\n]*Docker/.test(block));
   assert.ok(/LEARNING - FORBIDDEN[^\n]*Kafka/.test(block));
+});
+
+test("sentencesMentioning hands the rewrite the FULL sentence, not the 120-character display excerpt", () => {
+  // The owner's blocked download (25 Sep): the RAG mention sat past the
+  // excerpt's cut, so the rewrite was asked to remove a skill it never saw.
+  const summary = [
+    "AI Data Science Intern targeting roles in machine learning and LLM systems, with production Python and FastAPI experience building RAG pipelines and evaluation tooling.",
+    "Shipped 20+ production API modules at Brane Group.",
+  ].join("\n");
+  const registry: ClaimsRegistry = {
+    version: 1,
+    skills: [{ name: "RAG and knowledge retrieval", level: "project", confirmed: true }],
+    confirmedAt: "2026-09-18T00:00:00Z",
+    seededFrom: null,
+  };
+  const check = checkClaims([{ where: "cv", text: summary }], registry, ["RAG pipeline in Jobhuntz."]);
+  assert.equal(check.skillViolations[0]?.rule, "project_as_competency");
+  assert.ok(!/RAG/.test(check.skillViolations[0].claim), "the display excerpt is cut before the mention — the bug");
+  const full = sentencesMentioning(summary, "RAG and knowledge retrieval");
+  assert.equal(full.length, 1);
+  assert.match(full[0], /building RAG pipelines and evaluation tooling\.$/);
+  assert.ok(full[0].length > 120);
+  assert.deepEqual(sentencesMentioning("Full Stack Engineer | Brane Group | 2023 – 2024\nShipped APIs.", "Brane"), [], "header lines are skipped");
+  // Spelling the acronym out does not get past the check.
+  assert.equal(skillMentioned("building retrieval-augmented generation pipelines", "RAG and knowledge retrieval"), true);
+  assert.equal(skillMentioned("building Retrieval Augmented Generation pipelines", "RAG and knowledge retrieval"), true);
 });

@@ -148,6 +148,10 @@ type Result = {
   } | null;
 };
 
+// Said wherever a claims block holds Download or Applied shut: the way out
+// is an edit, re-checked in the browser — never another paid tailor.
+const FREE_FIX = "Edit that sentence in the CV preview, then click outside the text: the re-check runs in your browser, uses no credit, and unlocks the download.";
+
 const WHERE_LABEL: Record<ClaimWhere, string> = { cv: "CV", coverLetter: "cover letter", email: "email", extra: "text" };
 
 // The employer name Step 1 read off the JD, for the relevance bolt-on check.
@@ -774,9 +778,9 @@ export default function Home() {
   const downloadReason: string | undefined = (() => {
     if (!blocked || !activeCheck) return undefined;
     const s = activeCheck.skillViolations[0];
-    if (s) return `${s.skill}: ${s.claim || `appears in the ${WHERE_LABEL[s.where]}`} — ${SKILL_RULE_TEXT[s.rule]}.`;
+    if (s) return `${s.skill}: ${s.claim || `appears in the ${WHERE_LABEL[s.where]}`} — ${SKILL_RULE_TEXT[s.rule]}. ${FREE_FIX}`;
     const n = activeCheck.numberViolations.find((x) => x.kind === "absent");
-    if (n) return `${n.figure} isn't on your master CV: "${n.sentence.length > 100 ? `${n.sentence.slice(0, 99)}…` : n.sentence}".`;
+    if (n) return `${n.figure} isn't on your master CV: "${n.sentence.length > 100 ? `${n.sentence.slice(0, 99)}…` : n.sentence}". ${FREE_FIX}`;
     return undefined;
   })();
 
@@ -2093,7 +2097,7 @@ export default function Home() {
                   </ul>
                   <p className="fitEvidence">
                     {blocked
-                      ? "Edit the preview below, then re-check. Download and Applied unlock when it passes."
+                      ? "Edit the highlighted text in the preview below, then click outside it or press Re-check now. Download and Applied unlock when it passes — no credit is used, there is no need to tailor again."
                       : activeCheck.mode === "enforce"
                         ? "Warnings don't block downloads; a figure missing from your CV or a skill claimed above its level would."
                         : "Save a master CV in Customize and its skills become blocking checks."}
@@ -2432,7 +2436,7 @@ export default function Home() {
                 <StatusText as="span" role="alert">{appliedError}</StatusText>
               )}
               {blocked && appliedState === "idle" && (
-                <StatusText as="span" role="status">Fix the flagged claims above first.</StatusText>
+                <StatusText as="span" role="status">Fix the flagged claims above first — editing the preview is free.</StatusText>
               )}
             </div>
             {appliedNotice && (

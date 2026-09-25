@@ -5,7 +5,7 @@ import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration, loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { chooseFallback, openRouterLimitMessage, fallbackExhaustedMessage, type FallbackReason } from "@/lib/fallbackRoute";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
-import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillMentioned, type ClaimsRegistry } from "@/lib/claims";
+import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillMentioned, sentencesMentioning, distinctiveTokens, type ClaimsRegistry, type SkillViolation } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
 import { normalizePreferences } from "@/lib/preferences";
 import { stripRightToWorkSentences, stripRightToWorkLines, stripRightToWorkBullets, mentionsRightToWork } from "@/lib/rightToWorkText";
@@ -317,6 +317,16 @@ async function runPipeline(opts: {
     });
     const draft = checkClaims([cvPart(experienceFinal, summary)], claims, [cv, projectsPool]);
     const unquote = (claim: string) => claim.replace(/^[^"]*"/, "").replace(/"$/, "");
+    // The rewrite is shown every FULL sentence that mentions the skill, and
+    // how the skill is written there (the registry says "RAG and knowledge
+    // retrieval", the text says "RAG"); the violation's claim is a
+    // display excerpt cut at 120 characters and is only the fallback.
+    const removalsFor = (text: string, vs: SkillViolation[]) =>
+      vs.flatMap((v) => {
+        const found = sentencesMentioning(text, v.skill);
+        const aliases = distinctiveTokens(v.skill);
+        return (found.length ? found : [unquote(v.claim)]).map((sentence) => ({ skill: v.skill, aliases, sentence }));
+      });
     const expV = draft.skillViolations.filter(
       (v) => v.rule === "project_in_experience" || (v.rule === "learning_anywhere" && typeof experienceFinal === "string" && skillMentioned(experienceFinal, v.skill))
     );
@@ -325,7 +335,7 @@ async function runPipeline(opts: {
         await callLLM({
           provider,
           apiKeyOverride,
-          system: claimsFixPrompt("EXPERIENCE", expV.map((v) => ({ skill: v.skill, sentence: unquote(v.claim) }))),
+          system: claimsFixPrompt("EXPERIENCE", removalsFor(experienceFinal, expV)),
           userInput: experienceFinal,
         }).catch(swallowStep(""))
       );
@@ -347,7 +357,7 @@ async function runPipeline(opts: {
         await callLLM({
           provider,
           apiKeyOverride,
-          system: claimsFixPrompt("SUMMARY", sumV.map((v) => ({ skill: v.skill, sentence: unquote(v.claim) }))),
+          system: claimsFixPrompt("SUMMARY", removalsFor(summary, sumV)),
           userInput: summary,
         }).catch(swallowStep(""))
       );

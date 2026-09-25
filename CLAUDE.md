@@ -691,6 +691,21 @@ Declare run-derived values right after the state they read, above the
 handlers (`runSectionOrder` in `app/page.tsx` is the example). The lint
 baseline is 27 problems (a landing-page count-up with setState in an effect was removed on 24 Sep); a change that moves it is a change to look at.
 
+### A claims rewrite must see the full sentence, not the display excerpt
+
+`checkClaims()` violations carry `claim`, an `excerpt()` cut at 120 characters
+for the notice. The tailor route used to hand that excerpt to `claimsFixPrompt`;
+on the owner's summary (25 Sep) the cut fell before "RAG", the model was asked
+to remove a skill it could not see, returned the line unchanged, and the
+download stayed blocked after a paid run. The route now passes every full
+sentence from `sentencesMentioning(text, skill)` plus how the skill is written
+(`distinctiveTokens`, e.g. "RAG" for "RAG and knowledge retrieval"), and the
+matcher folds "retrieval-augmented generation" to "rag" so a rewrite cannot
+keep the skill spelled out. The block message beside Download says the fix is
+an edit in the preview, re-checked in the browser for free — never another
+tailor. (The matcher's light morphology also folds "ragged"/"rags" to "rag";
+pre-existing and harmless on real CVs.)
+
 ### Rate limiting is two layers, and one of them is optional
 
 The DB quota RPC (fail-closed, `/api/tailor` only) and the Upstash burst gate (fail-open, every Claude-spending route) are different things — see *Rate limiting — two layers*. If burst limiting "isn't working", the first check is whether `UPSTASH_REDIS_REST_URL`/`TOKEN` are set in that environment; a one-time `[apiRateLimit] … DISABLED` warning in the logs is the tell. The old in-memory per-IP limiter is gone — don't recreate it.

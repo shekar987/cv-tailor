@@ -142,3 +142,9 @@ test("tailoredSectionsText joins the sections the scorer sees", () => {
   assert.equal(tailoredSectionsText({}), "");
   assert.equal(tailoredSectionsText({ summary: "only", projects: "not an object" }), "only");
 });
+
+test("RAG spelled out is the same term (retrieval-augmented generation)", () => {
+  assert.equal(matchAtsKeywords("Built retrieval-augmented generation pipelines.", ["RAG"]).matched, 1);
+  assert.equal(matchAtsKeywords("Built a RAG pipeline.", ["Retrieval Augmented Generation"]).matched, 1);
+  assert.equal(matchAtsKeywords("Moved object storage to S3.", ["RAG"]).matched, 0, "a word that only contains the letters is not the term");
+});

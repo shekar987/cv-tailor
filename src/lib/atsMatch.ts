@@ -56,6 +56,9 @@ const CANONICAL: [RegExp, string][] = [
   [/\bpostgres(?:ql)?\b/g, "postgresql"],
   [/\bmongo(?:\s?db)?\b/g, "mongodb"],
   [/\bk8s\b/g, "kubernetes"],
+  // The acronym spelled out is the same skill — for scoring and for the
+  // claims check (a rewrite must not keep a project-level RAG as prose).
+  [/\bretrieval[\s-]augmented[\s-]generation\b/g, "rag"],
   [/\bamazon web services\b/g, "aws"],
   [/\bgoogle cloud(?: platform)?\b/g, "gcp"],
   [/\bmicrosoft azure\b/g, "azure"],
