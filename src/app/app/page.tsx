@@ -16,6 +16,9 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
+import TailorGamePopup, { type TailorGameStatus } from "../TailorGamePopup";
+import { gameForTailorCount, nextTailorCount } from "@/lib/games/pick";
+import type { GameKind } from "@/lib/games/core";
 import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
 import { normalizeClaims, checkClaims, seedClaimsFromCv, SKILL_RULE_TEXT, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
 import { qualityReport, type QualityReport } from "@/lib/quality";
@@ -310,6 +313,10 @@ function buildFileBaseName(profile: Profile | null, analysis: Result["analysis"]
 export default function Home() {
   const [jobDescription, setJobDescription] = useState("");
   const [loading, setLoading] = useState(false);
+  // The waiting-room popup for the current tailor (TailorGamePopup): the
+  // game this run gets, when the run started and how it ended. Closing it
+  // never cancels the run, and a closed popup stays closed.
+  const [gameRun, setGameRun] = useState<{ id: number; game: GameKind; startedAt: number; status: TailorGameStatus; error: string; open: boolean } | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [errorType, setErrorType] = useState<string | null>(null); // "user_limit" | "provider_limit" | null
@@ -456,6 +463,8 @@ export default function Home() {
   // Reaches into CvPreview for the EDITED document when saving to the tracker.
   const previewRef = useRef<CvPreviewHandle>(null);
   const coverRef = useRef<CoverLetterPreviewHandle>(null);
+  // "Back to my CV" in the popup scrolls here.
+  const resultsRef = useRef<HTMLElement>(null);
   // The current page estimate, mirrored into a ref by an effect so the
   // Applied handler (a hoisted function) can read it without referencing the
   // quality memo declared below it — the React Compiler refuses to preserve a
@@ -904,6 +913,12 @@ export default function Home() {
           : null;
     setRunResearchCompany(researchToSend?.company_name || null);
     setLoading(true);
+    // The popup opens with the run and ends with it: "done" only when the
+    // real result arrives, the error when it doesn't (never on a timer).
+    const runId = Date.now();
+    setGameRun({ id: runId, game: gameForTailorCount(nextTailorCount(userId)), startedAt: runId, status: "running", error: "", open: true });
+    const endGame = (status: TailorGameStatus, message = "") =>
+      setGameRun((g) => (g && g.id === runId ? { ...g, status, error: message } : g));
     // The previous result stays on screen (and in the persisted workspace)
     // until a new one actually arrives — a failed run must not destroy the
     // last good CV.
@@ -942,8 +957,10 @@ export default function Home() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || "Something went wrong. Try again.");
+        const message = data.error || "Something went wrong. Try again.";
+        setError(message);
         setErrorType(data.errorType || null);
+        endGame("error", message);
         return null;
       }
       // A fresh id per completed run: re-tailoring the same job is a new
@@ -965,6 +982,7 @@ export default function Home() {
         ...(variantPick.variant ? { variantName: variantPick.variant.name, variantReason: variantPick.reason } : {}),
       };
       setResult(fresh);
+      endGame("done");
       setLiveCheck(null);
       setLiveQuality(null);
       setClaimFixReport(null);
@@ -994,6 +1012,7 @@ export default function Home() {
     } catch {
       setError("Couldn't reach the server. Check it's running and try again.");
       setErrorType(null);
+      endGame("error", "Couldn't reach the server. Check your connection and try again.");
       return null;
     } finally {
       setLoading(false);
@@ -1005,6 +1024,14 @@ export default function Home() {
 
   function runFullTailor() {
     return executeTailor(jobDescription, "jd");
+  }
+
+  // Close the waiting-room popup; "Back to my CV" also brings the result into view.
+  function closeGame(viewResult: boolean) {
+    setGameRun((g) => (g ? { ...g, open: false } : g));
+    if (!viewResult) return;
+    const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" }), 60);
   }
 
   // Cold-outreach tailoring: research → CV + cover letter, no JD involved.
@@ -2206,13 +2233,13 @@ export default function Home() {
                 <li>Writing your cover letter</li>
                 <li>Scoring recruiter search visibility</li>
               </ul>
-              <p className="loadingMeta">{elapsed}s — a full run usually takes 20–40 seconds.</p>
+              <p className="loadingMeta">{elapsed}s — a full run usually takes under a minute.</p>
             </div>
           </section>
         )}
 
         {!cvLoading && result && (
-          <section className="results riseIn">
+          <section className="results riseIn" ref={resultsRef}>
             {resultInfo && (
               <div className="resultsContext">
                 <span>
@@ -2864,6 +2891,17 @@ export default function Home() {
           </section>
         )}
       </div>
+      {gameRun?.open && (
+        <TailorGamePopup
+          key={gameRun.id}
+          game={gameRun.game}
+          startedAt={gameRun.startedAt}
+          status={gameRun.status}
+          error={gameRun.error}
+          onClose={() => closeGame(false)}
+          onViewResult={() => closeGame(true)}
+        />
+      )}
     </main>
   );
 }

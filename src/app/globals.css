@@ -56,6 +56,33 @@
   --doc-link: #0563C1;
   --doc-mark: #7A4F14;
 
+  /* The waiting-room games' palette (app/TailorGamePopup reads these into the
+     canvas), like --doc-* is the CV document's: a dusk sky under the app's
+     charcoal, and a figure in a navy suit with an amber tie. */
+  --game-sky-top: #1B2A44;
+  --game-sky-bottom: #3E5C85;
+  --game-hill-far: #2C4568;
+  --game-hill-near: #243A57;
+  --game-cloud: rgba(237, 237, 237, 0.82);
+  --game-ground: #5B4128;
+  --game-ground-top: #6FB36A;
+  --game-platform: #7A5A3A;
+  --game-platform-top: #A9835A;
+  --game-block: var(--amber);
+  --game-block-edge: #8C5E22;
+  --game-spike: #D8DCE2;
+  --game-wall: #3E7D4C;
+  --game-wall-edge: #2C5C37;
+  --game-suit: #232A3B;
+  --game-suit-shade: #161B27;
+  --game-shirt: #F4F4F4;
+  --game-tie: var(--amber);
+  --game-skin: #E6B48C;
+  --game-hair: #33251B;
+  --game-shoe: #0D0D0F;
+  --game-hud: var(--text);
+  --game-hud-shadow: rgba(0, 0, 0, 0.4);
+
   /* ── Type ─────────────────────────────────────────────────────────────────
      Geist (loaded by next/font in layout.tsx) with a system fallback. Base
      body copy is 16px; 14px is the working size for dense UI (tables, help). */
@@ -266,7 +293,7 @@ html, body {
    Every button-like control below shares one base: inherited font, pointer
    cursor, the same transition set, a settle on :active and a consistent
    :disabled. Sizes: .cta 44px (touch floor), pills 36px, table actions 28px. */
-:is(.cta, .customizeLink, .orderBtn, .appsActionBtn, .appsSegBtn, .authSocialBtn, .authToggle button, .dropBrowse, .authLinkBtn, .appsSortBtn, .practiceRateBtn, .prepChip) {
+:is(.cta, .customizeLink, .orderBtn, .appsActionBtn, .appsSegBtn, .authSocialBtn, .authToggle button, .dropBrowse, .authLinkBtn, .appsSortBtn, .practiceRateBtn, .prepChip, .gamePopup__close, .gameTouch) {
   font-family: inherit;
   cursor: pointer;
   transition:
@@ -276,7 +303,7 @@ html, body {
     box-shadow var(--duration) var(--ease),
     transform 60ms var(--ease);
 }
-:is(.cta, .customizeLink, .orderBtn, .appsActionBtn, .appsSegBtn, .authSocialBtn, .practiceRateBtn, .prepChip):active:not(:disabled) {
+:is(.cta, .customizeLink, .orderBtn, .appsActionBtn, .appsSegBtn, .authSocialBtn, .practiceRateBtn, .prepChip, .gamePopup__close, .gameTouch):active:not(:disabled) {
   transform: translateY(1px);
 }
 :is(.cta, .customizeLink, .orderBtn, .appsActionBtn, .appsSegBtn, .authSocialBtn, .practiceRateBtn, .prepChip):disabled {
@@ -2597,4 +2624,173 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
   .practiceRateBtn { flex: 1 1 30%; justify-content: center; }
   .practiceRateLabel { width: 100%; margin: 0 0 var(--space-1); }
   .practiceRateBtn .kbd { display: none; }
+}
+
+/* ── Waiting-room game (app/TailorGamePopup) ──────────────────────────────────
+   Opens the moment a full tailor starts: the run's progress bar over a canvas
+   mini game. It floats above everything; on a short screen the panel scrolls
+   itself, never the page behind. */
+.gamePopup {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+}
+.gamePopup__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-glass);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  animation: gameFade var(--duration-slow) var(--ease) both;
+}
+.gamePopup__panel {
+  position: relative;
+  width: min(640px, 100%);
+  max-height: calc(100vh - 2 * var(--space-4));
+  max-height: calc(100dvh - 2 * var(--space-4));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  touch-action: manipulation;
+  animation: gamePop var(--duration-slow) var(--ease) both;
+}
+/* The panel is the game's keyboard surface, not a control; every button in
+   it keeps the focus ring. */
+.gamePopup__panel:focus { outline: none; }
+.gamePopup__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.gamePopup__title { margin: 0; font-size: var(--text-lg); font-weight: 600; letter-spacing: var(--tracking-tight); line-height: var(--leading-tight); }
+.gamePopup__close {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-card);
+  background: transparent;
+  color: var(--text-subtle);
+  font-size: var(--text-lg);
+  line-height: var(--leading-none);
+}
+.gamePopup__close:hover { background: var(--surface-2); border-color: var(--border-strong); color: var(--text); }
+.gamePopup__progress { display: flex; flex-direction: column; gap: var(--space-2); }
+.gamePopup__bar { position: relative; height: 10px; border-radius: var(--radius-pill); background: var(--surface-3); overflow: hidden; }
+/* Linear on purpose: the fill steps with the popup's 250 ms clock, so an
+   eased transition would stop and start on every tick. */
+.gamePopup__barFill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--amber), var(--amber-bright));
+  transform-origin: left center;
+  transition: transform 250ms linear;
+}
+.gamePopup__progressMeta { display: flex; justify-content: space-between; gap: var(--space-3); font-size: var(--text-sm); color: var(--muted); line-height: var(--leading-snug); }
+.gamePopup__percent { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.gamePopup__stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-card);
+  background: var(--game-sky-bottom);
+}
+.gamePopup__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.gamePopup__overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  text-align: center;
+}
+.gamePopup__result { background: var(--surface-glass); animation: gameFade var(--duration-slow) var(--ease) both; }
+.gamePopup__resultIcon {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  background: var(--success-dim);
+  border: 1px solid var(--success-border);
+  color: var(--success);
+  font-size: var(--text-xl);
+  font-weight: 700;
+}
+.gamePopup__resultText { margin: 0; max-width: 40ch; font-size: var(--text-base); font-weight: 600; color: var(--text); line-height: var(--leading-snug); }
+/* The notice's two sentences sit on their own lines. */
+.gamePopup__resultText span { display: block; }
+.gamePopup__resultDetail { margin: 0; max-width: 40ch; font-size: var(--text-sm); color: var(--text-subtle); line-height: var(--leading-snug); }
+.gamePopup__controls { display: none; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.gamePopup__controlGroup { display: flex; gap: var(--space-3); }
+.gameTouch {
+  width: 64px;
+  height: 56px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--text-lg);
+  line-height: var(--leading-none);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.gameTouch--jump { width: 88px; }
+.gameTouch:active,
+.gameTouch[data-held] { background: var(--amber-dim); border-color: var(--amber); color: var(--amber-bright); }
+@media (hover: hover) {
+  .gameTouch:hover { background: var(--surface-3); border-color: var(--amber-border); }
+}
+.gamePopup__hint { margin: 0; font-size: var(--text-xs); color: var(--muted); text-align: center; }
+/* Touch screens and narrow windows get the on-screen buttons (left/right at
+   the bottom left, jump or fly at the bottom right); laptops get the keys. */
+@media (hover: none) and (pointer: coarse), (max-width: 640px) {
+  .gamePopup__controls { display: flex; }
+  .gamePopup__hint { display: none; }
+}
+/* Once the run is over the game has stopped: no controls to press. */
+.gamePopup__panel:not([data-game-status="running"]) :is(.gamePopup__controls, .gamePopup__hint) { display: none; }
+@media (max-width: 480px) {
+  .gamePopup { padding: var(--space-2); }
+  .gamePopup__panel {
+    gap: var(--space-3);
+    padding: var(--space-4);
+    max-height: calc(100vh - 2 * var(--space-2));
+    max-height: calc(100dvh - 2 * var(--space-2));
+  }
+}
+@keyframes gamePop {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes gameFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
