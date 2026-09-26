@@ -10,7 +10,9 @@
 // registry covers skills) are ignored, and letter furniture ("Dear Hiring
 // Manager", "Kind regards", months) is ignored. Import-free.
 
-const WORD = String.raw`[A-Z][A-Za-z'’]+(?:[-.][A-Za-z'’]+)*`;
+// Digits belong to a name ("Base360.ai" was read as "Base" and cost a paid
+// letter rewrite on 26 Sep).
+const WORD = String.raw`[A-Z][A-Za-z0-9'’]+(?:[-.][A-Za-z0-9'’]+)*`;
 const CONNECTOR = String.raw`(?:of|the|and|de|del|da|van|von|&)`;
 const RUN_RE = new RegExp(String.raw`\b${WORD}(?:\s+(?:${CONNECTOR}\s+)?${WORD})*`, "g");
 
@@ -24,7 +26,10 @@ const FURNITURE = new Set(
     "as", "at", "in", "on", "for", "with", "from", "to", "by", "and", "or", "but", "so", "if", "when", "while", "after", "before", "during", "over",
     "having", "being", "given", "beyond", "across", "within", "through", "here", "there", "what", "which", "who", "how", "why",
     "engineer", "engineering", "developer", "software", "backend", "frontend", "full", "stack", "senior", "junior", "lead", "role", "position",
-  ].map((w) => w.toLowerCase())
+    // Folded exactly as the letter's words are: fold turns the apostrophe in
+    // "I've" into a space, so the raw entry never matched and a mid-sentence
+    // "I've" cost a paid letter rewrite (26 Sep, Somak).
+  ].map(fold)
 );
 
 function fold(s: string): string {

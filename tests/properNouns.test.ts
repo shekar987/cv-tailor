@@ -39,6 +39,11 @@ test("unsupportedProperNouns: Shoreditch is invented; everything else traces to 
   assert.deepEqual(unsupportedProperNouns("", [JD]), []);
 });
 
+test("unsupportedProperNouns: 'I've', 'I'm', 'I'd', 'I'll' mid-sentence are the pronoun, never a name", () => {
+  const letter = "At Brane Group I built 20+ API modules, and I've since shipped RideX, where I'm the sole engineer and I'd do it again; I'll keep going. That’s why I’ve applied.";
+  assert.deepEqual(unsupportedProperNouns(letter, [CV]), []);
+});
+
 test("sentencesNaming and dropSentences: the offending sentence goes, the paragraph stays", () => {
   const offending = sentencesNaming(LETTER, ["Shoreditch"]);
   assert.deepEqual(offending, ["I'm in London and available for on-site work in Shoreditch."]);
@@ -57,4 +62,9 @@ test("sentencesNaming: a possessive still names the noun (AssetGuard's platform)
   const letter = "I admire AssetGuard's platform.\n\nAt Brane Group I shipped 20+ API modules.";
   assert.deepEqual(sentencesNaming(letter, ["AssetGuard"]), ["I admire AssetGuard's platform."]);
   assert.equal(dropSentences(letter, sentencesNaming(letter, ["AssetGuard"])), "At Brane Group I shipped 20+ API modules.");
+});
+
+test("a company name with digits is one name (Base360.ai)", () => {
+  const letter = "Dear Base360.ai team,\nI am applying for the Product Engineer role at Base360.ai. At Brane Group I built FastAPI services.\nKind regards,\nSoma Shekar Keesari";
+  assert.deepEqual(unsupportedProperNouns(letter, ["Product Engineer at Base360.ai, London.", CV]), []);
 });

@@ -22,6 +22,8 @@ import {
   checkClaims,
   distinctiveTokens,
   skillMentioned,
+  namesRequirement,
+  registryMentions,
   sentencesOf,
   describesAsCompetency,
   extractFigures,
@@ -31,6 +33,7 @@ import {
   TOOLS_LEAD_SLOTS,
   type ClaimsRegistry,
   type ClaimCheck,
+  type GraftRule,
 } from "./claims.ts";
 import { tailoredSectionsText } from "./atsMatch.ts";
 
@@ -51,6 +54,9 @@ export type RepairItem = {
   problems: string[];
   skills: string[];
   figures: string[];
+  // The skills among `skills` that are posting terms the master CV never
+  // shows: matched as whole terms (namesRequirement), so "go live" is not Go.
+  absent: string[];
 };
 export type RepairChange = {
   section: RepairSection;
@@ -81,7 +87,8 @@ export function checkSections(
   s: RepairSections,
   registry: ClaimsRegistry | null,
   sources: (string | null | undefined)[],
-  jd: string
+  jd: string,
+  grafts: GraftRule[] = []
 ): ClaimCheck {
   return checkClaims(
     [
@@ -94,8 +101,16 @@ export function checkSections(
       { where: "coverLetter", text: s.coverLetter, extraSources: [jd] },
     ],
     registry,
-    sources
+    sources,
+    grafts
   );
+}
+
+// How an item's skills are found in text: a posting term the master CV never
+// shows by the whole term; a registered skill by the claims check's own test
+// (registryMentions: "AWS" is not "AWS Lambda" when AWS is production).
+function mentionsFor(it: { absent: string[] }, registered: Mentions = skillMentioned): Mentions {
+  return (text, skill) => (it.absent.includes(skill) ? namesRequirement(text, skill) : registered(text, skill));
 }
 
 function sentencesIn(s: RepairSections, section: RepairSection): string[] {
@@ -112,51 +127,65 @@ function sentencesIn(s: RepairSections, section: RepairSection): string[] {
 // sentence that breaks any rule for a flagged skill is listed at once, so one
 // repair round (and one model call) covers them all. A sentence named by
 // several problems is one item.
-export function listRepairs(s: RepairSections, check: ClaimCheck): RepairItem[] {
+export function listRepairs(s: RepairSections, check: ClaimCheck, registry?: ClaimsRegistry | null): RepairItem[] {
+  const registered = registryMentions(registry);
   const items = new Map<string, RepairItem>();
-  const add = (section: RepairSection, sentence: string, problem: string, skill?: string, figure?: string) => {
+  const add = (section: RepairSection, sentence: string, problem: string, skill?: string, figure?: string, absent = false) => {
     const key = `${section} ${sentence}`;
     let it = items.get(key);
     if (!it) {
-      it = { id: "", section, sentence, problems: [], skills: [], figures: [] };
+      it = { id: "", section, sentence, problems: [], skills: [], figures: [], absent: [] };
       items.set(key, it);
     }
     if (!it.problems.includes(problem)) it.problems.push(problem);
     if (skill && !it.skills.includes(skill)) it.skills.push(skill);
+    if (skill && absent && !it.absent.includes(skill)) it.absent.push(skill);
     if (figure && !it.figures.includes(figure)) it.figures.push(figure);
   };
 
-  const flagged = new Map<string, { skill: string; level: "learning" | "project"; letter: boolean }>();
+  const flagged = new Map<string, { skill: string; level: "learning" | "project" | "absent"; letter: boolean }>();
   for (const v of check.skillViolations) {
     const letter = v.where === "coverLetter";
     flagged.set(`${letter ? "L" : "C"}:${v.skill}`, { skill: v.skill, level: v.level, letter });
   }
   for (const f of flagged.values()) {
+    const mentions = f.level === "absent" ? namesRequirement : registered;
     for (const section of f.letter ? (["coverLetter"] as RepairSection[]) : CV_SECTIONS) {
       for (const sentence of sentencesIn(s, section)) {
         // A "Role | Employer | Dates" header names no skill.
         if (section === "experience" && /\|/.test(sentence)) continue;
-        if (!skillMentioned(sentence, f.skill)) continue;
+        if (!mentions(sentence, f.skill)) continue;
+        if (f.level === "absent") {
+          add(section, sentence, `${f.skill}: ${SKILL_RULE_TEXT.not_in_cv}`, f.skill, undefined, true);
+          continue;
+        }
         if (f.level === "learning") {
           add(section, sentence, `${f.skill}: ${SKILL_RULE_TEXT.learning_anywhere}`, f.skill);
           continue;
         }
         if (section === "experience") add(section, sentence, `${f.skill}: ${SKILL_RULE_TEXT.project_in_experience}`, f.skill);
-        if (describesAsCompetency(sentence, f.skill)) add(section, sentence, `${f.skill}: ${SKILL_RULE_TEXT.project_as_competency}`, f.skill);
+        if (describesAsCompetency(sentence, f.skill, registered)) add(section, sentence, `${f.skill}: ${SKILL_RULE_TEXT.project_as_competency}`, f.skill);
       }
     }
     // Among the lead Technical Tools. demoteProjectTools() moves it down when
     // the line is long enough; on a short line it can only leave the line.
-    if (!f.letter && f.level === "project" && technicalTools(s.skills).slice(0, TOOLS_LEAD_SLOTS).some((t) => skillMentioned(t, f.skill))) {
-      const line = sentencesIn(s, "skills").find((x) => /^technical tools\s*:/i.test(x) && skillMentioned(x, f.skill));
+    if (!f.letter && f.level === "project" && technicalTools(s.skills).slice(0, TOOLS_LEAD_SLOTS).some((t) => registered(t, f.skill))) {
+      const line = sentencesIn(s, "skills").find((x) => /^technical tools\s*:/i.test(x) && registered(x, f.skill));
       if (line) add("skills", line, `${f.skill}: ${SKILL_RULE_TEXT.project_lead_tool}`, f.skill);
     }
   }
 
   for (const n of check.numberViolations) {
-    if (n.kind !== "absent") continue;
+    if (n.kind !== "absent" && n.kind !== "combined") continue;
     for (const section of n.where === "coverLetter" ? (["coverLetter"] as RepairSection[]) : CV_SECTIONS) {
       for (const sentence of sentencesIn(s, section)) {
+        if (n.kind === "combined") {
+          const dash = (t: string) => t.replace(/[–—−]/g, "-").replace(/\s+/g, "");
+          if (dash(sentence).includes(dash(n.figure))) {
+            add(section, sentence, `${n.figure} joins two separate figures into a range the master CV never states — use each figure only where the master CV does, with the fact it belongs to, or drop them`, undefined, n.figure);
+          }
+          continue;
+        }
         const has = extractFigures(sentence).some((f) => f.text === n.figure) || normalizeFigureText(sentence).includes(n.figure);
         if (has) {
           add(section, sentence, `${n.figure} is not on the master CV — use the master CV's exact figure for this fact, or drop the figure`, undefined, n.figure);
@@ -215,6 +244,9 @@ export function locate(hay: string, needle: string): [number, number] | null {
 
 function tidyLine(line: string): string {
   const m = /^(\s*(?:[•▪●◦\-*]\s+)?)(.*)$/.exec(line)!;
+  // Only a bullet keeps its prefix; plain prose never starts with a space
+  // (a letter paragraph whose first sentence was removed did, on 26 Sep).
+  if (!/[•▪●◦\-*]/.test(m[1])) m[1] = "";
   const body = m[2]
     .replace(/\*\*\s*\*\*/g, "")
     .replace(/\(\s*\)/g, "")
@@ -348,14 +380,16 @@ const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // A "Label: a | b | c" line (the skills section): the items mentioning the
 // skill go, the label and the separator stay. At least one item must remain.
-function trimListLine(line: string, skill: string): string {
+type Mentions = (text: string, skill: string) => boolean;
+
+function trimListLine(line: string, skill: string, mentions: Mentions = skillMentioned): string {
   const m = /^(\s*(?:\*\*)?[^:|]{1,40}:(?:\*\*)?\s*)?([\s\S]*)$/.exec(line)!;
   const label = m[1] ?? "";
   const body = m[2];
   const sep = /\s\|\s/.test(body) ? "|" : body.includes("·") ? "·" : body.includes(",") ? "," : null;
   if (!sep) return line;
   const items = body.split(sep === "," ? /\s*,\s*/ : new RegExp(`\\s*${esc(sep)}\\s*`)).filter((x) => x.trim());
-  const kept = items.filter((x) => !skillMentioned(stripBold(x), skill));
+  const kept = items.filter((x) => !mentions(stripBold(x), skill));
   if (kept.length === items.length || kept.length === 0) return line;
   return label + kept.join(sep === "," ? ", " : ` ${sep} `);
 }
@@ -363,11 +397,11 @@ function trimListLine(line: string, skill: string): string {
 // The sentence with the skills' own words removed where that is exact, or
 // null when no exact removal clears every one of them. `listLine`: the
 // sentence is a skills-section line, whose items are the unit of removal.
-export function removeSkillMentions(sentence: string, skills: string[], listLine = false): string | null {
+export function removeSkillMentions(sentence: string, skills: string[], listLine = false, mentions: Mentions = skillMentioned): string | null {
   let out = sentence;
   for (const skill of skills) {
     if (listLine) {
-      out = trimListLine(out, skill);
+      out = trimListLine(out, skill, mentions);
       continue;
     }
     const forms = [...new Set([skill, ...distinctiveTokens(skill)])].filter((f) => f.length >= 2).sort((a, b) => b.length - a.length);
@@ -380,12 +414,12 @@ export function removeSkillMentions(sentence: string, skills: string[], listLine
     // Bracketed lists lose the flagged items.
     out = out.replace(/\s*\(([^()]*)\)/g, (whole, inner: string) => {
       const items = inner.split(/\s*,\s*|\s+and\s+/).map((x) => x.trim()).filter(Boolean);
-      const kept = items.filter((x) => !skillMentioned(stripBold(x), skill));
+      const kept = items.filter((x) => !mentions(stripBold(x), skill));
       if (kept.length === items.length) return whole;
       return kept.length ? ` (${kept.join(", ")})` : "";
     });
     // "|" lists inside a sentence: the flagged item goes, a label stays.
-    if (/\s\|\s/.test(out)) out = trimListLine(out, skill);
+    if (/\s\|\s/.test(out)) out = trimListLine(out, skill, mentions);
     // A plain list item that is exactly the skill: "Python, RAG, Redis",
     // "Python, RAG and Redis", "Python and RAG."
     for (const f of forms) {
@@ -395,21 +429,22 @@ export function removeSkillMentions(sentence: string, skills: string[], listLine
     }
   }
   out = tidyLine(out);
-  if (out === sentence.trim() || skills.some((sk) => skillMentioned(stripBold(out), sk))) return null;
+  if (out === sentence.trim() || skills.some((sk) => mentions(stripBold(out), sk))) return null;
   return out;
 }
 
 // Apply the exact removals to every item that is only about skills (a
 // figure needs the model or the drop). Works on the sentence as it stands
 // in the section, so bold markers around kept words stay.
-export function surgicalPass(s: RepairSections, items: RepairItem[]): { sections: RepairSections; changes: RepairChange[] } {
+export function surgicalPass(s: RepairSections, items: RepairItem[], registry?: ClaimsRegistry | null): { sections: RepairSections; changes: RepairChange[] } {
+  const registered = registryMentions(registry);
   let cur = s;
   const changes: RepairChange[] = [];
   for (const it of items) {
     if (it.skills.length === 0 || it.figures.length > 0) continue;
     const orig = originalOf(cur, it.section, it.sentence);
     if (orig === null) continue;
-    const trimmed = removeSkillMentions(orig, it.skills, it.section === "skills");
+    const trimmed = removeSkillMentions(orig, it.skills, it.section === "skills", mentionsFor(it, registered));
     if (trimmed === null) continue;
     const next = applyToSection(cur, it.section, it.sentence, trimmed);
     if (!next) continue;
@@ -426,12 +461,13 @@ export function surgicalUntilStable(
   s: RepairSections,
   registry: ClaimsRegistry | null,
   sources: (string | null | undefined)[],
-  jd: string
+  jd: string,
+  grafts: GraftRule[] = []
 ): { sections: RepairSections; changes: RepairChange[] } {
   let cur = s;
   const changes: RepairChange[] = [];
   for (let round = 0; round < 4; round++) {
-    const pass = surgicalPass(cur, listRepairs(cur, checkSections(cur, registry, sources, jd)));
+    const pass = surgicalPass(cur, listRepairs(cur, checkSections(cur, registry, sources, jd, grafts), registry), registry);
     if (pass.changes.length === 0) break;
     cur = pass.sections;
     changes.push(...pass.changes);
@@ -467,7 +503,8 @@ export function replacementPasses(
   section: RepairSection,
   registry: ClaimsRegistry | null,
   sources: (string | null | undefined)[],
-  jd: string
+  jd: string,
+  grafts: GraftRule[] = []
 ): boolean {
   if (!replacement.trim()) return true;
   const letter = section === "coverLetter";
@@ -482,9 +519,10 @@ export function replacementPasses(
       },
     ],
     registry,
-    sources
+    sources,
+    grafts
   );
-  return c.skillViolations.length === 0 && !c.numberViolations.some((n) => n.kind === "absent");
+  return c.skillViolations.length === 0 && !c.numberViolations.some((n) => n.kind === "absent" || n.kind === "combined");
 }
 
 export function applyModelEdits(
@@ -537,15 +575,16 @@ export function dropUntilClean(
   s: RepairSections,
   registry: ClaimsRegistry | null,
   sources: (string | null | undefined)[],
-  jd: string
+  jd: string,
+  grafts: GraftRule[] = []
 ): { sections: RepairSections; changes: RepairChange[] } {
   let cur = s;
   const changes: RepairChange[] = [];
   for (let round = 0; round < 6; round++) {
-    const trimmed = surgicalUntilStable(cur, registry, sources, jd);
+    const trimmed = surgicalUntilStable(cur, registry, sources, jd, grafts);
     cur = trimmed.sections;
     changes.push(...trimmed.changes);
-    const items = listRepairs(cur, checkSections(cur, registry, sources, jd));
+    const items = listRepairs(cur, checkSections(cur, registry, sources, jd, grafts), registry);
     if (items.length === 0) break;
     const dropped = dropPass(cur, items);
     if (dropped.changes.length === 0) break;

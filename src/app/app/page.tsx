@@ -20,6 +20,8 @@ import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
 import { normalizeClaims, checkClaims, seedClaimsFromCv, SKILL_RULE_TEXT, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
 import { qualityReport, type QualityReport } from "@/lib/quality";
 import { REPAIR_SECTION_LABEL, type RepairChange } from "@/lib/claimRepair";
+import { buildEvidenceMap, graftRules, type EvidenceMap, type EvidenceItem } from "@/lib/evidenceMap";
+import type { SupportReport } from "@/lib/supportCheck";
 import { normalizeVariants, pickVariant, leadSkillsNotice, type VariantsConfig, type LeadSkillDrop } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTarget, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import type { SeniorityFit } from "@/lib/seniority";
@@ -117,8 +119,19 @@ type Result = {
   // cut from the summary. Null entries mean the rule had nothing to do.
   formatFixes?: {
     tools?: { kept: string[]; dropped: string[] } | null;
-    summary?: { sentences: number; kept: number } | null;
+    summary?: { sentences: number; kept: number; words?: number } | null;
+    // Technical Tools the master CV never names, and Functional
+    // Competencies naming a work context it never shows — dropped.
+    unsupportedTools?: string[] | null;
+    competencies?: string[] | null;
+    // Tools the posting asks for that the master CV's own list names, put
+    // back on the Technical Tools line.
+    restoredTools?: string[] | null;
   };
+  // Requirement → evidence for this posting, and what the sentence-by-
+  // sentence check of the summary and letter against the master CV changed.
+  evidence?: EvidenceMap;
+  supportCheck?: SupportReport | null;
   // Visa / sponsorship sentences the server removed from the CV text and the
   // letter because Right to Work is off the document (lib/rightToWorkText).
   rtwStripped?: { cv: string[]; letter: string[] };
@@ -179,6 +192,17 @@ type GateExtras = {
   seniority: SeniorityFit | null;
   // The pre-check ran on the user's own OpenRouter key (shared account out of credit).
   fallback: { source: "own_key" | "env_key"; reason: "provider_credit" | "provider_limit" } | null;
+  // Requirement → evidence (lib/evidenceMap): where the master CV shows each
+  // requirement the posting names.
+  evidence: EvidenceMap | null;
+};
+
+const EVIDENCE_LABEL: Record<EvidenceItem["status"], string> = {
+  experience: "shown in paid work",
+  project: "shown in a personal project only",
+  listed: "listed, not shown in use",
+  learning: "marked learning — never claimed",
+  gap: "not in your CV",
 };
 
 const READ_LABEL: Record<GateRead, string> = {
@@ -410,6 +434,13 @@ export default function Home() {
   const graduateRun = !!result && isGraduateScheme(roleTitleOf(result.analysis), resultJd ?? jobDescription);
   const graduateLayout = graduateRun && standardOrderFor !== (tailorSessionId ?? "run") ? graduateSectionOrder(sectionOrder) : null;
   const runSectionOrder: unknown = graduateLayout?.changed ? graduateLayout.order : sectionOrder;
+  // The posting's technologies the master CV never shows (and those only a
+  // project shows): the same rules the server's claims check used, so the
+  // re-check of an edited preview and "Fix it" agree with it.
+  const runGrafts = useMemo(
+    () => (result?.analysis ? graftRules(buildEvidenceMap(result.analysis, masterCvText, projectsPool, claims)) : []),
+    [result, masterCvText, projectsPool, claims]
+  );
   // Which flow produced the result. Only "jd" runs arm the stale-JD banner;
   // an outreach run is tailored from a research brief, not the JD box.
   const [resultSource, setResultSource] = useState<"jd" | "outreach" | null>(null);
@@ -725,7 +756,14 @@ export default function Home() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobDescription, cvText: masterCvText, ...(eligibility ? { eligibility } : {}), ...(isUnlimited ? { provider } : {}) }),
+        body: JSON.stringify({
+          jobDescription,
+          cvText: masterCvText,
+          ...(eligibility ? { eligibility } : {}),
+          ...(projectsPool ? { projectsPool } : {}),
+          ...(claims ? { claims } : {}),
+          ...(isUnlimited ? { provider } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -757,6 +795,7 @@ export default function Home() {
               }
             : null,
           seniority: data.seniority && typeof data.seniority === "object" && typeof data.seniority.reason === "string" ? (data.seniority as SeniorityFit) : null,
+          evidence: data.evidence && typeof data.evidence === "object" && Array.isArray(data.evidence.items) ? (data.evidence as EvidenceMap) : null,
         });
       }
     } catch {
@@ -1007,7 +1046,8 @@ export default function Home() {
           { where: "coverLetter", text: letter ?? result.coverLetter ?? "", extraSources: [resultJd ?? jobDescription] },
         ],
         claims,
-        [masterCvText, projectsPool]
+        [masterCvText, projectsPool],
+        runGrafts
       )
     );
     if (payload) {
@@ -1032,7 +1072,8 @@ export default function Home() {
         { where: "coverLetter", text: sec.coverLetter, extraSources: [resultJd ?? jobDescription] },
       ],
       claims,
-      [masterCvText, projectsPool]
+      [masterCvText, projectsPool],
+      runGrafts
     );
   }
 
@@ -1994,12 +2035,38 @@ export default function Home() {
                     <Badge variant="value" tone={gateExtras.required.matched / gateExtras.required.total >= 0.5 ? "success" : "neutral"}>
                       {gateExtras.required.matched}/{gateExtras.required.total}
                     </Badge>
-                    <p className="gateNote">
-                      {gateExtras.required.missedKeywords.length > 0
-                        ? `Not in your CV as it stands: ${gateExtras.required.missedKeywords.join(", ")}.`
-                        : "Every required skill the posting names is in your CV."}
-                    </p>
+                    {!gateExtras.evidence && (
+                      <p className="gateNote">
+                        {gateExtras.required.missedKeywords.length > 0
+                          ? `Not in your CV as it stands: ${gateExtras.required.missedKeywords.join(", ")}.`
+                          : "Every required skill the posting names is in your CV."}
+                      </p>
+                    )}
                   </>
+                )}
+                {gateExtras?.evidence && gateExtras.evidence.items.length > 0 && (
+                  <div className="atsGroup" data-evidence-map>
+                    <div className="atsGroupLabel recs">What the posting asks for, and where your CV shows it</div>
+                    <ul className="atsList">
+                      {gateExtras.evidence.items
+                        .filter((i) => i.importance !== "keyword" || i.status !== "gap" || i.kind !== "soft")
+                        .slice(0, 16)
+                        .map((i, n) => (
+                          <li key={n} data-evidence-status={i.status} data-evidence-importance={i.importance}>
+                            <Badge variant="dot" tone={i.status === "experience" ? "hit" : i.status === "gap" || i.status === "learning" ? "miss" : "rec"}>
+                              {i.status === "experience" ? "✓" : i.status === "gap" || i.status === "learning" ? "✕" : "◐"}
+                            </Badge>
+                            <span>
+                              <strong>{i.term}</strong>
+                              {i.importance === "required" ? " (required)" : i.importance === "preferred" ? " (preferred)" : ""} — {EVIDENCE_LABEL[i.status]}
+                              {i.where ? `: ${i.where}` : ""}
+                              {i.status === "gap" && i.kind === "soft" ? ". Your CV never says it in words; show it with a real example if you have one." : ""}
+                              {i.status === "gap" && i.kind !== "soft" ? ". It won't be claimed; the letter may name your nearest real experience instead." : ""}
+                            </span>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
                 )}
                 <div className="gateActions">
                   <Button variant={gateRead === "skip" || seniorityBlocks ? "secondary" : "primary"} onClick={runFullTailor} disabled={loading}>
@@ -2210,7 +2277,12 @@ export default function Home() {
                           {activeCheck.mode === "enforce" ? "✕" : "?"}
                         </Badge>
                         <span>
-                          {s.level === "learning" ? (
+                          {s.level === "absent" ? (
+                            <>
+                              <strong>{s.skill}</strong>: the posting asks for it, but your master CV never shows it — {s.claim}. Remove it, or add
+                              it to your master CV first if you have really done it.
+                            </>
+                          ) : s.level === "learning" ? (
                             <>
                               <strong>{s.skill}</strong> is marked <em>learning</em> in your registry, and it appears in the {WHERE_LABEL[s.where]}
                               {s.claim ? <>: &ldquo;{s.claim}&rdquo;</> : null}.
@@ -2226,12 +2298,17 @@ export default function Home() {
                     ))}
                     {activeCheck.numberViolations.map((n, i) => (
                       <li key={`n${i}`}>
-                        <Badge variant="dot" tone={activeCheck.mode === "enforce" && n.kind === "absent" ? "miss" : "rec"}>
-                          {n.kind === "absent" ? "✕" : "?"}
+                        <Badge variant="dot" tone={activeCheck.mode === "enforce" && n.kind !== "context_mismatch" ? "miss" : "rec"}>
+                          {n.kind !== "context_mismatch" ? "✕" : "?"}
                         </Badge>
                         <span>
                           <strong>{n.figure}</strong>{" "}
-                          {n.kind === "absent" ? "isn't on your master CV" : "is on your CV in a different context"} — in the{" "}
+                          {n.kind === "absent"
+                            ? "isn't on your master CV"
+                            : n.kind === "combined"
+                              ? "joins two separate figures into a range your master CV never states"
+                              : "is on your CV in a different context"}{" "}
+                          — in the{" "}
                           {WHERE_LABEL[n.where]}: &ldquo;{n.sentence.length > 140 ? `${n.sentence.slice(0, 139)}…` : n.sentence}&rdquo;
                         </span>
                       </li>
@@ -2310,7 +2387,30 @@ export default function Home() {
                 )}
               </div>
             )}
-            {(result.formatFixes?.tools || result.formatFixes?.summary) && (
+            {result.supportCheck && result.supportCheck.changed.length > 0 && (
+              <div className="limitNotice" role="status" data-support-check>
+                <div className="limitNotice__title">Checked against your master CV</div>
+                <div className="limitNotice__body">
+                  <p className="fitEvidence">
+                    Every sentence about your past in the summary and the letter was checked against your master CV.{" "}
+                    {result.supportCheck.changed.length === 1 ? "One said" : `${result.supportCheck.changed.length} said`}{" "}
+                    something it doesn&apos;t show:
+                  </p>
+                  <ul className="atsList">
+                    {result.supportCheck.changed.map((c, i) => (
+                      <li key={i} data-support-change={c.action}>
+                        <Badge variant="dot" tone={c.action === "removed" ? "miss" : "rec"}>{c.action === "removed" ? "−" : "→"}</Badge>
+                        <span>
+                          <strong>{c.section === "summary" ? "Summary" : "Cover letter"}</strong> — {c.action}: &ldquo;{clip(c.sentence)}&rdquo;
+                          {c.replacement && <span className="changesView__diff"> (now &ldquo;{clip(c.replacement)}&rdquo;)</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools) && (
               <div className="limitNotice" role="status" data-format-fixes>
                 <div className="limitNotice__title">Formatting rules applied</div>
                 <div className="limitNotice__body">
@@ -2329,8 +2429,34 @@ export default function Home() {
                       <li data-format-fix="summary">
                         <Badge variant="dot" tone="rec">→</Badge>
                         <span>
-                          The summary came back as {result.formatFixes.summary.sentences} sentences; kept the first{" "}
-                          {result.formatFixes.summary.kept}, one per line. Check they still carry the role title and your strongest figure.
+                          {result.formatFixes.summary.words
+                            ? `The summary came back at ${result.formatFixes.summary.words} words; kept the first ${result.formatFixes.summary.kept} sentences so it reads in seconds.`
+                            : `The summary came back as ${result.formatFixes.summary.sentences} sentences; kept the first ${result.formatFixes.summary.kept}, one per line.`}{" "}
+                          Check they still carry the role title and your strongest figure.
+                        </span>
+                      </li>
+                    )}
+                    {result.formatFixes.unsupportedTools && result.formatFixes.unsupportedTools.length > 0 && (
+                      <li data-format-fix="unsupported-tools">
+                        <Badge variant="dot" tone="miss">−</Badge>
+                        <span>
+                          Dropped from Technical Tools because your master CV never names them: {result.formatFixes.unsupportedTools.join(", ")}.
+                        </span>
+                      </li>
+                    )}
+                    {result.formatFixes.competencies && result.formatFixes.competencies.length > 0 && (
+                      <li data-format-fix="competencies">
+                        <Badge variant="dot" tone="miss">−</Badge>
+                        <span>
+                          Dropped from Functional Competencies because your master CV shows no such work: {result.formatFixes.competencies.join("; ")}.
+                        </span>
+                      </li>
+                    )}
+                    {result.formatFixes.restoredTools && result.formatFixes.restoredTools.length > 0 && (
+                      <li data-format-fix="restored-tools">
+                        <Badge variant="dot" tone="hit">+</Badge>
+                        <span>
+                          Put back on Technical Tools because the posting asks for them and your master CV lists them: {result.formatFixes.restoredTools.join(", ")}.
                         </span>
                       </li>
                     )}
@@ -2468,7 +2594,8 @@ export default function Home() {
                       <li>
                         <Badge variant="dot" tone="rec">?</Badge>
                         <span>
-                          {quality.weakBullets.length === 1 ? "One bullet carries" : `${quality.weakBullets.length} bullets carry`} no number,
+                          {quality.weakBullets.length === 1 ? "One bullet carries" : `${quality.weakBullets.length} bullets carry`}{" "}
+                          no number,
                           scale or named system: &ldquo;{quality.weakBullets[0].slice(0, 90)}
                           {quality.weakBullets[0].length > 90 ? "…" : ""}&rdquo;
                           {quality.weakBullets.length > 1 ? " and more" : ""}. Add the evidence from your CV, or cut it.
@@ -2488,7 +2615,8 @@ export default function Home() {
                       <li data-quality-boltons={quality.boltOns.length}>
                         <Badge variant="dot" tone="rec">?</Badge>
                         <span>
-                          {quality.boltOns.length === 1 ? "One bullet ends" : `${quality.boltOns.length} bullets end`} by explaining why it matters to
+                          {quality.boltOns.length === 1 ? "One bullet ends" : `${quality.boltOns.length} bullets end`}{" "}
+                          by explaining why it matters to
                           the employer: &ldquo;…{quality.boltOns[0].slice(-80)}&rdquo;
                           {quality.boltOns.length > 1 ? " and more" : ""}. That clause is the clearest sign of a tool at work; cut it and let the bullet
                           stop on the result.

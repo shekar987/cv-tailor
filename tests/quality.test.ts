@@ -14,6 +14,7 @@ import {
   relevanceBoltOns,
   lintBullets,
   countFlags,
+  trimBoltOn,
 } from "../src/lib/quality.ts";
 
 const profile = {
@@ -148,4 +149,30 @@ test("qualityReport bundles everything", () => {
   assert.deepEqual(r.boltOns, []);
   const r2 = qualityReport({ experience: role("Engineer", ["Shipped the flow in 6 weeks - core patterns for Acme's scheduling agents."]) }, profile, "", "Acme");
   assert.equal(r2.boltOns.length, 1);
+});
+
+test("self-assessment tails are rejected; results, figures and named systems are not", () => {
+  const bad = [
+    "Architected a three-portal marketplace as a solo engineer, demonstrating full-stack ownership across complex multi-stakeholder systems.",
+    "Built an 8-step LLM pipeline with JSON contracts — demonstrating technical solution design, problem-solving and analytical thinking at production scale.",
+    "Built a routing layer enforced via Postgres SECURITY DEFINER functions — translating business requirements into secure, configurable technical architecture.",
+    "Secured multi-tenant data with row-level security; ran a security audit and remediated **8 findings**, demonstrating ownership of product quality and client trust.",
+    "Engineered a routing layer across 3 providers with column-level grants — designed for reliability and auditability in a multi-tenant system.",
+  ];
+  for (const b of bad) assert.equal(isRelevanceBoltOn(b, "Acme"), true, b);
+  const good = [
+    "Built real-time dispatch on Firestore transactions (no double-bookings), covered by 90+ Jest tests",
+    "Optimised PostgreSQL queries using indexing and caching, improving read times by 30%",
+    "Implemented an event-driven pipeline on AWS Lambda and SQS, with idempotent processing and dead-letter handling.",
+    "Secured tenant data with row-level security; ran a pre-launch security audit and remediated 8 findings",
+  ];
+  for (const g of good) assert.equal(isRelevanceBoltOn(g, "Acme"), false, g);
+});
+
+test("trimBoltOn cuts the bolt-on clause and keeps the fact", () => {
+  assert.equal(
+    trimBoltOn("Secured tenant data with row-level security; remediated **8 findings**, demonstrating ownership of product quality and client trust.", "Acme"),
+    "Secured tenant data with row-level security; remediated **8 findings**."
+  );
+  assert.equal(trimBoltOn("Optimised PostgreSQL queries, improving read times by 30%", "Acme"), null);
 });

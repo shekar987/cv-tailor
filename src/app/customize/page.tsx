@@ -78,10 +78,10 @@ import {
   type SectionId,
 } from "@/lib/sectionOrder";
 
-// The nine questions the Eligibility card asks. Counted for the section's
+// The ten questions the Eligibility card asks. Counted for the section's
 // summary line so an unanswered profile is visible without opening it —
 // collapsing a section must never hide that something still needs doing.
-const ELIGIBILITY_QUESTIONS = 9;
+const ELIGIBILITY_QUESTIONS = 10;
 const rtwBannerKey = (userId: string) => `jobhuntz:rtw-full-banner:${userId}`;
 
 function eligibilityAnswered(e: Eligibility): number {
@@ -93,9 +93,35 @@ function eligibilityAnswered(e: Eligibility): number {
   if (e.location.onsiteOk !== null) n++;
   if (e.location.hybridOk !== null) n++;
   if (e.degree.level !== "unknown") n++;
+  if (e.graduation.completed !== null || e.graduation.expected !== null) n++;
   if (e.licences.length > 0) n++;
   if (e.employmentTypes.length > 0) n++;
   return n;
+}
+
+// "Jan 2025 – Jan 2027" → the end month as "2027-01"; "07/2019 – 07/2023"
+// → "2023-07". A year alone or "Present" gives nothing (a month is never
+// guessed).
+const MONTH_NAMES = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+function endMonthOf(dates: string): string | null {
+  const parts = (dates || "").split(/\s*(?:–|—|-|to)\s*/i);
+  const end = (parts[parts.length - 1] || "").trim().toLowerCase();
+  const named = /^([a-z]{3})[a-z]*\.?\s+((?:19|20)\d{2})$/.exec(end);
+  if (named && MONTH_NAMES.includes(named[1])) return `${named[2]}-${String(MONTH_NAMES.indexOf(named[1]) + 1).padStart(2, "0")}`;
+  const numeric = /^(\d{1,2})\/((?:19|20)\d{2})$/.exec(end);
+  if (numeric && Number(numeric[1]) >= 1 && Number(numeric[1]) <= 12) return `${numeric[2]}-${numeric[1].padStart(2, "0")}`;
+  return null;
+}
+// The education entries' end months, split into the last one already past
+// (completed) and the next one still to come (in progress). Offered by a
+// button on the Eligibility card; only a click fills the fields.
+function graduationFromEducation(education: { dates?: string }[] | undefined, now = new Date()): { completed: string | null; expected: string | null } {
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const ends = (education ?? []).map((e) => endMonthOf(e.dates ?? "")).filter((x): x is string => !!x).sort();
+  return {
+    completed: ends.filter((m) => m <= thisMonth).pop() ?? null,
+    expected: ends.find((m) => m > thisMonth) ?? null,
+  };
 }
 
 // The section nav. Ids match the section elements; `always` marks the two
@@ -1018,7 +1044,7 @@ export default function CustomizePage() {
         >
           <p className="cvHelp">
             The questions an application form asks before anyone reads your CV: right to work, clearance,
-            years, location, degree, licences, contract type. Answer once; the pre-check on the tailoring
+            years, location, degree and graduation date, licences, contract type. Answer once; the pre-check on the tailoring
             page then warns when a job has a condition you&apos;d fail, before a tailor is spent. Nothing here
             is guessed from your CV — leave anything you&apos;re unsure of as &quot;Not set&quot;.
           </p>
@@ -1193,6 +1219,51 @@ export default function CustomizePage() {
                     <option value="other">Other / not on the UK scale</option>
                   </select>
                 </label>
+                <label>
+                  Last degree completed (month and year)
+                  <Input
+                    type="month"
+                    value={eligibility.graduation.completed ?? ""}
+                    onChange={(e) => {
+                      const completed = e.target.value || null;
+                      updateElig((x) => ({ ...x, graduation: { ...x.graduation, completed } }));
+                    }}
+                    data-elig-grad-completed
+                  />
+                </label>
+                <label>
+                  Degree you&apos;re studying completes (if any)
+                  <Input
+                    type="month"
+                    value={eligibility.graduation.expected ?? ""}
+                    onChange={(e) => {
+                      const expected = e.target.value || null;
+                      updateElig((x) => ({ ...x, graduation: { ...x.graduation, expected } }));
+                    }}
+                    data-elig-grad-expected
+                  />
+                </label>
+                {!eligibility.graduation.completed &&
+                  !eligibility.graduation.expected &&
+                  (() => {
+                    const fromCv = graduationFromEducation(profile?.education);
+                    if (!fromCv.completed && !fromCv.expected) return null;
+                    return (
+                      <p className="fitEvidence" data-elig-grad-suggest>
+                        Graduate roles often screen on when you graduated.{" "}
+                        <Button
+                          variant="ghost"
+                          onClick={() => updateElig((x) => ({ ...x, graduation: fromCv }))}
+                          data-elig-grad-fill
+                        >
+                          Use my CV&apos;s dates
+                          {fromCv.completed ? ` (completed ${fromCv.completed}` : " ("}
+                          {fromCv.completed && fromCv.expected ? ", " : ""}
+                          {fromCv.expected ? `completes ${fromCv.expected}` : ""})
+                        </Button>
+                      </p>
+                    );
+                  })()}
                 <label>
                   Licences and certifications you hold
                   <Input value={eligLicences} onChange={(e) => { setEligLicences(e.target.value); setEligMsg(""); }} placeholder="e.g. Full UK driving licence, AWS Solutions Architect" />

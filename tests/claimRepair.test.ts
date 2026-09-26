@@ -189,7 +189,7 @@ test("a project bullet that ends up empty leaves the list", () => {
 });
 
 test("normalizeRepairEdits keeps known ids only, one bounded sentence each", () => {
-  const items = [{ id: "r1", section: "summary" as const, sentence: "x", problems: [], skills: [], figures: [] }];
+  const items = [{ id: "r1", section: "summary" as const, sentence: "x", problems: [], skills: [], figures: [], absent: [] }];
   const edits = normalizeRepairEdits(
     { edits: [{ id: "r1", replacement: "•  Two   spaces\nand a line." }, { id: "r9", replacement: "unknown" }, { id: "r1" }, "junk"] },
     items

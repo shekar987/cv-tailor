@@ -6,8 +6,12 @@ import {
   capSummary,
   splitSentences,
   applyFormatRules,
+  dropUnsupportedTools,
+  dropUnsupportedCompetencies,
   MAX_TECHNICAL_TOOLS,
   MAX_SUMMARY_SENTENCES,
+  MAX_SUMMARY_WORDS,
+  restoreAskedTools,
 } from "../src/lib/formatRules.ts";
 
 const tools25 = [
@@ -96,6 +100,77 @@ test("applyFormatRules: both rules run from the analysis, and a clean result rep
   assert.equal(r.fixes.tools?.kept.length, 15);
   assert.ok(r.fixes.tools?.kept.includes("Docker") && r.fixes.tools?.kept.includes("Kubernetes"));
   const clean = applyFormatRules({ summary: "A.\nB.\nC.", skills: skillsBlock(tools25.slice(0, 10)) }, null);
-  assert.deepEqual(clean.fixes, { tools: null, summary: null });
+  assert.deepEqual(clean.fixes, { tools: null, summary: null, unsupportedTools: null, competencies: null, restoredTools: null });
   assert.equal(clean.skills, skillsBlock(tools25.slice(0, 10)));
+});
+
+test("Technical Tools the master CV never names are dropped; the label survives", () => {
+  const cv = "Skills: Python, FastAPI, PostgreSQL, Docker, Git / GitHub";
+  const r = dropUnsupportedTools("**Functional Competencies:** API design\n**Technical Tools:** Python | Brossa | FastAPI | Go | Git", [cv]);
+  assert.deepEqual(r.dropped, ["Brossa", "Go"]);
+  assert.equal(r.skills, "**Functional Competencies:** API design\n**Technical Tools:** Python | FastAPI | Git");
+  // Nothing to hold the line to → untouched.
+  assert.deepEqual(dropUnsupportedTools("Technical Tools: Go", []), { skills: "Technical Tools: Go", dropped: [] });
+});
+
+test("Functional Competencies naming a work context the CV never shows are dropped", () => {
+  const cv = "Built REST APIs for enterprise workflows. Wrote 90 unit tests.";
+  const r = dropUnsupportedCompetencies(
+    "Functional Competencies: REST API design | Client-facing technical problem-solving | Stakeholder collaboration across teams | Automated testing\nTechnical Tools: Python",
+    [cv]
+  );
+  assert.deepEqual(r.dropped, ["Client-facing technical problem-solving", "Stakeholder collaboration across teams"]);
+  assert.equal(r.skills, "Functional Competencies: REST API design | Automated testing\nTechnical Tools: Python");
+});
+
+test("a summary past the word cap loses its last sentence, never the one with the role title", () => {
+  const long = (n: number) => Array.from({ length: n }, (_, i) => (i === 0 ? "Filler" : `word${i}`)).join(" ");
+  const summary = `Engineer with Python work. ${long(40)}. ${long(40)} applying for the Platform Engineer role.`;
+  assert.ok(summary.split(/\s+/).length > MAX_SUMMARY_WORDS);
+  const kept = capSummary(summary, MAX_SUMMARY_SENTENCES, "Platform Engineer");
+  assert.equal(kept.fix, null, "the last sentence carries the title, so it stays");
+  const cut = capSummary(`Engineer applying for the Platform Engineer role. ${long(40)}. ${long(40)}.`, MAX_SUMMARY_SENTENCES, "Platform Engineer");
+  assert.equal(cut.fix?.kept, 2);
+  assert.ok((cut.fix?.words ?? 0) > MAX_SUMMARY_WORDS);
+});
+
+test("a personal quality is not a Functional Competency; one with a concrete skill in it stays", () => {
+  const r = dropUnsupportedCompetencies("Functional Competencies: Problem-solving and debugging | Self-directed learning and rapid skill acquisition | Communication", ["Built APIs."]);
+  assert.deepEqual(r.dropped, ["Self-directed learning and rapid skill acquisition", "Communication"]);
+  assert.equal(r.skills, "Functional Competencies: Problem-solving and debugging");
+});
+
+test("restoreAskedTools: a tool the posting asks for and the master CV lists goes back on a full line; never a phrase, a learning skill or a project skill in the lead slots", () => {
+  const master = "EXPERIENCE\nEngineer — Acme | 2023 – Present\n- Built FastAPI services on PostgreSQL\n\nADDITIONAL INFORMATION\nTechnical Skills: Python, FastAPI, React, TypeScript, JavaScript, PostgreSQL, MySQL, Docker, Kafka";
+  const fifteen = ["Python", "FastAPI", "PostgreSQL", "MySQL", "MongoDB", "Redis", "React", "TypeScript", "REST APIs", "JWT", "RBAC", "SQLAlchemy", "Docker", "CI/CD", "Git"];
+  const skills = `Functional Competencies: API design\nTechnical Tools: ${fifteen.join(" | ")}`;
+  // The Somak run (26 Sep): JavaScript asked for, listed on the master CV, left out.
+  const analysis = { required_skills: ["Relational databases", "Accessibility", "API development"], top_15_ats_keywords: ["Python", "JavaScript", "Docker", "Kafka"] };
+  const r = restoreAskedTools(skills, analysis, master, { version: 1, confirmedAt: null, seededFrom: null, skills: [{ name: "Kafka", level: "learning", confirmed: true }] });
+  assert.deepEqual(r.restored, ["JavaScript"], "Accessibility is not on the list; Kafka is still being learnt; Relational databases and API development are concepts, not tools");
+  // A single distinctive name the list implies does come back (SQL by PostgreSQL/MySQL).
+  assert.deepEqual(restoreAskedTools(`Technical Tools: Python | FastAPI`, { required_skills: ["SQL"] }, master).restored, ["SQL"]);
+  const line = String(r.skills).split("\n")[1];
+  assert.match(line, /\| JavaScript$/, "it takes the place of the last tool the posting never mentions (Git)");
+  assert.equal(line.split(" | ").length, 15);
+  // A project-level tool on a short line would land in the first eight slots: it waits.
+  const short = `Technical Tools: Python | FastAPI | Docker`;
+  const proj = restoreAskedTools(short, analysis, master, {
+    version: 1,
+    confirmedAt: null,
+    seededFrom: null,
+    skills: [
+      { name: "JavaScript", level: "project", confirmed: true },
+      { name: "Kafka", level: "learning", confirmed: true },
+    ],
+  });
+  assert.deepEqual(proj.restored, []);
+  // Already on the line → nothing to do.
+  assert.deepEqual(restoreAskedTools(`Technical Tools: JavaScript | Python`, { top_15_ats_keywords: ["JavaScript", "Python"] }, master).restored, []);
+});
+
+test("restoreAskedTools never restores a skill the CV says is still being learnt, registry or not", () => {
+  const master = "SKILLS\nCore: Java 17, Spring Boot, PostgreSQL, Docker\nWorking knowledge: Python, Redis, Terraform\nCurrently learning: Kubernetes, Kafka";
+  const r = restoreAskedTools("Technical Tools: Java 17 | Spring Boot", { top_15_ats_keywords: ["Kubernetes", "Kafka", "Terraform"] }, master, null);
+  assert.deepEqual(r.restored, ["Terraform"]);
 });

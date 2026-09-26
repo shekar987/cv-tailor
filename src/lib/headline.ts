@@ -47,6 +47,32 @@ function lastYear(s: string): string | null {
 // the entry says so ("Present", "expected"…) or its end year has not passed;
 // the expected year is only one the entry states as such, or that end year.
 // A start year before "Present" is never called the expected year.
+// The degrees still in progress, by the entries' own dates to the month
+// ("Jan 2025 – Jan 2027" is in progress in September 2026; "Sep 2025 – Jun
+// 2026" is not): what a summary or letter must never state as held
+// (lib/supportCheck fixHeldDegrees). A year with no month counts to December.
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+function endMonthIndex(dates: string): number | null {
+  let last: number | null = null;
+  for (const m of dates.matchAll(/\b(?:(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+|(\d{1,2})\/)?((?:19|20)\d{2})\b/gi)) {
+    const month = m[1] ? MONTHS.indexOf(m[1].toLowerCase()) : m[2] ? Math.min(11, Math.max(0, Number(m[2]) - 1)) : 11;
+    last = Number(m[3]) * 12 + month;
+  }
+  return last;
+}
+export function degreesInProgress(education: HeadlineEducation[] | undefined, now: Date = new Date()): string[] {
+  const nowIdx = now.getFullYear() * 12 + now.getMonth();
+  return (Array.isArray(education) ? education : [])
+    .filter((e) => {
+      if (!(e?.degree ?? "").trim()) return false;
+      const dates = (e.dates ?? "").trim();
+      if (IN_PROGRESS_RE.test(dates) || IN_PROGRESS_RE.test((e.note ?? "").trim())) return true;
+      const end = endMonthIndex(dates);
+      return end !== null && end >= nowIdx;
+    })
+    .map((e) => (e.degree ?? "").trim());
+}
+
 export function qualificationLabel(e: HeadlineEducation | undefined, now: number = new Date().getFullYear()): string {
   const degree = (e?.degree ?? "").trim().replace(/\s+/g, " ").slice(0, MAX_DEGREE);
   if (!degree) return "";

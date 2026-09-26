@@ -1,7 +1,7 @@
 // Unit tests: the exact role title must appear in the professional summary. node:test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { coreTitle, titleInText } from "../src/lib/roleTitle.ts";
+import { coreTitle, titleInText, titleAsIdentity } from "../src/lib/roleTitle.ts";
 
 test("coreTitle strips qualifiers and keeps the title itself", () => {
   assert.equal(coreTitle("Software Engineer (AI/Backend)"), "Software Engineer");
@@ -26,4 +26,19 @@ test("titleInText: the two real gaps are caught, natural phrasings pass", () => 
   assert.equal(titleInText("Backend engineer.", "Engineer"), true);
   assert.equal(titleInText("", "Engineer"), false);
   assert.equal(titleInText("Engineer", ""), false);
+});
+
+test("titleAsIdentity: a plain software title or one the candidate held opens the summary; a specialised or senior one never does", () => {
+  const held = ["Research Assistant", "Full Stack Engineer", "Full Stack Development Intern"];
+  assert.equal(titleAsIdentity("Software Developer – AI & Business Systems", held), true);
+  assert.equal(titleAsIdentity("Junior Software Engineer", held), true);
+  assert.equal(titleAsIdentity("Graduate Software Engineer", held), true);
+  assert.equal(titleAsIdentity("Fullstack Engineer (TypeScript / Python / AWS)", held), true, "held, spelled differently");
+  assert.equal(titleAsIdentity("Full Stack Developer", held), true, "developer and engineer read alike");
+  assert.equal(titleAsIdentity("Product Engineer", held), false);
+  assert.equal(titleAsIdentity("Forward Deployed Engineer", held), false);
+  assert.equal(titleAsIdentity("Frontend Engineer", held), false);
+  assert.equal(titleAsIdentity("Senior Software Engineer", held), false, "never claims seniority");
+  assert.equal(titleAsIdentity("Lead Full Stack Engineer", held), false);
+  assert.equal(titleAsIdentity("", held), false);
 });

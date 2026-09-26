@@ -15,7 +15,8 @@ Output ONLY a JSON object (no prose, no markdown fences) with these fields:
 {
   "role_title": "exact job title",
   "company_name": "company name",
-  "seniority_level": "junior | mid | senior | staff | unspecified",
+  "seniority_level": "graduate | junior | mid | senior | staff | unspecified",
+  "key_responsibilities": ["up to 6 short phrases: what the person will actually do day to day, in the posting's own words"],
   "role_type": "backend | frontend | fullstack | ai_engineering | data_engineering | ml_engineering | devops | other",
   "location_and_mode": "e.g. London, Hybrid",
   "required_skills": ["top 10 mandatory skills, priority order"],
@@ -26,13 +27,14 @@ Output ONLY a JSON object (no prose, no markdown fences) with these fields:
   "tone_signals": "formal | semi-formal | founder-casual | technical-dense",
   "hard_gates": [
     {
-      "category": "sponsorship | clearance | years | location | degree | licence | employment_type",
+      "category": "sponsorship | clearance | years | location | degree | graduation | licence | employment_type",
       "requirement": "the sentence or bullet COPIED VERBATIM from the job description",
       "strictness": "must | preferred"
     }
   ]
 }
-hard_gates are the conditions an application form screens on before anyone reads the CV: right to work / visa sponsorship, security clearance (SC, DV, BPSS, NPPV, Secret/TS), a number of years stated as a requirement, on-site / hybrid / location or relocation conditions, a required degree or degree class, licences or certifications that must already be held, and contract vs permanent terms. Copy each requirement sentence exactly as written - a deterministic checker discards any entry it cannot find verbatim in the text. Use "preferred" when the posting says nice-to-have, ideally, desirable or a plus. Empty array when there are none. Never infer a gate the text does not state.`;
+seniority_level "graduate" means a new-grad, graduate-scheme or entry-level role for people finishing or just past their degree.
+hard_gates are the conditions an application form screens on before anyone reads the CV: right to work / visa sponsorship, security clearance (SC, DV, BPSS, NPPV, Secret/TS), a number of years stated as a requirement, on-site / hybrid / location or relocation conditions, a required degree or degree class, WHEN the degree must have been completed ("graduated within the last year", "2025 or 2026 graduates", "final-year students") as category graduation, licences or certifications that must already be held, and contract vs permanent terms. Copy each requirement sentence exactly as written - a deterministic checker discards any entry it cannot find verbatim in the text. Use "preferred" when the posting says nice-to-have, ideally, desirable or a plus. Empty array when there are none. Never infer a gate the text does not state.`;
 
 // The rendered CV must fit TWO A4 pages. Page count is a product of this length
 // budget and the layout density in api/download/route.ts — change one and
@@ -60,37 +62,59 @@ export const LENGTH_BUDGET = `LENGTH BUDGET — the finished CV must fit on TWO 
 // the highest-weighted term in a recruiter's search, and the gap list kept
 // reporting it missing. lib/roleTitle checks the draft; the tailor route
 // retries once with `retryBlock` when it is absent.
-export const roleTitleRule = (roleTitle: string) =>
-  roleTitle
-    ? `ROLE TITLE — HARD CONSTRAINT: the exact role title "${roleTitle}" must appear at least once in the summary, spelled exactly as given, phrased naturally — as the target role ("… targeting a ${roleTitle} role", "${roleTitle} with two years of …") — never in quotes and never as a title the candidate has held. It is the highest-weighted term a recruiter searches for; a summary without it is rejected.`
-    : "";
+// asIdentity (lib/roleTitle titleAsIdentity): the title plainly describes the
+// candidate's paid work ("Software Developer"), so it opens the summary as who
+// they are; otherwise it is named as the job applied for, never claimed.
+export const roleTitleRule = (roleTitle: string, asIdentity: boolean = false) =>
+  !roleTitle
+    ? ""
+    : asIdentity
+      ? `ROLE TITLE — HARD CONSTRAINT: open the summary with the exact role title "${roleTitle}", spelled exactly as given, as the candidate's professional identity ("${roleTitle} with …") — it plainly describes the paid work the master CV shows. Never in quotes, and never followed by a clause about the role, the team or the employer ("…where design and collaboration drive impact" is rejected). It is the highest-weighted term a recruiter searches for; a summary without it is rejected.`
+      : `ROLE TITLE — HARD CONSTRAINT: the exact role title "${roleTitle}" must appear once in the summary, spelled exactly as given, as the job being applied for ("…, applying for the ${roleTitle} role") — never in quotes, never as a title the candidate has held, and never followed by a clause about the role, the team or the employer ("…role where design and collaboration drive impact" is rejected). It is the highest-weighted term a recruiter searches for; a summary without it is rejected.`;
 
-export const summaryPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, variantBlock: string = "", roleTitle: string = "", retryBlock: string = "") => `You write a 3-line achievement-oriented professional summary for a CV, tailored to a specific job.
+// evidenceBlock: lib/evidenceMap renderEvidenceBlock — which of the
+// posting's requirements paid work shows, which only a project shows, and
+// which the master CV never shows (never claimed, never implied).
+export const summaryPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, variantBlock: string = "", roleTitle: string = "", retryBlock: string = "", evidenceBlock: string = "", asIdentity: boolean = false) => `You write the professional summary at the top of a CV, tailored to one job. A recruiter reads it in seconds to decide whether to read on.
 
 ${ABSOLUTE_RULES}
 ${variantBlock}
-${roleTitleRule(roleTitle)}
+${roleTitleRule(roleTitle, asIdentity)}
 ${retryBlock}
+${evidenceBlock}
 MASTER CV:
 ${cv}
 
-CRITICAL ANTI-EMBELLISHMENT RULES FOR THE SUMMARY:
-- Every skill or proficiency you mention MUST trace to production experience or a shipped project in the master CV.
-- FORBIDDEN: calling any skill "proficient", "expert", "strong", or "experienced" unless the master CV backs it with real production work. A project-only skill is written as "built [project] in X", never "proficient in X".
+WHAT THE SUMMARY SAYS:
+- Who the candidate is professionally, in true terms: their field, the experience the master CV shows, their core stack.
+- The strongest evidence for THIS job: requirements the evidence map says paid work shows, with the master CV's real figures. Lead with what the job asks for most.
+- Nothing the evidence map marks as absent, and no quality the master CV does not show.
+
+FORM:
+- 2 or 3 sentences, 45 to 70 words in total, one sentence per line.
+- Every sentence carries a concrete fact from the master CV: a figure, a named system, an employer or a project. Never a sentence of adjectives.
+- Every figure exactly as the master CV states it, with the fact it belongs to. Never join two figures into a range ("25–30%") and never add them up.
+- A project-only skill is written as something built in that project ("built Jobhuntz with X"), never as experience or proficiency.
+- Education: for a graduate or entry-level role, or when the posting requires a degree, you may state the degree with its dates or expected completion exactly as the master CV writes them. A degree whose dates run into the future is in progress: "completing an MSc Computer Science (expected Jan 2027)" — never "hold", "have" or "graduated with" it. Never mention skills being learnt or planned.
+- Written as a CV, not a letter: no "I", "my" or "me".
+- Never mention visa, sponsorship, right to work or immigration status.
 ${claimsBlock}
-- Do not stack trendy technologies to match the JD. Match by emphasizing true strengths that overlap.
-- Never describe what the candidate is currently studying, learning or planning to learn - not even as a positive. The summary is about what they have done.
-- Never mention visa, sponsorship, right to work or immigration status. The application form asks that question; the summary says what the candidate has done.
+NEVER WRITE (each reads as generated and is rejected):
+- A clause about the role, the team or the employer's needs ("where technical design drives measurable impact", "ready to contribute to your mission").
+- Self-assessment: "demonstrating", "proven ability", "track record", "passion for", "strong communicator", "detail-oriented", "results-driven", "self-starter".
+- Filler: "at scale", "production-grade", "end-to-end", "hands-on", "leveraging", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "passionate".
+- More than one positioning: one field only, never two joined by a slash or a pipe.
+Before you answer, reread the draft and rewrite every sentence that breaks one of these.
 
-NATURAL WRITING RULES: Write the 3 lines in varied structure — do not make all three the same shape. BANNED filler: "at scale", "production-grade", "end-to-end", "hands-on", "leveraging", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "passionate", "results-driven". Before you answer, search your draft for each banned phrase and rewrite any line that contains one — say what was actually done instead. One positioning only: the summary names ONE target role (the analysis role_type), never two joined by a slash or a pipe. But KEEP the exact JD-relevant keywords and real metrics — weave them into natural sentences. Human-readable AND keyword-rich.
-You will receive the JD analysis as JSON. Write exactly 3 lines — three SEPARATE lines of text with a real newline between them, never one merged paragraph. Each line must contain one concrete piece of evidence (metric, brand, project, or scale) from the master CV. Match the seniority_level and role_type from the analysis. No "junior" framing unless the analysis says junior.
+You will receive the JD analysis as JSON. Match its seniority_level: no "junior" framing unless it says junior or graduate.
 
-Output ONLY the 3-line summary as plain text. No headings, no preamble, no integrity check.`;
+Output ONLY the summary as plain text, one sentence per line. No headings, no preamble, no integrity check.`;
 
-export const skillsPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, variantBlock: string = "") => `You write a tailored CV Skills section.
+export const skillsPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, variantBlock: string = "", evidenceBlock: string = "") => `You write a tailored CV Skills section.
 
 ${ABSOLUTE_RULES}
 ${variantBlock}
+${evidenceBlock}
 
 MASTER CV:
 ${cv}
@@ -101,13 +125,15 @@ CRITICAL ANTI-EMBELLISHMENT RULES FOR SKILLS:
 - FORBIDDEN to infer specific technologies from general descriptions. "Auth tokens" in a project does NOT license listing "OAuth 2.0" or "JWT". "Styling" does NOT license "Tailwind CSS". Only list the protocol/tool if the master CV names it.
 ${claimsBlock}
 - For a required JD skill the candidate lacks, surface the closest ADJACENT skill they genuinely have. Never list the missing skill itself.
+- A requirement the evidence map says paid work or a project shows is named in the posting's own words ("API development", not a synonym for it): a recruiter searches for those exact words.
 - Final check before output: for EVERY item in your skills list, confirm it appears verbatim in the master CV. If you cannot point to where, remove it.
 You will receive the JD analysis as JSON.
 
 If the role is technical or IT (software, engineering, data, cloud, DevOps, QA, etc.):
   Produce exactly two lines:
-  Functional Competencies: [6-8 role-level capabilities separated by " | "]
-  Technical Tools: [all relevant tools/languages/frameworks from the master CV as ONE flat list separated by " | "]
+  Functional Competencies: [4-6 capabilities separated by " | "]
+  Technical Tools: [up to 15 tools/languages/frameworks from the master CV as ONE flat list separated by " | " — the job's required and keyword terms the master CV shows first, then other relevant ones; leave out tools that do nothing for this job]
+  A Functional Competency names work the master CV shows being done, in the CV's own terms ("REST API design", "Database query optimisation", "Automated testing"). Never a personal quality ("problem-solving", "self-directed learning") and never a work context the master CV does not show — clients, stakeholders, sales, mentoring, or a domain such as insurance (see the evidence map).
 
 If the role is non-technical (marketing, finance, operations, management, teaching, sales, etc.):
   Produce a single flat line of relevant skills — no labels, no sub-headings.
@@ -123,7 +149,7 @@ Output ONLY the skills line(s) as plain text. Never wrap the labels or any skill
 // the tailor route sends back with a section's rejected bullets for its one
 // regeneration (lib/quality.ts lintBullets decides what is rejected).
 export const BULLET_SHAPE_RULE = `BULLET SHAPE — HARD CONSTRAINT:
-A bullet states what was built, how, and the measured result, then STOPS. It must never end with a clause explaining why it is relevant to this employer or role, and it never names the employer. Rejected shapes: "… - directly applicable to Acme's technical file review workflows", "… - the production-grade compliance Acme's regulated customers demand", "… - core patterns for Acme's scheduling agents", "… - exactly what this role needs". Relevance is shown by which bullets you choose and the order you put them in, never by narration. A deterministic check rejects any bullet that narrates its relevance or carries a banned filler phrase, and you will be asked to rewrite it.`;
+A bullet states what was built, how, and the measured result, then STOPS. It must never end with a clause explaining why it is relevant to this employer or role, and it never names the employer. Rejected shapes: "… - directly applicable to Acme's technical file review workflows", "… - the production-grade compliance Acme's regulated customers demand", "… - core patterns for Acme's scheduling agents", "… - exactly what this role needs". It also never ends by grading the work or the candidate: "…, demonstrating full-stack ownership", "… — demonstrating problem-solving and analytical thinking", "… — translating business requirements into secure architecture", "… — designed for reliability and auditability" are rejected too. Relevance is shown by which bullets you choose and the order you put them in, never by narration. A deterministic check rejects any bullet that narrates its relevance or carries a banned filler phrase, and you will be asked to rewrite it.`;
 
 export function rejectedBulletsBlock(flags: { bullet: string; reasons: string[] }[]): string {
   if (flags.length === 0) return "";
@@ -139,10 +165,11 @@ ${lines.join("\n")}
 // substitutions each — instead of writing new ones; the route checks every
 // id and reverts any bullet that changed more. Empty when the master CV's
 // experience section could not be parsed (the step then writes as before).
-export const experiencePrompt = (cv: string, budget: string = LENGTH_BUDGET, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "", idBlock: string = "") => `You rewrite the CV work experience section, tailored to a specific job.
+export const experiencePrompt = (cv: string, budget: string = LENGTH_BUDGET, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "", idBlock: string = "", evidenceBlock: string = "") => `You rewrite the CV work experience section, tailored to a specific job.
 
 ${ABSOLUTE_RULES}
 ${claimsBlock}
+${evidenceBlock}
 
 MASTER CV:
 ${cv}
@@ -161,7 +188,8 @@ NATURAL WRITING RULES (write like a human, not an AI):
 - VARY bullet length. Some bullets should be one punchy line; others can be two. Not all the same.
 - BAN these overused phrases (use at most once total across all bullets, ideally zero): "at scale", "production-grade", "mission-critical", "end-to-end", "hands-on", "leveraging", "robust", "seamless", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "passionate", "results-driven".
 - Lead with the OUTCOME — the result or the number — then how it was done and with what. "Cut API response time 25% by restructuring the service layer" beats "Worked with Python and FastAPI to build services". Don't tack on an explanatory clause justifying why the bullet matters.
-- Every bullet carries evidence from the master CV: a figure, a scale (users, requests, services, team size) or a named system. A bullet with none of these is cut — unless the role would be left with fewer than two bullets, in which case keep the most JD-relevant one as it is.
+- Prefer bullets that carry evidence from the master CV: a figure, a scale (users, requests, services, team size) or a named system. A bullet without one stays when it shows something the job asks for that no other bullet shows (testing, collaboration, ownership, delivery to users); otherwise leave it out. Never add a figure to a bullet to give it one.
+- Order each role's bullets by what this job asks for most: bullets showing requirements the evidence map says paid work shows come first.
 - Write the way a strong engineer describes their own work plainly: direct, specific, no filler.
 - ATS BALANCE: While varying your phrasing, you MUST still include the exact technical keywords and skills from the JD analysis that the candidate genuinely has (e.g. "REST API", "Spring Boot", "PostgreSQL", "CI/CD"). Natural phrasing does not mean dropping keywords — weave them into plain sentences. The scanner needs the exact terms; the recruiter needs readable prose. Deliver both.
 - Keep each bullet's core keyword density intact: name the real technology, the real metric, the real action verb. Just vary the SENTENCE STRUCTURE around them, not the keywords themselves.
@@ -192,7 +220,7 @@ where possible and never more than two. Trim by dropping a whole bullet, never b
 merging two achievements or combining their metrics into one sentence.`;
 
 // `budget` as in experiencePrompt: /api/tailor passes the adaptive version.
-export const projectsPrompt = (cv: string, projectNames: string[] = [], budget?: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "") => {
+export const projectsPrompt = (cv: string, projectNames: string[] = [], budget?: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "", evidenceBlock: string = "") => {
   const projectList = projectNames.length > 0
     ? projectNames.map((n, i) => `${i}: ${n}`).join("\n")
     : "(none)";
@@ -200,6 +228,7 @@ export const projectsPrompt = (cv: string, projectNames: string[] = [], budget?:
 
 ${ABSOLUTE_RULES}
 ${claimsBlock}
+${evidenceBlock}
 
 MASTER CV:
 ${cv}
@@ -212,14 +241,14 @@ CRITICAL ANTI-EMBELLISHMENT RULES:
 - Every phrase must be defensible if an interviewer asks "show me exactly where you did this."
 
 NATURAL WRITING RULES:
-- Lead with the outcome or the number, then how. Every bullet carries evidence from that project's own text - a figure, a scale or a named system; a bullet with none is cut.
+- Lead with the outcome or the number, then how. Prefer bullets with evidence from that project's own text (a figure, a scale or a named system); keep one without when it shows something this job asks for, and never add a figure to give a bullet one.
 - Vary bullet structure; do not end every bullet with an em-dash + "-ing" phrase.
 - Vary bullet length. Ban: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "showcasing", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "passionate", "results-driven".
 
 The candidate's CV contains these projects (by index):
 ${projectList}
 
-You will receive the JD analysis as JSON. For EACH project by index, write 2-3 tailored bullets (What + How + Result) emphasizing what's most relevant to this JD. Quantify only where the master CV quantifies for that project.
+You will receive the JD analysis as JSON. For EACH project by index, write the number of bullets the LENGTH BUDGET below allows (What + How + Result), most relevant to this job first — fewer when the master CV has fewer for that project. Quantify only where the master CV quantifies for that project.
 
 ${budget ?? DEFAULT_PROJECTS_BUDGET}
 ${retryBlock}
@@ -238,10 +267,14 @@ Each bullet is a plain string with no leading dash.`;
 // projects, this step SELECTS the 2 most relevant pool projects for the JD /
 // company stack and writes their bullets. The pool is the master source for
 // project claims; the CV is context only.
-export const poolProjectsPrompt = (cv: string, pool: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "") => `You select and tailor CV projects from the candidate's full project pool.
+// coverageBlock: lib/evidenceMap poolCoverageBlock — which of the posting's
+// requirements each pool project names, computed, so selection rests on
+// evidence rather than on project names.
+export const poolProjectsPrompt = (cv: string, pool: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "", evidenceBlock: string = "", coverageBlock: string = "") => `You select and tailor CV projects from the candidate's full project pool.
 
 ${ABSOLUTE_RULES}
 ${claimsBlock}
+${evidenceBlock}
 
 MASTER CV (context only — the candidate's skills and experience):
 ${cv}
@@ -258,20 +291,26 @@ You will receive the JD analysis as JSON (for a company-outreach run it
 describes the company's real stack rather than a posted job).
 
 SELECTION:
-- Pick EXACTLY the 2 pool projects most relevant to this JD/stack — judged by
-  genuine overlap of technologies and problem domain, never by name-matching.
+- Pick EXACTLY the 2 pool projects that best show what this job asks for —
+  its required skills and key responsibilities (testing, data processing,
+  event-driven systems, user-facing products …) — preferring what the paid
+  experience does NOT already show. Judge by genuine overlap of technologies,
+  responsibilities and problem domain, never by name-matching.
+${coverageBlock}
 - If the pool contains only one project, pick that one alone.
 - Never invent a project. Never merge two pool entries into one (rule 7): each
   selected project keeps only its own tech and outcomes.
 
-For each selected project write 2-3 tailored bullets (What + How + Result)
-using ONLY that project's own pool entry. Quantify only where the pool
+For each selected project write 3 tailored bullets (What + How + Result),
+fewer when its pool entry has fewer, using ONLY that project's own pool entry.
+The first bullet shows what this job asks for most. Quantify only where the pool
 quantifies for that project. Bold quantified wins and exact JD-matching
 technologies the pool genuinely shows with **.
 
 NATURAL WRITING RULES:
 - Vary bullet structure; do not end every bullet with an em-dash + "-ing" phrase.
 - Vary bullet length. Ban: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "showcasing".
+- Prefer bullets with evidence from the pool entry (a figure, a scale or a named system); never add a figure to give a bullet one.
 ${retryBlock}
 Output ONLY valid JSON (no fences), exactly this shape:
 {
@@ -499,42 +538,50 @@ Subject: <subject line>
 // omitRightToWork: the user keeps Right to Work off the document
 // (lib/preferences, the default), so the letter must not raise it either —
 // the route strips any such sentence deterministically afterwards.
-export const coverLetterPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, omitRightToWork: boolean = false) => `You write a cover letter, max 400 words.
+// The letter is evidence-first (the 20 Sep applications carried an invented
+// anecdote, industry opinions and filler lessons): every statement about the
+// candidate is a master-CV fact with its own employer or project; the route
+// then checks each such sentence against the master CV (lib/supportCheck).
+export const coverLetterPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, omitRightToWork: boolean = false, evidenceBlock: string = "") => `You write a cover letter for one job: 200 to 300 words of plain, confident, specific English — dense with true facts, never padded.
 
 ${ABSOLUTE_RULES}
 ${claimsBlock}
+${evidenceBlock}
 
 MASTER CV:
 ${cv}
 
-NATURAL WRITING RULES (CRITICAL — write like a real person, not AI):
-- HARD LIMIT: maximum ONE em-dash (—) in the entire letter. Count them. If you have more than one, rewrite those sentences with periods or commas.
-- NO sentence may contain more than one comma-separated list of achievements. Do NOT write "doing X, cutting Y, reducing Z, improving W" — split into separate sentences.
-- Vary sentence length deliberately: include at least two SHORT sentences (under 10 words) somewhere in the letter.
-- BAN entirely: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "operational chaos", "cuts through", "that same [X]", "passionate", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "results-driven".
-- Do NOT open with a dramatic scene ("When a project runs billions over budget..."). Open with something direct and specific about you or a genuine connection to the company.
-- Read it back: if it sounds like a marketing brochure or a LinkedIn thought-leadership post, rewrite it plainer.
-- Before you answer, search your draft for each banned phrase above and rewrite any sentence that contains one. "End-to-end" and "at scale" are the two that slip through most.
-- Do NOT include a date line. Do NOT write bracketed placeholders of any kind — no [Date], [Address], [Hiring Manager], etc. The app inserts today's date itself. Anything you can't fill with real information from the master CV or the analysis, omit entirely.
+You will receive JSON: { analysis (the job — role, company, required skills, key responsibilities, seniority, tone), research (the company) }.
+
+STRUCTURE — four short paragraphs, no headings:
+1. The role by name, and one specific, true reason it fits: connect something concrete from the posting or the research (the product, a responsibility, the stack) to the candidate's real work. No invented history with the company, no flattery.
+2. The strongest evidence for the job's most important requirement: one example from the master CV — what was built, how, and the result with its exact figure — named with the right employer or project.
+3. A second example for another requirement or key responsibility, from a different employer or project where possible. If an essential requirement has NO evidence in the master CV (see the evidence map), you may add ONE plain sentence naming the nearest real experience: no apology, no promise to learn fast, and never implying the missing experience exists.
+4. A short close: the facts the posting screens on that the master CV states (for a graduate role, the degree and its completion date as written there), then thanks.
+
+TRUTH:
+- Every statement about the candidate's past is a fact the master CV states, told with the same employer or project. No anecdotes, conversations, feelings or lessons the master CV does not state ("I spent time with the teams…", "that taught me…").
+- No opinions about the employer's industry or customers ("insurance workflows are broken").
+- Figures exactly as the master CV states them, each with its own fact; never join two into a range.
+- A project-level skill only as work in that named project; a learning-level skill never.
+- Work from a personal project is always named with its project, and the first mention says it is a personal project ("in RideX, a personal project, I …"); it must never read as work done for an employer.
+- Never state the same fact twice in the letter.
+- A degree whose dates in the master CV run into the future is in progress: "I am completing an MSc in Computer Science, expected January 2027" — never "I hold", "I have" or "I graduated with" it.
+- A sentence-by-sentence check against the master CV runs on this letter afterwards; anything it cannot find there is removed.
+
+SALUTATION AND SIGN-OFF: open with "Dear Hiring Manager," — or "Dear <Company> team," when the company is known; never "Dear <Company>,". End with "Kind regards," on its own line and then the candidate's full name from the master CV.
+
+STYLE:
+- At most ONE em-dash (—) in the whole letter.
+- No sentence strings more than two achievements together.
+- BAN: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "operational chaos", "cuts through", "passionate", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "results-driven", "I am excited", "thrilled", "fast learner", "hit the ground running", "perfect fit", "dream job", "not glamorous", "fast-paced", "from day one", "solid foundation", "track record", "taught me", "demonstrated the ability", "showing a", "directly transferable", "that exact", "exactly what".
+- Never tell the reader what the role needs or emphasises, and never say the candidate's work matches it ("the foundation this role needs", "the craftsmanship your role emphasises", "under that exact constraint"): state the fact and let the reader connect it. A personal project is described at its real scale — never as production traffic it did not have.
+- Do not open with a dramatic scene or a general statement about engineering. Match the analysis tone_signals.
+- No date line, no address block, no bracketed placeholders of any kind — the app adds today's date itself.
 ${omitRightToWork ? "- Do NOT mention visa, sponsorship, right to work or immigration status anywhere in the letter, even though the master CV states it. The application form asks that question.\n" : ""}
-Match the tone to the analysis tone_signals. Use only real experience from the master CV. Never claim skills the CV lacks. Sign off with the candidate's name from the master CV.
+Before you answer, reread the letter: delete every sentence that is not a fact from the master CV, a fact from the posting or the research, or part of the close.
 
-Output ONLY the cover letter as plain text. No date line, no word count, no integrity check, no preamble.`;
-
-// The claims registry's levels are enforced on the generated text per
-// section, even where the master CV's own bullet carries the phrase: a
-// project-level skill written into Experience is rewritten out once by the
-// model (this prompt), and blocks the download if it survives.
-export const claimsFixPrompt = (section: string, removals: { skill: string; sentence: string; aliases?: string[] }[]) => `You fix one section of a tailored CV. Output the FULL "${section}" section with ONLY the sentences listed below rewritten; every other line must stay exactly as it is, in the same format (same bullet markers, same "Role | Employer | Dates" header lines).
-
-${ABSOLUTE_RULES}
-
-The candidate's own claims registry says these skills were used only in personal projects, never in paid work, so they may not appear in this section:
-${removals.map((r) => `- remove "${r.skill}"${r.aliases && r.aliases.length ? ` (written in the text as ${r.aliases.map((a) => `"${a}"`).join(" or ")})` : ""} from this sentence: ${r.sentence}`).join("\n")}
-
-Rules for each rewrite: remove only the named skill's own words (for "LLM/RAG knowledge solutions" with RAG named, write "LLM knowledge solutions"), plus any clause that exists only to carry it; keep every other fact, figure, technology and outcome in the sentence, attached to the same piece of work — never move an outcome or a figure onto different work; do not add any other skill or figure in its place; do not keep the skill under another name or spelling (an acronym spelled out, a synonym); if nothing is left, remove the sentence.
-
-Output ONLY the section text. No preamble, no notes.`;
+Output ONLY the cover letter as plain text. No word count, no notes, no preamble.`;
 
 // The "Fix it" button on /app (/api/fix-claims): the sentences the claims
 // check still flags after lib/claimRepair's exact trims, each rewritten once
@@ -563,6 +610,9 @@ You will receive a JSON list of items: {"id", "section", "sentence", "problems"}
 - Experience: no skill registered at project or learning level may appear in it at all.
 - Summary and cover letter: a project-level skill may appear only as something built in a named project the master CV shows ("built Jobhuntz with RAG"), never beside experience, expertise, proficient, skilled, strong, advanced, deep or a number of years. A learning-level skill may not appear anywhere.
 - A figure the problems say is not on the master CV: use the master CV's exact figure for the same fact, or write the sentence without a figure. Never round, estimate or invent one.
+- A range the problems say joins two figures: state each figure only with the fact the master CV gives it, or drop them.
+- A skill the problems say the master CV never shows: remove it and any words that only carry it; never replace it with a vaguer claim to the same experience.
+- A sentence the problems say states something the master CV does not: rewrite it to say only what the master CV states about the same work, or return "" when nothing true is left.
 - Where a true wording uses the job's terms above, prefer it, but only terms the master CV supports for this same piece of work (rules 5 and 6). Add no skill, tool or figure that is not already in the sentence or in the master CV for this work.
 - Keep the sentence's form: an experience or project bullet stays one bullet-length sentence that opens with a strong verb; a skills line keeps its "Label: item | item" form; a summary sentence stays one sentence.
 - If nothing true is left to say, the replacement is "" (the sentence is removed).
@@ -571,6 +621,27 @@ MASTER CV (the only source of truth):
 ${cv}
 
 Output ONLY JSON: {"edits":[{"id":"r1","replacement":"..."}]} with one entry per item. No preamble, no notes.`;
+
+// The summary and the letter, checked sentence by sentence against the
+// master CV (lib/supportCheck verifies every quote before acting on it).
+export const supportCheckPrompt = (cv: string, pool: string = "") => `You check the facts in a tailored CV summary and cover letter against the candidate's own master CV. You do not judge style; you verify claims.
+
+MASTER CV (the only source of truth about the candidate):
+${cv}
+${pool ? `\nPROJECT POOL (the candidate's own project descriptions — also a source):\n${pool}\n` : ""}
+You will receive JSON: { "sentences": [{ "id", "section", "sentence", "problems"? }] }.
+
+For EVERY sentence that states something about the candidate's own past — work done, systems built, results and figures, tools used, education, how they worked, what happened in a role or project — decide whether the master CV supports it. Skip sentences that only express interest in the job or company, state facts about the company or the posting, give availability, or thank the reader.
+
+For each sentence you check, return:
+- "id".
+- "support": the master-CV (or pool) lines that support it, COPIED VERBATIM — whole lines or exact spans — or [] when none does. A deterministic checker searches for every line you quote and ignores paraphrases.
+- "supported": true only when EVERY claim in the sentence is in those lines — the same work, the same employer or project, the same figures. A sentence that adds an anecdote, a conversation, a lesson learned, a personal quality, a figure, a scope or a context the lines do not state is NOT supported. Moving a result from one employer or project to another is NOT supported.
+- "fix": only when not supported — the sentence rewritten to say only what the master CV states about the same work, keeping its place and purpose in the text; "" when nothing true is left. A fix never repeats a fact another sentence of the text already states (you receive every sentence): when the only true content left would repeat one, return "". A fix never combines facts from two projects, or from a project and an employer — each fact stays with its own named project or employer.
+A sentence that arrives with "problems" was flagged by a deterministic check (it narrates its relevance to the role, or grades the candidate): it is NOT acceptable as written even when its facts are true — return "supported": false and a fix that keeps only the plain fact.
+A sentence that names the role being applied for, or mixes interest in the job with a claim, keeps the role's name and the interest in its fix; drop only the unsupported part.
+
+Output ONLY JSON: {"checks":[{"id":"s1","supported":true,"support":["…"]},{"id":"l2","supported":false,"support":[],"fix":"…"}]}`;
 
 // A cover letter named a place that appears nowhere in the job description,
 // the research or the CV ("available for on-site work in Shoreditch").

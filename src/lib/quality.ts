@@ -200,13 +200,44 @@ function companyKey(company: string | undefined): string {
   return (company ?? "").toLowerCase().replace(/\b(?:ltd|limited|plc|inc|llc|gmbh|co)\b\.?/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+// 4. A self-assessment tail: after the result, a clause grading the work or
+//    the candidate instead of stating a fact — "…, demonstrating full-stack
+//    ownership", "… — demonstrating technical solution design, problem-solving
+//    and analytical thinking at production scale", "… — translating business
+//    requirements into secure, configurable technical architecture", "… —
+//    designed for reliability and auditability". All six reached real
+//    applications on 20 Sep past rules 1–3; none carries a fact a recruiter
+//    can check, and every one reads as generated.
+const SELF_ASSESSMENT_RE =
+  /^(?:(?:and\s+)?(?:demonstrat|showcas|highlight|evidenc|illustrat|underscor|exemplif|reflect|prov(?:ing|es)\b|show(?:ing|s|cas)|display|signal)\w*|(?:translating|turning)\s+(?:business|client|user|stakeholder|product)\s+(?:requirements|needs|problems)|designed\s+for\s+(?:reliability|scalability|maintainability|auditability|performance|security|resilience|robustness|extensibility)|applied\s+[\w-]+(?:\s+[\w-]+)?\s+(?:design|thinking|principles|practices)|(?:a\s+)?testament\s+to|reflecting\s+(?:a|my|strong)|in\s+line\s+with\s+best\s+practices)/i;
+const QUALITY_NOUN_TAIL_RE =
+  /\b(?:ownership|problem[- ]solving|analytical\s+thinking|attention\s+to\s+detail|client\s+trust|product\s+quality|technical\s+(?:solution\s+design|leadership|excellence)|engineering\s+excellence|business\s+acumen|stakeholder\s+(?:management|collaboration))\b/i;
+
 export function isRelevanceBoltOn(bullet: string, company?: string): boolean {
   const { tail, separated } = trailingClause(bullet);
   if (RELEVANCE_RE.test(tail)) return true;
+  if (separated && (SELF_ASSESSMENT_RE.test(tail) || (QUALITY_NOUN_TAIL_RE.test(tail) && !/\d/.test(tail)))) return true;
+  // The clause after the last dash, when it has commas of its own ("—
+  // translating business requirements into secure, configurable …").
+  const dashTail = bullet.replace(/\*\*/g, "").split(/\s[–—-]{1,2}\s|—/).slice(1).pop()?.trim();
+  if (dashTail && (SELF_ASSESSMENT_RE.test(dashTail) || (QUALITY_NOUN_TAIL_RE.test(dashTail) && !/\d/.test(dashTail)))) return true;
   if (!separated || tail.split(/\s+/).length < 3) return false;
   if (EMPLOYER_ADDRESS_RE.test(tail) || DEMAND_VERB_END_RE.test(tail)) return true;
   const key = companyKey(company);
   return key.length >= 3 && ` ${norm(tail)} `.includes(` ${key} `) ? true : key.length >= 3 && norm(tail).includes(`${key}'s`);
+}
+
+// The deterministic backstop for a generated project bullet that still ends
+// in a bolt-on after the one regeneration (or in a fast run, which skips it):
+// the trailing clause goes, the fact before it stays. null = no clean cut.
+export function trimBoltOn(bullet: string, company?: string): string | null {
+  if (!isRelevanceBoltOn(bullet, company)) return null;
+  const parts = bullet.split(/(\s[–—-]{1,2}\s|—|;\s|,\s)/);
+  for (let i = parts.length - 1; i >= 2; i -= 2) {
+    const kept = parts.slice(0, i - 1).join("").trim().replace(/[,;:—–-]+$/, "").trim();
+    if (kept.split(/\s+/).length >= 5 && !isRelevanceBoltOn(kept, company)) return /[.!?]$/.test(bullet.trim()) ? `${kept.replace(/[.!?]$/, "")}.` : kept;
+  }
+  return null;
 }
 
 export function relevanceBoltOns(experience: unknown, projects?: unknown, company?: string): string[] {

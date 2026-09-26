@@ -1,8 +1,9 @@
 // Knockout questions — the eligibility conditions an application form screens
 // on before anyone reads the CV: right to work / sponsorship, security
 // clearance, years of experience stated as a requirement, location and
-// on-site terms, degree or degree class, licences that must already be held,
-// and contract vs permanent terms. Failing one is usually an automatic
+// on-site terms, degree or degree class, a graduation window ("graduated
+// within the last year", "2025 or 2026 graduates"), licences that must
+// already be held, and contract vs permanent terms. Failing one is usually an automatic
 // rejection ("your CV was not reviewed"), so this runs BEFORE a tailor credit
 // is spent, from the free JD analysis.
 //
@@ -19,6 +20,7 @@ export type GateCategory =
   | "years"
   | "location"
   | "degree"
+  | "graduation"
   | "licence"
   | "employment_type";
 
@@ -28,6 +30,7 @@ export const GATE_CATEGORIES: readonly GateCategory[] = [
   "years",
   "location",
   "degree",
+  "graduation",
   "licence",
   "employment_type",
 ];
@@ -51,6 +54,10 @@ export type GateValue =
       relocation: "required" | "assisted" | "none";
     }
   | { kind: "degree"; level: DegreeLevel | "unstated"; classification: DegreeClass | null; orEquivalent: boolean }
+  // withinMonths: "graduated within the last year" → 12. years: "2025 or 2026
+  // graduates" → [2025, 2026]. finalYearOk: final-year students are named.
+  // recent: "recent graduate" with no stated window.
+  | { kind: "graduation"; withinMonths: number | null; years: number[]; finalYearOk: boolean; recent: boolean }
   | { kind: "licence"; name: string }
   | { kind: "employment_type"; type: EmploymentType; months: number | null; ir35: "inside" | "outside" | null }
   | { kind: "unparsed" };
@@ -75,6 +82,9 @@ export type Eligibility = {
   yearsExperience: number | null;
   location: { base: string[]; onsiteOk: boolean | null; hybridOk: boolean | null; relocateOk: boolean | null };
   degree: { level: "none" | "bachelors" | "masters" | "phd" | "unknown"; classification: "first" | "2:1" | "2:2" | "other" | "unknown" };
+  // Month the last degree was completed and month the degree in progress
+  // completes ("2023-07", "2027-01"), typed by the user — never inferred.
+  graduation: { completed: string | null; expected: string | null };
   licences: string[];
   employmentTypes: EmploymentType[];
   updatedAt: string | null;
@@ -145,6 +155,7 @@ export const EMPTY_ELIGIBILITY: Eligibility = {
   yearsExperience: null,
   location: { base: [], onsiteOk: null, hybridOk: null, relocateOk: null },
   degree: { level: "unknown", classification: "unknown" },
+  graduation: { completed: null, expected: null },
   licences: [],
   employmentTypes: [],
   updatedAt: null,
@@ -179,6 +190,8 @@ export function normalizeEligibility(v: unknown): Eligibility {
   const cl = obj(e.clearance);
   const loc = obj(e.location);
   const deg = obj(e.degree);
+  const grad = obj(e.graduation);
+  const ym = (x: unknown) => (typeof x === "string" && /^\d{4}-(?:0[1-9]|1[0-2])$/.test(x) ? x : null);
   const years =
     typeof e.yearsExperience === "number" && Number.isFinite(e.yearsExperience)
       ? Math.max(0, Math.min(60, Math.round(e.yearsExperience)))
@@ -209,6 +222,7 @@ export function normalizeEligibility(v: unknown): Eligibility {
       level: oneOf(deg.level, ["none", "bachelors", "masters", "phd", "unknown"] as const, "unknown"),
       classification: oneOf(deg.classification, ["first", "2:1", "2:2", "other", "unknown"] as const, "unknown"),
     },
+    graduation: { completed: ym(grad.completed), expected: ym(grad.expected) },
     licences: strList(e.licences, 15, 80),
     employmentTypes,
     updatedAt: typeof e.updatedAt === "string" ? e.updatedAt : null,
@@ -226,6 +240,8 @@ export function isEligibilitySet(e: Eligibility): boolean {
     e.location.onsiteOk !== null ||
     e.location.relocateOk !== null ||
     e.degree.level !== "unknown" ||
+    e.graduation.completed !== null ||
+    e.graduation.expected !== null ||
     e.licences.length > 0 ||
     e.employmentTypes.length > 0
   );
@@ -298,7 +314,9 @@ function toUnits(jd: string): Unit[] {
   let sectionMust = false;
   let sectionPreferred = false;
   for (const rawLine of jd.split(/\r?\n/)) {
-    const line = rawLine.replace(/^[\s\-*•▪●◦–—]+/, "").trim();
+    // Curly apostrophes ("What You’ll Need") read as straight ones, so the
+    // requirement headings and "you'll need" phrasing are recognised.
+    const line = rawLine.replace(/^[\s\-*•▪●◦–—]+/, "").replace(/[’‘]/g, "'").trim();
     if (!line) continue;
     if (isHeading(line)) {
       const h = line.replace(/:$/, "").trim();
@@ -496,23 +514,28 @@ function detectLocation(u: Unit): Gate | null {
 
 // Degree
 const DEGREE_ANCHOR_RE = /\bdegree\b|\bqualification\b|\bbsc\b|\bmsc\b|\bmeng\b|\bbeng\b|\bphd\b|\bph\.d\b|\bmba\b|\bbachelor|\bmaster['’]?s\b|\bdoctorate\b|\bgraduate\b/i;
+// Lowest first: a sentence that names several levels asks for the lowest
+// ("enrolled on a Masters or PhD course" was read as "Requires a PhD" on the
+// owner's Mercedes-AMG placement). A bare "degree" is a bachelor's.
 const DEGREE_LEVELS: [RegExp, DegreeLevel][] = [
-  [/\b(?:phd|ph\.d|doctorate|doctoral)\b/i, "phd"],
+  [/\b(?:bachelor['’]?s?|bsc|b\.?sc|beng|b\.?eng|ba\b|undergraduate)\b/i, "bachelors"],
   [/\b(?:master['’]?s?|msc|m\.?sc|meng|mba|ma\b|postgraduate)\b/i, "masters"],
-  [/\b(?:bachelor['’]?s?|bsc|b\.?sc|beng|b\.?eng|ba\b|undergraduate|degree)\b/i, "bachelors"],
+  [/\b(?:phd|ph\.d|doctorate|doctoral)\b/i, "phd"],
 ];
+// A bracketed note that is conditional ("(*please note that if you will be
+// enrolled on a Masters or PhD course you will need to evidence enrolment)")
+// states no requirement of its own.
+const CONDITIONAL_NOTE_RE = /\([^)]*\b(?:if\s+you|please\s+note)\b[^)]*\)?/gi;
 const DEGREE_CLASS_RE = /\b(2[:.]1|upper[- ]second|2[:.]2|lower[- ]second|first[- ]class|1st[- ]class|a first)\b/i;
 const OR_EQUIVALENT_RE = /\bor\s+equivalent\b|\bor\s+(?:relevant|comparable|equivalent|similar)\s+(?:experience|qualification|background)|\bequivalent\s+(?:practical\s+|work\s+)?experience\b|\bor\s+experience\b/i;
 
 function detectDegree(u: Unit): Gate | null {
-  const t = u.text;
+  const t = u.text.replace(CONDITIONAL_NOTE_RE, " ");
   if (!DEGREE_ANCHOR_RE.test(t)) return null;
   const { must, preferred } = contextOf(u);
   if (!must && !preferred) return null; // "our graduate scheme" and similar prose
-  let level: DegreeLevel | "unstated" = "unstated";
-  for (const [re, lv] of DEGREE_LEVELS) {
-    if (re.test(t)) { level = lv; break; }
-  }
+  let level: DegreeLevel | "unstated" = DEGREE_LEVELS.find(([re]) => re.test(t))?.[1] ?? "unstated";
+  if (level === "unstated" && /\bdegree\b/i.test(t)) level = "bachelors";
   const cm = DEGREE_CLASS_RE.exec(t);
   let classification: DegreeClass | null = null;
   if (cm) {
@@ -521,10 +544,79 @@ function detectDegree(u: Unit): Gate | null {
   }
   return {
     category: "degree",
-    requirement: snippet(t),
+    requirement: snippet(u.text),
     strictness: preferred ? "preferred" : "must",
     source: "detector",
     value: { kind: "degree", level, classification, orEquivalent: OR_EQUIVALENT_RE.test(t) },
+  };
+}
+
+// Graduation window. A new-grad posting screens on WHEN the degree was
+// completed ("graduated within the last year"), which a degree-level check
+// never sees: the owner's Deliveroo application passed "degree" with a 2023
+// BSc and a 2027 MSc and nothing said the window was missed.
+const GRAD_NUMBER_WORDS: Record<string, number> = { a: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, twelve: 12, eighteen: 18 };
+const GRAD_WINDOW_RE =
+  /\bgraduat\w*\s+(?:with)?in\s+the\s+(?:last|past|previous)\s+(\d{1,2}|one|two|three|four|five|six|twelve|eighteen)?\s*(years?|months?)\b/i;
+const GRAD_WINDOW2_RE = /\b(?:with)?in\s+(\d{1,2}|one|two|three|twelve|eighteen)\s+(years?|months?)\s+of\s+(?:your\s+)?graduat/i;
+// Graduation years. "graduated in 2025, 2026, or 2027" is all three years (the
+// first version read two and failed a 2027 graduate on Revolut's programme);
+// "between 2024 and 2026" is a range. "Graduate Programme 2027" is the
+// programme's intake, "graduated by September 2026" a deadline and "2024
+// onwards" open-ended: none of them is read as a list of years.
+const GRAD_MONTH = String.raw`(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+|(?:summer|autumn|spring|winter|fall)\s+(?:of\s+)?)?`;
+const GRAD_YEAR_LIST = String.raw`${GRAD_MONTH}(?:19|20)\d{2}(?:\s*(?:,\s*(?:or|and)|,|or|and|\/|–|-|to)\s*${GRAD_MONTH}(?:19|20)\d{2})*`;
+const GRAD_YEARS_AFTER_RE = new RegExp(
+  String.raw`\b(?:graduat(?:ed|ing|ion)|graduates?\s+(?:of|from|in|between)|class\s+of)\b([^.;()\n\d]{0,30}?)(${GRAD_YEAR_LIST})(\s*(?:onwards?|or\s+(?:later|after|earlier|before)|and\s+(?:later|after|earlier|before)|\+))?`,
+  "gi"
+);
+const GRAD_YEARS_BEFORE_RE = new RegExp(
+  String.raw`(${GRAD_YEAR_LIST})\s+(?:graduates\b|graduate\b(?!\s+(?:programme|program|scheme|intake|role|position|job|opportunit|recruit|cohort|level|salary|software|engineer|developer|analyst|trainee|academy|talent)))`,
+  "i"
+);
+const GRAD_OPEN_GAP_RE = /\b(?:by|before|until|no\s+later\s+than|prior\s+to|since|after)\b/i;
+
+function yearsIn(list: string, ranged: boolean): number[] {
+  const years = [...list.matchAll(/\b((?:19|20)\d{2})\b/g)].map((m) => Number(m[1]));
+  if (years.length === 2 && ranged && years[1] > years[0] && years[1] - years[0] <= 4)
+    return Array.from({ length: years[1] - years[0] + 1 }, (_, i) => years[0] + i);
+  return [...new Set(years)].sort((x, y) => x - y);
+}
+
+function graduationYears(t: string): number[] {
+  for (const m of t.matchAll(GRAD_YEARS_AFTER_RE)) {
+    // A deadline or an open end says nothing a year list could compare.
+    if (GRAD_OPEN_GAP_RE.test(m[1]) || m[3]) continue;
+    return yearsIn(m[2], /\bbetween\b/i.test(m[0]) || /\d\s*(?:–|-|to)\s*\D{0,12}(?:19|20)\d/i.test(m[2]));
+  }
+  const b = GRAD_YEARS_BEFORE_RE.exec(t);
+  return b ? yearsIn(b[1], /\d\s*(?:–|-|to)\s*\D{0,12}(?:19|20)\d/i.test(b[1])) : [];
+}
+const RECENT_GRAD_RE = /\brecent(?:ly)?\s+graduat\w*|\bnew\s+grad(?:uate)?s?\b/i;
+const FINAL_YEAR_RE =
+  /\bfinal[- ]year\s+(?:students?|undergraduates?|university\s+students?)|\bstudents?\s+in\s+(?:their\s+)?final\s+year\b|\bgraduating\s+(?:this|next)\s+year\b/i;
+
+function detectGraduation(u: Unit): Gate | null {
+  const t = u.text;
+  let withinMonths: number | null = null;
+  const w = GRAD_WINDOW_RE.exec(t) || GRAD_WINDOW2_RE.exec(t);
+  if (w) {
+    const n = w[1] ? (/^\d+$/.test(w[1]) ? parseInt(w[1], 10) : GRAD_NUMBER_WORDS[w[1].toLowerCase()] ?? 1) : 1;
+    withinMonths = /month/i.test(w[2]) ? n : n * 12;
+  }
+  const years = graduationYears(t);
+  const finalYearOk = FINAL_YEAR_RE.test(t);
+  const recent = RECENT_GRAD_RE.test(t);
+  if (withinMonths === null && years.length === 0 && !finalYearOk && !recent) return null;
+  const { must, preferred } = contextOf(u);
+  // "Our new grads love it here" is prose; a stated window or year never is.
+  if (withinMonths === null && years.length === 0 && !must && !preferred) return null;
+  return {
+    category: "graduation",
+    requirement: snippet(t),
+    strictness: preferred ? "preferred" : "must",
+    source: "detector",
+    value: { kind: "graduation", withinMonths, years, finalYearOk, recent },
   };
 }
 
@@ -590,6 +682,7 @@ const DETECTORS: Record<GateCategory, (u: Unit) => Gate | null> = {
   years: detectYears,
   location: detectLocation,
   degree: detectDegree,
+  graduation: detectGraduation,
   licence: detectLicence,
   employment_type: detectEmployment,
 };
@@ -719,7 +812,7 @@ export function monthLabel(ym: string): string {
   return `${MONTHS[Number(m[2]) - 1] ?? m[2]} ${m[1]}`;
 }
 
-export function compareGate(gate: Gate, e: Eligibility): GateVerdict {
+export function compareGate(gate: Gate, e: Eligibility, now: Date = new Date()): GateVerdict {
   const val = gate.value;
   const pref = gate.strictness === "preferred";
   // A preferred gate can never fail hard.
@@ -830,6 +923,48 @@ export function compareGate(gate: Gate, e: Eligibility): GateVerdict {
       }
       return v(gate, "pass", `You hold ${label}${val.classification ? ` at ${val.classification} or better` : ""}.`);
     }
+    case "graduation": {
+      const g = e.graduation;
+      if (!g.completed && !g.expected) return v(gate, "unknown", "Add your graduation dates in Customize (Eligibility) to check this.");
+      const monthIndex = (s: string) => Number(s.slice(0, 4)) * 12 + Number(s.slice(5, 7)) - 1;
+      const nowIdx = now.getFullYear() * 12 + now.getMonth();
+      const expectedIn = g.expected ? monthIndex(g.expected) - nowIdx : null;
+      const inProgress = expectedIn !== null && expectedIn > 0;
+      // A degree whose expected month has passed counts as completed then.
+      const lastDone = expectedIn !== null && expectedIn <= 0 ? -expectedIn : g.completed ? nowIdx - monthIndex(g.completed) : null;
+      const facts = [
+        g.completed ? `your last completed degree was ${monthLabel(g.completed)}` : "",
+        inProgress ? `your current degree completes ${monthLabel(g.expected!)}` : g.expected && !inProgress ? `your degree completed ${monthLabel(g.expected)}` : "",
+      ]
+        .filter(Boolean)
+        .join("; ");
+      const say = inProgress ? `State the date plainly: "I complete my degree in ${monthLabel(g.expected!)}."` : undefined;
+      if (val.years.length > 0) {
+        const contiguous = val.years.every((y, i) => i === 0 || y === val.years[i - 1] + 1);
+        const span =
+          val.years.length === 1
+            ? String(val.years[0])
+            : contiguous
+              ? `${val.years[0]}–${val.years[val.years.length - 1]}`
+              : `${val.years.slice(0, -1).join(", ")} or ${val.years[val.years.length - 1]}`;
+        const doneYear = lastDone !== null ? Math.floor((nowIdx - lastDone) / 12) : null;
+        const progYear = inProgress ? Number(g.expected!.slice(0, 4)) : null;
+        if ((doneYear !== null && val.years.includes(doneYear)) || (progYear !== null && val.years.includes(progYear)))
+          return v(gate, "pass", `Asks for ${span} graduates; ${facts}.`, say);
+        return hard(`Asks for ${span} graduates; ${facts}. A graduation-year question on the form is answered with a year, and yours is outside it.`);
+      }
+      if (val.withinMonths !== null) {
+        const span = val.withinMonths % 12 === 0 ? (val.withinMonths === 12 ? "year" : `${val.withinMonths / 12} years`) : `${val.withinMonths} months`;
+        if (lastDone !== null && lastDone <= val.withinMonths) return v(gate, "pass", `Asks for graduation within the last ${span}; ${facts}.`);
+        if (inProgress)
+          return v(gate, "soft", `Asks for graduation within the last ${span}; ${facts}. Many graduate programmes also take students finishing their degree, but not all, and the form will ask for your date.`, say);
+        return hard(`Asks for graduation within the last ${span}; ${facts}. A graduation-date question on the form is answered with a date, and yours falls outside it.`);
+      }
+      // "Recent graduate" / final-year students, no window stated.
+      if (val.finalYearOk && inProgress && expectedIn! <= 18) return v(gate, "pass", `Open to final-year students; ${facts}.`, say);
+      if ((lastDone !== null && lastDone <= 24) || (inProgress && expectedIn! <= 12)) return v(gate, "pass", `Asks for a recent graduate; ${facts}.`, say);
+      return v(gate, "soft", `Asks for a recent graduate; ${facts}. "Recent" isn't defined in the posting, so check what they mean before applying.`, say);
+    }
     case "licence": {
       if (e.licences.length === 0) return v(gate, "unknown", `Asks that you hold ${val.name}; list your licences and certifications in Customize to check.`);
       const want = normalizeForMatch(val.name);
@@ -850,8 +985,8 @@ export function compareGate(gate: Gate, e: Eligibility): GateVerdict {
   }
 }
 
-export function compareGates(gates: Gate[], e: Eligibility): GateVerdict[] {
-  return gates.map((g) => compareGate(g, e));
+export function compareGates(gates: Gate[], e: Eligibility, now: Date = new Date()): GateVerdict[] {
+  return gates.map((g) => compareGate(g, e, now));
 }
 
 export type Coverage = { matched: number; total: number } | null;
@@ -904,6 +1039,7 @@ export const CATEGORY_LABEL: Record<GateCategory, string> = {
   years: "Years of experience",
   location: "Location",
   degree: "Degree",
+  graduation: "Graduation date",
   licence: "Licence / certification",
   employment_type: "Contract type",
 };

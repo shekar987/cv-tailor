@@ -174,7 +174,7 @@ export function learningText(cvText: string): string {
 // platforms" names no skill - so extraction stays in the skills section and
 // tech lines. Nothing is promoted above what the CV evidences.
 
-type CvSection = "skills" | "experience" | "projects" | "other";
+export type CvSection = "skills" | "experience" | "projects" | "other";
 const SKILLS_HEADING_RE = /^(?:(?:technical|core|key)\s+)?(?:skills|competencies|technologies|tools|tech(?:nical)?\s+stack|toolkit)\b/i;
 const EXPERIENCE_HEADING_RE = /^(?:(?:work|professional|relevant)\s+)?(?:experience|employment(?:\s+history)?|work\s+history|career(?:\s+history)?)\b/i;
 const PROJECTS_HEADING_RE = /^(?:(?:personal|selected|key|side)\s+)?projects?\b|^portfolio\b/i;
@@ -197,7 +197,9 @@ const INLINE_SKILLS_RE = /^(?:(?:technical|core|key)\s+)?(?:skills|technologies|
 const KNOWN_HEADING_RE =
   /^(?:(?:professional\s+)?summary|profile|objective|about(?:\s+me)?|(?:technical|core|key)?\s*(?:skills|competencies|technologies|tools)|tech(?:nical)?\s+stack|(?:work|professional|relevant)?\s*experience|employment(?:\s+history)?|work\s+history|career(?:\s+history)?|(?:personal|selected|key|side)?\s*projects?|portfolio|education|academic\s+background|qualifications|certifications?|certificates|awards|honou?rs|publications|languages|interests|volunteering|references|right\s+to\s+work|work\s+authori[sz]ation)\b/i;
 
-function sectionsOf(cvText: string): Record<CvSection, string[]> {
+// The CV's lines by section (headings recognised as in the registry seed);
+// also read by lib/evidenceMap.
+export function sectionsOf(cvText: string): Record<CvSection, string[]> {
   const out: Record<CvSection, string[]> = { skills: [], experience: [], projects: [], other: [] };
   let current: CvSection = "other";
   // A known section heading ("SKILLS", "CERTIFICATIONS") means the CV is
@@ -546,19 +548,24 @@ function contentTokens(sentence: string): Set<string> {
 // ── The check ────────────────────────────────────────────────────────────────
 
 export type ClaimWhere = "cv" | "coverLetter" | "email" | "extra";
-export type NumberViolation = { figure: string; sentence: string; kind: "absent" | "context_mismatch"; where: ClaimWhere };
+// kind "combined": two figures joined into a range the sources never state
+// ("improved response times by 25–30%" from a ~25% and a 30%) — rule 4.
+export type NumberViolation = { figure: string; sentence: string; kind: "absent" | "context_mismatch" | "combined"; where: ClaimWhere };
 // A skill claimed above its registered level: a learning skill named at all,
 // or a project-only skill written as work experience, with proficiency
 // wording, or among the lead Technical Tools. `claim` names the offending
 // text and `rule` the rule it breaks — shown beside the Download button.
-export type SkillRule = "learning_anywhere" | "project_in_experience" | "project_as_competency" | "project_lead_tool";
+export type SkillRule = "learning_anywhere" | "project_in_experience" | "project_as_competency" | "project_lead_tool" | "not_in_cv";
 export const SKILL_RULE_TEXT: Record<SkillRule, string> = {
   learning_anywhere: "a learning-level skill must not appear anywhere in the output",
   project_in_experience: "a project-level skill may not appear in Experience — write it under Projects as \"built <project> with X\"",
   project_as_competency: "a project-level skill may not be described as a competency or years of experience",
   project_lead_tool: `a project-level skill may not sit among the first ${8} Technical Tools`,
+  not_in_cv: "the posting asks for it, but your master CV never shows it, so it may not appear in the CV",
 };
-export type SkillViolation = { skill: string; level: "learning" | "project"; confirmed: boolean; where: ClaimWhere; claim: string; rule: SkillRule };
+// level "absent": a technology the posting names that the master CV never
+// shows (lib/evidenceMap graftRules) — an invention wherever the CV says it.
+export type SkillViolation = { skill: string; level: "learning" | "project" | "absent"; confirmed: boolean; where: ClaimWhere; claim: string; rule: SkillRule };
 
 // How many Technical Tools a recruiter reads as the lead skills.
 export const TOOLS_LEAD_SLOTS = 8;
@@ -586,6 +593,87 @@ export function skillMentioned(text: string, name: string): boolean {
   if (matchAtsKeywords(text, [name]).matched > 0) return true;
   const tokens = distinctiveTokens(name);
   return tokens.length > 0 && matchAtsKeywords(text, tokens).matched > 0;
+}
+
+// Whether a text names a requirement from the posting — the WHOLE term
+// (lib/atsMatch), conservative where skillMentioned() is a catch-all: this is
+// the test for "does the CV show it" and for "did the output write it". A
+// few implications are exact: "SQL" is shown by PostgreSQL or MySQL work, "a
+// Computer Science degree" by a BSc. Language names that are also English
+// words ("go live", "rust") count only capitalised and mid-sentence.
+const ENGLISH_WORD_LANGS = new Set(["go", "rust", "swift", "ruby", "dart", "julia", "elixir", "crystal", "r", "c"]);
+const DB_SQL = ["PostgreSQL", "MySQL", "SQLite", "SQL Server", "Oracle", "MariaDB", "T-SQL", "PL/SQL", "Aurora"];
+const IMPLIED: [RegExp, string[]][] = [
+  [/^(?:sql|relational\s+databases?|rdbms|relational\s+database\s+design)$/i, DB_SQL],
+  // Any named database is a database.
+  [/^databases?(?:\s+(?:systems?|technologies))?$/i, [...DB_SQL, "MongoDB", "Redis", "DynamoDB", "Firestore", "Cassandra", "Couchbase"]],
+  // Building APIs: REST API work, API modules or FastAPI services are that work.
+  [
+    /^(?:(?:rest(?:ful)?|web|backend|back[- ]end)\s+)?apis?(?:\s+(?:development|design|engineering))?$|^api\s+(?:development|design|engineering)$|^(?:building|designing|developing)\s+(?:rest(?:ful)?\s+)?apis?$/i,
+    ["REST API", "RESTful", "API modules", "API endpoints", "API design", "FastAPI", "GraphQL"],
+  ],
+  [/^(?:nosql|non-relational\s+databases?|document\s+databases?)$/i, ["MongoDB", "Redis", "DynamoDB", "Firestore", "Cassandra", "Couchbase"]],
+  [/^(?:version\s+control|git)$/i, ["Git", "GitHub", "GitLab", "Bitbucket"]],
+  [/^(?:(?:unit|automated|integration|end[- ]to[- ]end|e2e)\s+)?(?:testing|tests)$/i, ["unit tests", "integration tests", "Jest", "pytest", "Playwright", "Cypress", "React Testing Library"]],
+  // Software quality assurance: written automated tests are the evidence.
+  [/^(?:quality\s+assurance|qa|software\s+testing|test\s+automation)$/i, ["unit tests", "integration tests", "Jest", "pytest", "Playwright", "Cypress", "React Testing Library", "E2E tests"]],
+  [/^(?:(?:a\s+)?(?:computer\s+science|cs|stem|technical|relevant|related)\s+degree|degree(?:\s+in\s+[\w\s]{2,40})?|bachelor'?s(?:\s+degree)?|university\s+degree)$/i, ["BSc", "MSc", "Bachelor", "Master", "BEng", "MEng", "PhD", "BA", "MA"]],
+];
+function namesPart(text: string, t: string): boolean {
+  if (ENGLISH_WORD_LANGS.has(t.toLowerCase())) {
+    const cap = t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+    // A list item that is exactly the name ("Go" on a tools line) is the
+    // language; in prose, only the capitalised word, not opening a sentence.
+    if (text.replace(/\*\*/g, "").trim() === cap) return true;
+    return new RegExp(`(?<![.!?]\\s|^|\\n|[-\\w])${cap}(?![-\\w'])`).test(text);
+  }
+  if (matchAtsKeywords(text, [t]).matched > 0) return true;
+  for (const [re, list] of IMPLIED) if (re.test(t)) return matchAtsKeywords(text, list).matched > 0;
+  return false;
+}
+export function namesRequirement(text: string, term: string): boolean {
+  if (!text || !term) return false;
+  const t = term.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  if (namesPart(text, t)) return true;
+  // "Relational databases and SQL": every part named, each by itself or by
+  // an exact implication (SQL by PostgreSQL work); within a part, any option
+  // ("PHP or Python", "SQL or NoSQL databases"). The whole phrase used to be
+  // one test, so one unmatched half hid true evidence for the other.
+  const conjuncts = t.split(/\s*,?\s+(?:and|&)\s+/i).map((c) => c.trim()).filter(Boolean);
+  const options = (c: string) => c.split(/\s*,\s*|\s+or\s+/i).map((o) => o.trim()).filter(Boolean);
+  if (conjuncts.length === 1 && options(conjuncts[0]).length === 1) return false;
+  return conjuncts.every((c) => options(c).some((o) => namesPart(text, o)));
+}
+
+// "Role | Employer | Dates": names no skill. A skills line ("Technical
+// Tools: Python | Go") also has pipes, but opens with a label and no date.
+function isRoleHeader(line: string): boolean {
+  return /\|/.test(line) && /(?:19|20)\d{2}|present/i.test(line) && !/^[^|:]{1,40}:/.test(line);
+}
+
+// A requirement the claims check holds the CV to (lib/evidenceMap
+// graftRules): "gap" — the master CV never shows it; "project" — only a
+// personal project does.
+export type GraftRule = { term: string; status: "gap" | "project" };
+
+// "25–30%", "2-3x", "10 to 15 minutes": a range as written, keyed without
+// spacing so "25–30%", "25-30 %" and "25% to 30%" are one range.
+const RANGE_CLAIM_RE = /(\d+(?:\.\d+)?)\s*(%|percent)?\s*(?:[–—-]|\bto\b)\s*(\d+(?:\.\d+)?)\s*(%|percent|x|k|m|bn|ms|seconds?|minutes?|hours?|days?|weeks?|months?)(?![a-z0-9])/gi;
+function rangeKey(lo: string, hi: string, unit: string): string {
+  const u = unit.toLowerCase() === "percent" ? "%" : unit.toLowerCase().replace(/s$/, "");
+  return `${lo}-${hi}${u}`;
+}
+function rangesIn(text: string): { raw: string; key: string; index: number }[] {
+  const t = (text || "").replace(/\*\*/g, "");
+  const out: { raw: string; key: string; index: number }[] = [];
+  for (const m of t.matchAll(RANGE_CLAIM_RE)) {
+    const [raw, lo, , hi, unit] = m;
+    if (/^(?:19|20)\d{2}$/.test(lo) || /^(?:19|20)\d{2}$/.test(hi)) continue; // a date range
+    if (parseFloat(lo) >= parseFloat(hi)) continue;
+    out.push({ raw: raw.trim(), key: rangeKey(lo, hi, unit), index: m.index ?? 0 });
+  }
+  return out;
 }
 
 // The bold contract puts the closing ** on either side of the colon
@@ -637,8 +725,25 @@ export type ClaimPart = { where: ClaimWhere; text: string; extraSources?: (strin
 
 // Wording that turns a mention into a competency claim: "proficient in X",
 // "experienced with X", "strong X skills", "3 years of X".
+// "Deep Learning" and "Advanced analytics" are subjects, not proficiency
+// wording: "AWS Certified AI Practitioner with Machine Learning and Deep
+// Learning certificates" was flagged as a competency claim on 26 Sep.
 const PROFICIENCY_RE =
-  /\b(?:proficien(?:t|cy)|expert(?:ise)?|experienced|experience\s+(?:in|with|of|building|using|developing|delivering)|strong|advanced|extensive|deep|solid|skilled|fluen(?:t|cy)|competent|specialis(?:t|ed|ing)|specializ(?:ed|ing)|mastery|\d+\+?\s+years?)\b/i;
+  /\b(?:proficien(?:t|cy)|expert(?:ise)?|experienced|experience\s+(?:in|with|of|building|using|developing|delivering)|strong|advanced(?![\s-]+(?:analytics|placement))|extensive|deep(?![\s-]+(?:learning|dive))|solid|skilled|fluen(?:t|cy)|competent|specialis(?:t|ed|ing)|specializ(?:ed|ing)|mastery|\d+\+?\s+years?)\b/i;
+
+// How the claims check finds a registered skill in text: skillMentioned(),
+// except that a distinctive token which is itself a production-level skill
+// in the same registry stops counting for the narrower skill — "AWS" is the
+// candidate's production AWS, not their project-only "AWS Lambda".
+export function registryMentions(registry: ClaimsRegistry | null | undefined): (text: string, name: string) => boolean {
+  const production = new Set((registry?.skills ?? []).filter((s) => s.level === "production").map((s) => s.name.toLowerCase()));
+  return (text, name) => {
+    if (!text) return false;
+    if (matchAtsKeywords(text, [name]).matched > 0) return true;
+    const tokens = distinctiveTokens(name).filter((t) => !production.has(t.toLowerCase()) || t.toLowerCase() === name.toLowerCase());
+    return tokens.length > 0 && matchAtsKeywords(text, tokens).matched > 0;
+  };
+}
 
 export function sentencesOf(text: string): string[] {
   return text
@@ -660,8 +765,8 @@ export function sentencesMentioning(text: string, skill: string): string[] {
 
 // Whether a sentence claims the skill as a competency: names it AND carries
 // proficiency wording — the project_as_competency rule, per sentence.
-export function describesAsCompetency(sentence: string, skill: string): boolean {
-  return skillMentioned(sentence, skill) && PROFICIENCY_RE.test(sentence);
+export function describesAsCompetency(sentence: string, skill: string, mentions: (text: string, name: string) => boolean = skillMentioned): boolean {
+  return mentions(sentence, skill) && PROFICIENCY_RE.test(sentence);
 }
 
 function excerpt(s: string): string {
@@ -669,9 +774,24 @@ function excerpt(s: string): string {
   return t.length > 120 ? `${t.slice(0, 119)}…` : t;
 }
 
+// A source that spells a number out ("a minimum of three days per week")
+// supports the same figure written in digits ("3 days") — the Softwire letter
+// was blocked for quoting the posting's own requirement on 26 Sep. Sources
+// only: an output's "two years' experience" stays as unchecked as before.
+const NUMBER_WORD_VALUES: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+  fifteen: 15, twenty: 20, thirty: 30, forty: 40, fifty: 50, hundred: 100,
+};
+export function numberWordsToDigits(text: string): string {
+  return text.replace(
+    /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred)(?=[\s-]+[a-z])/gi,
+    (w) => String(NUMBER_WORD_VALUES[w.toLowerCase()])
+  );
+}
+
 function figureIndex(sources: (string | null | undefined)[]): Map<string, Figure[]> {
   const byKey = new Map<string, Figure[]>();
-  for (const f of sources.filter((s): s is string => typeof s === "string" && s.trim() !== "").flatMap(extractFigures)) {
+  for (const f of sources.filter((s): s is string => typeof s === "string" && s.trim() !== "").map(numberWordsToDigits).flatMap(extractFigures)) {
     const list = byKey.get(f.key) ?? [];
     list.push(f);
     byKey.set(f.key, list);
@@ -682,12 +802,14 @@ function figureIndex(sources: (string | null | undefined)[]): Map<string, Figure
 export function checkClaims(
   parts: ClaimPart[],
   registry: ClaimsRegistry | null | undefined,
-  sources: (string | null | undefined)[]
+  sources: (string | null | undefined)[],
+  grafts: GraftRule[] = []
 ): ClaimCheck {
   const mode = claimMode(registry);
   const baseIndex = figureIndex(sources);
   const learningSkills = (registry?.skills ?? []).filter((s) => s.level === "learning");
   const projectSkills = (registry?.skills ?? []).filter((s) => s.level === "project");
+  const mentions = registryMentions(registry);
 
   const numberViolations: NumberViolation[] = [];
   const skillViolations: SkillViolation[] = [];
@@ -726,9 +848,38 @@ export function checkClaims(
       });
       if (!shares) numberViolations.push({ figure: f.text, sentence: f.sentence, kind: "context_mismatch", where: part.where });
     }
+    // Two figures joined into a range the sources never state (rule 4).
+    const sourceRanges = new Set(
+      [...sources, ...(part.extraSources ?? [])]
+        .filter((x): x is string => typeof x === "string")
+        .flatMap((x) => rangesIn(x).map((r) => r.key))
+    );
+    for (const r of rangesIn(part.text)) {
+      if (sourceRanges.has(r.key)) continue;
+      numberViolations.push({ figure: r.raw, sentence: sentenceAt(part.text.replace(/\*\*/g, ""), r.index), kind: "combined", where: part.where });
+    }
+    // A technology the posting names that the master CV never shows is an
+    // invention anywhere in the CV; one only a personal project shows is an
+    // invention under a paid role. (The letter is checked sentence by
+    // sentence elsewhere: it may name the employer's stack without claiming it.)
+    if (part.where === "cv") {
+      for (const g of grafts) {
+        if (g.status === "gap") {
+          const hit = sentencesOf(part.text).find((x) => !isRoleHeader(x) && namesRequirement(x, g.term));
+          if (hit) {
+            skillViolations.push({ skill: g.term, level: "absent", confirmed: true, where: part.where, claim: `written into the CV: "${excerpt(hit)}"`, rule: "not_in_cv" });
+          }
+        } else if (typeof part.experience === "string" && !projectSkills.some((s) => namesRequirement(g.term, s.name) || namesRequirement(s.name, g.term))) {
+          const hit = sentencesOf(part.experience).find((x) => !isRoleHeader(x) && namesRequirement(x, g.term));
+          if (hit) {
+            skillViolations.push({ skill: g.term, level: "project", confirmed: true, where: part.where, claim: `written as work experience: "${excerpt(hit)}"`, rule: "project_in_experience" });
+          }
+        }
+      }
+    }
     for (const s of learningSkills) {
-      if (skillMentioned(part.text, s.name)) {
-        const hit = sentencesOf(part.text).find((x) => skillMentioned(x, s.name));
+      if (mentions(part.text, s.name)) {
+        const hit = sentencesOf(part.text).find((x) => mentions(x, s.name));
         skillViolations.push({ skill: s.name, level: "learning", confirmed: s.confirmed, where: part.where, claim: hit ? excerpt(hit) : "", rule: "learning_anywhere" });
       }
     }
@@ -739,22 +890,22 @@ export function checkClaims(
     // proficiency wording anywhere.
     const leadTools = technicalTools(part.skills).slice(0, TOOLS_LEAD_SLOTS);
     for (const s of projectSkills) {
-      if (!skillMentioned(part.text, s.name)) continue;
+      if (!mentions(part.text, s.name)) continue;
       // Bullets only: a "Role | Employer | Dates" header line names no skill.
       const expLine =
         typeof part.experience === "string"
-          ? sentencesOf(part.experience).find((x) => !/\|/.test(x) && skillMentioned(x, s.name))
+          ? sentencesOf(part.experience).find((x) => !/\|/.test(x) && mentions(x, s.name))
           : undefined;
       if (expLine) {
         skillViolations.push({ skill: s.name, level: "project", confirmed: s.confirmed, where: part.where, claim: `written as work experience: "${excerpt(expLine)}"`, rule: "project_in_experience" });
         continue;
       }
-      const leadTool = leadTools.find((t) => skillMentioned(t, s.name));
+      const leadTool = leadTools.find((t) => mentions(t, s.name));
       if (leadTool) {
         skillViolations.push({ skill: s.name, level: "project", confirmed: s.confirmed, where: part.where, claim: `listed among the first ${TOOLS_LEAD_SLOTS} Technical Tools as "${leadTool}"`, rule: "project_lead_tool" });
         continue;
       }
-      const claimed = sentencesOf(part.text).find((x) => skillMentioned(x, s.name) && PROFICIENCY_RE.test(x));
+      const claimed = sentencesOf(part.text).find((x) => mentions(x, s.name) && PROFICIENCY_RE.test(x));
       if (claimed) {
         skillViolations.push({ skill: s.name, level: "project", confirmed: s.confirmed, where: part.where, claim: `described as a competency: "${excerpt(claimed)}"`, rule: "project_as_competency" });
       }
@@ -763,7 +914,7 @@ export function checkClaims(
 
   // Blocking as soon as the registry has levels: a figure absent from the
   // sources, or any skill claimed above its level.
-  const blocking = mode === "enforce" && (numberViolations.some((n) => n.kind === "absent") || skillViolations.length > 0);
+  const blocking = mode === "enforce" && (numberViolations.some((n) => n.kind === "absent" || n.kind === "combined") || skillViolations.length > 0);
   return { mode, skillViolations, numberViolations, blocking };
 }
 

@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { callLLM, Provider, ProviderRateLimitError, ProviderCreditError } from "@/lib/claude";
+import { callLLM, Provider, ProviderRateLimitError, ProviderCreditError, MODELS } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration, loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { chooseFallback, openRouterLimitMessage, fallbackExhaustedMessage, type FallbackReason } from "@/lib/fallbackRoute";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
-import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillMentioned, sentencesMentioning, distinctiveTokens, type ClaimsRegistry, type SkillViolation } from "@/lib/claims";
+import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
 import { normalizePreferences } from "@/lib/preferences";
 import { stripRightToWorkSentences, stripRightToWorkLines, stripRightToWorkBullets, mentionsRightToWork } from "@/lib/rightToWorkText";
@@ -18,24 +18,48 @@ import {
   COMPANY_RESEARCH_PROMPT,
   coverLetterPrompt,
   coverLetterFixPrompt,
-  claimsFixPrompt,
+  claimsRepairPrompt,
+  supportCheckPrompt,
   atsScoringPrompt,
   JD_ANALYZER_PROMPT,
   rejectedBulletsBlock,
 } from "@/prompts/steps";
-import { lintBullets, countFlags } from "@/lib/quality";
+import { lintBullets, countFlags, trimBoltOn } from "@/lib/quality";
 import { fitOnePage, fitTwoPages, experienceRefillCandidates, projectRefillCandidates, type PageFitReport, type RefillCandidate } from "@/lib/onePage";
-import { buildHeadline } from "@/lib/headline";
+import { buildHeadline, degreesInProgress } from "@/lib/headline";
 import { normalizeEligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
-import { coreTitle, titleInText } from "@/lib/roleTitle";
+import { coreTitle, titleInText, titleAsIdentity } from "@/lib/roleTitle";
 import { unsupportedProperNouns, sentencesNaming, dropSentences } from "@/lib/properNouns";
 import { experienceBudget, onePageExperienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
 import { parseMasterExperience, renderIdBlock, reconcileExperience, diffAgainstMaster, diffProjects } from "@/lib/bulletIds";
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
-import { surgicalUntilStable, type RepairSections } from "@/lib/claimRepair";
+import {
+  surgicalUntilStable,
+  listRepairs,
+  checkSections,
+  normalizeRepairEdits,
+  applyModelEdits,
+  replacementPasses,
+  applyToSection,
+  type RepairSections,
+} from "@/lib/claimRepair";
+import { buildEvidenceMap, renderEvidenceBlock, graftRules, poolCoverageBlock, projectFacts } from "@/lib/evidenceMap";
+import {
+  supportSentences,
+  normalizeSupportVerdicts,
+  decideSupport,
+  trimNarration,
+  fixHeldDegrees,
+  statesDegreeAsHeld,
+  dropRepeatedSentences,
+  mergedProjects,
+  isMergeProblem,
+  type SupportReport,
+} from "@/lib/supportCheck";
+import { normalizeLetter, capEmDashes } from "@/lib/letterFormat";
 import { reconcileAtsScore, renderBandBlock } from "@/lib/visibilityVerdict";
 import { applyFormatRules } from "@/lib/formatRules";
 
@@ -160,6 +184,16 @@ async function runPipeline(opts: {
   // The posting's title, as the summary must state it (lib/roleTitle).
   const roleTitle = coreTitle(analysis && typeof analysis === "object" ? (analysis as Record<string, unknown>).role_title : "");
 
+  // Requirement → evidence (lib/evidenceMap): for every requirement the
+  // posting names, where the master CV shows it — paid work, a personal
+  // project only, a list only, or nowhere. Every writing prompt receives it;
+  // the claims check holds the CV to it (a technology the master CV never
+  // shows is an invention wherever it appears).
+  const evidence = buildEvidenceMap(analysis, cv, projectsPool, claims);
+  const evidenceBlock = renderEvidenceBlock(evidence);
+  const grafts = graftRules(evidence);
+  const coverageBlock = projectsPool ? poolCoverageBlock(projectsPool, evidence) : "";
+
   // Adaptive content budget: only ask the model to trim what two pages truly
   // can't hold (lib/contentBudget.ts). When the CV can't be parsed, the
   // prompts fall back to their fixed defaults — behaviour as before.
@@ -169,6 +203,10 @@ async function runPipeline(opts: {
   // the master CV's numbered bullets; the output is reconciled against them.
   const masterRoles = parseMasterExperience(cv);
   const idBlock = renderIdBlock(masterRoles);
+  // "Software Developer with two years' production experience…" when the
+  // title plainly describes the candidate's paid work; otherwise the title
+  // is named as the job applied for (lib/roleTitle).
+  const asIdentity = titleAsIdentity(roleTitle, masterRoles.map((r) => r.header.split(/\s[—–|]\s/)[0]));
 
   // Wave 1 — parallel; individual step failures produce empty values,
   // but ProviderRateLimitError propagates.
@@ -177,20 +215,20 @@ async function runPipeline(opts: {
       ? Promise.resolve<unknown>(companyResearch) // real scraped research — skip the synthetic call
       : callLLM({ provider, apiKeyOverride, system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
           .catch(swallowStep({})),
-    callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle, "", evidenceBlock, asIdentity), userInput: analysisStr })
       .catch(swallowStep("")),
-    callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv, claimsBlock, variantBlock), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv, claimsBlock, variantBlock, evidenceBlock), userInput: analysisStr })
       .catch(swallowStep("")),
-    callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, "", idBlock), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, "", idBlock, evidenceBlock), userInput: analysisStr })
       .catch(swallowStep("")),
     projectsPool
       // Pool mode: select + tailor from the pasted pool. Runs even when the
       // extracted profile has no projects (projectNames empty) — the pool is
       // the source, not the profile.
-      ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool, claimsBlock), userInput: analysisStr, expectJson: true })
+      ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool, claimsBlock, "", evidenceBlock, coverageBlock), userInput: analysisStr, expectJson: true })
           .catch(swallowStep({}))
       : projectNames.length > 0
-        ? callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock), userInput: analysisStr, expectJson: true })
+        ? callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock, "", evidenceBlock), userInput: analysisStr, expectJson: true })
             .catch(swallowStep({}))
         : Promise.resolve({}),
   ]);
@@ -205,9 +243,9 @@ async function runPipeline(opts: {
   const titleCheck = { title: roleTitle, present: !roleTitle || titleInText(summaryDraft, roleTitle), retried: false };
   let summary: unknown = summaryDraft;
   if (!fast && roleTitle && typeof summaryDraft === "string" && summaryDraft.trim() && !titleCheck.present) {
-    const retryBlock = `\nREJECTED IN YOUR PREVIOUS DRAFT: the summary did not contain the exact role title "${roleTitle}". Rewrite all three lines so that title appears verbatim at least once, phrased naturally as the target role. Keep every fact and figure as it was.\n`;
+    const retryBlock = `\nREJECTED IN YOUR PREVIOUS DRAFT: the summary did not contain the exact role title "${roleTitle}". Rewrite it so that title appears verbatim once, ${asIdentity ? "opening the summary as the candidate's professional identity" : "as the job being applied for"}. Keep every fact and figure as it was.\n`;
     const retry = dropRefusal(
-      await callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle, retryBlock), userInput: analysisStr }).catch(swallowStep(""))
+      await callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle, retryBlock, evidenceBlock, asIdentity), userInput: analysisStr }).catch(swallowStep(""))
     );
     if (typeof retry === "string" && retry.trim() && titleInText(retry, roleTitle)) {
       summary = retry;
@@ -219,7 +257,7 @@ async function runPipeline(opts: {
   // to the 15 most JD-relevant terms and the summary to three sentences.
   // Applied BEFORE the score and the claim check, so both read exactly the
   // text the user gets; the response says what was dropped.
-  const formatted = applyFormatRules({ summary, skills: dropRefusal(skillsRaw) }, analysis);
+  const formatted = applyFormatRules({ summary, skills: dropRefusal(skillsRaw) }, analysis, [cv, projectsPool], roleTitle, claims ?? null);
   summary = formatted.summary;
   const skills = formatted.skills;
   const formatFixes = formatted.fixes;
@@ -259,14 +297,14 @@ async function runPipeline(opts: {
   if (!fast && countFlags(draftLint) > 0) {
     const [experienceRetry, projectsRetry] = await Promise.all([
       draftLint.experience.length > 0
-        ? callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, rejectedBulletsBlock(draftLint.experience), idBlock), userInput: analysisStr })
+        ? callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, rejectedBulletsBlock(draftLint.experience), idBlock, evidenceBlock), userInput: analysisStr })
             .catch(swallowStep(""))
         : Promise.resolve<unknown>(""),
       draftLint.projects.length > 0
         ? projectsPool
-          ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool, claimsBlock, rejectedBulletsBlock(draftLint.projects)), userInput: analysisStr, expectJson: true })
+          ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool, claimsBlock, rejectedBulletsBlock(draftLint.projects), evidenceBlock, coverageBlock), userInput: analysisStr, expectJson: true })
               .catch(swallowStep({}))
-          : callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock, rejectedBulletsBlock(draftLint.projects)), userInput: analysisStr, expectJson: true })
+          : callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock, rejectedBulletsBlock(draftLint.projects), evidenceBlock), userInput: analysisStr, expectJson: true })
               .catch(swallowStep({}))
         : Promise.resolve<unknown>({}),
     ]);
@@ -289,6 +327,17 @@ async function runPipeline(opts: {
       }
     }
   }
+  // A generated project bullet that still ends in a bolt-on loses the
+  // trailing clause (the master-selected experience bullets are left as the
+  // candidate wrote them).
+  if (projectsFinal && typeof projectsFinal === "object") {
+    const trimmedProjects: Record<string, string[]> = {};
+    for (const [k, list] of Object.entries(projectsFinal as Record<string, unknown>)) {
+      trimmedProjects[k] = Array.isArray(list) ? list.map((b) => (typeof b === "string" ? trimBoltOn(b, company) ?? b : b)).filter((b): b is string => typeof b === "string") : [];
+    }
+    projectsFinal = trimmedProjects;
+    if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: trimmedProjects[String(i)] ?? p.bullets }));
+  }
   const bulletLint = { retried, remaining: lintBullets({ experience: experienceFinal, projects: projectsFinal }, company) };
 
   // Search-visibility score — deterministic, BEFORE wave 2: the band is
@@ -299,109 +348,78 @@ async function runPipeline(opts: {
   // Claims levels enforced on the generated text per section (lib/claims),
   // BEFORE the score so it reads the final text. The registry is the
   // candidate's statement; a master-CV bullet that carries a project-level
-  // skill under a paid role is the overclaim it corrects. Lead Technical
-  // Tools are fixed deterministically; Experience and Summary get one model
-  // rewrite of the offending sentences; anything that survives blocks the
-  // download with the sentence and the rule named.
+  // skill under a paid role is the overclaim it corrects. The evidence map
+  // adds the posting's own terms: a technology the master CV never shows is
+  // an invention anywhere in the CV. Lead Technical Tools are demoted, exact
+  // trims come next, then ONE model call rewrites the sentences a trim cannot
+  // fix (each rewrite checked on its own); anything that survives blocks the
+  // download with the sentence and the rule named, and "Fix it" can finish it.
   let skillsFinal: unknown = skills;
   const claimFix = { toolsDemoted: [] as string[], trimmed: [] as string[], rewritten: [] as string[], remaining: 0 };
-  if (claims && claims.skills.length > 0) {
-    const projectNames = claims.skills.filter((s) => s.level === "project").map((s) => s.name);
-    const demoted = demoteProjectTools(skillsFinal, projectNames);
-    skillsFinal = demoted.skills;
-    claimFix.toolsDemoted = demoted.demoted;
-    // Exact trims first (lib/claimRepair): only the flagged skill's own
-    // words go — "LLM/RAG" → "LLM", a bracketed or skills-line item — so
-    // every other word, figure and outcome stays where it was. The model
-    // rewrites below see only what a regex cannot fix, and a fast
-    // (OpenRouter) run, which skips them, still gets these. The master CV's
-    // own "LLM/RAG knowledge solutions" bullet blocked downloads on 25 Sep
-    // after the rewrite came back unchanged. Projects are left to the pool
-    // bookkeeping; the letter is not written yet.
-    {
-      const base: RepairSections = {
-        summary: typeof summary === "string" ? summary : "",
-        skills: typeof skillsFinal === "string" ? skillsFinal : "",
-        experience: typeof experienceFinal === "string" ? experienceFinal : "",
-        projects: {},
-        coverLetter: "",
-      };
-      // Best effort: the model rewrite and the final check below still run
-      // if this step fails, so a bug here can never fail a paid run.
-      try {
-        const t = surgicalUntilStable(base, claims, [cv, projectsPool], jd);
-        if (t.changes.length > 0) {
-          if (typeof summary === "string") summary = t.sections.summary;
-          if (typeof skillsFinal === "string") skillsFinal = t.sections.skills;
-          if (typeof experienceFinal === "string") experienceFinal = t.sections.experience;
-          claimFix.trimmed = t.changes.map((c) => c.after);
-        }
-      } catch (e) {
-        console.error("Claims trim pass failed:", e instanceof Error ? e.message : String(e));
-      }
+  {
+    const registry = claims ?? null;
+    const sources = [cv, projectsPool];
+    const projectSkillNames = (claims?.skills ?? []).filter((s) => s.level === "project").map((s) => s.name);
+    if (projectSkillNames.length > 0) {
+      const demoted = demoteProjectTools(skillsFinal, projectSkillNames);
+      skillsFinal = demoted.skills;
+      claimFix.toolsDemoted = demoted.demoted;
     }
-    const cvPart = (exp: unknown, sum: unknown) => ({
-      where: "cv" as const,
-      text: tailoredSectionsText({ summary: sum, skills: skillsFinal, experience: exp, projects: projectsFinal }),
-      experience: exp,
-      skills: skillsFinal,
+    const asSections = (): RepairSections => ({
+      summary: typeof summary === "string" ? summary : "",
+      skills: typeof skillsFinal === "string" ? skillsFinal : "",
+      experience: typeof experienceFinal === "string" ? experienceFinal : "",
+      projects: projectsFinal && typeof projectsFinal === "object" ? (projectsFinal as Record<string, string[]>) : {},
+      coverLetter: "",
     });
-    const draft = checkClaims([cvPart(experienceFinal, summary)], claims, [cv, projectsPool]);
-    const unquote = (claim: string) => claim.replace(/^[^"]*"/, "").replace(/"$/, "");
-    // The rewrite is shown every FULL sentence that mentions the skill, and
-    // how the skill is written there (the registry says "RAG and knowledge
-    // retrieval", the text says "RAG"); the violation's claim is a
-    // display excerpt cut at 120 characters and is only the fallback.
-    const removalsFor = (text: string, vs: SkillViolation[]) =>
-      vs.flatMap((v) => {
-        const found = sentencesMentioning(text, v.skill);
-        const aliases = distinctiveTokens(v.skill);
-        return (found.length ? found : [unquote(v.claim)]).map((sentence) => ({ skill: v.skill, aliases, sentence }));
-      });
-    const expV = draft.skillViolations.filter(
-      (v) => v.rule === "project_in_experience" || (v.rule === "learning_anywhere" && typeof experienceFinal === "string" && skillMentioned(experienceFinal, v.skill))
-    );
-    if (!fast && expV.length > 0 && typeof experienceFinal === "string") {
-      const retry = dropRefusal(
-        await callLLM({
+    const write = (s: RepairSections) => {
+      if (typeof summary === "string") summary = s.summary;
+      if (typeof skillsFinal === "string") skillsFinal = s.skills;
+      if (typeof experienceFinal === "string") experienceFinal = s.experience;
+      if (projectsFinal && typeof projectsFinal === "object") {
+        projectsFinal = s.projects;
+        // Pool mode keeps each selected project's bullets beside its name.
+        if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: s.projects[String(i)] ?? p.bullets }));
+      }
+    };
+    // Best effort: the final check below still runs and reports whatever is
+    // left, so a bug here can never fail a paid run.
+    try {
+      // Exact trims (lib/claimRepair): only the flagged words go — "LLM/RAG"
+      // → "LLM", a list item — so every other word, figure and outcome
+      // stays. A fast (OpenRouter) run gets these too.
+      const t = surgicalUntilStable(asSections(), registry, sources, jd, grafts);
+      if (t.changes.length > 0) {
+        write(t.sections);
+        claimFix.trimmed = t.changes.map((c) => c.after);
+      }
+      // One rewrite call for what a trim cannot fix, each sentence accepted
+      // only when it passes the check on its own and keeps the role title.
+      const items = listRepairs(asSections(), checkSections(asSections(), registry, sources, jd, grafts), registry);
+      if (!fast && items.length > 0) {
+        const a = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
+        const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 30) : []);
+        const raw = await callLLM({
           provider,
           apiKeyOverride,
-          system: claimsFixPrompt("EXPERIENCE", removalsFor(experienceFinal, expV)),
-          userInput: experienceFinal,
-        }).catch(swallowStep(""))
-      );
-      if (typeof retry === "string" && retry.trim()) {
-        const candidate = normalizeExperienceOutput(retry);
-        const after = checkClaims([cvPart(candidate, summary)], claims, [cv, projectsPool]);
-        const left = after.skillViolations.filter((v) => v.rule === "project_in_experience" || v.rule === "learning_anywhere").length;
-        if (left < expV.length) {
-          experienceFinal = candidate;
-          claimFix.rewritten.push("experience");
+          system: claimsRepairPrompt(cv, claimsBlock, { title: roleTitle, keywords: list(a.top_15_ats_keywords), required: list(a.required_skills) }),
+          userInput: JSON.stringify({ items: items.slice(0, 20).map(({ id, section, sentence, problems }) => ({ id, section, sentence, problems })) }),
+          expectJson: true,
+          maxTokens: 3000,
+        }).catch(swallowStep(null));
+        const applied = applyModelEdits(asSections(), items, normalizeRepairEdits(raw, items), (it, rep) =>
+          replacementPasses(rep, it.section, registry, sources, jd, grafts) &&
+          (it.section !== "summary" || !roleTitle || !titleInText(it.sentence, roleTitle) || titleInText(rep, roleTitle))
+        );
+        if (applied.changes.length > 0) {
+          write(applied.sections);
+          claimFix.rewritten = applied.changes.map((c) => c.section);
         }
       }
+      claimFix.remaining = listRepairs(asSections(), checkSections(asSections(), registry, sources, jd, grafts), registry).length;
+    } catch (e) {
+      console.error("Claims repair pass failed:", e instanceof Error ? e.message : String(e));
     }
-    const sumV = draft.skillViolations.filter(
-      (v) => (v.rule === "project_as_competency" || v.rule === "learning_anywhere") && typeof summary === "string" && skillMentioned(summary, v.skill)
-    );
-    if (!fast && sumV.length > 0 && typeof summary === "string") {
-      const retry = dropRefusal(
-        await callLLM({
-          provider,
-          apiKeyOverride,
-          system: claimsFixPrompt("SUMMARY", removalsFor(summary, sumV)),
-          userInput: summary,
-        }).catch(swallowStep(""))
-      );
-      if (typeof retry === "string" && retry.trim()) {
-        const after = checkClaims([cvPart(experienceFinal, retry)], claims, [cv, projectsPool]);
-        const left = after.skillViolations.filter((v) => sumV.some((s) => s.skill === v.skill) && skillMentioned(retry, v.skill)).length;
-        if (left < sumV.length) {
-          summary = retry;
-          claimFix.rewritten.push("summary");
-        }
-      }
-    }
-    claimFix.remaining = checkClaims([cvPart(experienceFinal, summary)], claims, [cv, projectsPool]).skillViolations.length;
   }
 
   // Right to Work off the document (lib/rightToWorkText): any sentence or
@@ -493,7 +511,7 @@ async function runPipeline(opts: {
   });
 
   const [coverLetterRaw, atsAnnotation] = await Promise.all([
-    callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv, claimsBlock, omitRightToWork), userInput: coverLetterInput, maxTokens: 1200 })
+    callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv, claimsBlock, omitRightToWork, evidenceBlock), userInput: coverLetterInput, maxTokens: 1200 })
       .catch(swallowStep("")),
     coverage.total > 0
       ? callLLM({ provider, apiKeyOverride, system: atsScoringPrompt(renderBandBlock(coverage, required)), userInput: atsInput, expectJson: true })
@@ -504,7 +522,13 @@ async function runPipeline(opts: {
   // Every proper noun in the letter must come from the JD, the research or
   // the CV (lib/properNouns). Offending sentences are rewritten once by the
   // model; if a name is still unsupported, those sentences are dropped.
-  const letterDraft = dropRefusal(coverLetterRaw);
+  // The letter's furniture (lib/letterFormat): a company addressed as a
+  // person, a missing sign-off, a date line the model wrote.
+  const letterNormalized = normalizeLetter(dropRefusal(coverLetterRaw), {
+    company: company || null,
+    name: (profile as { name?: string } | null)?.name ?? null,
+  });
+  const letterDraft = letterNormalized.letter;
   const letterSources = [jd, cv, projectsPool, JSON.stringify(research ?? {}), JSON.stringify(analysis ?? {})];
   const letterCheck = { unsupported: [] as string[], rewritten: false, dropped: 0 };
   let coverLetter: unknown = letterDraft;
@@ -532,9 +556,142 @@ async function runPipeline(opts: {
     coverLetter = r.text;
     rtwStripped.letter = r.removed;
   }
-  // No terms to score against (analysis failed) → no score; otherwise the
-  // deterministic score stands even when the annotation call failed.
-  const atsScore = coverage.total > 0 ? reconcileAtsScore(atsAnnotation, coverage, required) : null;
+  // The summary and the letter, sentence by sentence against the master CV
+  // (lib/supportCheck): one call names the master-CV lines behind every
+  // claim about the candidate's past, or a corrected sentence. Quotes are
+  // verified here; an unsupported sentence is replaced by its fix when the
+  // fix passes the claims check and the proper-noun check (and keeps the
+  // role title), and removed otherwise. Skipped in fast mode.
+  let supportReport: SupportReport | null = null;
+  // A degree the profile dates to the future is never stated as held ("I
+  // hold an MSc …, graduating January 2027" reached both outputs measured on
+  // 26 Sep): deterministic, before the fact check and whatever the provider.
+  const inProgress = degreesInProgress((profile as { education?: { degree?: string; dates?: string; note?: string }[] } | null)?.education);
+  const preChanged: SupportReport["changed"] = [];
+  for (const section of ["summary", "coverLetter"] as const) {
+    const text = section === "summary" ? summary : coverLetter;
+    if (typeof text !== "string") continue;
+    const r = fixHeldDegrees(text, inProgress);
+    if (r.changed.length === 0) continue;
+    if (section === "summary") summary = r.text;
+    else coverLetter = r.text;
+    for (const m of r.changed) preChanged.push({ section, sentence: m, action: "rewritten", replacement: fixHeldDegrees(m, inProgress).text });
+  }
+  // The letter's opening names the role; if it has to go, a plain true
+  // opening takes its place so the letter never loses the job it is for.
+  const letterOpening = typeof coverLetter === "string" ? supportSentences("", coverLetter).find((x) => x.section === "coverLetter")?.sentence ?? "" : "";
+  const safeOpening = roleTitle ? `I am applying for the ${roleTitle} role${company ? ` at ${company}` : ""}.` : "";
+  // Each project's own facts: one project's work told as another's is a
+  // problem the fact check must fix, and no rewrite may do it (rule 7).
+  const facts = projectFacts(cv, projectsPool);
+  if (fast) {
+    // No model call: the narrating clause is cut where that is clean, and a
+    // sentence that merges two projects' facts goes.
+    const changed: SupportReport["changed"] = [];
+    let cur: RepairSections = { summary: typeof summary === "string" ? summary : "", skills: "", experience: "", projects: {}, coverLetter: typeof coverLetter === "string" ? coverLetter : "" };
+    for (const s of supportSentences(cur.summary, cur.coverLetter, facts)) {
+      if (s.problems.length === 0) continue;
+      const merged = isMergeProblem(s);
+      const t = merged ? (s.section === "coverLetter" && s.sentence === letterOpening && safeOpening ? safeOpening : "") : trimNarration(s.sentence);
+      const next = t !== null ? applyToSection(cur, s.section, s.sentence, t) : null;
+      if (!next) continue;
+      cur = next;
+      changed.push(t ? { section: s.section, sentence: s.sentence, action: "rewritten", replacement: t } : { section: s.section, sentence: s.sentence, action: "removed" });
+    }
+    if (typeof summary === "string") summary = cur.summary;
+    if (typeof coverLetter === "string") coverLetter = cur.coverLetter;
+    supportReport = { checked: 0, changed, unverified: [], skipped: "fast" };
+  } else {
+    const sentences = supportSentences(typeof summary === "string" ? summary : "", typeof coverLetter === "string" ? coverLetter : "", facts);
+    if (sentences.length > 0) {
+      const raw = await callLLM({
+        provider,
+        apiKeyOverride,
+        system: supportCheckPrompt(cv, projectsPool ?? ""),
+        userInput: JSON.stringify({ sentences: sentences.map(({ id, section, sentence, problems }) => ({ id, section, sentence, ...(problems.length ? { problems } : {}) })) }),
+        expectJson: true,
+        maxTokens: 4000,
+        // The honesty gate reads subtle misattribution better on the larger
+        // model; only on Claude (callLLM forwards a model name to the others).
+        ...(provider === "anthropic" ? { model: MODELS.quality } : {}),
+      }).catch(swallowStep(null));
+      if (raw && typeof raw === "object") {
+        const verdicts = normalizeSupportVerdicts(raw, sentences);
+        const nameSources = (section: string) => (section === "coverLetter" ? letterSources : [cv, projectsPool, jd, JSON.stringify(analysis ?? {})]);
+        const decisions = decideSupport(sentences, verdicts, [cv, projectsPool], (s, fix) => {
+          if (statesDegreeAsHeld(fix, inProgress)) return false;
+          if (mergedProjects(fix, facts.projects, facts.paidWork).length > 0) return false;
+          if (!replacementPasses(fix, s.section, claims ?? null, [cv, projectsPool], jd, grafts)) return false;
+          const had = unsupportedProperNouns(s.sentence, nameSources(s.section));
+          if (unsupportedProperNouns(fix, nameSources(s.section)).some((n) => !had.includes(n))) return false;
+          return s.section !== "summary" || !roleTitle || !titleInText(s.sentence, roleTitle) || titleInText(fix, roleTitle);
+        });
+        let cur: RepairSections = {
+          summary: typeof summary === "string" ? summary : "",
+          skills: "",
+          experience: "",
+          projects: {},
+          coverLetter: typeof coverLetter === "string" ? coverLetter : "",
+        };
+        const changed: SupportReport["changed"] = [];
+        for (const d of decisions) {
+          if (d.action !== "rewrite" && d.action !== "remove") continue;
+          // The summary's role-title sentence is never removed: it is a hard
+          // requirement, and a rejected fix leaves it for the claims check.
+          if (d.action === "remove" && d.section === "summary" && roleTitle && titleInText(d.sentence, roleTitle)) continue;
+          // Nor is the letter's opening: a plain true opening replaces it.
+          if (d.action === "remove" && d.section === "coverLetter" && d.sentence === letterOpening && safeOpening) {
+            d.action = "rewrite";
+            d.replacement = safeOpening;
+          }
+          const next = applyToSection(cur, d.section, d.sentence, d.action === "rewrite" && d.replacement ? d.replacement : "");
+          if (!next) continue;
+          cur = next;
+          changed.push(
+            d.action === "rewrite" && d.replacement
+              ? { section: d.section, sentence: d.sentence, action: "rewritten", replacement: d.replacement }
+              : { section: d.section, sentence: d.sentence, action: "removed" }
+          );
+        }
+        if (typeof summary === "string") summary = cur.summary;
+        if (typeof coverLetter === "string") coverLetter = cur.coverLetter;
+        supportReport = { checked: verdicts.size, changed, unverified: decisions.filter((d) => d.action === "unverified").map((d) => d.sentence) };
+      } else {
+        supportReport = { checked: 0, changed: [], unverified: [], skipped: "failed" };
+      }
+    }
+  }
+  // The same fact twice reads as generated: the later telling goes (the
+  // summary never loses its role-title sentence this way).
+  const postChanged: SupportReport["changed"] = [];
+  for (const section of ["summary", "coverLetter"] as const) {
+    const text = section === "summary" ? summary : coverLetter;
+    if (typeof text !== "string") continue;
+    const r = dropRepeatedSentences(text);
+    if (r.dropped.length === 0) continue;
+    if (section === "summary" && roleTitle && titleInText(text, roleTitle) && !titleInText(r.text, roleTitle)) continue;
+    if (section === "summary") summary = r.text;
+    else coverLetter = r.text;
+    for (const sentence of r.dropped) postChanged.push({ section, sentence, action: "removed" });
+  }
+  // The fact check's fixes may bring dashes back: the letter's one-dash rule
+  // holds on the finished text.
+  if (typeof coverLetter === "string") coverLetter = capEmDashes(coverLetter).text;
+  if (preChanged.length || postChanged.length) {
+    supportReport = supportReport
+      ? { ...supportReport, changed: [...preChanged, ...supportReport.changed, ...postChanged] }
+      : { checked: 0, changed: [...preChanged, ...postChanged], unverified: [] };
+  }
+
+  // The score and the claims check read the FINISHED text: the fact check
+  // may have changed the summary. No terms to score against (analysis
+  // failed) → no score; otherwise the deterministic score stands even when
+  // the annotation call failed.
+  const finalSections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
+  const finalText = tailoredSectionsText(finalSections);
+  const finalCoverage = matchAtsKeywords(finalText, terms.top_15_ats_keywords);
+  const finalRequiredRaw = matchAtsKeywords(finalText, terms.required_skills);
+  const atsScore = finalCoverage.total > 0 ? reconcileAtsScore(atsAnnotation, finalCoverage, finalRequiredRaw.total > 0 ? finalRequiredRaw : null) : null;
   // Deterministic claim check on the same finished text — no model call,
   // computed from exactly what the user sees. The client re-runs the same
   // function on the edited preview. The letter may quote the posting's own
@@ -542,11 +699,12 @@ async function runPipeline(opts: {
   // as a source.
   const claimCheck = checkClaims(
     [
-      { where: "cv", text: tailoredText, experience: sections.experience, skills: sections.skills },
+      { where: "cv", text: finalText, experience: finalSections.experience, skills: finalSections.skills },
       { where: "coverLetter", text: typeof coverLetter === "string" ? coverLetter : "", extraSources: [jd] },
     ],
     claims,
-    [cv, projectsPool]
+    [cv, projectsPool],
+    grafts
   );
 
   return {
@@ -560,6 +718,11 @@ async function runPipeline(opts: {
     atsScore,
     claimCheck,
     claimFix,
+    // Requirement → evidence for this posting (lib/evidenceMap), and what the
+    // sentence-by-sentence fact check changed (lib/supportCheck).
+    evidence,
+    supportCheck: supportReport,
+    letterFixes: letterNormalized.fixes,
     bulletLint,
     titleCheck,
     formatFixes,

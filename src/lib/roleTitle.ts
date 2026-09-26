@@ -37,3 +37,28 @@ export function titleInText(text: unknown, title: string): boolean {
   if (!t || !needle) return false;
   return ` ${t} `.includes(` ${needle} `);
 }
+
+// Whether the summary may open with the title as the candidate's identity
+// ("Software Developer with two years' production experience…") rather than
+// naming it as the job applied for ("…, applying for the Product Engineer
+// role"). Only when that is plainly true: a generic software title, or one of
+// the candidate's own job titles (developer and engineer read alike). A
+// senior, lead or principal title never is — it would claim the seniority.
+const CLAIMS_SENIORITY_RE = /^(?:senior|sr\.?|lead|principal|staff|head|chief|director)\b/i;
+const HUMBLE_PREFIX_RE = /^(?:(?:junior|jr\.?|graduate|associate|entry[- ]level|mid[- ]level|intermediate|trainee)\s+)+/i;
+const GENERIC_TITLE_RE = /^(?:software|application)\s+(?:developer|engineer)$/i;
+function titleKey(s: string): string {
+  return fold(s.replace(HUMBLE_PREFIX_RE, ""))
+    .replace(/\bdeveloper\b/g, "engineer")
+    .replace(/\bfull stack\b/g, "fullstack")
+    .replace(/\bback end\b/g, "backend")
+    .replace(/\bfront end\b/g, "frontend");
+}
+export function titleAsIdentity(title: unknown, heldTitles: string[]): boolean {
+  const core = coreTitle(title);
+  if (!core || CLAIMS_SENIORITY_RE.test(core)) return false;
+  const bare = core.replace(HUMBLE_PREFIX_RE, "").trim();
+  if (GENERIC_TITLE_RE.test(bare)) return true;
+  const key = titleKey(core);
+  return heldTitles.some((h) => titleKey(coreTitle(h)) === key);
+}

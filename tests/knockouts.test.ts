@@ -1,5 +1,6 @@
 // Unit tests for the knockout-gate detector and comparator. node:test, zero
-// dependencies: `npm test`. Every JD below is synthetic.
+// dependencies: `npm test`. Every JD below is synthetic or a single sentence
+// quoted from a posting the detector once misread.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -14,6 +15,7 @@ import {
   summarizeGates,
   EMPTY_ELIGIBILITY,
   MIN_FULL_JD_CHARS,
+  CATEGORY_LABEL,
   type Eligibility,
   type Gate,
 } from "../src/lib/knockouts.ts";
@@ -344,4 +346,87 @@ test("jdQuality: partial below the threshold, never for an empty box", () => {
   assert.deepEqual(jdQuality("x".repeat(MIN_FULL_JD_CHARS - 1)), { chars: MIN_FULL_JD_CHARS - 1, partial: true });
   assert.deepEqual(jdQuality("x".repeat(MIN_FULL_JD_CHARS)), { chars: MIN_FULL_JD_CHARS, partial: false });
   assert.deepEqual(jdQuality("   "), { chars: 0, partial: false });
+});
+
+test("graduation window: detected, compared with the dates the user typed, never guessed", () => {
+  const now = new Date("2026-09-26T12:00:00Z");
+  const jd = "What You’ll Need to Thrive\n- A degree in Computer Science or a related technical field (graduated within the last year).";
+  const gates = detectGates(jd).filter((g) => g.category === "graduation");
+  assert.equal(gates.length, 1);
+  assert.deepEqual(gates[0].value, { kind: "graduation", withinMonths: 12, years: [], finalYearOk: false, recent: false });
+  assert.equal(CATEGORY_LABEL.graduation, "Graduation date");
+  const base = normalizeEligibility({ degree: { level: "bachelors", classification: "first" } });
+  // No dates typed → unknown, never a guess from the CV.
+  assert.equal(compareGates(gates, base, now)[0].verdict, "unknown");
+  // Completed inside the window → pass.
+  const recent = normalizeEligibility({ ...base, graduation: { completed: "2026-06", expected: null } });
+  assert.equal(compareGates(gates, recent, now)[0].verdict, "pass");
+  // Completed long ago, a degree in progress → soft, with the date to state.
+  const studying = normalizeEligibility({ ...base, graduation: { completed: "2023-07", expected: "2027-01" } });
+  const v = compareGates(gates, studying, now)[0];
+  assert.equal(v.verdict, "soft");
+  assert.match(v.reason, /Jul 2023/);
+  assert.match(v.wording ?? "", /Jan 2027/);
+  // Completed long ago and nothing in progress → hard.
+  const old = normalizeEligibility({ ...base, graduation: { completed: "2021-07", expected: null } });
+  assert.equal(compareGates(gates, old, now)[0].verdict, "hard");
+});
+
+test("graduation years and final-year wording; prose about new grads is not a gate", () => {
+  const now = new Date("2026-09-26T12:00:00Z");
+  const e = normalizeEligibility({ graduation: { completed: "2023-07", expected: "2027-01" } });
+  const years = detectGates("Requirements:\nYou must be a 2025 or 2026 graduate.").filter((g) => g.category === "graduation");
+  assert.deepEqual(years[0].value, { kind: "graduation", withinMonths: null, years: [2025, 2026], finalYearOk: false, recent: false });
+  assert.equal(compareGates(years, e, now)[0].verdict, "hard");
+  const finalYear = detectGates("Requirements:\nOpen to final-year students and recent graduates.").filter((g) => g.category === "graduation");
+  assert.equal(compareGates(finalYear, e, now)[0].verdict, "pass");
+  assert.equal(detectGates("Our new grads love the mentorship culture here.").filter((g) => g.category === "graduation").length, 0);
+  // A malformed month is dropped at the boundary.
+  assert.deepEqual(normalizeEligibility({ graduation: { completed: "July 2023", expected: "2027-13" } }).graduation, { completed: null, expected: null });
+  assert.equal(isEligibilitySet(normalizeEligibility({ graduation: { completed: "2023-07" } })), true);
+});
+
+test("graduation years: every year in a list, ranges expanded; titles, deadlines and open ends are not lists", () => {
+  const now = new Date("2026-09-26T12:00:00Z");
+  const e = normalizeEligibility({ graduation: { completed: "2023-07", expected: "2027-01" } });
+  const yearsOf = (jd: string) => {
+    const g = detectGates(jd).filter((x) => x.category === "graduation");
+    return g.length === 0 ? null : g[0].value.kind === "graduation" ? g[0].value.years : null;
+  };
+  // Revolut's real sentence: all three years, so a January 2027 MSc passes.
+  const revolut = "What you'll need\n- To have graduated in 2025, 2026, or 2027 with a degree in a STEM subject";
+  assert.deepEqual(yearsOf(revolut), [2025, 2026, 2027]);
+  const rv = compareGates(detectGates(revolut).filter((g) => g.category === "graduation"), e, now)[0];
+  assert.equal(rv.verdict, "pass");
+  assert.match(rv.reason, /2025–2027 graduates/);
+  assert.deepEqual(yearsOf("Requirements:\n- You graduated between 2023 and 2025."), [2023, 2024, 2025]);
+  assert.deepEqual(yearsOf("Requirements:\n- Graduating in summer 2026 or summer 2027."), [2026, 2027]);
+  assert.deepEqual(yearsOf("Requirements:\n- Expected graduation date: 2027."), [2027]);
+  assert.deepEqual(yearsOf("Requirements:\n- Open to 2024/2026 graduates only."), [2024, 2026]);
+  const gap = compareGates(detectGates("Requirements:\n- Open to 2024/2026 graduates only.").filter((g) => g.category === "graduation"), normalizeEligibility({ graduation: { completed: "2025-07", expected: null } }), now)[0];
+  assert.equal(gap.verdict, "hard");
+  assert.match(gap.reason, /2024 or 2026 graduates/);
+  // The programme's intake year in its title is not a graduation year.
+  assert.equal(yearsOf("Graduate Programme 2027: Software Engineer (Frontend) - Revolut"), null);
+  assert.equal(yearsOf("Requirements:\n- Apply now for our 2027 Graduate Programme."), null);
+  // A deadline or an open end is not a list a single year could fail.
+  assert.equal(yearsOf("Requirements:\n- Must have graduated by September 2026."), null);
+  assert.equal(yearsOf("Requirements:\n- You must have graduated from 2024 onwards."), null);
+  // "graduated from university in 2025" is still a year.
+  assert.deepEqual(yearsOf("Requirements:\n- You must have graduated from university in 2025."), [2025]);
+});
+
+test("degree: the lowest level a sentence names; a conditional note in brackets is no requirement", () => {
+  // Mercedes-AMG's placement: the Masters/PhD mention is a note about evidencing enrolment.
+  const mercedes =
+    "What we're looking for\n- Have at least one year remaining on your current course or be enrolled on your next course* from the point at which you start your placement with us (*please note that if you will be enrolled on a Masters or PhD course you will need to be able to evidence enrolment to confirm eligibility).";
+  assert.equal(detectGates(mercedes).filter((g) => g.category === "degree").length, 0);
+  const either = one("Requirements:\n- A Master's or PhD in Computer Science.", "degree");
+  assert.equal(either.value.kind === "degree" && either.value.level, "masters");
+  const plain = one("Requirements:\n- A degree in Computer Science or a related field.", "degree");
+  assert.equal(plain.value.kind === "degree" && plain.value.level, "bachelors");
+  const bscMsc = one("Requirements:\n- BSc required, MSc preferred.", "degree");
+  assert.equal(bscMsc.value.kind === "degree" && bscMsc.value.level, "bachelors");
+  // A bracketed requirement that is not conditional still counts.
+  assert.equal(detectGates("Requirements:\n- Strong academic record (2:1 degree or above).").filter((g) => g.category === "degree").length, 1);
 });

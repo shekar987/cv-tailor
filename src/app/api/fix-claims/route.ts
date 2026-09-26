@@ -29,6 +29,7 @@ import {
   type RepairChange,
 } from "@/lib/claimRepair";
 import { unsupportedProperNouns } from "@/lib/properNouns";
+import { buildEvidenceMap, graftRules } from "@/lib/evidenceMap";
 import { claimsRepairPrompt } from "@/prompts/steps";
 import {
   MAX_CV_CHARS,
@@ -127,6 +128,9 @@ export async function POST(req: NextRequest) {
     }
 
     const sources = [cv, pool];
+    // The posting's technologies the master CV never shows, and those only a
+    // project shows — the same rules the tailor route checks against.
+    const grafts = graftRules(buildEvidenceMap(analysis, cv, pool, claims));
     let cur: RepairSections = { summary, skills, experience, projects, coverLetter };
     const changes: RepairChange[] = [];
 
@@ -145,12 +149,12 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. Exact trims.
-    const trimmed = surgicalUntilStable(cur, claims, sources, jd);
+    const trimmed = surgicalUntilStable(cur, claims, sources, jd, grafts);
     cur = trimmed.sections;
     changes.push(...trimmed.changes);
 
     // 2. One model call for what is left.
-    const items = listRepairs(cur, checkSections(cur, claims, sources, jd)).slice(0, MAX_MODEL_ITEMS);
+    const items = listRepairs(cur, checkSections(cur, claims, sources, jd, grafts), claims).slice(0, MAX_MODEL_ITEMS);
     const model: { used: boolean; provider: string | null; fallback: boolean; rejected: number; error: string | null } = {
       used: false,
       provider: null,
@@ -182,7 +186,7 @@ export async function POST(req: NextRequest) {
         model.fallback = out.fallback;
         const edits = normalizeRepairEdits(out.result, items);
         const applied = applyModelEdits(cur, items, edits, (it, rep) => {
-          if (!replacementPasses(rep, it.section, claims, sources, jd)) return false;
+          if (!replacementPasses(rep, it.section, claims, sources, jd, grafts)) return false;
           const names = it.section === "summary" || it.section === "coverLetter" ? openNameSources : cvNameSources;
           return unsupportedProperNouns(rep, names).filter((n) => !unsupportedProperNouns(it.sentence, names).includes(n)).length === 0;
         });
@@ -198,11 +202,11 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Whatever still fails is removed.
-    const dropped = dropUntilClean(cur, claims, sources, jd);
+    const dropped = dropUntilClean(cur, claims, sources, jd, grafts);
     cur = dropped.sections;
     changes.push(...dropped.changes);
 
-    return NextResponse.json({ sections: cur, claimCheck: checkSections(cur, claims, sources, jd), changes, model });
+    return NextResponse.json({ sections: cur, claimCheck: checkSections(cur, claims, sources, jd, grafts), changes, model });
   } catch (error) {
     console.error("Fix-claims API error:", error instanceof Error ? error.message : "Unknown error");
     return NextResponse.json({ error: "Couldn't fix the flagged claims. Edit the highlighted text in the preview instead — the re-check is free." }, { status: 500 });

@@ -4,6 +4,8 @@ import { callClaude, callLLM, ProviderCreditError, ProviderRateLimitError } from
 import { loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { openRouterLimitMessage, fallbackExhaustedMessage } from "@/lib/fallbackRoute";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
+import { buildEvidenceMap } from "@/lib/evidenceMap";
+import { normalizeClaims } from "@/lib/claims";
 import { JD_ANALYZER_PROMPT } from "@/prompts/steps";
 import { matchAtsKeywords } from "@/lib/atsMatch";
 import {
@@ -15,7 +17,7 @@ import {
   normalizeEligibility,
   isEligibilitySet,
 } from "@/lib/knockouts";
-import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG } from "@/lib/limits";
+import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_ELIGIBILITY_JSON, MAX_POOL_CHARS, MAX_CLAIMS_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
 import { classifySeniority, seniorityFit } from "@/lib/seniority";
 
 // Rows the user already saved with this exact job description. Goes through
@@ -105,6 +107,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Eligibility profile is too large." }, { status: 400 });
     }
     const eligibility = normalizeEligibility(body.eligibility);
+    // The project pool and the claims registry, sent along like the
+    // eligibility answers, for the requirement → evidence map (free).
+    const projectsPool = typeof body.projectsPool === "string" ? body.projectsPool : "";
+    if (projectsPool.length > MAX_POOL_CHARS) {
+      return NextResponse.json({ error: POOL_TOO_LONG }, { status: 400 });
+    }
+    if (body.claims !== undefined && JSON.stringify(body.claims).length > MAX_CLAIMS_JSON) {
+      return NextResponse.json({ error: "Claims registry is too large." }, { status: 400 });
+    }
+    const claims = normalizeClaims(body.claims);
 
     // Free, and independent of the model call — run it alongside.
     const duplicatesPromise = findDuplicates(supabase, jobDescription);
@@ -188,10 +200,14 @@ export async function POST(req: NextRequest) {
       const atsPreCheck = matchAtsKeywords(cvText, analysis.top_15_ats_keywords);
       const requiredPreCheck = matchAtsKeywords(cvText, analysis.required_skills);
       const read = readVerdict(verdicts, requiredPreCheck.total > 0 ? requiredPreCheck : null, atsPreCheck.total > 0 ? atsPreCheck : null);
+      // For every requirement: where the master CV shows it — paid work, a
+      // project only, a list only, or nowhere (lib/evidenceMap).
+      const evidence = buildEvidenceMap(result, cvText, projectsPool, claims);
       return NextResponse.json({
         result,
         atsPreCheck,
         requiredPreCheck,
+        evidence,
         knockouts: { profileSet: isEligibilitySet(eligibility), verdicts, read },
         seniority,
         jdQuality: quality,

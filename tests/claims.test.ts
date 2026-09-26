@@ -21,6 +21,8 @@ import {
   learningText,
   countUnconfirmed,
   looksLikeRefusal,
+  namesRequirement,
+  numberWordsToDigits,
   DEFAULT_CLAIMS_BLOCK,
   type ClaimsRegistry,
 } from "../src/lib/claims.ts";
@@ -446,4 +448,83 @@ test("sentencesMentioning hands the rewrite the FULL sentence, not the 120-chara
   // Spelling the acronym out does not get past the check.
   assert.equal(skillMentioned("building retrieval-augmented generation pipelines", "RAG and knowledge retrieval"), true);
   assert.equal(skillMentioned("building Retrieval Augmented Generation pipelines", "RAG and knowledge retrieval"), true);
+});
+
+test("namesRequirement: whole terms, exact implications, and language names that are English words", () => {
+  assert.equal(namesRequirement("Built services in Go and Python", "Go"), true);
+  assert.equal(namesRequirement("Shipped the feature so we could go live in May", "Go"), false);
+  assert.equal(namesRequirement("Go", "Go"), true, "a list item that is exactly the name");
+  assert.equal(namesRequirement("Optimised PostgreSQL and MySQL queries", "SQL"), true);
+  assert.equal(namesRequirement("Optimised PostgreSQL and MySQL queries", "Relational databases"), true);
+  assert.equal(namesRequirement("BSc Computer Science, 2023", "Computer Science degree"), true);
+  assert.equal(namesRequirement("AWS Certified Cloud Practitioner", "AWS Lambda"), false);
+  assert.equal(namesRequirement("covered by 90 Jest tests", "Quality assurance"), true);
+});
+
+test("a posting term the master CV never shows is flagged in the CV, not in the letter", () => {
+  const cv = "Backend Engineer | Northwind | 2023 – Present\n• Built services in Python";
+  const out = {
+    cv: "Technical Tools: Python | Go\nBackend Engineer | Northwind | 2023 – Present\n• Built services in Python and Go\n• Ready to go live quickly",
+    letter: "While I haven't shipped Go in production, I learn languages quickly.",
+  };
+  const check = checkClaims(
+    [
+      { where: "cv", text: out.cv, experience: "Backend Engineer | Northwind | 2023 – Present\n• Built services in Python and Go", skills: "Technical Tools: Python | Go" },
+      { where: "coverLetter", text: out.letter },
+    ],
+    null,
+    [cv],
+    [{ term: "Go", status: "gap" }]
+  );
+  const go = check.skillViolations.filter((v) => v.skill === "Go");
+  assert.equal(go.length, 1);
+  assert.equal(go[0].rule, "not_in_cv");
+  assert.equal(go[0].level, "absent");
+  assert.equal(go[0].where, "cv");
+});
+
+test("a project-only technology the registry doesn't know is still held out of Experience", () => {
+  const check = checkClaims(
+    [{ where: "cv", text: "• Provisioned the stack with Terraform", experience: "Engineer | Acme | 2023 – 2024\n• Provisioned the stack with Terraform" }],
+    null,
+    ["Engineer | Acme | 2023 – 2024\n• Built APIs\nPROJECTS\nLedgerly: Terraform"],
+    [{ term: "Terraform", status: "project" }]
+  );
+  assert.equal(check.skillViolations[0]?.rule, "project_in_experience");
+});
+
+test("two figures joined into a range the master CV never states are flagged (rule 4)", () => {
+  const cv = "• Cut response times by ~25%\n• Improved read times by 30%\n• Latency fell 10-15% after caching";
+  const flagged = checkClaims([{ where: "cv", text: "Improved response times by 25–30% across services." }], null, [cv]);
+  assert.equal(flagged.numberViolations.find((n) => n.kind === "combined")?.figure, "25–30%");
+  // A range the CV itself states is fine; a date range is never a figure.
+  const fine = checkClaims([{ where: "cv", text: "Latency fell 10–15% after caching. Brane Group, 2022 – 2024." }], null, [cv]);
+  assert.equal(fine.numberViolations.filter((n) => n.kind === "combined").length, 0);
+});
+
+test("a production skill's token is not a mention of a narrower project skill; subjects are not proficiency", () => {
+  const registry: ClaimsRegistry = {
+    version: 1,
+    confirmedAt: "2026-09-19T00:00:00Z",
+    seededFrom: null,
+    skills: [
+      { name: "AWS", level: "production", confirmed: true },
+      { name: "AWS Lambda", level: "project", confirmed: true },
+    ],
+  };
+  const text = "AWS Certified AI Practitioner with certifications in Machine Learning and Deep Learning.";
+  assert.equal(checkClaims([{ where: "cv", text }], registry, ["AWS Certified AI Practitioner"]).skillViolations.length, 0);
+  // The narrower skill is still caught by its own name.
+  const claimed = checkClaims([{ where: "cv", text: "Deep experience with AWS Lambda functions." }], registry, ["x"]);
+  assert.equal(claimed.skillViolations[0]?.rule, "project_as_competency");
+});
+
+test("a figure the posting spells out supports the same figure in digits (Softwire, 26 Sep)", () => {
+  assert.equal(numberWordsToDigits("a minimum of three days per week"), "a minimum of 3 days per week");
+  const letter = "I am based in London and available for the minimum 3 days per week in office or on customer site.";
+  const jd = "This is a non-remote role which requires you to be in the office or on customer site a minimum of three days per week.";
+  const check = checkClaims([{ where: "coverLetter", text: letter, extraSources: [jd] }], null, ["Built FastAPI services"]);
+  assert.deepEqual(check.numberViolations, []);
+  // The output side is unchanged: a CV's own "two years" is not newly checked.
+  assert.deepEqual(checkClaims([{ where: "cv", text: "Two years of production Python." }], null, ["Built FastAPI services"]).numberViolations, []);
 });
