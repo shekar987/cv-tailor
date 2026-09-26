@@ -19,6 +19,7 @@ import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLette
 import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
 import { normalizeClaims, checkClaims, seedClaimsFromCv, SKILL_RULE_TEXT, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
 import { qualityReport, type QualityReport } from "@/lib/quality";
+import { REPAIR_SECTION_LABEL, type RepairChange } from "@/lib/claimRepair";
 import { normalizeVariants, pickVariant, leadSkillsNotice, type VariantsConfig, type LeadSkillDrop } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTarget, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import type { SeniorityFit } from "@/lib/seniority";
@@ -150,7 +151,7 @@ type Result = {
 
 // Said wherever a claims block holds Download or Applied shut: the way out
 // is an edit, re-checked in the browser — never another paid tailor.
-const FREE_FIX = "Edit that sentence in the CV preview, then click outside the text: the re-check runs in your browser, uses no credit, and unlocks the download.";
+const FREE_FIX = "Press Fix it to correct it for you (no tailor credit is used), or edit that sentence in the CV preview and click outside the text: the re-check runs in your browser and unlocks the download.";
 
 const WHERE_LABEL: Record<ClaimWhere, string> = { cv: "CV", coverLetter: "cover letter", email: "email", extra: "text" };
 
@@ -195,6 +196,22 @@ function formatDay(iso: string): string {
 // "cleared": the run was saved to the tracker and the workspace emptied for
 // the next posting (undo keeps the last run for the session).
 type AppliedState = "idle" | "saving" | "saved" | "already" | "error" | "cleared";
+
+// What "Fix it" (/api/fix-claims) changed, and how: exact trims, one model
+// rewrite, then removal of anything still failing. `passed` = the claims
+// check of the fixed text no longer blocks.
+type ClaimFixReport = {
+  changes: RepairChange[];
+  model: { used: boolean; provider: string | null; fallback: boolean; rejected: number; error: string | null } | null;
+  passed: boolean;
+};
+const FIX_HOW_LABEL: Record<RepairChange["how"], string> = {
+  trimmed: "trimmed",
+  rewritten: "rewritten",
+  removed: "removed",
+  reordered: "reordered",
+};
+const clip = (t: string, n = 160) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
 
 // ── Stage 3: company research (the /api/research payload, typed loosely — the
 // server owns the shape; the UI renders what's present and skips what isn't).
@@ -320,6 +337,14 @@ export default function Home() {
   // Quality read of the preview AS EDITED (page estimate, duplicates, weak
   // bullets, filler); null = read the original result.
   const [liveQuality, setLiveQuality] = useState<QualityReport | null>(null);
+  // "Fix it": the claims repair of the edited preview (/api/fix-claims). The
+  // run as it stood before the fix is kept for one undo; previewKey remounts
+  // both memoised contentEditable previews so they show the fixed text.
+  const [fixingClaims, setFixingClaims] = useState(false);
+  const [claimFixReport, setClaimFixReport] = useState<ClaimFixReport | null>(null);
+  const [claimFixError, setClaimFixError] = useState("");
+  const [preFixResult, setPreFixResult] = useState<Result | null>(null);
+  const [previewKey, setPreviewKey] = useState(0);
   // Positioning variants (Customize) and the user's override for this run
   // (null = pick by the posting's role type; "none" = apply none).
   const [variants, setVariants] = useState<VariantsConfig | null>(null);
@@ -784,6 +809,10 @@ export default function Home() {
     return undefined;
   })();
 
+  // Something "Fix it" can act on: a skill claimed above its level, or a
+  // figure absent from the master CV (context warnings never block).
+  const fixable = !!activeCheck && (activeCheck.skillViolations.length > 0 || activeCheck.numberViolations.some((n) => n.kind === "absent"));
+
   // The positioning variant for this run: the override, else the one whose
   // role types include the posting's role_type. Declared above executeTailor
   // for the same reason as gateInfo.
@@ -899,6 +928,9 @@ export default function Home() {
       setResult(fresh);
       setLiveCheck(null);
       setLiveQuality(null);
+      setClaimFixReport(null);
+      setClaimFixError("");
+      setPreFixResult(null);
       setRanProvider(typeof data.provider === "string" ? data.provider : null);
       setTailorSessionId(sessionId);
       // The text this run was tailored from — the JD box for a JD run, the
@@ -989,6 +1021,113 @@ export default function Home() {
         )
       );
     }
+  }
+
+  // The claims check of a set of sections, exactly as recheckClaims() runs it
+  // on the preview: the CV part and the letter (which may quote the posting).
+  function claimCheckOf(sec: { summary: string; skills: string; experience: string; projects: unknown; coverLetter: string }): ClaimCheck {
+    return checkClaims(
+      [
+        { where: "cv", text: tailoredSectionsText(sec), experience: sec.experience, skills: sec.skills },
+        { where: "coverLetter", text: sec.coverLetter, extraSources: [resultJd ?? jobDescription] },
+      ],
+      claims,
+      [masterCvText, projectsPool]
+    );
+  }
+
+  // "Fix it": send the document AS EDITED to /api/fix-claims, which trims the
+  // flagged words exactly, rewrites what is left in one model call with the
+  // job's terms in view, and removes anything that still fails — so the
+  // result always passes. No tailor credit is spent. The fixed text replaces
+  // the run (and its saved workspace); Undo restores the text as it was.
+  async function fixClaims() {
+    if (!result || fixingClaims) return;
+    const payload = previewRef.current?.collectPayload() ?? null;
+    const letter = coverRef.current?.collectText() ?? null;
+    // The preview's wire format back to the pipeline's, as the Applied
+    // snapshot does: "Role | Company | Date" header lines, and the letter
+    // without the date line the preview puts on top.
+    const experience = payload
+      ? payload.experience
+          .split("\n")
+          .map((line) => {
+            const m = /^@@JOB@@(.*)@@(.*)$/.exec(line);
+            return m ? [m[1].trim(), m[2].trim()].filter(Boolean).join(" | ") : line;
+          })
+          .join("\n")
+      : result.experience ?? "";
+    const sections = {
+      summary: payload ? payload.summary : result.summary ?? "",
+      skills: payload ? payload.skills : result.skills ?? "",
+      experience,
+      projects: (payload ? payload.projects : result.projects ?? {}) as Record<string, string[]>,
+      coverLetter: letter !== null ? letter.replace(/^\s*\d{1,2} [A-Z][a-z]+ \d{4}\s*(?:\n|$)/, "") : result.coverLetter ?? "",
+    };
+    setFixingClaims(true);
+    setClaimFixError("");
+    try {
+      const res = await fetch("/api/fix-claims", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sections,
+          cvText: masterCvText,
+          projectsPool: projectsPool || undefined,
+          claims,
+          jobDescription: resultJd ?? jobDescription,
+          analysis: result.analysis,
+          ...(isUnlimited ? { provider } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const fixed = data?.sections;
+      if (!res.ok || !fixed || typeof fixed !== "object") {
+        setClaimFixError(
+          typeof data?.error === "string" ? data.error : "Couldn't fix the flagged claims just now. Edit the highlighted text instead — the re-check is free."
+        );
+        return;
+      }
+      const next = {
+        summary: typeof fixed.summary === "string" ? fixed.summary : sections.summary,
+        skills: typeof fixed.skills === "string" ? fixed.skills : sections.skills,
+        experience: typeof fixed.experience === "string" ? fixed.experience : sections.experience,
+        projects: fixed.projects && typeof fixed.projects === "object" ? (fixed.projects as Record<string, string[]>) : sections.projects,
+        coverLetter: typeof fixed.coverLetter === "string" ? fixed.coverLetter : sections.coverLetter,
+      };
+      // The same check the page runs on every edit, on the fixed text.
+      const check = claimCheckOf(next);
+      setPreFixResult({ ...result, ...sections, coverLetter: result.coverLetter ? sections.coverLetter : result.coverLetter, claimCheck: claimCheckOf(sections) });
+      setResult({ ...result, ...next, coverLetter: result.coverLetter ? next.coverLetter : result.coverLetter, claimCheck: check });
+      setLiveCheck(null);
+      setLiveQuality(null);
+      setPreviewKey((k) => k + 1);
+      setClaimFixReport({
+        changes: Array.isArray(data.changes) ? (data.changes as RepairChange[]) : [],
+        model: data.model && typeof data.model === "object" ? data.model : null,
+        passed: !check.blocking,
+      });
+    } catch {
+      setClaimFixError("Couldn't reach the server to fix the claims. Edit the highlighted text instead — the re-check is free.");
+    } finally {
+      setFixingClaims(false);
+    }
+  }
+
+  function undoClaimFix() {
+    if (!preFixResult) return;
+    setResult(preFixResult);
+    setPreFixResult(null);
+    setClaimFixReport(null);
+    setLiveCheck(null);
+    setLiveQuality(null);
+    setPreviewKey((k) => k + 1);
+  }
+
+  // The preview's own "Fix it" button (beside the blocked Download) is
+  // handled here, on the wrapper, so CvPreview gets no callback prop.
+  function onPreviewClick(e: React.MouseEvent<HTMLDivElement>) {
+    if ((e.target as HTMLElement).closest("[data-fix-claims]")) fixClaims();
   }
 
   // Paint the flagged figures and skills onto the editable previews with the
@@ -1164,6 +1303,9 @@ export default function Home() {
     setResultSource(null);
     setTailorSessionId(null);
     setLiveQuality(null);
+    setClaimFixReport(null);
+    setClaimFixError("");
+    setPreFixResult(null);
     setAppliedError("");
     setAppliedNotice("");
     setPreCheck(null);
@@ -2097,15 +2239,75 @@ export default function Home() {
                   </ul>
                   <p className="fitEvidence">
                     {blocked
-                      ? "Edit the highlighted text in the preview below, then click outside it or press Re-check now. Download and Applied unlock when it passes — no credit is used, there is no need to tailor again."
+                      ? "Press Fix it and the flagged words are corrected for you, with the job description in view — no tailor credit is used. Or edit the highlighted text in the preview below, then click outside it or press Re-check now. Download and Applied unlock when it passes."
                       : activeCheck.mode === "enforce"
                         ? "Warnings don't block downloads; a figure missing from your CV or a skill claimed above its level would."
                         : "Save a master CV in Customize and its skills become blocking checks."}
                   </p>
+                  {claimFixError && <StatusText role="alert">{claimFixError}</StatusText>}
                 </div>
                 <div className="limitNotice__cta">
+                  {fixable && (
+                    <Button onClick={fixClaims} disabled={fixingClaims} aria-busy={fixingClaims || undefined} data-fix-claims-notice>
+                      {fixingClaims ? "Fixing…" : "Fix it"}
+                    </Button>
+                  )}
                   <Button variant="secondary" onClick={recheckClaims}>Re-check now</Button>
                 </div>
+              </div>
+            )}
+            {claimFixReport && (
+              <div className="limitNotice" role="status" data-claim-fix={claimFixReport.passed ? "passed" : "partial"}>
+                <div className="limitNotice__title">
+                  {claimFixReport.passed ? "Fixed — the claims check passes" : "Partly fixed — see the claims check above"}
+                </div>
+                <div className="limitNotice__body">
+                  {claimFixReport.changes.length === 0 ? (
+                    <p className="fitEvidence">Nothing needed changing.</p>
+                  ) : (
+                    <ul className="atsList">
+                      {claimFixReport.changes.map((c, i) => (
+                        <li key={i} data-fix-how={c.how}>
+                          <Badge variant="dot" tone={c.how === "removed" ? "miss" : "rec"}>{c.how === "removed" ? "−" : "→"}</Badge>
+                          <span>
+                            <strong>{REPAIR_SECTION_LABEL[c.section] ?? c.section}</strong> —{" "}
+                            {c.how === "trimmed" && Array.isArray(c.removed) && c.removed.length > 0 ? (
+                              // The sentence is clipped for display; the words taken out are the change.
+                              <>
+                                took out &ldquo;{c.removed.join(" ")}&rdquo;: &ldquo;{clip(c.after)}&rdquo;
+                              </>
+                            ) : (
+                              FIX_HOW_LABEL[c.how] ?? c.how
+                            )}
+                            {c.how === "trimmed" && Array.isArray(c.removed) && c.removed.length > 0 ? null : c.how === "reordered" ? (
+                              <>: {c.after}.</>
+                            ) : c.how === "removed" ? (
+                              <>: &ldquo;{clip(c.before)}&rdquo;</>
+                            ) : (
+                              <>
+                                : &ldquo;{clip(c.after)}&rdquo;
+                                <span className="changesView__diff"> (was &ldquo;{clip(c.before)}&rdquo;)</span>
+                              </>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="fitEvidence">
+                    {claimFixReport.model?.error
+                      ? "The AI rewrite wasn't available just now, so the sentences it would have reworded were removed instead. Undo to get them back and edit them by hand."
+                      : claimFixReport.model?.rejected
+                        ? `${claimFixReport.model.rejected === 1 ? "One AI rewrite" : `${claimFixReport.model.rejected} AI rewrites`} still broke a rule, so ${claimFixReport.model.rejected === 1 ? "that sentence was" : "those sentences were"} removed instead.`
+                        : "Only the flagged words were changed; everything else is as it was."}{" "}
+                    No tailor credit was used. Read the changes, then download.
+                  </p>
+                </div>
+                {preFixResult && (
+                  <div className="limitNotice__cta">
+                    <Button variant="secondary" onClick={undoClaimFix} data-undo-claim-fix>Undo fix</Button>
+                  </div>
+                )}
               </div>
             )}
             {(result.formatFixes?.tools || result.formatFixes?.summary) && (
@@ -2436,7 +2638,7 @@ export default function Home() {
                 <StatusText as="span" role="alert">{appliedError}</StatusText>
               )}
               {blocked && appliedState === "idle" && (
-                <StatusText as="span" role="status">Fix the flagged claims above first — editing the preview is free.</StatusText>
+                <StatusText as="span" role="status">Fix the flagged claims above first — press Fix it, or edit the preview. No credit is used.</StatusText>
               )}
             </div>
             {appliedNotice && (
@@ -2456,8 +2658,9 @@ export default function Home() {
                     : "."}
               </p>
             )}
-            <div onBlur={onPreviewBlur}>
+            <div onBlur={onPreviewBlur} onClick={onPreviewClick}>
               <CvPreview
+                key={previewKey}
                 ref={previewRef}
                 data={cvData}
                 profile={displayProfile}
@@ -2467,6 +2670,8 @@ export default function Home() {
                 sectionOrder={runSectionOrder}
                 fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}
                 downloadsDisabled={blocked || staleRun}
+                fixClaimsAvailable={blocked && fixable}
+                fixingClaims={fixingClaims}
               />
               {result.bulletChanges && (result.bulletChanges.experience || result.bulletChanges.projects.length > 0) && (
                 <details className="changesView" data-bullet-changes>
@@ -2519,6 +2724,7 @@ export default function Home() {
                 <>
                   <h2 className="clHeading">Cover Letter</h2>
                   <CoverLetterPreview
+                    key={previewKey}
                     ref={coverRef}
                     coverLetter={result.coverLetter}
                     fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CoverLetter")}

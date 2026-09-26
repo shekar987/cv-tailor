@@ -532,9 +532,45 @@ ${ABSOLUTE_RULES}
 The candidate's own claims registry says these skills were used only in personal projects, never in paid work, so they may not appear in this section:
 ${removals.map((r) => `- remove "${r.skill}"${r.aliases && r.aliases.length ? ` (written in the text as ${r.aliases.map((a) => `"${a}"`).join(" or ")})` : ""} from this sentence: ${r.sentence}`).join("\n")}
 
-Rules for each rewrite: drop the named skill and any clause that only exists to carry it; keep every other fact, figure and technology in the sentence; do not add any other skill or figure in its place; do not keep the skill under another name or spelling (an acronym spelled out, a synonym); if nothing is left, remove the sentence.
+Rules for each rewrite: remove only the named skill's own words (for "LLM/RAG knowledge solutions" with RAG named, write "LLM knowledge solutions"), plus any clause that exists only to carry it; keep every other fact, figure, technology and outcome in the sentence, attached to the same piece of work — never move an outcome or a figure onto different work; do not add any other skill or figure in its place; do not keep the skill under another name or spelling (an acronym spelled out, a synonym); if nothing is left, remove the sentence.
 
 Output ONLY the section text. No preamble, no notes.`;
+
+// The "Fix it" button on /app (/api/fix-claims): the sentences the claims
+// check still flags after lib/claimRepair's exact trims, each rewritten once
+// so the CV passes and still reads for THIS job. Every replacement is
+// re-checked on its own before it is applied, and a sentence whose rewrite
+// still fails is removed — so the button always ends in a CV that passes.
+export const claimsRepairPrompt = (
+  cv: string,
+  claimsBlock: string,
+  job: { title: string; keywords: string[]; required: string[] }
+) => `You repair flagged sentences in a tailored CV and cover letter so that every claim matches the candidate's own records, while the text still reads well for the job below.
+
+${ABSOLUTE_RULES}
+
+${claimsBlock}
+
+THE JOB
+Title: ${job.title || "not stated"}
+Terms a recruiter will search for: ${job.keywords.join(", ") || "none given"}
+Required skills: ${job.required.join(", ") || "none given"}
+
+You will receive a JSON list of items: {"id", "section", "sentence", "problems"}. Each sentence breaks the rules named in its problems. For each item write ONE replacement for that sentence, in the same place in the same section:
+- Fix only the named problems. Keep every other fact, figure, technology and outcome in the sentence, attached to the same piece of work.
+- Remove only the flagged skill's own words: for "LLM/RAG knowledge solutions" with RAG flagged, write "LLM knowledge solutions". Never move an outcome or a figure onto a different piece of work, and never merge two pieces of work into one.
+- Keep every claim with its own source. Words from one job's bullets may not describe a personal project or another job, and a project's words may not describe paid work. If the replacement names a project or an employer, everything it says about it must come from that project's or that employer's own lines in the master CV. In the cover letter, when no specific true claim is left, remove the sentence rather than write a vaguer one.
+- Experience: no skill registered at project or learning level may appear in it at all.
+- Summary and cover letter: a project-level skill may appear only as something built in a named project the master CV shows ("built Jobhuntz with RAG"), never beside experience, expertise, proficient, skilled, strong, advanced, deep or a number of years. A learning-level skill may not appear anywhere.
+- A figure the problems say is not on the master CV: use the master CV's exact figure for the same fact, or write the sentence without a figure. Never round, estimate or invent one.
+- Where a true wording uses the job's terms above, prefer it, but only terms the master CV supports for this same piece of work (rules 5 and 6). Add no skill, tool or figure that is not already in the sentence or in the master CV for this work.
+- Keep the sentence's form: an experience or project bullet stays one bullet-length sentence that opens with a strong verb; a skills line keeps its "Label: item | item" form; a summary sentence stays one sentence.
+- If nothing true is left to say, the replacement is "" (the sentence is removed).
+
+MASTER CV (the only source of truth):
+${cv}
+
+Output ONLY JSON: {"edits":[{"id":"r1","replacement":"..."}]} with one entry per item. No preamble, no notes.`;
 
 // A cover letter named a place that appears nowhere in the job description,
 // the research or the CV ("available for on-site work in Shoreditch").

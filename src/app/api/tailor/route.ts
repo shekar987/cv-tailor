@@ -35,6 +35,7 @@ import { parseMasterExperience, renderIdBlock, reconcileExperience, diffAgainstM
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
+import { surgicalUntilStable, type RepairSections } from "@/lib/claimRepair";
 import { reconcileAtsScore, renderBandBlock } from "@/lib/visibilityVerdict";
 import { applyFormatRules } from "@/lib/formatRules";
 
@@ -303,12 +304,42 @@ async function runPipeline(opts: {
   // rewrite of the offending sentences; anything that survives blocks the
   // download with the sentence and the rule named.
   let skillsFinal: unknown = skills;
-  const claimFix = { toolsDemoted: [] as string[], rewritten: [] as string[], remaining: 0 };
+  const claimFix = { toolsDemoted: [] as string[], trimmed: [] as string[], rewritten: [] as string[], remaining: 0 };
   if (claims && claims.skills.length > 0) {
     const projectNames = claims.skills.filter((s) => s.level === "project").map((s) => s.name);
     const demoted = demoteProjectTools(skillsFinal, projectNames);
     skillsFinal = demoted.skills;
     claimFix.toolsDemoted = demoted.demoted;
+    // Exact trims first (lib/claimRepair): only the flagged skill's own
+    // words go — "LLM/RAG" → "LLM", a bracketed or skills-line item — so
+    // every other word, figure and outcome stays where it was. The model
+    // rewrites below see only what a regex cannot fix, and a fast
+    // (OpenRouter) run, which skips them, still gets these. The master CV's
+    // own "LLM/RAG knowledge solutions" bullet blocked downloads on 25 Sep
+    // after the rewrite came back unchanged. Projects are left to the pool
+    // bookkeeping; the letter is not written yet.
+    {
+      const base: RepairSections = {
+        summary: typeof summary === "string" ? summary : "",
+        skills: typeof skillsFinal === "string" ? skillsFinal : "",
+        experience: typeof experienceFinal === "string" ? experienceFinal : "",
+        projects: {},
+        coverLetter: "",
+      };
+      // Best effort: the model rewrite and the final check below still run
+      // if this step fails, so a bug here can never fail a paid run.
+      try {
+        const t = surgicalUntilStable(base, claims, [cv, projectsPool], jd);
+        if (t.changes.length > 0) {
+          if (typeof summary === "string") summary = t.sections.summary;
+          if (typeof skillsFinal === "string") skillsFinal = t.sections.skills;
+          if (typeof experienceFinal === "string") experienceFinal = t.sections.experience;
+          claimFix.trimmed = t.changes.map((c) => c.after);
+        }
+      } catch (e) {
+        console.error("Claims trim pass failed:", e instanceof Error ? e.message : String(e));
+      }
+    }
     const cvPart = (exp: unknown, sum: unknown) => ({
       where: "cv" as const,
       text: tailoredSectionsText({ summary: sum, skills: skillsFinal, experience: exp, projects: projectsFinal }),

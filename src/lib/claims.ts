@@ -640,7 +640,7 @@ export type ClaimPart = { where: ClaimWhere; text: string; extraSources?: (strin
 const PROFICIENCY_RE =
   /\b(?:proficien(?:t|cy)|expert(?:ise)?|experienced|experience\s+(?:in|with|of|building|using|developing|delivering)|strong|advanced|extensive|deep|solid|skilled|fluen(?:t|cy)|competent|specialis(?:t|ed|ing)|specializ(?:ed|ing)|mastery|\d+\+?\s+years?)\b/i;
 
-function sentencesOf(text: string): string[] {
+export function sentencesOf(text: string): string[] {
   return text
     .replace(/\*\*/g, "")
     .split(/(?<=[.!?;])\s+|\n+|\s+[•▪●◦]\s*/)
@@ -656,6 +656,12 @@ function sentencesOf(text: string): string[] {
 export function sentencesMentioning(text: string, skill: string): string[] {
   if (!text) return [];
   return sentencesOf(text).filter((s) => !/\|/.test(s) && skillMentioned(s, skill));
+}
+
+// Whether a sentence claims the skill as a competency: names it AND carries
+// proficiency wording — the project_as_competency rule, per sentence.
+export function describesAsCompetency(sentence: string, skill: string): boolean {
+  return skillMentioned(sentence, skill) && PROFICIENCY_RE.test(sentence);
 }
 
 function excerpt(s: string): string {

@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/atsMatch.test.ts tests/companyMatch.test.ts tests/knockouts.test.ts tests/claims.test.ts tests/insights.test.ts tests/quality.test.ts tests/extractionCheck.test.ts tests/variants.test.ts tests/preferences.test.ts tests/visibilityVerdict.test.ts tests/seniority.test.ts tests/roleTitle.test.ts tests/formatRules.test.ts tests/properNouns.test.ts tests/trackerSearch.test.ts tests/providerErrors.test.ts tests/rightToWorkText.test.ts tests/pdfTextCheck.test.ts tests/onePage.test.ts tests/headline.test.ts tests/graduateMode.test.ts tests/bulletIds.test.ts tests/fallbackRoute.test.ts tests/postingAge.test.ts"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/atsMatch.test.ts tests/companyMatch.test.ts tests/knockouts.test.ts tests/claims.test.ts tests/insights.test.ts tests/quality.test.ts tests/extractionCheck.test.ts tests/variants.test.ts tests/preferences.test.ts tests/visibilityVerdict.test.ts tests/seniority.test.ts tests/roleTitle.test.ts tests/formatRules.test.ts tests/properNouns.test.ts tests/trackerSearch.test.ts tests/providerErrors.test.ts tests/rightToWorkText.test.ts tests/pdfTextCheck.test.ts tests/onePage.test.ts tests/headline.test.ts tests/graduateMode.test.ts tests/bulletIds.test.ts tests/fallbackRoute.test.ts tests/postingAge.test.ts tests/claimRepair.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",

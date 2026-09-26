@@ -15,7 +15,7 @@
 // missing refund function (migration not applied) is logged, never surfaced.
 
 import { createClient } from "@/lib/supabase/server";
-import { Provider } from "@/lib/claude";
+import { callClaude, callLLM, ProviderCreditError, ProviderRateLimitError, type Provider } from "@/lib/claude";
 import { decrypt } from "@/lib/keyEncryption";
 import { DAILY_TAILOR_LIMIT, CLAUDE_LIFETIME_LIMIT } from "@/lib/limits";
 
@@ -76,6 +76,42 @@ export async function loadOwnOpenRouterKey(
   } catch (e) {
     console.error("OpenRouter key decryption failed (KEY_ENCRYPTION_SECRET rotation?):", e instanceof Error ? e.message : String(e));
     return { key: null, geminiOnly: !!geminiLookup.data, error: "decrypt" };
+  }
+}
+
+// One small, unmetered model call on the pre-check's routing (/api/analyze):
+// an unlimited account's provider choice, checked against the profile row
+// and never trusted from the body; otherwise the shared Claude account, and
+// the user's own OpenRouter key once when that account is out of credit or
+// rate-limited (lib/fallbackRoute). For calls that are not a tailor — the
+// claims repair behind "Fix it" — so no quota slot is spent.
+export async function callForUser(
+  supabase: Supabase,
+  userId: string,
+  bodyProvider: unknown,
+  options: { system: string; userInput: string; expectJson?: boolean; maxTokens?: number }
+): Promise<{ result: unknown; provider: Provider; fallback: boolean }> {
+  const chosen = bodyProvider === "openrouter" || bodyProvider === "gemini" ? bodyProvider : null;
+  if (chosen) {
+    const { data: prof } = await supabase.from("profiles").select("is_unlimited").eq("id", userId).maybeSingle();
+    if (prof?.is_unlimited === true) {
+      let apiKeyOverride: string | undefined;
+      if (chosen === "openrouter" && !process.env.OPENROUTER_API_KEY) {
+        const own = await loadOwnOpenRouterKey(supabase, userId);
+        if (!own.key) throw new Error("OpenRouter is selected but no OpenRouter key is available");
+        apiKeyOverride = own.key;
+      }
+      return { result: await callLLM({ provider: chosen, apiKeyOverride, ...options }), provider: chosen, fallback: false };
+    }
+  }
+  try {
+    return { result: await callClaude(options), provider: "anthropic", fallback: false };
+  } catch (e) {
+    if (!(e instanceof ProviderCreditError) && !(e instanceof ProviderRateLimitError)) throw e;
+    const own = await loadOwnOpenRouterKey(supabase, userId);
+    if (!own.key) throw e;
+    console.warn(`callForUser fallback: anthropic → openrouter (own_key) after ${e instanceof ProviderCreditError ? "provider_credit" : "provider_limit"}`);
+    return { result: await callLLM({ provider: "openrouter", apiKeyOverride: own.key, ...options }), provider: "openrouter", fallback: true };
   }
 }
 

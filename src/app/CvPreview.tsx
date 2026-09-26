@@ -73,6 +73,12 @@ type CvPreviewProps = {
   // carries the section only when the Customize switch is on (the page
   // passes a profile without it otherwise). Empty = no block.
   rightToWorkForForms?: string;
+  // "Fix it" beside the blocked Download (the claims repair, /api/fix-claims).
+  // Plain flags only: the button carries data-fix-claims and the PAGE handles
+  // its click on the wrapper it already listens on, so no callback prop
+  // defeats the memo that keeps inline edits alive.
+  fixClaimsAvailable?: boolean;
+  fixingClaims?: boolean;
 };
 
 // What collectPayload() hands back: the document as currently on screen,
@@ -95,7 +101,7 @@ export type CvPreviewHandle = {
 };
 
 const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvPreview(
-  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "", targetPages = 2 },
+  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "", targetPages = 2, fixClaimsAvailable = false, fixingClaims = false },
   fwdRef
 ) {
   const order = resolveSectionOrder(sectionOrder);
@@ -668,6 +674,11 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
     <div className="cvDocWrap">
       <div className="cvActions">
         <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason={downloadsDisabledReason || "Fix the flagged claims first"} />
+        {downloadsDisabled && fixClaimsAvailable && (
+          <Button type="button" data-fix-claims disabled={fixingClaims} aria-busy={fixingClaims || undefined}>
+            {fixingClaims ? "Fixing…" : "Fix it"}
+          </Button>
+        )}
         {downloadsDisabled && downloadsDisabledReason && (
           <StatusText as="span" role="alert" data-download-blocked-reason>
             {downloadsDisabledReason}
