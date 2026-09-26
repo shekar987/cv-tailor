@@ -19,7 +19,7 @@ test("profileForDocument: Right to Work is dropped by default and kept only when
   assert.deepEqual(off.certifications, ["AWS"], "nothing else changes");
   assert.notEqual(off, profile, "a copy, never a mutation");
   assert.deepEqual(profile.rightToWork.length, 2);
-  assert.equal(profileForDocument(profile, { version: 1, includeRightToWorkOnCv: true, onePageCv: false }), profile);
+  assert.equal(profileForDocument(profile, { version: 1, includeRightToWorkOnCv: true, onePageCv: false, projectLinks: {} }), profile);
   assert.equal(profileForDocument(null, DEFAULT_PREFERENCES), null);
   const none = { name: "Jane", rightToWork: [] };
   assert.equal(profileForDocument(none, DEFAULT_PREFERENCES), none, "no work when there is nothing to drop");
@@ -32,11 +32,18 @@ test("CV length: two pages unless one page is explicitly chosen", () => {
   assert.equal(normalizePreferences({ onePageCv: true }).onePageCv, true);
   assert.equal(pageTarget(normalizePreferences({ onePageCv: true })), 1);
   // The two switches are independent.
-  assert.deepEqual(normalizePreferences({ includeRightToWorkOnCv: true, onePageCv: true }), { version: 1, includeRightToWorkOnCv: true, onePageCv: true });
+  assert.deepEqual(normalizePreferences({ includeRightToWorkOnCv: true, onePageCv: true }), { version: 1, includeRightToWorkOnCv: true, onePageCv: true, projectLinks: {} });
 });
 
 test("rightToWorkForForms keeps the CV's own wording, one line each", () => {
   assert.equal(rightToWorkForForms(profile), "Full right to work in the UK\nNo sponsorship required");
   assert.equal(rightToWorkForForms({ rightToWork: [" ", ""] }), "");
   assert.equal(rightToWorkForForms(null), "");
+});
+
+test("projectLinks: saved per project, cleaned and bounded (lib/projectLinks)", () => {
+  const p = normalizePreferences({ projectLinks: { CampaignPulse: { github: "github.com/me/cp", live: "javascript:alert(1)" } } });
+  assert.deepEqual(p.projectLinks, { campaignpulse: { github: "https://github.com/me/cp", live: "" } });
+  assert.deepEqual(normalizePreferences({ projectLinks: "x" }).projectLinks, {});
+  assert.deepEqual(DEFAULT_PREFERENCES.projectLinks, {});
 });

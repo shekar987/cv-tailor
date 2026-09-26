@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
+import SentCvBlock from "./SentCvBlock";
+import type { SentCvInfo } from "@/lib/sentCv";
 import { getProfile, type Profile } from "@/lib/cvStore";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
@@ -20,7 +22,7 @@ import Textarea from "@/components/ui/Textarea";
 import StatusText from "@/components/ui/StatusText";
 
 const PAGE_TAGLINE =
-  "Every role you've applied to, in one sheet. Click any cell to edit it; click CV, JD or Notes to open that application's details.";
+  "Every role you've applied to, in one sheet. Click any cell to edit it; click CV, JD or Notes to open that application's details — or add the CV you sent for an application made elsewhere.";
 
 const STATUSES = ["Applied", "Screening", "Interview", "Offer", "Rejected", "Withdrawn"] as const;
 type Status = (typeof STATUSES)[number];
@@ -49,6 +51,9 @@ type Application = {
   // The pre-check's eligibility read stored with the snapshot (JSON-path
   // alias in the list query): "Knockout: <quote>" / "Clear" per row.
   gates?: unknown;
+  // The file name of the CV the user uploaded for this row (lib/sentCv; a
+  // JSON-path alias in the list query), absent until that migration is applied.
+  sent_cv_name?: string | null;
 };
 
 // What the Applied button stored: the generated sections plus the profile and
@@ -430,6 +435,8 @@ export default function ApplicationsPage() {
 
   const [panel, setPanel] = useState<{ id: string; kind: PanelKind } | null>(null);
   const [cvCache, setCvCache] = useState<Record<string, TailoredCv | null>>({});
+  // The CV file uploaded for a row (lib/sentCv), read with the snapshot.
+  const [sentCache, setSentCache] = useState<Record<string, SentCvInfo | null>>({});
   const [cvError, setCvError] = useState("");
   const [jdDraft, setJdDraft] = useState("");
   const [jdEditing, setJdEditing] = useState(false);
@@ -740,8 +747,16 @@ export default function ApplicationsPage() {
       setCvError(data.error || "Could not load that CV.");
       return;
     }
-    const app = data.application as { tailored_cv?: TailoredCv | null } | undefined;
+    const app = data.application as { tailored_cv?: TailoredCv | null; sent_cv?: SentCvInfo | null } | undefined;
     setCvCache((c) => ({ ...c, [id]: app?.tailored_cv ?? null }));
+    setSentCache((c) => ({ ...c, [id]: app?.sent_cv ?? null }));
+  }
+
+  // An upload, replacement or removal in the CV panel (SentCvBlock).
+  function sentCvChanged(row: Application, next: SentCvInfo | null) {
+    setSentCache((c) => ({ ...c, [row.id]: next }));
+    setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, sent_cv_name: next?.fileName ?? null } : r)));
+    showFlash(next ? "CV saved with this application." : "CV file removed.");
   }
 
   async function saveJd(row: Application) {
@@ -937,22 +952,40 @@ export default function ApplicationsPage() {
       const storedAts = readStoredAts(snap?.ats);
       const kwTotal = storedAts ? storedAts.keywords.hits.length + storedAts.keywords.misses.length : 0;
       const reqTotal = storedAts ? storedAts.required.hits.length + storedAts.required.misses.length : 0;
+      const hasSnapshot = !!snap && !!panelCvData;
       return (
         <div className="appsPanel">
           <div className="appsPanelHead">
             <span className="appsPanelTitle">
-              Tailored CV{row.cv_reference ? ` · ${row.cv_reference}` : ""}
+              {row.source === "tailored" ? `Tailored CV${row.cv_reference ? ` · ${row.cv_reference}` : ""}` : "CV you sent"}
             </span>
             <button type="button" className="appsActionBtn" onClick={() => setPanel(null)}>Close</button>
           </div>
+          {!cvError && snap !== undefined && (
+            <SentCvBlock
+              key={row.id}
+              applicationId={row.id}
+              company={row.company_name}
+              sentCv={sentCache[row.id] ?? null}
+              compact={hasSnapshot}
+              label={row.source === "tailored"}
+              onChange={(next) => sentCvChanged(row, next)}
+              onSessionExpired={() => {
+                setSessionExpired(true);
+                setActionError(SESSION_EXPIRED);
+              }}
+            />
+          )}
           {cvError ? (
             <StatusText role="alert">{cvError}</StatusText>
           ) : snap === undefined ? (
             <p className="cvHelp">Loading the CV…</p>
-          ) : snap === null || !panelCvData ? (
-            <p className="appsMuted">
-              No CV snapshot is stored for this application — it was saved before CV snapshots existed.
-            </p>
+          ) : !hasSnapshot ? (
+            row.source === "tailored" ? (
+              <p className="appsMuted">
+                No CV snapshot is stored for this application — it was saved before CV snapshots existed.
+              </p>
+            ) : null
           ) : (
             <>
               <CvPreview
@@ -1482,18 +1515,21 @@ export default function ApplicationsPage() {
                         <td data-label="Company Name">{textCell(row, "company_name")}</td>
                         <td data-label="Role">{textCell(row, "role")}</td>
                         <td data-label="CV">
-                          {row.source === "tailored" ? (
-                            <button
-                              type="button"
-                              className={"appsLinkBtn" + (panelIs("cv") ? " active" : "")}
-                              onClick={() => togglePanel(row, "cv")}
-                              title={row.cv_reference ?? undefined}
-                            >
-                              View CV
-                            </button>
-                          ) : (
-                            <span className="appsCellStatic">—</span>
-                          )}
+                          {/* A row added by hand has no tailored CV; its CV
+                              cell opens the panel to upload the file sent. */}
+                          <button
+                            type="button"
+                            className={
+                              "appsLinkBtn" +
+                              (panelIs("cv") ? " active" : "") +
+                              (row.source === "tailored" || row.sent_cv_name ? "" : " muted")
+                            }
+                            onClick={() => togglePanel(row, "cv")}
+                            title={row.sent_cv_name ?? row.cv_reference ?? undefined}
+                            data-cv-cell={row.source === "tailored" || row.sent_cv_name ? "view" : "add"}
+                          >
+                            {row.source === "tailored" || row.sent_cv_name ? "View CV" : "Add CV"}
+                          </button>
                         </td>
                         <td data-label="JD">
                           <button

@@ -18,19 +18,33 @@
 // 25 Sep one page was forced for anyone whose eligibility answer said under
 // three years; the owner found it cut too much of the master CV.
 //
-// Import-free, so it runs in the browser and under node:test.
+// projectLinks: the GitHub and live-site addresses the user set per project
+// on /customize (lib/projectLinks — keyed by projectKey, bounded there). The
+// pages attach them to every project the document renders, pool selections
+// included; a project with no entry shows what its CV text gives.
+//
+// Imports only ./projectLinks.ts (itself import-free), so it runs in the
+// browser and under node:test.
+
+import { normalizeProjectLinks, type SavedProjectLinks } from "./projectLinks.ts";
 
 export type Preferences = {
   version: 1;
   includeRightToWorkOnCv: boolean;
   onePageCv: boolean;
+  projectLinks: SavedProjectLinks;
 };
 
-export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false };
+export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false, projectLinks: {} };
 
 export function normalizePreferences(v: unknown): Preferences {
   const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
-  return { version: 1, includeRightToWorkOnCv: o.includeRightToWorkOnCv === true, onePageCv: o.onePageCv === true };
+  return {
+    version: 1,
+    includeRightToWorkOnCv: o.includeRightToWorkOnCv === true,
+    onePageCv: o.onePageCv === true,
+    projectLinks: normalizeProjectLinks(o.projectLinks),
+  };
 }
 
 // The page count the downloads lay the CV out to.

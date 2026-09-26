@@ -58,6 +58,18 @@ import {
   leadSkillsNotice,
 } from "@/lib/variants";
 import { normalizePreferences, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
+import {
+  autoProjectLinks,
+  cleanUrl,
+  linksText,
+  pairToLinks,
+  projectCoreName,
+  projectKey,
+  type LinkPair,
+  type ProjectLinkLike,
+  type SavedProjectLinks,
+} from "@/lib/projectLinks";
+import { projectFacts } from "@/lib/evidenceMap";
 import CvUpload from "../CvUpload";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -148,6 +160,7 @@ const NAV_GROUPS: { group: string; items: { id: string; icon: IconName; label: s
       { id: "section-order", icon: "list", label: "Section order" },
       { id: "cv-length", icon: "document", label: "CV length" },
       { id: "right-to-work", icon: "globe", label: "Right to Work" },
+      { id: "project-links", icon: "link", label: "Project links" },
       { id: "advanced", icon: "sliders", label: "Project pool" },
     ],
   },
@@ -253,7 +266,42 @@ export default function CustomizePage() {
   const [prefsMsg, setPrefsMsg] = useState("");
   const [prefsError, setPrefsError] = useState("");
   // Which section the last preference save message belongs to.
-  const [prefsMsgAt, setPrefsMsgAt] = useState<"rtw" | "length">("rtw");
+  const [prefsMsgAt, setPrefsMsgAt] = useState<"rtw" | "length" | "links">("rtw");
+  // Project links (lib/projectLinks): addresses typed here, keyed by
+  // projectKey, until they are saved into prefs.projectLinks.
+  const [linkDrafts, setLinkDrafts] = useState<Record<string, LinkPair>>({});
+  const [linksSaving, setLinksSaving] = useState(false);
+  // One row per project the master CV or the saved pool names: what the CV
+  // itself gives (auto) and the saved entry, if any. Only an entry that
+  // differs from the CV is stored, so editing the CV later still shows through.
+  const linkRows = useMemo(() => {
+    const pool = poolSaved ? poolDraft : "";
+    const sources = [masterCvText, pool];
+    const rows: { key: string; name: string; own?: readonly ProjectLinkLike[] }[] = [];
+    const seen = new Set<string>();
+    const add = (name: string, own?: readonly ProjectLinkLike[]) => {
+      const key = projectKey(name);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      rows.push({ key, name: projectCoreName(name), own });
+    };
+    for (const p of profile?.projects ?? []) add(p.name, p.links);
+    for (const p of projectFacts(masterCvText, pool).projects) add(p.name);
+    const names = rows.map((r) => r.name);
+    return rows.map((r) => ({
+      key: r.key,
+      name: r.name,
+      auto: autoProjectLinks(r.name, r.own, sources, names).pair,
+      saved: Object.prototype.hasOwnProperty.call(prefs.projectLinks, r.key) ? prefs.projectLinks[r.key] : null,
+    }));
+  }, [profile, masterCvText, poolDraft, poolSaved, prefs.projectLinks]);
+  const linkedProjects = linkRows.filter((r) => {
+    const pair = r.saved ?? r.auto;
+    return !!(pair.github || pair.live);
+  }).length;
+  const linkDraftInvalid = Object.values(linkDrafts).some(
+    (d) => (!!d.github.trim() && !cleanUrl(d.github)) || (!!d.live.trim() && !cleanUrl(d.live))
+  );
 
   // ── Section disclosure ────────────────────────────────────────────────────
   // Held here rather than inside CollapsibleSection so the nav can open a
@@ -273,7 +321,7 @@ export default function CustomizePage() {
     // grows downward, so its own top doesn't move.
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  async function updatePrefs(patch: Partial<Omit<Preferences, "version">>, at: "rtw" | "length", okMsg: string) {
+  async function updatePrefs(patch: Partial<Omit<Preferences, "version">>, at: "rtw" | "length" | "links", okMsg: string): Promise<boolean> {
     const previous = prefs;
     const updated: Preferences = { ...prefs, ...patch };
     setPrefs(updated);
@@ -283,7 +331,7 @@ export default function CustomizePage() {
     const res = await savePreferences(updated);
     if (res.ok) {
       setPrefsMsg(okMsg);
-      return;
+      return true;
     }
     setPrefs(previous);
     if (res.missingTable) setPrefsError("Your database doesn't have the user_settings table yet — run supabase/migrations/20260917120000_user_settings_and_jd_lookup.sql first.");
@@ -291,6 +339,7 @@ export default function CustomizePage() {
       setPrefsColumnMissing(true);
       setPrefsError("Your database doesn't have this setting's column yet — run supabase/migrations/20260918120000_user_settings_preferences.sql in the Supabase SQL editor, then try again.");
     } else setPrefsError("Couldn't save. Check your connection and try again.");
+    return false;
   }
   function toggleRightToWorkOnCv(next: boolean) {
     void updatePrefs(
@@ -307,6 +356,32 @@ export default function CustomizePage() {
         ? "Saved — every CV you tailor from now on is fitted to one page."
         : "Saved — every CV you tailor from now on is fitted to two pages."
     );
+  }
+  function setLinkDraft(key: string, base: LinkPair, patch: Partial<LinkPair>) {
+    setLinkDrafts((prev) => ({ ...prev, [key]: { ...(prev[key] ?? base), ...patch } }));
+    if (prefsMsgAt === "links") {
+      setPrefsMsg("");
+      setPrefsError("");
+    }
+  }
+  async function saveProjectLinks() {
+    const next: SavedProjectLinks = { ...prefs.projectLinks };
+    for (const row of linkRows) {
+      const draft = linkDrafts[row.key];
+      if (!draft) continue;
+      const pair = { github: cleanUrl(draft.github), live: cleanUrl(draft.live) };
+      // The same as the CV gives: no entry, so the CV's own links keep applying.
+      if (pair.github === row.auto.github && pair.live === row.auto.live) delete next[row.key];
+      else next[row.key] = pair;
+    }
+    setLinksSaving(true);
+    const ok = await updatePrefs(
+      { projectLinks: next },
+      "links",
+      "Saved — these links appear under your projects on every CV you tailor from now on."
+    );
+    setLinksSaving(false);
+    if (ok) setLinkDrafts({});
   }
   const claimsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (claimsSaveTimer.current) clearTimeout(claimsSaveTimer.current); }, []);
@@ -1670,6 +1745,121 @@ export default function CustomizePage() {
           </div>
           {prefsMsgAt === "rtw" && prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
           {prefsMsgAt === "rtw" && prefsError && <StatusText as="span" role="alert">{prefsError}</StatusText>}
+        </CollapsibleSection>
+
+        {/* Project links: the GitHub repository and live site under each
+            project on every tailored CV (lib/projectLinks). Rows come from
+            the master CV and the saved pool; each is prefilled with what the
+            CV writes, and only an answer that differs is stored, in
+            user_settings.preferences.projectLinks. */}
+        <CollapsibleSection
+          id="project-links"
+          icon="link"
+          title="Project links"
+          open={openSections.has("project-links")}
+          onToggle={toggleSection}
+          summary={
+            linkRows.length === 0
+              ? "No projects yet"
+              : `${linkedProjects} of ${linkRows.length} ${linkRows.length === 1 ? "project has" : "projects have"} links`
+          }
+        >
+          <p className="cvHelp">
+            The GitHub repository and live site shown under each project on every CV you tailor: in the preview,
+            the Word file, the PDF and the copy saved to your tracker. The address itself is printed, not just the
+            word &quot;GitHub&quot;, so a recruiter&apos;s system that keeps only the text still has it. Where your CV or
+            project pool already writes a link, it is filled in for you.
+          </p>
+          {prefsColumnMissing && (
+            <p className="fitEvidence">
+              This setting&apos;s database column isn&apos;t set up yet (migration 20260918120000_user_settings_preferences.sql).
+              Links your CV writes are still used until it is.
+            </p>
+          )}
+          {linkRows.length === 0 ? (
+            <p className="fitEvidence">Your projects appear here once your master CV is saved.</p>
+          ) : (
+            <div className="projectLinkRows">
+              {linkRows.map((row) => {
+                const base = row.saved ?? row.auto;
+                const current = linkDrafts[row.key] ?? base;
+                const githubBad = !!current.github.trim() && !cleanUrl(current.github);
+                const liveBad = !!current.live.trim() && !cleanUrl(current.live);
+                const shown = linksText(pairToLinks({ github: cleanUrl(current.github), live: cleanUrl(current.live) }));
+                const cvGives = linksText(pairToLinks(row.auto));
+                const differsFromCv = !!row.saved && !!cvGives && (row.saved.github !== row.auto.github || row.saved.live !== row.auto.live);
+                return (
+                  <div key={row.key} className="projectLinkRow" data-project-links={row.key}>
+                    <div className="projectLinkName">{row.name}</div>
+                    <div className="profileGrid">
+                      <label>
+                        GitHub repository
+                        <Input
+                          value={current.github}
+                          onChange={(e) => setLinkDraft(row.key, base, { github: e.target.value })}
+                          placeholder="github.com/you/project"
+                          inputMode="url"
+                          spellCheck={false}
+                          aria-invalid={githubBad || undefined}
+                          disabled={linksSaving}
+                          data-link-github
+                        />
+                      </label>
+                      <label>
+                        Live site
+                        <Input
+                          value={current.live}
+                          onChange={(e) => setLinkDraft(row.key, base, { live: e.target.value })}
+                          placeholder="yourproject.app"
+                          inputMode="url"
+                          spellCheck={false}
+                          aria-invalid={liveBad || undefined}
+                          disabled={linksSaving}
+                          data-link-live
+                        />
+                      </label>
+                    </div>
+                    {githubBad || liveBad ? (
+                      <StatusText className="msgBelow" role="alert">
+                        That isn&apos;t a web address. Use the form github.com/you/project or yourproject.app.
+                      </StatusText>
+                    ) : (
+                      <p className="fitEvidence" data-link-shown>
+                        {shown ? `On your CV: ${shown}` : "No links on your CV for this project."}
+                        {!row.saved && !linkDrafts[row.key] && cvGives ? " (found in your CV)" : ""}
+                      </p>
+                    )}
+                    {differsFromCv && !linkDrafts[row.key] && (
+                      <p className="fitEvidence">
+                        Your CV writes {cvGives}.{" "}
+                        <button type="button" className="inlineLink" onClick={() => setLinkDraft(row.key, base, row.auto)}>
+                          Use those instead
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {linkRows.length > 0 && (
+            <div className="actions">
+              <Button
+                onClick={() => void saveProjectLinks()}
+                disabled={linksSaving || linkDraftInvalid || Object.keys(linkDrafts).length === 0}
+                data-save-links
+              >
+                {linksSaving ? "Saving…" : "Save links"}
+              </Button>
+              {Object.keys(linkDrafts).length > 0 && !linksSaving && (
+                <Button variant="ghost" onClick={() => setLinkDrafts({})}>
+                  Discard changes
+                </Button>
+              )}
+            </div>
+          )}
+          {prefsMsgAt === "links" && prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
+          {prefsMsgAt === "links" && prefsError && <StatusText as="span" role="alert">{prefsError}</StatusText>}
         </CollapsibleSection>
 
         {/* Advanced customization — the full project pool. Only meaningful

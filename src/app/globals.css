@@ -1156,6 +1156,14 @@ textarea { resize: vertical; min-height: 96px; }
 .profileGrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); margin-top: var(--space-2); }
 .profileGrid label { display: flex; flex-direction: column; font-size: var(--text-xs); color: var(--muted); gap: var(--space-1); }
 @media (max-width: 640px) { .profileGrid { grid-template-columns: 1fr; } }
+/* Customize → Project links: one row per project, a quiet divider between
+   them (the in-card hairline), the project's name above its two fields. */
+.projectLinkRows { display: grid; gap: var(--space-4); margin-top: var(--space-3); }
+.projectLinkRow + .projectLinkRow { border-top: 1px solid var(--border); padding-top: var(--space-4); }
+.projectLinkName { font-size: var(--text-sm); font-weight: 600; color: var(--text); }
+.projectLinkRow .fitEvidence { overflow-wrap: anywhere; }
+/* A value that isn't a web address: the edge says so beside the message. */
+.projectLinkRow input[aria-invalid="true"] { border-color: var(--danger); }
 
 /* Eligibility card (/customize): the profile grid with native selects (same
    field skin via .appsSelect, stretched to the column) and a row of
@@ -2020,6 +2028,51 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   max-width: 80ch;
   max-height: 480px;
   overflow-y: auto;
+}
+
+/* Tracker → CV panel: the CV file the user sent (SentCvBlock, lib/sentCv).
+   The stored file is a row on its own card edge — icon, name and details,
+   actions — with the text read from it behind a disclosure. */
+.sentCv { margin-bottom: var(--space-5); max-width: 720px; }
+.sentCv:last-child { margin-bottom: 0; }
+.sentCvFile {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+}
+.sentCvIcon { --icon-size: 20px; display: inline-flex; color: var(--muted); }
+.sentCvMeta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 220px; }
+.sentCvName { font-size: var(--text-sm); font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.sentCvInfo { font-size: var(--text-xs); color: var(--muted); }
+.sentCvActions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.sentCvActions .appsActionBtn { margin-left: 0; }
+.sentCvDrop { padding: var(--space-6) var(--space-5); }
+.sentCvText { margin-top: var(--space-3); font-size: var(--text-sm); }
+.sentCvText > summary { cursor: pointer; width: fit-content; color: var(--text-subtle); font-weight: 600; border-radius: var(--radius-xs); }
+.sentCvText > summary:hover { color: var(--amber-bright); }
+.sentCvText > summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.sentCvText > summary:active { opacity: 0.8; }
+.sentCvText pre {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3) var(--space-4);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text);
+  max-width: 80ch;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 
 .appsEmpty { text-align: center; color: var(--text); font-size: var(--text-base); padding: var(--space-6) var(--space-4); }

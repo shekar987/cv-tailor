@@ -4,6 +4,8 @@ import { MAX_JD_CHARS, MAX_NOTES_CHARS, MAX_COVER_LETTER_CHARS, JD_TOO_LONG } fr
 import { packFromRow } from "@/lib/prepPack";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 import { seniorityOf } from "@/lib/insights";
+import { GATE_CATEGORIES } from "@/lib/knockouts";
+import { SENT_CV_BUCKET, normalizeSentCv, publicSentCv, ownsPath } from "@/lib/sentCv";
 
 // CRUD for the application tracker. RLS ("auth.uid() = user_id") is the real
 // boundary; every write is additionally scoped by user id.
@@ -40,8 +42,12 @@ const SELECT_COLUMNS =
 // gates: the pre-check's eligibility read stored with the snapshot, so the
 // sheet can show "Knockout: <quote>" / "Clear" per row without the detail read.
 const LIST_COLUMNS = `${SELECT_COLUMNS}, prep_generated_at:prep_pack->>generatedAt, gates:tailored_cv->gates`;
+// sent_cv_name: the file name of the CV the user uploaded for the row
+// (lib/sentCv, migration 20260927120000), so the sheet can mark it.
+const LIST_COLUMNS_SENT = `${LIST_COLUMNS}, sent_cv_name:sent_cv->>fileName`;
 const DETAIL_COLUMNS_NO_PREP = `${SELECT_COLUMNS}, tailored_cv`;
 const DETAIL_COLUMNS = `${DETAIL_COLUMNS_NO_PREP}, prep_pack`;
+const DETAIL_COLUMNS_SENT = `${DETAIL_COLUMNS}, sent_cv`;
 
 const MAX_TAILORED_CV_JSON = 200_000;
 
@@ -111,7 +117,6 @@ function scoreSnapshot(snapshot: Record<string, unknown>, atsInput: unknown) {
 // GatesSummary), stored for the tracker's insights: which reads went on to
 // progress. Bounded enums and counts only; anything malformed is dropped.
 const GATE_READS = ["apply", "long_shot", "skip"] as const;
-const GATE_CATEGORIES = ["sponsorship", "clearance", "years", "location", "degree", "licence", "employment_type"] as const;
 const GATE_VERDICTS = ["pass", "soft", "hard", "unknown"] as const;
 function cleanGates(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -301,10 +306,13 @@ export async function GET(req: NextRequest) {
     const id = new URL(req.url).searchParams.get("id");
     if (id !== null) {
       if (!isUuid(id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
-      // Two optional columns, applied by hand in order: try both, then without
-      // prep_pack, then without either — each rung naming the migration it
-      // lacks. The rest of the record is readable at every rung.
+      // Optional columns, applied by hand in order: try them all, then without
+      // sent_cv (quietly — only an upload needs it, and the upload route names
+      // the migration), then without prep_pack, then without either — each
+      // later rung naming the migration it lacks. The rest of the record is
+      // readable at every rung.
       const ladder: { columns: string; warning?: string }[] = [
+        { columns: DETAIL_COLUMNS_SENT },
         { columns: DETAIL_COLUMNS },
         { columns: DETAIL_COLUMNS_NO_PREP, warning: PREP_WARNING },
         { columns: SELECT_COLUMNS, warning: SNAPSHOT_WARNING },
@@ -330,29 +338,29 @@ export async function GET(req: NextRequest) {
       if (!row) return NextResponse.json({ error: "Application not found" }, { status: 404 });
       const snapshot = row.tailored_cv ?? null;
       const prepPack = packFromRow(row.prep_pack);
+      // The uploaded CV's record without its storage path (lib/sentCv).
+      const sentCv = publicSentCv(normalizeSentCv(row.sent_cv));
       return NextResponse.json({
-        application: { ...row, tailored_cv: snapshot, prep_pack: prepPack },
+        application: { ...row, tailored_cv: snapshot, prep_pack: prepPack, sent_cv: sentCv },
         ...(warning ? { warning } : {}),
       });
     }
 
-    const first = await supabase
-      .from("applications")
-      .select(LIST_COLUMNS)
-      .order("date_applied", { ascending: false })
-      .order("created_at", { ascending: false });
-    let rows = first.data as Record<string, unknown>[] | null;
-    let readError = first.error;
-    if (readError && isMissingColumn(readError)) {
-      // prep_pack not migrated yet — the list must stay quiet about it; the
-      // detail read and /api/prep name the migration when it matters.
-      const second = await supabase
+    // A missing optional column drops one rung (sent_cv, then prep_pack /
+    // tailored_cv) — the list stays quiet about it; the detail read, /api/prep
+    // and the upload route name the migration when it matters.
+    let rows: Record<string, unknown>[] | null = null;
+    let readError: { code?: string; message: string } | null = null;
+    const listLadder = [LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
+    for (let rung = 0; rung < listLadder.length; rung++) {
+      const res = await supabase
         .from("applications")
-        .select(SELECT_COLUMNS)
+        .select(listLadder[rung])
         .order("date_applied", { ascending: false })
         .order("created_at", { ascending: false });
-      rows = second.data as Record<string, unknown>[] | null;
-      readError = second.error;
+      rows = res.data as Record<string, unknown>[] | null;
+      readError = res.error;
+      if (!(readError && isMissingColumn(readError) && rung < listLadder.length - 1)) break;
     }
 
     if (readError) {
@@ -593,6 +601,16 @@ export async function DELETE(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "No application specified" }, { status: 400 });
     if (!isUuid(id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
 
+    // The CV file uploaded for this application (lib/sentCv), read before the
+    // row goes so it can be removed after. A missing column means no file.
+    const { data: before } = await supabase
+      .from("applications")
+      .select("sent_cv")
+      .eq("id", id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    const sent = normalizeSentCv((before as { sent_cv?: unknown } | null)?.sent_cv);
+
     const { error: deleteError } = await supabase
       .from("applications")
       .delete()
@@ -602,6 +620,11 @@ export async function DELETE(req: NextRequest) {
     if (deleteError) {
       console.error("applications delete error:", deleteError.message);
       return NextResponse.json({ error: "Could not delete that application" }, { status: 500 });
+    }
+    // Best effort: a leftover would sit in the user's own private folder.
+    if (sent && ownsPath(sent.path, userId, id)) {
+      const { error: removeError } = await supabase.storage.from(SENT_CV_BUCKET).remove([sent.path]);
+      if (removeError) console.warn("applications delete: sent CV not removed:", removeError.message);
     }
     return NextResponse.json({ ok: true });
   } catch (err) {

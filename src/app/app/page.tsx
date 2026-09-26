@@ -27,6 +27,7 @@ import { buildEvidenceMap, graftRules, type EvidenceMap, type EvidenceItem } fro
 import type { SupportReport } from "@/lib/supportCheck";
 import { normalizeVariants, pickVariant, leadSkillsNotice, type VariantsConfig, type LeadSkillDrop } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTarget, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
+import { attachProjectLinks, linksForProject, projectKey } from "@/lib/projectLinks";
 import type { SeniorityFit } from "@/lib/seniority";
 import { isGraduateScheme, graduateSectionOrder } from "@/lib/graduateMode";
 import type { BulletChanges, RoleChanges } from "@/lib/bulletIds";
@@ -303,6 +304,12 @@ function realValue(text: string | undefined): string {
 // the tracker row's cv_reference, so the two always name the same document.
 // CvPreview is memoised on this string — keep it deterministic. Missing
 // pieces are simply left out (filter(Boolean) below).
+// The document profile with each project's links attached (lib/projectLinks).
+function withProjectLinks<T extends Profile | null>(p: T, prefs: Preferences, sources: string[]): T {
+  if (!p || p.projects.length === 0) return p;
+  return { ...p, projects: attachProjectLinks(p.projects, prefs.projectLinks, sources) };
+}
+
 function buildFileBaseName(profile: Profile | null, analysis: Result["analysis"], suffix: string): string {
   const first = (profile?.name || "User").trim().split(/\s+/).slice(0, 2).join("_");
   const cn = realValue(analysis?.company_name).replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
@@ -952,7 +959,7 @@ export default function Home() {
           // The eligibility answers (years → the header line) and the document
           // profile (education, certifications… for the server's page fit).
           ...(eligibility ? { eligibility } : {}),
-          ...(profile ? { profile: profileForDocument(profile, preferences) } : {}),
+          ...(profile ? { profile: withProjectLinks(profileForDocument(profile, preferences), preferences, [masterCvText, projectsPool]) } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1424,10 +1431,14 @@ export default function Home() {
     // The run's header line (lib/headline) stands in for the extracted tagline.
     const headline = typeof result?.headline === "string" && result.headline.trim() ? result.headline.trim() : "";
     const withHeadline = <T extends Profile | null>(p: T): T => (p && headline ? { ...p, tagline: headline } : p);
-    if (sel.length === 0) return withHeadline(profileForDocument(profile, preferences));
+    // Each project's GitHub / live links (lib/projectLinks): what the user
+    // saved on Customize, else the addresses the master CV or pool give.
+    const linkSources = [masterCvText, projectsPool];
+    if (sel.length === 0) return withHeadline(withProjectLinks(profileForDocument(profile, preferences), preferences, linkSources));
     // A pool can exist without an extracted profile; render the selection on
     // an empty-but-well-formed base rather than dropping it.
     const base = withHeadline(profileForDocument(profile ?? normalizeProfile({}), preferences));
+    const selectedNames = sel.map((s) => s.name!.trim());
     return {
       ...base,
       projects: sel.map((s) => ({
@@ -1435,11 +1446,17 @@ export default function Home() {
         // re-splits on render (date right-aligned, same as master projects).
         name: s.date?.trim() ? `${s.name!.trim()} | ${s.date.trim()}` : s.name!.trim(),
         tech: s.tech?.trim() || "",
-        links: [],
+        links: linksForProject(
+          s.name!.trim(),
+          profile?.projects.find((p) => projectKey(p.name) === projectKey(s.name))?.links,
+          preferences.projectLinks,
+          linkSources,
+          selectedNames
+        ),
         originalBullets: [],
       })),
     };
-  }, [profile, result, preferences]);
+  }, [profile, result, preferences, masterCvText, projectsPool]);
 
   // The CV's Right to Work wording for the copy block beside the downloads —
   // read from the stored profile, so it is offered even when off the document.

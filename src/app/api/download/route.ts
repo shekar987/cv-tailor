@@ -7,6 +7,7 @@ import { splitTrailingDate } from "@/lib/projectDate";
 import { normalizeProfile } from "@/lib/profile";
 import { parseBoldSegments, stripBoldMarkers } from "@/lib/markdownText";
 import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
+import { linkParts, linksText, type LinkPart } from "@/lib/projectLinks";
 import {
   Document,
   Packer,
@@ -220,24 +221,18 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any, d: Density): P
         children: buildRuns(meta.tech, { size: 21 }),
       }));
     }
-    // Links (clickable)
-    if (Array.isArray(meta.links) && meta.links.length > 0) {
+    // Links (clickable): "Label: address" by lib/projectLinks linkParts, the
+    // same rule as the preview and the PDF — a link that goes nowhere (the
+    // extraction's {url: "GitHub"}) is dropped rather than drawn to https://GitHub.
+    const links = (Array.isArray(meta.links) ? meta.links : []).map(linkParts).filter((x: LinkPart | null): x is LinkPart => x !== null);
+    if (links.length > 0) {
       const linkRuns: (TextRun | ExternalHyperlink)[] = [];
-      meta.links.forEach((l: any, i: number) => {
+      links.forEach((l: LinkPart, i: number) => {
         if (i > 0) linkRuns.push(new TextRun({ text: " | ", size: 21, font: "Calibri" }));
-        // label = category prefix ("Code:", "Live"); display = clickable text.
-        // The extractor sometimes sets both to the same value (e.g. "GitHub"),
-        // which rendered as "GitHubGitHub". Show the label only when it adds
-        // information, and separate it from the link with ": ".
-        const label = (l.label || "").trim().replace(/:\s*$/, "");
-        const rawText = (l.text || l.url || "").trim();
-        const display = rawText.replace(/^https?:\/\//i, "");
-        const url = l.url && l.url.startsWith("http") ? l.url : "https://" + (l.url || rawText);
-        const showLabel = label && label.toLowerCase() !== display.toLowerCase() && label.toLowerCase() !== rawText.toLowerCase();
-        if (showLabel) linkRuns.push(new TextRun({ text: label + ": ", size: 21, font: "Calibri" }));
+        if (l.label) linkRuns.push(new TextRun({ text: l.label + ": ", size: 21, font: "Calibri" }));
         linkRuns.push(new ExternalHyperlink({
-          link: url,
-          children: [new TextRun({ text: display, size: 21, color: LINK, underline: {}, font: "Calibri" })],
+          link: l.href,
+          children: [new TextRun({ text: l.display, size: 21, color: LINK, underline: {}, font: "Calibri" })],
         }));
       });
       out.push(new Paragraph({ spacing: { after: d.tightAfter }, children: linkRuns }));
@@ -325,7 +320,7 @@ const extraSections = filterExtraSections(profile.extraSections);
       .flatMap((v) => (Array.isArray(v) ? v : []))
       .join("\n");
     const projectMetaText = (Array.isArray(projectsMeta) ? projectsMeta : [])
-      .map((m: any) => [m?.name, m?.tech].filter(Boolean).join("\n"))
+      .map((m: any) => [m?.name, m?.tech, linksText(m?.links)].filter(Boolean).join("\n"))
       .join("\n");
     const educationText = education.map((e: any) => [e.head, e.school, e.note].filter(Boolean).join("\n")).join("\n");
     const extrasText = extraSections.map((s) => s.bullets.join("\n")).join("\n");

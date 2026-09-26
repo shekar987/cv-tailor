@@ -13,6 +13,7 @@
 
 import { DENSITIES, PAGE_HEIGHT, TARGET_PAGES, wrappedLines, chooseDensity, estimatedHeight, capacity } from "./cvDensity.ts";
 import { extractFigures } from "./claims.ts";
+import { linksText } from "./projectLinks.ts";
 
 export type ProfileLike = {
   tagline?: string;
@@ -25,7 +26,7 @@ export type ProfileLike = {
   education?: { degree?: string; institution?: string; note?: string }[];
   certifications?: string[];
   rightToWork?: string[];
-  projects?: { name?: string; tech?: string }[];
+  projects?: { name?: string; tech?: string; links?: unknown }[];
   extraSections?: { title?: string; bullets?: string[] }[];
 } | null | undefined;
 
@@ -68,7 +69,8 @@ export function estimatePages(sections: Sections, profile: ProfileLike, targetPa
   const experience = str(sections.experience);
   const projectText = projectBullets(sections.projects).join("\n");
   const projects = Array.isArray(p.projects) ? p.projects : [];
-  const projectMetaText = projects.map((m) => [m?.name, m?.tech].filter(Boolean).join("\n")).join("\n");
+  // The links line counts, as it does in both builders (lib/projectLinks).
+  const projectMetaText = projects.map((m) => [m?.name, m?.tech, linksText(m?.links)].filter(Boolean).join("\n")).join("\n");
   const education = Array.isArray(p.education) ? p.education : [];
   const educationText = education.map((e) => [e?.degree, e?.institution, e?.note].filter(Boolean).join("\n")).join("\n");
   const certs = Array.isArray(p.certifications) ? p.certifications : [];

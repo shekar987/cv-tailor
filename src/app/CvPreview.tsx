@@ -22,6 +22,7 @@ import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
 import { pastePlainText } from "@/lib/pastePlainText";
 import { parseBoldSegments, stripBoldMarkers } from "@/lib/markdownText";
+import { linkParts } from "@/lib/projectLinks";
 
 // **span** → <strong> — the render half of the bold contract (see
 // lib/markdownText). readInline() below is its exact inverse, used by
@@ -610,27 +611,24 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
                     read-only. The title above IS read back, so it stays
                     editable. */}
                 {proj.tech && <p className="cvText" contentEditable={false}>{renderInline(proj.tech)}</p>}
-                {proj.links && proj.links.length > 0 && (
-                  <p className="cvText" contentEditable={false}>
-                    {proj.links.map((l, li) => {
-                      // Match the download route: show the label only when it
-                      // isn't a duplicate of the link text (avoids "GitHubGitHub"),
-                      // separate with ": ", and strip the protocol for display.
-                      const label = (l.label || "").trim().replace(/:\s*$/, "");
-                      const rawText = (l.text || l.url || "").trim();
-                      const display = rawText.replace(/^https?:\/\//i, "");
-                      const href = l.url?.startsWith("http") ? l.url : "https://" + (l.url || rawText);
-                      const showLabel = !!label && label.toLowerCase() !== display.toLowerCase() && label.toLowerCase() !== rawText.toLowerCase();
-                      return (
+                {(() => {
+                  // One rule with both downloads (lib/projectLinks linkParts):
+                  // "Label: address", the address as text, and a link that
+                  // goes nowhere (the extraction's {url: "GitHub"}) dropped.
+                  const parts = (proj.links || []).map(linkParts).filter((x) => x !== null);
+                  if (parts.length === 0) return null;
+                  return (
+                    <p className="cvText" contentEditable={false}>
+                      {parts.map((l, li) => (
                         <span key={li}>
                           {li > 0 ? " | " : ""}
-                          {showLabel ? `${label}: ` : ""}
-                          <a href={href} className="cvLink" target="_blank" rel="noopener noreferrer">{display}</a>
+                          {l.label ? `${l.label}: ` : ""}
+                          <a href={l.href} className="cvLink" target="_blank" rel="noopener noreferrer">{l.display}</a>
                         </span>
-                      );
-                    })}
-                  </p>
-                )}
+                      ))}
+                    </p>
+                  );
+                })()}
                 <ul>
                   {bullets.map((b, i) => (<li className="cvBullet" key={`${idx}-${i}`}>{renderInline(b.replace(/^[-•]\s*/, ""))}</li>))}
                 </ul>

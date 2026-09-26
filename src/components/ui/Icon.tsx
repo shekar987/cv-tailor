@@ -25,7 +25,9 @@ export type IconName =
   | "gauge"
   | "building"
   | "clipboard"
-  | "mail";
+  | "mail"
+  | "link"
+  | "upload";
 
 const PATHS: Record<IconName, ReactNode> = {
   document: (
@@ -123,6 +125,19 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <path d="M3.6 7.2l8.4 5.9 8.4-5.9" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10.5 13.5a4 4 0 0 0 5.66 0l3.18-3.18a4 4 0 0 0-5.66-5.66l-1.4 1.4" />
+      <path d="M13.5 10.5a4 4 0 0 0-5.66 0l-3.18 3.18a4 4 0 0 0 5.66 5.66l1.4-1.4" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M12 15V4" />
+      <path d="M7.5 8.5L12 4l4.5 4.5" />
+      <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
     </>
   ),
 };

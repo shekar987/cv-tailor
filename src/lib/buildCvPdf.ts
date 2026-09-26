@@ -12,6 +12,7 @@ import { PdfCursor, parseWords, drawWrapped, drawBullet, drawHeaderLine, hexToRg
 import { SECTION_HEADING_LINE_RE } from "@/lib/sections";
 import { stripBoldMarkers } from "@/lib/markdownText";
 import { splitTrailingDate } from "@/lib/projectDate";
+import { linkParts, linksText, type LinkPart } from "@/lib/projectLinks";
 
 const NAVY = hexToRgb("1F3864");
 const GREY = hexToRgb("595959");
@@ -131,20 +132,17 @@ function drawProjects(doc: jsPDF, cursor: PdfCursor, projectsMeta: any[], tailor
       cursor.advance(pt(d.tightAfter));
     }
 
-    if (Array.isArray(meta.links) && meta.links.length > 0) {
+    // Same rule as the preview and the .docx (lib/projectLinks linkParts).
+    const links = (Array.isArray(meta.links) ? meta.links : []).map(linkParts).filter((x: LinkPart | null): x is LinkPart => x !== null);
+    if (links.length > 0) {
       const linkWords: Word[] = [];
-      meta.links.forEach((l: any, i: number) => {
+      links.forEach((l: LinkPart, i: number) => {
         if (i > 0) linkWords.push({ text: "|" });
-        const label = (l.label || "").trim().replace(/:\s*$/, "");
-        const rawText = (l.text || l.url || "").trim();
-        const display = rawText.replace(/^https?:\/\//i, "");
-        const url = l.url && l.url.startsWith("http") ? l.url : "https://" + (l.url || rawText);
-        const showLabel = !!label && label.toLowerCase() !== display.toLowerCase() && label.toLowerCase() !== rawText.toLowerCase();
         // Space embedded in the label's own run, same reasoning as the
         // skills label above — a bold/colored run boundary isn't a
         // reliable place to rely on inferred spacing during extraction.
-        if (showLabel) linkWords.push({ text: label + ": " });
-        linkWords.push({ text: display, link: url, glued: showLabel });
+        if (l.label) linkWords.push({ text: l.label + ": " });
+        linkWords.push({ text: l.display, link: l.href, glued: !!l.label });
       });
       drawWrapped(doc, cursor, linkWords, 10.5, lineOf(10.5), { linkColor: LINK });
       cursor.advance(pt(d.tightAfter));
@@ -248,7 +246,7 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
     .flatMap((v) => (Array.isArray(v) ? v : []))
     .join("\n");
   const projectMetaText = (Array.isArray(projectsMeta) ? projectsMeta : [])
-    .map((m: any) => [m?.name, m?.tech].filter(Boolean).join("\n"))
+    .map((m: any) => [m?.name, m?.tech, linksText(m?.links)].filter(Boolean).join("\n"))
     .join("\n");
   const educationText = education.map((e: any) => [e.head, e.school, e.note].filter(Boolean).join("\n")).join("\n");
   const extrasText = extraSections.map((s) => s.bullets.join("\n")).join("\n");
