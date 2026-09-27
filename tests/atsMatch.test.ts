@@ -148,3 +148,10 @@ test("RAG spelled out is the same term (retrieval-augmented generation)", () => 
   assert.equal(matchAtsKeywords("Built a RAG pipeline.", ["Retrieval Augmented Generation"]).matched, 1);
   assert.equal(matchAtsKeywords("Moved object storage to S3.", ["RAG"]).matched, 0, "a word that only contains the letters is not the term");
 });
+
+test("accents fold to the base letter on both sides: Zürich ↔ Zurich, São Paulo ↔ Sao Paulo", () => {
+  const r = matchAtsKeywords("Platform team based in Zürich with a São Paulo rollout.", ["Zurich", "Sao Paulo", "Kafka"]);
+  assert.deepEqual(r.matchedKeywords, ["Zurich", "Sao Paulo"]);
+  const back = matchAtsKeywords("Based in Zurich; Sao Paulo rollout next.", ["Zürich", "São Paulo"]);
+  assert.equal(back.matched, 2);
+});

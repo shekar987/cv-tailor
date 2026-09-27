@@ -78,7 +78,7 @@ function isCategory(v: unknown): v is PrepCategory {
 // everything non-alphanumeric to single spaces. Both sides of every comparison
 // go through this, so hard-wrapped PDF lines, "Node.js" vs "node js", and
 // en-dash vs hyphen all compare equal.
-export function normalizeForMatch(text: string): string {
+export function normalizeEvidenceText(text: string): string {
   return (text || "")
     .toLowerCase()
     .replace(/\*\*/g, " ")
@@ -211,12 +211,12 @@ export function normalizePrepPack(raw: unknown, meta: PrepMeta): PrepPack | null
 // number the answer states (STAR result, points) must exist somewhere in the
 // CV — rule 4, faithful metrics — or it is listed for the user to check.
 export function verifyEvidence(pack: PrepPack, cvText: string): PrepPack {
-  const normCv = normalizeForMatch(cvText);
+  const normCv = normalizeEvidenceText(cvText);
   const cvTokens = normCv.split(" ").filter(Boolean);
   const cvDigits = new Set(digitsOf(normCv));
 
   const isVerified = (text: string): boolean => {
-    const norm = normalizeForMatch(text);
+    const norm = normalizeEvidenceText(text);
     if (!norm) return false;
     if (normCv.includes(norm)) return true;
     const tokens = norm.split(" ").filter(Boolean);
@@ -232,7 +232,7 @@ export function verifyEvidence(pack: PrepPack, cvText: string): PrepPack {
     // the candidate's record — their numbers are advice, not metrics.
     const stated = q.category === "gap" ? "" : [q.star?.result ?? "", ...q.points].join(" ");
     const unverified = new Set<string>();
-    for (const d of digitsOf(normalizeForMatch(stated))) {
+    for (const d of digitsOf(normalizeEvidenceText(stated))) {
       if (!cvDigits.has(d)) unverified.add(d);
     }
     return { ...q, evidence, unverifiedNumbers: [...unverified].slice(0, 10) };

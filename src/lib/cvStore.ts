@@ -247,10 +247,6 @@ export async function clearMasterCV(): Promise<void> {
   } catch { /* ignore */ }
 }
 
-export async function hasMasterCV(): Promise<boolean> {
-  return (await getMasterCV()) !== null
-}
-
 // ─── Profile ──────────────────────────────────────────────────────────────────
 
 export async function getProfile(): Promise<Profile | null> {

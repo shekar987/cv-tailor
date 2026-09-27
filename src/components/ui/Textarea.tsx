@@ -1,15 +1,9 @@
-// Wraps the bare `textarea{}` tag rule — "default" adds no className at all
-// (the tag rule already applies to every <textarea>). "feedback" is a
-// reserved hook for FeedbackWidget's textarea if it ever needs its own skin;
-// not required today, included for symmetry with the other variant props.
+// Wraps the bare `textarea{}` tag rule — the tag rule already applies to every
+// <textarea>, so this component exists so call sites read like the other ui/
+// wrappers. It carries no variants: the one it used to declare was never read.
 
-type TextareaVariant = "default" | "feedback";
+export type TextareaProps = { className?: string } & React.TextareaHTMLAttributes<HTMLTextAreaElement>;
 
-export type TextareaProps = {
-  variant?: TextareaVariant;
-  className?: string;
-} & React.TextareaHTMLAttributes<HTMLTextAreaElement>;
-
-export default function Textarea({ variant: _variant = "default", className, ...rest }: TextareaProps) {
+export default function Textarea({ className, ...rest }: TextareaProps) {
   return <textarea className={className} {...rest} />;
 }

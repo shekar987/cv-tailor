@@ -88,14 +88,6 @@ function IconTarget() {
     </svg>
   );
 }
-function IconMail() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      <polyline points="3 7 12 13 21 7" />
-    </svg>
-  );
-}
 function IconClipboard() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -151,10 +143,10 @@ export default function Landing() {
           Every AI CV tool lies for you. This one <span className="lpAmber">won&apos;t</span>.
         </h1>
         <p className="lpSub">
-          Paste your CV and the job description. Get back a tailored version built only from
-          what&apos;s real — every line defensible in the interview.
+          Paste your CV and a job description. Every claim in what comes back is checked
+          against your CV — figures, skills, and each sentence of the summary and letter —
+          before you see it.
         </p>
-        <p className="lpHeroLede">Company research, an honest fit score, and a tracker for every application you send — all built in.</p>
         <div className="lpHeroCta">
           <Button href="/app">Tailor my CV →</Button>
           <a href="#example" className="cta secondary">See an example ↓</a>
@@ -168,7 +160,7 @@ export default function Landing() {
         <div className="lpProblemGrid">
           <Reveal className="lpProblemCard">
             <div className="lpProblemIcon"><IconWarning /></div>
-            <div className="lpProblemTitle">The AI tools embellish</div>
+            <h3 className="lpProblemTitle">The AI tools embellish</h3>
             <p className="lpProblemBody">
               Ask one to tailor your CV and it&apos;ll add &quot;Kubernetes&quot; because the job
               wants it — never mind that you&apos;ve never touched it. Fine, until an interviewer
@@ -177,7 +169,7 @@ export default function Landing() {
           </Reveal>
           <Reveal className="lpProblemCard" delay={100}>
             <div className="lpProblemIcon"><IconClock /></div>
-            <div className="lpProblemTitle">Doing it by hand works, but it&apos;s slow</div>
+            <h3 className="lpProblemTitle">Doing it by hand works, but it&apos;s slow</h3>
             <p className="lpProblemBody">
               Rewriting your CV properly for one role — rereading the posting, hunting the right
               phrasing, reformatting — takes about an hour. Most people stop customizing after the
@@ -269,33 +261,26 @@ export default function Landing() {
         <div className="lpDiffGrid">
           <Reveal className="lpDiffCard">
             <div className="lpDiffIcon"><IconShieldCheck /></div>
-            <div className="lpDiffTitle">Nothing invented</div>
+            <h3 className="lpDiffTitle">Checked, not trusted</h3>
             <p className="lpDiffBody">
-              Every skill and claim in your tailored CV already exists somewhere in your real one.
-              If the job wants something you don&apos;t have, we surface the closest thing you
-              actually do — never a line you&apos;d have to lie about in the interview.
+              Every figure is checked against your CV, every skill against the level you set for
+              it, and every sentence of the summary and letter against the line it came from. If
+              the job wants something you don&apos;t have, you see the gap — we don&apos;t invent
+              the skill.
             </p>
           </Reveal>
           <Reveal className="lpDiffCard" delay={100}>
             <div className="lpDiffIcon"><IconTarget /></div>
-            <div className="lpDiffTitle">An honest visibility score</div>
+            <h3 className="lpDiffTitle">It tells you when it&apos;s wrong</h3>
             <p className="lpDiffBody">
-              See exactly which of the job&apos;s top keywords you hit and which you&apos;re
-              missing, and why — not an inflated 95% match designed to make you feel good and get
-              you nowhere.
+              The score is a count of the job&apos;s terms your CV carries — never an inflated
+              percentage. Your tracker then measures whether that score predicts which
+              applications progress, and says so plainly when it doesn&apos;t.
             </p>
           </Reveal>
           <Reveal className="lpDiffCard" delay={200}>
-            <div className="lpDiffIcon"><IconMail /></div>
-            <div className="lpDiffTitle">A cover letter too</div>
-            <p className="lpDiffBody">
-              Every tailor generates a matching cover letter alongside the CV — same job, same
-              honesty, ready to send.
-            </p>
-          </Reveal>
-          <Reveal className="lpDiffCard" delay={300}>
             <div className="lpDiffIcon"><IconClipboard /></div>
-            <div className="lpDiffTitle">A tracker built in</div>
+            <h3 className="lpDiffTitle">A tracker built in</h3>
             <p className="lpDiffBody">
               Click Applied and the run lands in your tracker — the exact CV you sent, the job
               description you sent it for, and a follow-up date, ready for the week the recruiter
@@ -311,19 +296,18 @@ export default function Landing() {
         <h2 className="lpH2">Free to start. Honest about what happens after.</h2>
         <div className="lpCostGrid">
           <div className="lpCostCard">
-            <div className="lpCostTitle">Your first 3 tailors are on us</div>
+            <h3 className="lpCostTitle">Three tailors on us, no card</h3>
             <p className="lpCostBody">
-              Full runs on Claude — tailored CV, cover letter and search-visibility score — with a cap of 3
-              tailors a day. No card, ever.
+              Your first three runs are on Claude — CV, cover letter and search-visibility score.
+              Three a day is the cap, whoever pays.
             </p>
           </div>
           <div className="lpCostCard">
-            <div className="lpCostTitle">Then bring your own key</div>
+            <h3 className="lpCostTitle">Then your own free key</h3>
             <p className="lpCostBody">
-              Add a free OpenRouter API key in Settings — it takes about two minutes — and keep
-              tailoring at no cost, still 3 a day. The tool itself stays free. One honest note:
-              OpenRouter&apos;s free models may use what you send for training; Settings says how
-              to check that in your OpenRouter account.
+              Add a free OpenRouter key in Settings and keep going at no cost. One honest note:
+              OpenRouter&apos;s free models may train on what you send — Settings says how to
+              check that in your OpenRouter account.
             </p>
           </div>
         </div>
@@ -342,7 +326,7 @@ export default function Landing() {
       </Reveal>
 
       <footer className="lpFooter">
-        <span>Built by Soma Shekar Keesari · Honest beats impressive.</span>
+        <span>Built by Soma Shekar Keesari</span>
         <nav className="lpFooterLinks" aria-label="Footer">
           <Link href="/auth/login">Sign in</Link>
           <Link href="/app">Tailor my CV</Link>

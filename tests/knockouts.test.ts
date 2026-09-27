@@ -430,3 +430,10 @@ test("degree: the lowest level a sentence names; a conditional note in brackets 
   // A bracketed requirement that is not conditional still counts.
   assert.equal(detectGates("Requirements:\n- Strong academic record (2:1 degree or above).").filter((g) => g.category === "degree").length, 1);
 });
+
+test("location: an accented city matches its ASCII spelling in either direction", () => {
+  const accented = "This role is fully on-site at our Zürich office.";
+  assert.equal(verdictOf(accented, "location", profile({ location: { base: ["Zurich"], onsiteOk: true, hybridOk: true, relocateOk: false } })).verdict, "pass");
+  const ascii = "This role is fully on-site at our Zurich office.";
+  assert.equal(verdictOf(ascii, "location", profile({ location: { base: ["Zürich"], onsiteOk: true, hybridOk: true, relocateOk: false } })).verdict, "pass");
+});

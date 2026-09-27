@@ -44,6 +44,11 @@ export default function CollapsibleSection({
   const bodyId = `${id}-body`;
   return (
     <section className="inputCard cstSection" id={id} data-open={open ? "" : undefined}>
+      {/* <h2><button/></h2> is the disclosure pattern: the section gets a real
+          heading in the outline (the page had nine sections and none), and the
+          button stays the one interactive element. Visually a no-op — the
+          global reset zeroes the h2's margin and every child sets its own size. */}
+      <h2 className="cstSectionHeading">
       <button
         type="button"
         className="cstSectionHead"
@@ -72,6 +77,7 @@ export default function CollapsibleSection({
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
+      </h2>
       <div className="cstSectionBody" id={bodyId} hidden={!open}>
         {children}
       </div>

@@ -63,10 +63,6 @@ function getLimiter(): Ratelimit | null {
   return limiter;
 }
 
-export function burstLimiterConfigured(): boolean {
-  return getLimiter() !== null;
-}
-
 // ── In-process fallback ───────────────────────────────────────────────────────
 const hits = new Map<string, number[]>();
 const MAX_TRACKED_KEYS = 5000;

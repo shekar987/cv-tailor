@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { Document, Packer, Paragraph, TextRun, AlignmentType } from "docx";
 import { MAX_COVER_LETTER_CHARS, MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
+import { parseBoldSegments } from "@/lib/markdownText";
 
 export async function POST(req: NextRequest) {
   try {
@@ -37,12 +38,13 @@ export async function POST(req: NextRequest) {
       if (line === "") {
         continue;
       }
-      // strip **bold** markers, render bold runs
-      const parts = line.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
-      const runs = parts.map((p) =>
-        p.startsWith("**") && p.endsWith("**")
-          ? new TextRun({ text: p.slice(2, -2), bold: true, size: 22, font: "Calibri" })
-          : new TextRun({ text: p, size: 22, font: "Calibri" })
+      // The ONE bold parser (lib/markdownText). This route carried its own
+      // regex — the only place that could drift from the PDF side of the same
+      // letter, and its pattern already had.
+      const runs = parseBoldSegments(line).map((seg) =>
+        seg.bold
+          ? new TextRun({ text: seg.text, bold: true, size: 22, font: "Calibri" })
+          : new TextRun({ text: seg.text, size: 22, font: "Calibri" })
       );
       children.push(new Paragraph({
         spacing: { after: 120 },

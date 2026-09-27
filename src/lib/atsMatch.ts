@@ -120,8 +120,18 @@ const GENERIC_TERMS = [
 // Kafka. Cloud vendors are handled by the canonical map instead.
 const QUALIFIER_TERMS = ["apache", "google", "amazon", "microsoft", "adobe", "oracle", "hashicorp", "atlassian"];
 
+// Accents fold to the base letter FIRST. Without this "Zürich" tokenised as
+// "z rich" and "São Paulo" as "s o paulo", so a non-ASCII name could never
+// match its ASCII spelling in either direction — a systematic miss, not noise,
+// in the matcher the whole product rests on. trackerSearch already folded.
 function normalize(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // Light morphology so "tests"/"testing"/"tested" agree with "test" and

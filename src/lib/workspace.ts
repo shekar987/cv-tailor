@@ -88,15 +88,6 @@ export function saveWorkspace(userId: string, data: StoredWorkspace): void {
   }
 }
 
-export function clearWorkspace(userId: string): void {
-  if (!userId || typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(keyFor(userId));
-  } catch {
-    // ignore
-  }
-}
-
 // Sign-out sweep: on a shared browser every past account's tailored result
 // would otherwise stay in localStorage forever, eventually filling the quota
 // and silently disabling persistence for everyone.

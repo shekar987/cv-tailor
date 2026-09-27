@@ -253,6 +253,10 @@ export function isEligibilitySet(e: Eligibility): boolean {
 // whitespace. Used for verbatim tracing of model gates and for snippet keys.
 export function normalizeForMatch(text: string): string {
   return text
+    // Accents fold first, so a JD's "Zürich" and a typed base of "Zurich"
+    // meet in the middle (both sides of placeMatches/baseNamedIn come here).
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/\*\*/g, "")
     .replace(/[‘’‛]/g, "'")
