@@ -3,6 +3,12 @@
 // keeps its physics in update() and its drawing in render(), and draws in one
 // logical view the popup scales to the screen.
 //
+// Both games happen in the real world at the figure's real scale: he is
+// 1.78 m tall and FIGURE_PX tall on the canvas, so PX_PER_M pixels make a
+// metre, and every speed, height and force in the games is a real one
+// converted with it — gravity is 9.81 m/s², nobody jumps higher than a
+// person can, and he only flies with a jetpack on.
+//
 // The games carry no text about jobs, recruitment or careers — a number for
 // the score is the only text drawn on the canvas.
 
@@ -11,34 +17,62 @@ export const VIEW_H = 320;
 // The simulation steps at a fixed 60 Hz whatever the display's refresh rate.
 export const STEP = 1 / 60;
 
+export const FIGURE_M = 1.78;
+export const PX_PER_M = 36;
+export const FIGURE_PX = Math.round(FIGURE_M * PX_PER_M); // 64
+export const G = 9.81 * PX_PER_M; // gravity, px/s²
+export const m = (metres: number) => metres * PX_PER_M;
+
 export type GameKind = "platformer" | "flyer";
 
-// Filled by the popup from the keyboard and the touch buttons. `jumpPressed`
-// is the press edge: one full jump or one flap per press, however short the
-// tap (a phone tap is ~100 ms). The popup clears it after each step.
+// Filled by the popup from the keyboard, the mouse and the touch buttons.
+// `up` is held (the jetpack fires while it is down); `jumpPressed` is the
+// press edge — one jump or one climb per press, however short the tap (a
+// phone tap is ~100 ms). The popup clears the edge after each step.
 export type InputState = {
   left: boolean;
   right: boolean;
+  up: boolean;
   jumpPressed: boolean;
 };
-export const emptyInput = (): InputState => ({ left: false, right: false, jumpPressed: false });
+export const emptyInput = (): InputState => ({ left: false, right: false, up: false, jumpPressed: false });
 
 // Read by the popup from the --game-* tokens in globals.css.
 export type Palette = {
   skyTop: string;
   skyBottom: string;
-  hillFar: string;
-  hillNear: string;
   cloud: string;
-  ground: string;
-  groundTop: string;
-  platform: string;
-  platformTop: string;
-  block: string;
-  blockEdge: string;
-  spike: string;
-  wall: string;
-  wallEdge: string;
+  cityFar: string;
+  cityNear: string;
+  window: string;
+  pavement: string;
+  pavementTop: string;
+  pavementJoint: string;
+  kerb: string;
+  road: string;
+  roadLine: string;
+  crate: string;
+  crateEdge: string;
+  brick: string;
+  mortar: string;
+  cone: string;
+  coneStripe: string;
+  puddle: string;
+  puddleShine: string;
+  stone: string;
+  stoneEdge: string;
+  roof: string;
+  roofEdge: string;
+  mast: string;
+  beacon: string;
+  steel: string;
+  steelEdge: string;
+  cable: string;
+  jetpack: string;
+  jetpackShade: string;
+  flame: string;
+  flameCore: string;
+  smoke: string;
   suit: string;
   suitShade: string;
   shirt: string;
@@ -60,7 +94,7 @@ export interface Game {
 export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 // A seeded generator (mulberry32): the same seed builds the same level, so
-// the tests can hold the level generator to its reachability rules.
+// the tests can hold the level generators to their reachability rules.
 export function makeRng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -70,6 +104,16 @@ export function makeRng(seed: number): () => number {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+// A stable pseudo-random number in [0, 1) for an integer — scenery built from
+// it stays put while the view scrolls.
+export function hash01(i: number): number {
+  let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
 }
 
 // Steps the simulation at STEP and draws once per animation frame. A long
@@ -107,43 +151,63 @@ export function runLoop(
   };
 }
 
-// Sky, far and near hills and clouds, scrolled by `offset` (world pixels).
-export function drawBackdrop(ctx: CanvasRenderingContext2D, pal: Palette, offset: number): void {
+// Dusk sky, drifting clouds and two layers of city skyline, scrolled by
+// `offset` (world pixels) with parallax. `horizonY` is where the nearer
+// buildings stand.
+export function drawCityBackdrop(ctx: CanvasRenderingContext2D, pal: Palette, offset: number, horizonY: number): void {
   const sky = ctx.createLinearGradient(0, 0, 0, VIEW_H);
   sky.addColorStop(0, pal.skyTop);
   sky.addColorStop(1, pal.skyBottom);
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
-  // Clouds drift at a tenth of the speed.
   ctx.fillStyle = pal.cloud;
-  const cloudOffset = offset * 0.12;
+  const cloudOffset = offset * 0.08;
   const first = Math.floor(cloudOffset / 170) - 1;
   for (let i = first; i < first + 5; i++) {
     const cx = i * 170 - cloudOffset + ((i * 53) % 60);
-    const cy = 40 + ((i * 37) % 50);
+    const cy = 30 + ((i * 37) % 40);
     ctx.beginPath();
-    ctx.arc(cx, cy, 14, 0, Math.PI * 2);
-    ctx.arc(cx + 16, cy - 6, 17, 0, Math.PI * 2);
-    ctx.arc(cx + 34, cy, 13, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+    ctx.arc(cx + 14, cy - 5, 15, 0, Math.PI * 2);
+    ctx.arc(cx + 30, cy, 11, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  hills(ctx, offset * 0.2, 214, 26, 0.012, pal.hillFar);
-  hills(ctx, offset * 0.45, 244, 18, 0.021, pal.hillNear);
+  skyline(ctx, pal, offset * 0.15, horizonY - 14, 58, 150, 90, pal.cityFar, 1, false);
+  skyline(ctx, pal, offset * 0.35, horizonY, 70, 120, 60, pal.cityNear, 2, true);
 }
 
-function hills(ctx: CanvasRenderingContext2D, offset: number, baseY: number, amp: number, freq: number, color: string): void {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(0, VIEW_H);
-  for (let sx = 0; sx <= VIEW_W; sx += 8) {
-    const wx = sx + offset;
-    ctx.lineTo(sx, baseY - amp * (0.6 * Math.sin(wx * freq) + 0.4 * Math.sin(wx * freq * 2.3 + 1.7)));
+// Office blocks side by side: widths, heights and lit windows from hash01,
+// so each block keeps its look as it scrolls past.
+function skyline(
+  ctx: CanvasRenderingContext2D,
+  pal: Palette,
+  offset: number,
+  baseY: number,
+  width: number,
+  maxH: number,
+  minH: number,
+  color: string,
+  layer: number,
+  windows: boolean
+): void {
+  const firstBlock = Math.floor(offset / width) - 1;
+  for (let i = firstBlock; i < firstBlock + Math.ceil(VIEW_W / width) + 3; i++) {
+    const seed = i * 7 + layer * 1_000_003;
+    const w = width * (0.7 + 0.3 * hash01(seed));
+    const h = minH + (maxH - minH) * hash01(seed + 1);
+    const x = i * width - offset;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, baseY - h, w - 3, h + 40);
+    if (!windows) continue;
+    ctx.fillStyle = pal.window;
+    for (let wy = baseY - h + 8; wy < baseY - 10; wy += 11) {
+      for (let wx = x + 5; wx < x + w - 10; wx += 9) {
+        if (hash01(seed + Math.round(wy) * 31 + Math.round(wx - x) * 17) < 0.28) ctx.fillRect(wx, wy, 4, 5);
+      }
+    }
   }
-  ctx.lineTo(VIEW_W, VIEW_H);
-  ctx.closePath();
-  ctx.fill();
 }
 
 // The only text on a canvas: a number (and a unit), top-right or centred.

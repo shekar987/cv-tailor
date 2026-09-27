@@ -7,6 +7,9 @@
 // tools and sentences are dropped, and the run reports what it dropped so the
 // user sees it. The one addition is restoreAskedTools(): a tool the posting
 // asks for that the candidate's own skills list names goes back on the line.
+// separateSkillLines() then keeps the two skills lines apart (the UKJI shape:
+// capabilities on Functional Competencies, named technologies on Technical
+// Tools, no item on both).
 //
 // Imports only relative modules with the extension (./atsMatch.ts,
 // ./claims.ts, ./roleTitle.ts) so it runs on the server and under node:test
@@ -42,7 +45,12 @@ export type FormatFixes = {
   // Tools the posting asks for that the master CV's own skills list names,
   // put back on the Technical Tools line.
   restoredTools?: string[] | null;
+  // separateSkillLines(): practice phrases moved from Technical Tools to
+  // Functional Competencies, and items dropped from one line because the
+  // other already carries them.
+  skillLines?: SkillLinesFix | null;
 };
+export type SkillLinesFix = { moved: string[]; removedFromTools: string[]; removedFromCompetencies: string[] };
 
 function splitTools(list: string): string[] {
   const seen = new Set<string>();
@@ -196,6 +204,75 @@ export function dropUnsupportedCompetencies(skills: unknown, sources: (string | 
   return { skills: lines.join("\n"), dropped };
 }
 
+// ── Two lines, no shared item ───────────────────────────────────────────────
+
+// A master CV line that lists capabilities rather than tools.
+const COMPETENCY_LINE_RE = /^\s*\**\s*(?:functional|core|key|professional)?\s*competenc(?:y|ies)\b|^\s*\**\s*(?:soft|personal|interpersonal|transferable)\s+skills\b/i;
+
+// A capability, not a technology: two or more words ending in a practice
+// noun ("Full-Stack Development", "REST API Design", "AI/LLM Integration",
+// "Unit Testing"). A named tool keeps its own name ("REST APIs", "CI/CD",
+// "Spring Security").
+const PRACTICE_NOUNS = new Set([
+  "development", "design", "engineering", "architecture", "integration", "optimisation", "optimization", "testing",
+  "automation", "deployment", "delivery", "programming", "modelling", "modeling", "implementation", "debugging", "documentation",
+]);
+export function isPracticePhrase(item: string): boolean {
+  const words = item.replace(/\*\*/g, "").trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return false;
+  return PRACTICE_NOUNS.has(words[words.length - 1].toLowerCase().replace(/[^a-z]/g, ""));
+}
+const itemKey = (s: string) => s.replace(/\*\*/g, "").toLowerCase().replace(/[^a-z0-9+#]+/g, "");
+
+// The two skills lines in the UKJI shape never share an item: Functional
+// Competencies are capabilities, Technical Tools are named technologies. The
+// owner's run on 27 Sep printed "Python Backend Development" and "Full-Stack
+// Development" on both. A practice phrase on the Tools line moves to
+// Competencies when that line lacks it and has room (at most
+// MAX_COMPETENCIES), and otherwise leaves Tools; a named technology written on
+// both lines stays on Tools. Without a Competencies line nothing moves.
+export const MAX_COMPETENCIES = 6;
+export function separateSkillLines(skills: unknown): { skills: unknown; fix: SkillLinesFix | null } {
+  if (typeof skills !== "string") return { skills, fix: null };
+  const lines = skills.split("\n");
+  const ti = lines.findIndex((l) => TOOLS_LABEL.test(l));
+  const ci = lines.findIndex((l) => COMPETENCIES_LABEL.test(l));
+  if (ti === -1 || ci === -1) return { skills, fix: null };
+  const tm = TOOLS_LABEL.exec(lines[ti])!;
+  const cm = COMPETENCIES_LABEL.exec(lines[ci])!;
+  const tools = splitTools(tm[4]);
+  const comps = splitTools(cm[4]);
+  const compKeys = new Set(comps.map(itemKey));
+  const moved: string[] = [];
+  const removedFromTools: string[] = [];
+  const keptTools: string[] = [];
+  for (const t of tools) {
+    if (!isPracticePhrase(t)) {
+      keptTools.push(t);
+      continue;
+    }
+    if (!compKeys.has(itemKey(t)) && comps.length < MAX_COMPETENCIES) {
+      comps.push(t);
+      compKeys.add(itemKey(t));
+      moved.push(t);
+    } else {
+      removedFromTools.push(t);
+    }
+  }
+  const toolKeys = new Set(keptTools.map(itemKey));
+  const removedFromCompetencies = comps.filter((c) => toolKeys.has(itemKey(c)));
+  // A line of nothing but repeats is left alone rather than emptied.
+  const keptComps = removedFromCompetencies.length < comps.length ? comps.filter((c) => !toolKeys.has(itemKey(c))) : comps;
+  if (moved.length === 0 && removedFromTools.length === 0 && keptComps.length === comps.length) return { skills, fix: null };
+  if (keptTools.length === 0) return { skills, fix: null };
+  lines[ti] = `${tm[1]}${tm[2]}${tm[3]}${keptTools.join(SEP)}`;
+  lines[ci] = `${cm[1]}${cm[2]}${cm[3]}${keptComps.join(SEP)}`;
+  return {
+    skills: lines.join("\n"),
+    fix: { moved, removedFromTools, removedFromCompetencies: keptComps.length === comps.length ? [] : removedFromCompetencies },
+  };
+}
+
 // ── Tools the posting asks for ───────────────────────────────────────────────
 
 // The one rule here that adds rather than drops. A tool the posting asks for
@@ -218,8 +295,12 @@ export function restoreAskedTools(
   // eval harness's CVs got Flink and Kubernetes restored (26 Sep).
   const learnt = learningText(masterCv || "");
   const learntLines = learnt.split("\n").map((l) => l.trim()).filter(Boolean);
+  // The master CV's TOOL lines: its competencies line lists capabilities
+  // ("Full-Stack Development"), and restoring those as tools printed them on
+  // both skills lines (the owner's run, 27 Sep).
   const masterSkills = sectionsOf(masterCv || "")
     .skills.filter((l) => !learntLines.some((x) => l.includes(x) || x.includes(l.trim())))
+    .filter((l) => !COMPETENCY_LINE_RE.test(l))
     .join("\n");
   if (!masterSkills.trim()) return { skills, restored: [] };
   const lines = skills.split("\n");
@@ -242,7 +323,9 @@ export function restoreAskedTools(
     if (restored.length >= MAX_RESTORED_TOOLS) break;
     const t = term.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
     if (!t || t.split(" ").length > 3 || /\s(?:and|or|&)\s|,/i.test(t)) continue;
-    if (matchAtsKeywords(tools.join(SEP), [t]).matched > 0) continue;
+    // A capability is never a tool; and a term the skills block already
+    // carries on either line needs no second mention.
+    if (isPracticePhrase(t) || matchAtsKeywords(skills, [t]).matched > 0) continue;
     if (!namesRequirement(masterSkills, t) || levelled(t, "learning") || (learnt && namesRequirement(learnt, t))) continue;
     // An item the master CV lists by name, or one distinctive name it
     // implies ("SQL" by PostgreSQL) — never a concept ("Relational
@@ -287,16 +370,18 @@ export function applyFormatRules(
   const competencies = dropUnsupportedCompetencies(unsupported.skills, sources);
   const tools = capTechnicalTools(competencies.skills, a.top_15_ats_keywords, a.required_skills);
   const restored = typeof sources[0] === "string" ? restoreAskedTools(tools.skills, analysis, sources[0], registry) : { skills: tools.skills, restored: [] };
+  const separated = separateSkillLines(restored.skills);
   const summary = capSummary(sections.summary, MAX_SUMMARY_SENTENCES, roleTitle);
   return {
     summary: summary.summary,
-    skills: restored.skills,
+    skills: separated.skills,
     fixes: {
       tools: tools.fix,
       summary: summary.fix,
       unsupportedTools: unsupported.dropped.length ? unsupported.dropped : null,
       competencies: competencies.dropped.length ? competencies.dropped : null,
       restoredTools: restored.restored.length ? restored.restored : null,
+      skillLines: separated.fix,
     },
   };
 }

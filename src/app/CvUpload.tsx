@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import StatusText from "@/components/ui/StatusText";
+import { MAX_UPLOAD_BYTES, UPLOAD_TOO_LARGE } from "@/lib/limits";
 
 // Upload a CV file and hand the extracted text back to the caller. This does NOT
 // save anything: the text lands in the existing master-CV textarea so the user
@@ -10,7 +11,7 @@ import StatusText from "@/components/ui/StatusText";
 
 const ACCEPT = ".pdf,.docx,.txt";
 const ACCEPT_RE = /\.(pdf|docx|txt)$/i;
-const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_BYTES = MAX_UPLOAD_BYTES;
 
 export default function CvUpload({
   onExtracted,
@@ -38,7 +39,7 @@ export default function CvUpload({
       return;
     }
     if (file.size > MAX_BYTES) {
-      setError("That file is larger than 5MB. Upload a smaller file.");
+      setError(UPLOAD_TOO_LARGE);
       return;
     }
 
@@ -47,6 +48,11 @@ export default function CvUpload({
       const body = new FormData();
       body.append("file", file);
       const res = await fetch("/api/parse-cv", { method: "POST", body });
+      // The host's own refusal of an oversized body is plain text, not JSON.
+      if (res.status === 413) {
+        setError(UPLOAD_TOO_LARGE);
+        return;
+      }
 
       // A non-JSON body (proxy error, HTML error page) must not throw past the
       // finally block and leave the button stuck on "Reading…".
@@ -139,7 +145,7 @@ export default function CvUpload({
                 </button>
                 <span className="dropOr"> or drag it here</span>
               </span>
-              <span className="dropHint">PDF, Word (.docx) or .txt — up to 5MB</span>
+              <span className="dropHint">PDF, Word (.docx) or .txt — up to 4MB</span>
             </>
           )}
         </div>

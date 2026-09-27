@@ -52,7 +52,10 @@ const CoverLetterPreview = forwardRef<CoverLetterPreviewHandle, Props>(function 
   // Read the (possibly edited) cover letter text back from the live DOM.
   function collectText(): string | null {
     if (!ref.current) return null;
-    (document.activeElement as HTMLElement)?.blur();
+    // Commit an edit in progress in the letter, never focus elsewhere (see
+    // CvPreview collectPayload).
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && ref.current.contains(active)) active.blur();
     return Array.from(ref.current.querySelectorAll("p"))
       .map((p) => (p.textContent || "").trim())
       .join("\n");

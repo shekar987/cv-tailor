@@ -1,19 +1,50 @@
 // Unit tests for the waiting-room games (lib/games): which game a tailor
-// gets, the progress curve, both games' physics and level rules, and the
-// figure's jointed limbs. node:test, no DOM: the simulations never draw.
+// gets, the progress curve, the real-world physics of both games, their level
+// rules — proved by a scripted walker and a scripted pilot getting through —
+// and the figure's jointed limbs. node:test, no DOM: the simulations never draw.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { STEP, emptyInput, makeRng, runLoop, type InputState } from "../src/lib/games/core.ts";
+import { STEP, G, PX_PER_M, FIGURE_PX, FIGURE_M, m, emptyInput, runLoop, type InputState } from "../src/lib/games/core.ts";
 import { gameForTailorCount, nextTailorCount, progressAt, EXPECTED_TAILOR_MS } from "../src/lib/games/pick.ts";
-import { limbPose, type EmployerPose } from "../src/lib/games/employer.ts";
-import { Platformer, PlatformerWorld, GROUND_Y, MAX_GAP, MAX_RISE, JUMP_V, GRAVITY, RUN_MAX, RESPAWN_DELAY, START_X } from "../src/lib/games/platformer.ts";
-import { Flyer, FLOOR_Y, EDGE, MAX_SHIFT, GAP_MIN, GAP_START, CRASH_TIME, WALL_W, PLAYER_X } from "../src/lib/games/flyer.ts";
+import { limbPose, pose, squat, reach, THIGH, SHIN, LEG, ARM_UPPER, ARM_LOWER, SHOULDER_NEAR } from "../src/lib/games/employer.ts";
+import {
+  Platformer,
+  StreetWorld,
+  STREET_Y,
+  RUN_SPEED,
+  JUMP_V,
+  TUCK,
+  STEP_UP,
+  CLIMB_MAX,
+  CLIMB_TIME,
+  WADE_SPEED,
+  STUMBLE_TIME,
+  PLAYER_W,
+  CONE_W,
+  PUDDLE_W,
+  RUN_UP,
+  RISER,
+  START_X,
+  type Solid,
+} from "../src/lib/games/platformer.ts";
+import { Flyer, ROOF_Y, THRUST, MAX_CLIMB, MAX_DROP, OBSTACLE_W, EDGE, MAX_SHIFT, GAP_MIN, GAP_START, CRASH_TIME, PLAYER_X, HALF_W, BODY_H } from "../src/lib/games/flyer.ts";
 
-const run = (game: { update: (dt: number, i: InputState) => void }, seconds: number, input: Partial<InputState> = {}) => {
-  for (let t = 0; t < seconds; t += STEP) game.update(STEP, { ...emptyInput(), ...input });
+const input = (p: Partial<InputState> = {}): InputState => ({ ...emptyInput(), ...p });
+const run = (game: { update: (dt: number, i: InputState) => void }, seconds: number, p: Partial<InputState> = {}) => {
+  for (let t = 0; t < seconds - 1e-9; t += STEP) game.update(STEP, input(p));
 };
+// A street with nothing on it, or only what a test puts there.
+const emptyStreet = (seed = 1) => {
+  const g = new Platformer(seed);
+  g.world.solids = [];
+  g.world.cones = [];
+  g.world.puddles = [];
+  g.world.end = Infinity;
+  return g;
+};
+const solid = (x: number, h: number, w: number, kind: Solid["kind"] = "crate"): Solid => ({ x, y: STREET_Y - h, w, h, kind });
 
-test("the 1st tailor plays the platformer, the 2nd the flyer, then they alternate", () => {
+test("the 1st tailor plays the street game, the 2nd the jetpack, then they alternate", () => {
   assert.deepEqual([1, 2, 3, 4, 5].map(gameForTailorCount), ["platformer", "flyer", "platformer", "flyer", "platformer"]);
   assert.equal(gameForTailorCount(0), "platformer");
 });
@@ -55,139 +86,308 @@ test("runLoop steps at 60 Hz, clamps a long frame, and stops", () => {
   assert.ok(draws <= 3);
 });
 
-test("limbs move: the run cycle swings arms and legs in opposition and bends the knees", () => {
-  const pose = (phase: number, stride = 1): EmployerPose => ({ mode: "run", phase, stride, airborne: false, vy: 0, flap: 0, facing: 1 });
-  const a = limbPose(pose(Math.PI / 2));
-  const b = limbPose(pose(-Math.PI / 2));
+test("one real-world scale: a 1.78 m man is 64 px, gravity is 9.81 m/s²", () => {
+  assert.equal(FIGURE_PX, 64);
+  assert.ok(Math.abs(FIGURE_M * PX_PER_M - FIGURE_PX) < 0.5);
+  assert.equal(G, 9.81 * PX_PER_M);
+});
+
+test("limbs: the run cycle swings arms and legs in opposition and bends the knees", () => {
+  const a = limbPose(pose({ phase: Math.PI / 2, stride: 1 }));
+  const b = limbPose(pose({ phase: -Math.PI / 2, stride: 1 }));
   assert.ok(a.legNear.upper > 0.5 && b.legNear.upper < -0.5, "the near leg swings forward, then back");
   assert.ok(a.legNear.upper * a.legFar.upper < 0, "legs swing in opposition");
   assert.ok(a.armNear.upper * a.legNear.upper < 0, "each arm swings against the leg on its side");
-  assert.ok(limbPose(pose(0)).legNear.upper - limbPose(pose(0)).legNear.lower > 0.9, "a knee bends as its leg swings forward");
-  const still = limbPose(pose(1.3, 0));
+  const zero = limbPose(pose({ phase: 0, stride: 1 }));
+  assert.ok(zero.legNear.upper - zero.legNear.lower > 0.9, "a knee bends as its leg swings forward");
+  const still = limbPose(pose({ phase: 1.3, stride: 0 }));
   assert.ok(Math.abs(still.legNear.upper) < 0.01 && Math.abs(still.legFar.upper) < 0.01, "standing still, the legs are straight down");
-  const jump = limbPose({ ...pose(0), airborne: true, vy: -300 });
-  assert.ok(jump.armNear.upper > 2 && jump.legNear.upper - jump.legNear.lower > 1, "a jump raises the arm and tucks the knee");
-  const fly = (flap: number) => limbPose({ ...pose(0), mode: "fly", flap });
-  assert.ok(fly(1).armNear.upper - fly(0).armNear.upper > 2, "a flap sweeps the arms up");
+  const jump = limbPose(pose({ airborne: true, vy: -100 }));
+  assert.ok(jump.legNear.upper - jump.legNear.lower > 1, "a jump tucks the knee");
 });
 
-test("platformer: gravity lands the figure, running moves it and the camera follows", () => {
-  const g = new Platformer(1);
-  run(g, 1);
-  assert.equal(g.grounded, true);
-  assert.equal(g.y, GROUND_Y);
-  const x0 = g.x;
-  run(g, 1.5, { right: true });
-  assert.ok(g.x > x0 + 150, `${x0} → ${g.x}`);
-  assert.ok(g.camX > 0);
-  assert.ok(g.phase > 0, "the run cycle advanced with speed");
-});
-
-test("platformer: even a tap is a full jump, rising about the height the level is built around", () => {
-  const g = new Platformer(2);
-  run(g, 0.5);
-  const floor = g.y;
-  let top = floor;
-  // A tap: pressed for one step, then let go.
-  g.update(STEP, { ...emptyInput(), jumpPressed: true });
-  for (let t = 0; t < 1.5; t += STEP) {
-    g.update(STEP, emptyInput());
-    top = Math.min(top, g.y);
+test("limbs: a landing crouch bends the knees with the feet kept under the hips", () => {
+  for (const drop of [2, 6, 10]) {
+    const l = squat(drop);
+    const height = THIGH * Math.cos(l.upper) + SHIN * Math.cos(-l.lower);
+    const across = THIGH * Math.sin(l.upper) + SHIN * Math.sin(l.lower);
+    assert.ok(Math.abs(height - (LEG - drop)) < 0.05, `drop ${drop}: leg height ${height}`);
+    assert.ok(Math.abs(across) < 0.05, `drop ${drop}: foot ${across} from under the hip`);
   }
-  const rise = floor - top;
-  assert.ok(rise > MAX_RISE && rise < JUMP_V ** 2 / (2 * GRAVITY) + 4, `rose ${rise}px`);
-  assert.equal(g.grounded, true);
+  const crouched = limbPose(pose({ crouch: 0.2 }));
+  assert.deepEqual(crouched.legNear, crouched.legFar, "both knees bend alike");
 });
 
-test("platformer: spikes and falls respawn the figure at its checkpoint, grounded", () => {
-  const g = new Platformer(3);
-  run(g, 0.5);
-  g.world.spikes.push({ x: g.x - 10, w: 28 });
-  g.update(STEP, emptyInput());
-  assert.ok(g.deadFor > 0 && g.deaths === 1);
-  run(g, RESPAWN_DELAY + 0.1);
-  assert.equal(g.deadFor <= 0, true);
-  assert.equal(g.x, g.checkpointX);
+test("limbs: a climb puts the hands on the edge, then the knee up, then stands", () => {
+  const start = limbPose(pose({ mode: "climb", climb: 0 }));
+  const mid = limbPose(pose({ mode: "climb", climb: 0.45 }));
+  const end = limbPose(pose({ mode: "climb", climb: 1 }));
+  assert.ok(start.armNear.upper > 2.4 && start.armFar.upper > 2.2, "arms up to the edge");
+  assert.ok(mid.legNear.upper > 1.2, "the knee comes up onto the top");
+  assert.ok(Math.abs(end.legNear.upper) < 0.01 && Math.abs(end.legFar.upper) < 0.01, "standing on top");
+});
+
+test("limbs: climbing, the arms are solved so the hands hold the edge as the body rises", () => {
+  const end = (root: { x: number; y: number }, l: { upper: number; lower: number }) => ({
+    x: root.x + ARM_UPPER * Math.sin(l.upper) + ARM_LOWER * Math.sin(l.lower),
+    y: root.y + ARM_UPPER * Math.cos(l.upper) + ARM_LOWER * Math.cos(l.lower),
+  });
+  for (const target of [{ x: 22, y: 20 }, { x: 18, y: 5 }, { x: 10, y: 26 }]) {
+    const l = reach(target, ARM_UPPER, ARM_LOWER, -1);
+    const hand = end({ x: 0, y: 0 }, l);
+    assert.ok(Math.hypot(hand.x - target.x, hand.y - target.y) < 0.01, JSON.stringify({ target, hand }));
+  }
+  // A 0.9 m pallet's corner, a little in front: the near hand is on it.
+  const edge = { x: 20, y: -50 };
+  const p = limbPose(pose({ mode: "climb", climb: 0.2, hands: edge }));
+  const hand = end(SHOULDER_NEAR, p.armNear);
+  assert.ok(Math.hypot(hand.x - edge.x, hand.y - edge.y) < 0.5, JSON.stringify(hand));
+});
+
+test("limbs: with the jetpack the hands stay on the grips — nothing flaps; the legs hang with the motion", () => {
+  const poses = [
+    pose({ mode: "jetpack", thrust: 0, vy: 0 }),
+    pose({ mode: "jetpack", thrust: 1, vy: -140 }),
+    pose({ mode: "jetpack", thrust: 0, vy: 280, phase: 2 }),
+  ].map(limbPose);
+  for (const p of poses) {
+    assert.deepEqual(p.armNear, poses[0].armNear);
+    assert.deepEqual(p.armFar, poses[0].armFar);
+  }
+  const rising = limbPose(pose({ mode: "jetpack", vy: -140 }));
+  const falling = limbPose(pose({ mode: "jetpack", vy: 280 }));
+  assert.ok(falling.legNear.upper > rising.legNear.upper, "the legs trail on the climb and swing forward on the drop");
+});
+
+test("street: he runs up to 5 m/s, taking about a second to get there", () => {
+  const g = emptyStreet();
+  run(g, 0.5, { right: true });
+  assert.ok(g.vx > m(2) && g.vx < RUN_SPEED);
+  run(g, 1, { right: true });
+  assert.equal(g.vx, RUN_SPEED);
+  assert.equal(RUN_SPEED, m(5));
+  assert.ok(g.phase > 0, "the run cycle advances with speed");
+  assert.ok(g.camX > 0, "the camera follows");
+});
+
+test("street: a jump is a person's jump — 0.59 m up, 0.8 m of foot clearance, about 3.5 m at full speed, no steering in the air", () => {
+  const g = emptyStreet();
   run(g, 0.2);
-  assert.equal(g.grounded, true, "the respawn point is on the ground");
-  g.world.spikes.length = 0;
-  g.x = 5000;
-  g.y = GROUND_Y + 200; // below the level
-  g.update(STEP, emptyInput());
-  assert.equal(g.deaths, 2, "falling out of the world is a death too");
-});
-
-test("platformer: the level only asks for jumps a full-speed jump can make", () => {
-  for (const seed of [1, 2, 3, 42, 99]) {
-    const w = new PlatformerWorld(seed);
-    w.extendTo(20_000);
-    const ground = w.solids.filter((s) => s.kind === "ground").sort((a, b) => a.x - b.x);
-    assert.equal(ground[0].x, 0, "the level starts on ground");
-    for (let i = 1; i < ground.length; i++) {
-      const gap = ground[i].x - (ground[i - 1].x + ground[i - 1].w);
-      if (gap <= 0) continue;
-      const bridged = w.solids.some((s) => s.kind === "platform" && s.x > ground[i - 1].x + ground[i - 1].w && s.x + s.w < ground[i].x);
-      assert.ok(gap <= MAX_GAP || (bridged && gap <= 180), `seed ${seed}: a ${Math.round(gap)}px pit at ${Math.round(ground[i].x)}`);
-    }
-    for (const s of w.solids) {
-      if (s.kind === "ground") continue;
-      assert.ok(GROUND_Y - s.y <= MAX_RISE, `seed ${seed}: a ${s.kind} top ${GROUND_Y - s.y}px up`);
-    }
-    for (const sp of w.spikes) {
-      const home = ground.find((s) => sp.x >= s.x && sp.x + sp.w <= s.x + s.w);
-      assert.ok(home && sp.x - home.x >= 60 && home.x + home.w - (sp.x + sp.w) >= 60, `seed ${seed}: spikes too close to a landing`);
-    }
+  g.update(STEP, input({ jumpPressed: true }));
+  let top = STREET_Y;
+  let feetTop = STREET_Y;
+  while (!g.grounded) {
+    g.update(STEP, input());
+    top = Math.min(top, g.y);
+    feetTop = Math.min(feetTop, g.feet);
   }
-  // The full-speed jump those limits are measured against.
-  const span = RUN_MAX * ((2 * JUMP_V) / GRAVITY);
-  assert.ok(span > MAX_GAP + 10, String(span));
-  assert.equal(START_X, 80);
+  const rise = (STREET_Y - top) / PX_PER_M;
+  const clearance = (STREET_Y - feetTop) / PX_PER_M;
+  assert.ok(rise > 0.55 && rise < 0.61, `body rose ${rise.toFixed(2)} m`);
+  assert.ok(clearance > 0.72 && clearance < 0.82, `feet cleared ${clearance.toFixed(2)} m`);
+  assert.equal(JUMP_V, m(3.4));
+
+  const r = emptyStreet();
+  run(r, 2, { right: true });
+  const x0 = r.x;
+  r.update(STEP, input({ right: true, jumpPressed: true }));
+  let steered = false;
+  while (!r.grounded) {
+    const before = r.vx;
+    r.update(STEP, input({ left: true }));
+    if (!r.grounded && r.vx !== before) steered = true;
+  }
+  const span = (r.x - x0) / PX_PER_M;
+  assert.ok(span > 3.2 && span < 3.7, `a running jump carried ${span.toFixed(2)} m`);
+  assert.equal(steered, false, "holding the other way in the air changes nothing");
+  assert.ok(r.crouch > 0, "he lands into a crouch");
+  run(r, 0.4);
+  assert.equal(r.crouch, 0, "and stands up again");
+
+  const s = emptyStreet();
+  run(s, 0.2);
+  const sx = s.x;
+  s.update(STEP, input({ right: true, jumpPressed: true }));
+  while (!s.grounded) s.update(STEP, input({ right: true }));
+  const standing = (s.x - sx) / PX_PER_M;
+  assert.ok(standing > 1.5 && standing < 1.9, `a standing jump went ${standing.toFixed(2)} m forward`);
 });
 
-test("flyer: hovers until the first flap, then falls; a flap lifts it", () => {
+test("street: kerbs and stairs are walked up and down, never jumped", () => {
+  const g = emptyStreet();
+  const n = 5;
+  for (let i = 1; i <= n; i++) g.world.solids.push(solid(200 + (i - 1) * m(0.3), i * RISER, m(0.3), "step"));
+  g.world.solids.push(solid(200 + n * m(0.3), n * RISER, m(4), "plaza"));
+  let highest = STREET_Y;
+  for (let t = 0; t < 4; t += STEP) {
+    g.update(STEP, input({ right: true }));
+    highest = Math.min(highest, g.y);
+    assert.equal(g.climb, null, "no climbing on stairs");
+  }
+  assert.ok(Math.abs(STREET_Y - highest - n * RISER) < 0.01, "he walked up onto the plaza");
+  assert.ok(RISER <= STEP_UP);
+});
+
+test("street: a crate stops him; jump against it climbs onto it; a jump clears a crate from a run", () => {
+  const g = emptyStreet();
+  const crate = solid(200, m(0.6), m(0.6));
+  g.world.solids.push(crate);
+  run(g, 3, { right: true });
+  assert.equal(g.x, crate.x - PLAYER_W / 2, "stopped against the crate");
+  g.update(STEP, input({ right: true, jumpPressed: true }));
+  assert.ok(g.climb, "jump against it climbs");
+  run(g, CLIMB_TIME + 0.05, { right: true });
+  assert.equal(g.y, crate.y, "standing on top");
+  assert.equal(g.climbs, 1);
+
+  const r = emptyStreet();
+  const c2 = solid(260, m(0.55), m(0.6));
+  r.world.solids.push(c2);
+  // At full speed, take off about a metre before it.
+  while (r.x + PLAYER_W / 2 < c2.x - 30) r.update(STEP, input({ right: true }));
+  r.update(STEP, input({ right: true, jumpPressed: true }));
+  run(r, 1.2, { right: true });
+  assert.ok(r.x > c2.x + c2.w, "cleared it (or landed on it and walked off)");
+  assert.equal(r.climbs, 0, "no climb was needed");
+});
+
+test("street: a 1.1 m wall can't be jumped — a jump that falls short grabs the edge and climbs", () => {
+  const g = emptyStreet();
+  const wall = solid(260, m(1.1), m(0.3), "wall");
+  g.world.solids.push(wall);
+  while (g.x + PLAYER_W / 2 < wall.x - 25) g.update(STEP, input({ right: true }));
+  g.update(STEP, input({ right: true, jumpPressed: true }));
+  let grabbed = false;
+  for (let t = 0; t < 3; t += STEP) {
+    g.update(STEP, input({ right: true }));
+    if (g.climb) grabbed = true;
+  }
+  assert.ok(grabbed, "he grabbed the edge");
+  assert.ok(g.x > wall.x + wall.w, "and went over, down the far side");
+  assert.equal(g.y, STREET_Y);
+  assert.ok(m(1.1) <= CLIMB_MAX);
+});
+
+test("street: a puddle slows him to a wade; a cone he runs into falls over and costs a stumble", () => {
+  const g = emptyStreet();
+  g.world.puddles.push({ x: 300, w: m(2) });
+  let slowest = Infinity;
+  for (let t = 0; t < 4; t += STEP) {
+    g.update(STEP, input({ right: true }));
+    if (g.wading) slowest = Math.min(slowest, g.vx);
+  }
+  assert.ok(slowest <= WADE_SPEED + 0.01, `waded at ${slowest}`);
+  assert.ok(g.splashes.length > 0 || g.x > 300 + m(2), "it splashed");
+
+  const c = emptyStreet();
+  c.world.cones.push({ x: 300, hitAt: null, dir: 1 });
+  run(c, 4, { right: true });
+  assert.equal(c.conesHit, 1);
+  assert.notEqual(c.world.cones[0].hitAt, null, "the cone was knocked over");
+  assert.ok(c.x > 300 + CONE_W, "he walked on");
+  assert.ok(STUMBLE_TIME > 0);
+});
+
+test("street: every obstacle is one a person can get past, with room to take a run-up", () => {
+  for (const seed of [1, 2, 3, 42, 99]) {
+    const w = new StreetWorld(seed);
+    w.extendTo(30_000);
+    const tall = w.solids.filter((s) => s.kind === "crate" || s.kind === "pallet" || s.kind === "wall");
+    for (const s of tall) {
+      assert.ok(s.h > STEP_UP && s.h <= CLIMB_MAX, `seed ${seed}: a ${s.kind} ${(s.h / PX_PER_M).toFixed(2)} m tall`);
+    }
+    for (const s of w.solids.filter((s) => s.kind === "step")) assert.ok(s.h % RISER < 0.01 || Math.abs((s.h % RISER) - RISER) < 0.01);
+    for (const p of w.puddles) assert.ok(p.w >= PUDDLE_W[0] - 0.01 && p.w <= PUDDLE_W[1] + 0.01, `seed ${seed}: a ${p.w}px puddle`);
+    // Obstacles are apart by at least a run-up.
+    const spans = [
+      ...tall.map((s) => [s.x, s.x + s.w]),
+      ...w.puddles.map((p) => [p.x, p.x + p.w]),
+    ].sort((a, b) => a[0] - b[0]);
+    for (let i = 1; i < spans.length; i++) assert.ok(spans[i][0] - spans[i - 1][1] >= RUN_UP[0] - 0.01, `seed ${seed}: obstacles ${Math.round(spans[i][0] - spans[i - 1][1])}px apart`);
+  }
+});
+
+test("street: a scripted walker gets through a minute of street on every seed and never gets stuck", () => {
+  for (const seed of [1, 2, 3, 42, 99]) {
+    const g = new Platformer(seed);
+    let lastCheck = g.x;
+    for (let t = 0; t < 60; t += STEP) {
+      const front = g.x + PLAYER_W / 2;
+      const ahead = (a: number, b: number) => b > front && a < front + 34;
+      const obstacle =
+        g.world.solids.some((s) => s.kind !== "step" && s.kind !== "plaza" && ahead(s.x, s.x + s.w)) ||
+        g.world.cones.some((c) => c.hitAt === null && ahead(c.x, c.x + CONE_W)) ||
+        g.world.puddles.some((p) => ahead(p.x, p.x + p.w));
+      g.update(STEP, input({ right: true, jumpPressed: obstacle && g.grounded }));
+      if (Math.abs(t % 5) < STEP / 2 && t > 1) {
+        assert.ok(g.x - lastCheck > m(5), `seed ${seed}: stuck around ${Math.round(g.x)} at ${t.toFixed(1)} s`);
+        lastCheck = g.x;
+      }
+    }
+    const metres = (g.best - START_X) / PX_PER_M;
+    assert.ok(metres > 150, `seed ${seed}: only ${metres.toFixed(0)} m in a minute`);
+    assert.ok(g.climbs > 0, `seed ${seed}: the street asked for no climb`);
+  }
+});
+
+test("jetpack: he stands on the roof until the first thrust; holding it climbs at up to 4 m/s, letting go drops under gravity", () => {
   const f = new Flyer(7);
   run(f, 1);
   assert.equal(f.state, "ready");
-  assert.equal(f.walls.length, 0);
-  f.update(STEP, { ...emptyInput(), jumpPressed: true });
-  assert.equal(f.state, "playing");
-  const y0 = f.y;
-  run(f, 0.1);
-  assert.ok(f.y < y0, "the flap lifts it");
-  run(f, 0.5);
-  assert.ok(f.vy > 0, "then gravity pulls it down");
+  assert.equal(f.y, ROOF_Y, "standing on the roof");
+  assert.equal(f.obstacles.length, 0, "nothing moves while he stands");
+  run(f, 1.5, { up: true });
+  assert.equal(f.state, "flying");
+  assert.ok(f.y < ROOF_Y - m(2), "he climbed");
+  assert.equal(f.vy, -MAX_CLIMB, "drag caps the climb at 4 m/s");
+  assert.equal(THRUST, 2 * G);
+  const vy0 = f.vy;
+  run(f, 0.3);
+  assert.ok(f.vy - vy0 > 0.8 * G * (0.3 - 0.12) && f.vy <= MAX_DROP, "let go, gravity takes over");
+  assert.ok(f.thrust < 0.01, "the engine spools down");
 });
 
-test("flyer: with no flaps it crashes, then resets to ready with the score cleared", () => {
+test("jetpack: touching the roof is a landing, not a crash; flying into an obstacle is, and he tumbles down", () => {
   const f = new Flyer(8);
-  f.update(STEP, { ...emptyInput(), jumpPressed: true });
-  run(f, 3);
-  assert.ok(f.crashes >= 1);
+  run(f, 0.3, { up: true });
+  // Back down on the roof before the first chimney arrives (~1.9 s).
+  run(f, 1.2);
+  assert.equal(f.state, "flying");
+  assert.equal(f.onRoof, true);
+  assert.equal(f.crashes, 0, "a landing on the roof");
+  run(f, 6);
+  assert.ok(f.crashes >= 1, "running along the roof, a chimney or mast stops him");
   run(f, CRASH_TIME + 0.1);
   assert.equal(f.state, "ready");
   assert.equal(f.score, 0);
-  assert.ok(f.y < FLOOR_Y);
 });
 
-test("flyer: gaps are narrow but reachable, and passing a wall scores", () => {
-  const f = new Flyer(9);
-  f.update(STEP, { ...emptyInput(), jumpPressed: true });
-  // Hold the figure in each gap: the walls and the scoring are what's tested.
-  let prev: number | null = null;
-  for (let t = 0; t < 30; t += STEP) {
-    const next = f.walls.find((w) => w.x + WALL_W >= PLAYER_X - 12);
-    if (next) f.y = next.gapY;
-    f.vy = 0;
-    f.update(STEP, emptyInput());
-    assert.equal(f.state, "playing", `crashed at ${t.toFixed(2)}s`);
+test("jetpack: the gaps are ones the thrust can reach — a scripted pilot flies through hundreds", () => {
+  // The pilot brakes by its stopping distance (firing lifts at THRUST - G,
+  // coasting slows a climb at G), allowing for the engine's spool time.
+  const aUp = THRUST - G;
+  for (const seed of [1, 2, 3, 42, 99]) {
+    const f = new Flyer(seed);
+    let prevGap: number | null = null;
+    for (let t = 0; t < 180; t += STEP) {
+      const next = f.obstacles.find((o) => o.x + OBSTACLE_W >= PLAYER_X - HALF_W);
+      const target = next ? next.gapY + BODY_H / 2 : ROOF_Y - m(2.5);
+      const y = f.y + f.vy * 0.12;
+      const fire = f.vy > 0 ? y + (f.vy * f.vy) / (2 * aUp) > target - 2 : y - (f.vy * f.vy) / (2 * G) > target;
+      f.update(STEP, input({ up: fire }));
+      assert.equal(f.crashes, 0, `seed ${seed}: crashed at ${t.toFixed(1)} s (score ${f.score})`);
+    }
+    assert.ok(f.score >= 120, `seed ${seed}: score ${f.score}`);
+    for (const o of f.obstacles) {
+      assert.ok(o.gap >= GAP_MIN - 0.01 && o.gap <= GAP_START + 0.01);
+      assert.ok(o.gapY - o.gap / 2 >= EDGE - 0.01 && o.gapY + o.gap / 2 <= ROOF_Y - EDGE + 0.01);
+      if (prevGap !== null) assert.ok(Math.abs(o.gapY - prevGap) <= MAX_SHIFT + 0.01);
+      prevGap = o.gapY;
+    }
   }
-  assert.ok(f.score >= 10, String(f.score));
-  const rng = makeRng(5);
-  assert.ok(rng() !== rng());
-  for (const w of f.walls) {
-    assert.ok(w.gap >= GAP_MIN && w.gap <= GAP_START);
-    assert.ok(w.gapY - w.gap / 2 >= EDGE - 0.001 && w.gapY + w.gap / 2 <= FLOOR_Y - EDGE + 0.001);
-    if (prev !== null) assert.ok(Math.abs(w.gapY - prev) <= MAX_SHIFT + 0.001);
-    prev = w.gapY;
-  }
+});
+
+test("jetpack: a gap is always taller than he is, with room to spare", () => {
+  assert.ok(GAP_MIN - BODY_H > m(1.2), `${((GAP_MIN - BODY_H) / PX_PER_M).toFixed(2)} m to spare`);
+  assert.ok(TUCK < STEP_UP + m(0.01));
 });

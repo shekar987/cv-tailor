@@ -1,8 +1,9 @@
 "use client";
 
 // The popup that opens the moment a full tailor starts: a progress bar for
-// the real run, and a mini game to play while it goes (lib/games — the
-// platformer on a user's 1st, 3rd… tailor, the flyer on the 2nd, 4th…).
+// the real run, and a mini game to play while it goes (lib/games — the street
+// walk on a user's 1st, 3rd… tailor, the jetpack flight on the 2nd, 4th…;
+// both at real-world scale and physics).
 // The bar is paced to a typical run and only fills when the real result
 // arrives; then the game stops and the popup says so. Closing it never
 // cancels the tailor.
@@ -34,18 +35,38 @@ function readPalette(): Palette {
   return {
     skyTop: v("sky-top"),
     skyBottom: v("sky-bottom"),
-    hillFar: v("hill-far"),
-    hillNear: v("hill-near"),
     cloud: v("cloud"),
-    ground: v("ground"),
-    groundTop: v("ground-top"),
-    platform: v("platform"),
-    platformTop: v("platform-top"),
-    block: v("block"),
-    blockEdge: v("block-edge"),
-    spike: v("spike"),
-    wall: v("wall"),
-    wallEdge: v("wall-edge"),
+    cityFar: v("city-far"),
+    cityNear: v("city-near"),
+    window: v("window"),
+    pavement: v("pavement"),
+    pavementTop: v("pavement-top"),
+    pavementJoint: v("pavement-joint"),
+    kerb: v("kerb"),
+    road: v("road"),
+    roadLine: v("road-line"),
+    crate: v("crate"),
+    crateEdge: v("crate-edge"),
+    brick: v("brick"),
+    mortar: v("mortar"),
+    cone: v("cone"),
+    coneStripe: v("cone-stripe"),
+    puddle: v("puddle"),
+    puddleShine: v("puddle-shine"),
+    stone: v("stone"),
+    stoneEdge: v("stone-edge"),
+    roof: v("roof"),
+    roofEdge: v("roof-edge"),
+    mast: v("mast"),
+    beacon: v("beacon"),
+    steel: v("steel"),
+    steelEdge: v("steel-edge"),
+    cable: v("cable"),
+    jetpack: v("jetpack"),
+    jetpackShade: v("jetpack-shade"),
+    flame: v("flame"),
+    flameCore: v("flame-core"),
+    smoke: v("smoke"),
     suit: v("suit"),
     suitShade: v("suit-shade"),
     shirt: v("shirt"),
@@ -201,14 +222,17 @@ export default function TailorGamePopup({ game, startedAt, status, error, onClos
       if (e.code === "Space" && e.target instanceof HTMLButtonElement) return;
       e.preventDefault();
       if (key === "jump") {
+        // One jump per press; the jetpack fires for as long as it is held.
         if (!e.repeat) inputRef.current.jumpPressed = true;
+        inputRef.current.up = true;
       } else {
         inputRef.current[key] = true;
       }
     };
     const up = (e: KeyboardEvent) => {
       const key = KEYS[e.code];
-      if (key && key !== "jump") inputRef.current[key] = false;
+      if (key === "jump") inputRef.current.up = false;
+      else if (key) inputRef.current[key] = false;
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
@@ -224,11 +248,14 @@ export default function TailorGamePopup({ game, startedAt, status, error, onClos
   // replays after a touch are ignored.
   useEffect(() => {
     const press = (key: "left" | "right" | "jump") => {
-      if (key === "jump") inputRef.current.jumpPressed = true;
-      else inputRef.current[key] = true;
+      if (key === "jump") {
+        inputRef.current.jumpPressed = true;
+        inputRef.current.up = true;
+      } else inputRef.current[key] = true;
     };
     const release = (key: "left" | "right" | "jump") => {
-      if (key !== "jump") inputRef.current[key] = false;
+      if (key === "jump") inputRef.current.up = false;
+      else inputRef.current[key] = false;
     };
     const bindings: [HTMLElement | null, "left" | "right" | "jump"][] = [
       [leftRef.current, "left"],
@@ -319,7 +346,11 @@ export default function TailorGamePopup({ game, startedAt, status, error, onClos
             ref={canvasRef}
             className="gamePopup__canvas"
             role="img"
-            aria-label={flyer ? "Optional mini game: fly a figure in a suit through gaps in the walls." : "Optional mini game: run and jump a figure in a suit across platforms."}
+            aria-label={
+              flyer
+                ? "Optional mini game: fly a man wearing a jetpack over the rooftops, between chimneys, masts and crane loads."
+                : "Optional mini game: walk a man in a suit along a city street — jump puddles and cones, climb crates and walls."
+            }
           />
           {paused && running && (
             <div className="gamePopup__overlay">
@@ -368,12 +399,14 @@ export default function TailorGamePopup({ game, startedAt, status, error, onClos
               </>
             )}
           </div>
-          <button type="button" ref={jumpRef} className="gameTouch gameTouch--jump" aria-label={flyer ? "Fly up" : "Jump"} tabIndex={-1}>
+          <button type="button" ref={jumpRef} className="gameTouch gameTouch--jump" aria-label={flyer ? "Fire the jetpack (hold)" : "Jump, or climb"} tabIndex={-1}>
             ▲
           </button>
         </div>
         <p className="gamePopup__hint">
-          {flyer ? "Space, ↑, W or a click to fly up." : "← → or A D to run. Space, ↑ or W to jump."}
+          {flyer
+            ? "Hold Space, ↑ or W (or press and hold) to fire the jetpack; let go to drop."
+            : "← → or A D to run. Space, ↑ or W to jump — against a wall or crates, to climb."}
         </p>
       </div>
     </div>

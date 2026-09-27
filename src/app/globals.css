@@ -57,22 +57,44 @@
   --doc-mark: #7A4F14;
 
   /* The waiting-room games' palette (app/TailorGamePopup reads these into the
-     canvas), like --doc-* is the CV document's: a dusk sky under the app's
-     charcoal, and a figure in a navy suit with an amber tie. */
+     canvas), like --doc-* is the CV document's: a city at dusk under the
+     app's charcoal — street, crates, cones, rooftops, crane loads — and a
+     man in a navy suit with an amber tie and, in the flying game, a
+     jetpack. */
   --game-sky-top: #1B2A44;
   --game-sky-bottom: #3E5C85;
-  --game-hill-far: #2C4568;
-  --game-hill-near: #243A57;
   --game-cloud: rgba(237, 237, 237, 0.82);
-  --game-ground: #5B4128;
-  --game-ground-top: #6FB36A;
-  --game-platform: #7A5A3A;
-  --game-platform-top: #A9835A;
-  --game-block: var(--amber);
-  --game-block-edge: #8C5E22;
-  --game-spike: #D8DCE2;
-  --game-wall: #3E7D4C;
-  --game-wall-edge: #2C5C37;
+  --game-city-far: #2C4568;
+  --game-city-near: #22364F;
+  --game-window: rgba(255, 214, 140, 0.55);
+  --game-pavement: #6E737C;
+  --game-pavement-top: #A7ACB4;
+  --game-pavement-joint: #585C64;
+  --game-kerb: #B8BCC3;
+  --game-road: #2E3137;
+  --game-road-line: #D9D9D9;
+  --game-crate: #A8743A;
+  --game-crate-edge: #6E4A22;
+  --game-brick: #8E4B3A;
+  --game-mortar: #C9B9A6;
+  --game-cone: #F2701F;
+  --game-cone-stripe: #F4F4F4;
+  --game-puddle: rgba(62, 92, 133, 0.9);
+  --game-puddle-shine: rgba(237, 237, 237, 0.75);
+  --game-stone: #9EA3AA;
+  --game-stone-edge: #C4C8CE;
+  --game-roof: #3A3F48;
+  --game-roof-edge: #5D636E;
+  --game-mast: #A9B0BA;
+  --game-beacon: var(--danger);
+  --game-steel: #5E6A78;
+  --game-steel-edge: #3F4852;
+  --game-cable: #14181F;
+  --game-jetpack: #A3ADBA;
+  --game-jetpack-shade: #5F6875;
+  --game-flame: #F29B38;
+  --game-flame-core: #FFE6A8;
+  --game-smoke: rgba(210, 212, 218, 0.45);
   --game-suit: #232A3B;
   --game-suit-shade: #161B27;
   --game-shirt: #F4F4F4;
@@ -1366,7 +1388,6 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .cvJobDate { font-weight: 700; white-space: nowrap; flex-shrink: 0; margin-left: auto; text-align: right; }
 /* Education dates: grey, non-bold, smaller — matching both document builders
    (dateColor GREY / dateBold false / 10pt vs the 10.5pt body). */
-.cvJobDate.cvDateMeta { color: var(--doc-meta); font-weight: 400; font-size: 12px; }
 
 /* Ensure bullets are NOT bold even if a parent is */
 .cvDoc ul li,

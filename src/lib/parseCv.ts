@@ -7,9 +7,9 @@
 //
 // Nothing here ever logs file bytes or extracted text.
 
-import { MAX_CV_CHARS } from "@/lib/limits";
+import { MAX_CV_CHARS, MAX_UPLOAD_BYTES, UPLOAD_TOO_LARGE } from "@/lib/limits";
 
-export const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB
+export const MAX_FILE_BYTES = MAX_UPLOAD_BYTES;
 export { MAX_CV_CHARS };
 
 export type CvFileKind = "pdf" | "docx" | "txt";
@@ -240,7 +240,7 @@ export async function parseCvFile(
     throw new CvParseError("That file is empty.", "empty");
   }
   if (bytes.length > MAX_FILE_BYTES) {
-    throw new CvParseError("That file is larger than 5MB. Upload a smaller file.", "too_large");
+    throw new CvParseError(UPLOAD_TOO_LARGE, "too_large");
   }
 
   const kind = detectFileKind(bytes, filename);

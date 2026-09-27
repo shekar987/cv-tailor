@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { parseCvFile, CvParseError, MAX_FILE_BYTES } from "@/lib/parseCv";
+import { UPLOAD_TOO_LARGE } from "@/lib/limits";
 
 // Parsing is CPU-bound and runs on untrusted input, so it gets a hard ceiling.
 // A file that takes longer than this is either pathological or adversarial.
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
     const declaredLength = Number(req.headers.get("content-length") || 0);
     if (declaredLength > MAX_FILE_BYTES * 1.1) {
       return NextResponse.json(
-        { error: "That file is larger than 5MB. Upload a smaller file." },
+        { error: UPLOAD_TOO_LARGE },
         { status: 400 }
       );
     }
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
 
     if (file.size > MAX_FILE_BYTES) {
       return NextResponse.json(
-        { error: "That file is larger than 5MB. Upload a smaller file." },
+        { error: UPLOAD_TOO_LARGE },
         { status: 400 }
       );
     }

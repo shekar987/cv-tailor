@@ -315,7 +315,12 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
   // edits). Shared by both downloads. Returns null if the preview isn't mounted.
   function collectPayload() {
     if (!ref.current) return null;
-    (document.activeElement as HTMLElement)?.blur();
+    // Commit an edit in progress in the preview — but never take focus from
+    // anywhere else: the claims re-check runs this a tick after focus LEAVES
+    // the preview, and blurring the element just clicked (the JD box) threw
+    // away the first keystrokes typed into it.
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && ref.current.contains(active)) active.blur();
 
     const div = ref.current;
     // Walk direct children only — same depth-first approach the cover letter uses,
@@ -647,9 +652,10 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
               {e.dates ? (
                 <p className="cvJobHeader">
                   <span className="cvJobRole">{e.degree}</span>
-                  {/* cvDateMeta: grey, non-bold, smaller — matching how both
-                      document builders style education dates. */}
-                  <span className="cvJobDate cvDateMeta">{e.dates}</span>
+                  {/* Bold and in the text colour, like every other dated
+                      header (experience, projects) — the same in both
+                      document builders. */}
+                  <span className="cvJobDate">{e.dates}</span>
                 </p>
               ) : (
                 <p className="cvSubhead">{e.degree}</p>

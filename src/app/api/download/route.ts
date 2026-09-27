@@ -415,13 +415,13 @@ const extraSections = filterExtraSections(profile.extraSections);
         if (education.length === 0) return [];
         const out: Paragraph[] = [sectionHeading("Education", density)];
         for (const e of education) {
+          // The date bold at the header's size, like experience and project
+          // dates (it was grey and a size smaller until 27 Sep).
           out.push(...datedHeaderParagraph(e.head, e.date, {
             spacingBefore: density.tightAfter,
             spacingAfter: density.tightAfter,
             leftSize: 22,
-            dateSize: 20,
-            dateColor: GREY,
-            dateBold: false,
+            dateSize: 22,
           }));
           out.push(new Paragraph({ spacing: { after: density.tightAfter }, children: [new TextRun({ text: e.school, size: 21, font: "Calibri" })] }));
           // e.note can hold multiple bullets, one per line — a paragraph per

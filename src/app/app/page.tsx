@@ -28,6 +28,7 @@ import type { SupportReport } from "@/lib/supportCheck";
 import { normalizeVariants, pickVariant, leadSkillsNotice, type VariantsConfig, type LeadSkillDrop } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTarget, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import { attachProjectLinks, linksForProject, projectKey } from "@/lib/projectLinks";
+import type { SkillLinesFix } from "@/lib/formatRules";
 import type { SeniorityFit } from "@/lib/seniority";
 import { isGraduateScheme, graduateSectionOrder } from "@/lib/graduateMode";
 import type { BulletChanges, RoleChanges } from "@/lib/bulletIds";
@@ -131,6 +132,8 @@ type Result = {
     // Tools the posting asks for that the master CV's own list names, put
     // back on the Technical Tools line.
     restoredTools?: string[] | null;
+    // The two skills lines kept apart (lib/formatRules separateSkillLines).
+    skillLines?: SkillLinesFix | null;
   };
   // Requirement → evidence for this posting, and what the sentence-by-
   // sentence check of the summary and letter against the master CV changed.
@@ -304,6 +307,15 @@ function realValue(text: string | undefined): string {
 // the tracker row's cv_reference, so the two always name the same document.
 // CvPreview is memoised on this string — keep it deterministic. Missing
 // pieces are simply left out (filter(Boolean) below).
+// What separateSkillLines did, as one sentence for the formatting notice.
+function skillLinesNotice(f: SkillLinesFix): string {
+  const parts = ["Each skill now sits on one line: capabilities under Functional Competencies, named technologies under Technical Tools."];
+  if (f.moved.length) parts.push(`Moved to Functional Competencies: ${f.moved.join(", ")}.`);
+  if (f.removedFromTools.length) parts.push(`Taken off Technical Tools, already under Functional Competencies: ${f.removedFromTools.join(", ")}.`);
+  if (f.removedFromCompetencies.length) parts.push(`Taken off Functional Competencies, already under Technical Tools: ${f.removedFromCompetencies.join(", ")}.`);
+  return parts.join(" ");
+}
+
 // The document profile with each project's links attached (lib/projectLinks).
 function withProjectLinks<T extends Profile | null>(p: T, prefs: Preferences, sources: string[]): T {
   if (!p || p.projects.length === 0) return p;
@@ -2454,7 +2466,7 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools) && (
+            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.skillLines) && (
               <div className="limitNotice" role="status" data-format-fixes>
                 <div className="limitNotice__title">Formatting rules applied</div>
                 <div className="limitNotice__body">
@@ -2502,6 +2514,12 @@ export default function Home() {
                         <span>
                           Put back on Technical Tools because the posting asks for them and your master CV lists them: {result.formatFixes.restoredTools.join(", ")}.
                         </span>
+                      </li>
+                    )}
+                    {result.formatFixes.skillLines && (
+                      <li data-format-fix="skill-lines">
+                        <Badge variant="dot" tone="rec">→</Badge>
+                        <span>{skillLinesNotice(result.formatFixes.skillLines)}</span>
                       </li>
                     )}
                   </ul>

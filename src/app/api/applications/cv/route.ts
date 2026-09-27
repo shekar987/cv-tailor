@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { parseCvFile, detectFileKind, CvParseError, MAX_FILE_BYTES } from "@/lib/parseCv";
+import { UPLOAD_TOO_LARGE } from "@/lib/limits";
 import {
   SENT_CV_BUCKET,
   sentCvPath,
@@ -30,7 +31,7 @@ export const runtime = "nodejs";
 const PARSE_TIMEOUT_MS = 20_000;
 const NOT_SET_UP =
   "Uploading the CV you sent isn't set up in the database yet — run supabase/migrations/20260927120000_application_cvs.sql in the Supabase SQL editor, then try again.";
-const TOO_LARGE = "That file is larger than 5MB. Upload a smaller file.";
+const TOO_LARGE = UPLOAD_TOO_LARGE;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUuid(value: unknown): value is string {

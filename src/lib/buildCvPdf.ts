@@ -163,11 +163,9 @@ function drawEducation(doc: jsPDF, cursor: PdfCursor, education: any[], d: Densi
   drawSectionHeading(doc, cursor, "Education", d);
   for (const e of education) {
     cursor.advance(pt(d.tightAfter));
-    drawHeaderLine(doc, cursor, e.head || "", e.date || "", 11, lineOf(11), {
-      rightColor: GREY,
-      rightBold: false,
-      rightSize: 10,
-    });
+    // The date bold at the header's size, like experience and project dates
+    // (the .docx builder's education section matches).
+    drawHeaderLine(doc, cursor, e.head || "", e.date || "", 11, lineOf(11));
     cursor.advance(pt(d.tightAfter));
 
     if (e.school) {

@@ -12,6 +12,8 @@ import {
   MAX_SUMMARY_SENTENCES,
   MAX_SUMMARY_WORDS,
   restoreAskedTools,
+  separateSkillLines,
+  isPracticePhrase,
 } from "../src/lib/formatRules.ts";
 
 const tools25 = [
@@ -100,7 +102,7 @@ test("applyFormatRules: both rules run from the analysis, and a clean result rep
   assert.equal(r.fixes.tools?.kept.length, 15);
   assert.ok(r.fixes.tools?.kept.includes("Docker") && r.fixes.tools?.kept.includes("Kubernetes"));
   const clean = applyFormatRules({ summary: "A.\nB.\nC.", skills: skillsBlock(tools25.slice(0, 10)) }, null);
-  assert.deepEqual(clean.fixes, { tools: null, summary: null, unsupportedTools: null, competencies: null, restoredTools: null });
+  assert.deepEqual(clean.fixes, { tools: null, summary: null, unsupportedTools: null, competencies: null, restoredTools: null, skillLines: null });
   assert.equal(clean.skills, skillsBlock(tools25.slice(0, 10)));
 });
 
@@ -173,4 +175,47 @@ test("restoreAskedTools never restores a skill the CV says is still being learnt
   const master = "SKILLS\nCore: Java 17, Spring Boot, PostgreSQL, Docker\nWorking knowledge: Python, Redis, Terraform\nCurrently learning: Kubernetes, Kafka";
   const r = restoreAskedTools("Technical Tools: Java 17 | Spring Boot", { top_15_ats_keywords: ["Kubernetes", "Kafka", "Terraform"] }, master, null);
   assert.deepEqual(r.restored, ["Terraform"]);
+});
+
+test("separateSkillLines: the owner's run (27 Sep) — the two capabilities repeated on Technical Tools leave Tools", () => {
+  const skills =
+    "Functional Competencies: Full-Stack Development | Python Backend Development | REST API Design | React Application Development | AI/LLM Integration | System Architecture\n" +
+    "Technical Tools: Python | FastAPI | React | TypeScript | PostgreSQL | Docker | AWS | REST APIs | LLM APIs | RAG | Node.js | Firebase | Stripe | Python Backend Development | Full-Stack Development";
+  const r = separateSkillLines(skills);
+  const [comp, tools] = String(r.skills).split("\n");
+  assert.equal(comp, skills.split("\n")[0], "Functional Competencies unchanged");
+  assert.equal(tools, "Technical Tools: Python | FastAPI | React | TypeScript | PostgreSQL | Docker | AWS | REST APIs | LLM APIs | RAG | Node.js | Firebase | Stripe");
+  assert.deepEqual(r.fix, { moved: [], removedFromTools: ["Python Backend Development", "Full-Stack Development"], removedFromCompetencies: [] });
+});
+
+test("separateSkillLines: a capability on Tools moves to Competencies when there is room; a technology on both lines stays on Tools", () => {
+  const r = separateSkillLines("**Functional Competencies:** REST API design | Python\n**Technical Tools:** Python | FastAPI | Unit Testing");
+  assert.equal(r.skills, "**Functional Competencies:** REST API design | Unit Testing\n**Technical Tools:** Python | FastAPI");
+  assert.deepEqual(r.fix, { moved: ["Unit Testing"], removedFromTools: [], removedFromCompetencies: ["Python"] });
+  // Six capabilities already: the phrase just leaves Tools.
+  const full = "Functional Competencies: A design | B design | C design | D design | E design | F design\nTechnical Tools: Python | Data Engineering";
+  assert.deepEqual(separateSkillLines(full).fix, { moved: [], removedFromTools: ["Data Engineering"], removedFromCompetencies: [] });
+  // Named technologies stay tools; one word is never a phrase.
+  assert.equal(separateSkillLines("Functional Competencies: API design\nTechnical Tools: REST APIs | CI/CD | Spring Security | Testing").fix, null);
+  // No Competencies line (or a flat non-technical line): nothing moves.
+  assert.equal(separateSkillLines("Technical Tools: Python | Full-Stack Development").fix, null);
+  assert.equal(isPracticePhrase("Full-Stack Development"), true);
+  assert.equal(isPracticePhrase("AI/LLM Integration"), true);
+  assert.equal(isPracticePhrase("REST APIs"), false);
+  assert.equal(isPracticePhrase("Development"), false);
+});
+
+test("restoreAskedTools: never a capability, never from the master CV's competencies line, never what the block already says", () => {
+  const master =
+    "SKILLS\nFunctional Competencies: Full-Stack Development | Python Backend Development | REST API Design | Authentication & Authorisation\n" +
+    "Technical tools: Python | FastAPI | React | JavaScript | PostgreSQL\n\nEXPERIENCE\nEngineer — Acme | 2023 – Present\n- Built FastAPI services";
+  const skills = "Functional Competencies: Full-Stack Development | Python Backend Development | REST API Design\nTechnical Tools: Python | FastAPI | React";
+  const analysis = { required_skills: ["Full-stack development", "Python backend development", "Authentication"], top_15_ats_keywords: ["JavaScript", "REST API design"] };
+  assert.deepEqual(restoreAskedTools(skills, analysis, master, null).restored, ["JavaScript"]);
+  // End to end: the final skills block carries each item once.
+  const r = applyFormatRules({ summary: "A.", skills }, analysis, [master]);
+  const [comp, tools] = String(r.skills).split("\n");
+  const c = comp.replace(/^[^:]*:\s*/, "").split(" | ").map((x) => x.toLowerCase());
+  const t = tools.replace(/^[^:]*:\s*/, "").split(" | ").map((x) => x.toLowerCase());
+  assert.deepEqual(c.filter((x) => t.includes(x)), [], "no item on both lines");
 });

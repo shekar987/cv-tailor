@@ -5,6 +5,7 @@ import StatusText from "@/components/ui/StatusText";
 import Icon from "@/components/ui/Icon";
 import { saveBlob } from "@/lib/saveBlob";
 import { formatFileSize, type SentCvInfo } from "@/lib/sentCv";
+import { MAX_UPLOAD_BYTES, UPLOAD_TOO_LARGE } from "@/lib/limits";
 
 // The CV file a user actually sent for one application (lib/sentCv) — above
 // all for applications made on other sites, where Jobhuntz never saw the
@@ -14,7 +15,7 @@ import { formatFileSize, type SentCvInfo } from "@/lib/sentCv";
 
 const ACCEPT = ".pdf,.docx,.txt";
 const ACCEPT_RE = /\.(pdf|docx|txt)$/i;
-const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_BYTES = MAX_UPLOAD_BYTES;
 const KIND_LABEL: Record<SentCvInfo["kind"], string> = { pdf: "PDF", docx: "Word", txt: "Text" };
 // The sheet's own date style ("26 Sep 2026"); the browser's en-GB short month
 // would print "Sept".
@@ -64,7 +65,7 @@ export default function SentCvBlock({
       return;
     }
     if (file.size > MAX_BYTES) {
-      setError("That file is larger than 5MB. Upload a smaller file.");
+      setError(UPLOAD_TOO_LARGE);
       return;
     }
     setBusy("upload");
@@ -75,6 +76,11 @@ export default function SentCvBlock({
       const res = await fetch("/api/applications/cv", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) return onSessionExpired();
+      // The host's own refusal of an oversized body is plain text, not JSON.
+      if (res.status === 413) {
+        setError(UPLOAD_TOO_LARGE);
+        return;
+      }
       if (!res.ok || !data.sentCv) {
         setError(data.error || "Could not upload that file. Try again.");
         return;
@@ -250,7 +256,7 @@ export default function SentCvBlock({
                   <span className="dropOr"> or drag it here</span>
                 </span>
                 <span className="dropHint">
-                  The file you sent {company ? `to ${company}` : "for this application"}: PDF, Word (.docx) or .txt, up to 5MB.
+                  The file you sent {company ? `to ${company}` : "for this application"}: PDF, Word (.docx) or .txt, up to 4MB.
                   Kept privately with this application.
                 </span>
               </>

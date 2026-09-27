@@ -4,6 +4,12 @@
 
 export const MAX_JD_CHARS = 15_000;
 export const MAX_CV_CHARS = 20_000;
+// The largest file a CV upload takes (Customize and the tracker). Vercel
+// refuses any request body over 4.5 MB before the route runs, with its own
+// plain-text 413; at 4 MB the multipart wrapping still fits, so every refusal
+// is the app's own and says why.
+export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+export const UPLOAD_TOO_LARGE = "That file is larger than 4MB. Upload a smaller file.";
 export const MAX_COVER_LETTER_CHARS = 10_000;
 export const MAX_NOTES_CHARS = 2_000;
 export const MAX_FEEDBACK_CHARS = 2_000;
