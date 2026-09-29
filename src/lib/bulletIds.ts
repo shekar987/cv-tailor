@@ -24,7 +24,31 @@ const ROLE_HEADER = new RegExp(String.raw`${YEAR}\s*(?:[–—-]|to)\s*(?:(?:[A-
 const BULLET = /^\s*[-•*]\s+/;
 const HIGHLIGHT = /^\s*highlight\s*:/i;
 export const BULLET_ID_RE = /^\s*(?:[•\-*]\s*)?\[(R\d+\.\d+)\]\s*/i;
+// The same id inside bold the model opened before it: "• **[R1.1] Rebuilt
+// the order service …**" or "• **[R1.1]** Rebuilt …". Missed until 29 Sep,
+// when a paid eval run shipped six bullets starting "[R1.1]": the line fell
+// through to closest-match, which kept the marker as a one-word "edit".
+const BOLD_ID_RE = /^\s*(?:[•\-]\s*|\*\s+)?\*\*\s*\[(R\d+\.\d+)\]\s*(\*\*)?\s*/i;
+// Any marker left anywhere in a bullet: never CV text.
+const STRAY_ID_RE = /\s*\[R\d+\.\d+\]\s*/gi;
 const OUTPUT_HEADER = /^[^•\-*\s].*\|.*\|/;
+
+function idLine(line: string): { id: string; text: string } | null {
+  const m = BULLET_ID_RE.exec(line);
+  if (m) return { id: m[1], text: line.slice(m[0].length) };
+  const b = BOLD_ID_RE.exec(line);
+  if (!b) return null;
+  // "**[R1.1] Rebuilt …**": the bold goes on past the id, so it reopens.
+  const rest = line.slice(b[0].length);
+  return { id: b[1], text: b[2] ? rest : `**${rest}` };
+}
+
+// A bullet that is ONE bold span from end to end emphasises nothing — bold
+// is for the figures — so it is unwrapped; partial bold is left alone.
+function unwrapWholeBold(text: string): string {
+  const m = /^\*\*([^*]+)\*\*([.!]?)$/.exec(text.trim());
+  return m ? `${m[1].trim()}${m[2]}` : text;
+}
 
 // The master CV's experience section as numbered roles and bullets. A
 // bullet-less master (PDF extraction lost the glyphs) counts every content
@@ -183,7 +207,7 @@ export function reconcileExperience(output: string, roles: MasterRole[]): { expe
   const byId = new Map<string, MasterBullet>();
   for (const r of roles) for (const b of r.bullets) byId.set(b.id.toUpperCase(), b);
   const lines = output.split("\n");
-  if (!lines.some((l) => BULLET_ID_RE.test(l))) return { experience: output, changes: null };
+  if (!lines.some((l) => idLine(l) !== null)) return { experience: output, changes: null };
 
   const out: string[] = [];
   const perRole = new Map<number, RoleChanges & { seen: string[] }>();
@@ -205,11 +229,11 @@ export function reconcileExperience(output: string, roles: MasterRole[]): { expe
       out.push(raw);
       continue;
     }
-    const isBullet = BULLET.test(line) || BULLET_ID_RE.test(line);
+    const m = idLine(line);
+    const isBullet = BULLET.test(line) || m !== null;
     if (!isBullet) { out.push(raw); continue; }
-    const m = BULLET_ID_RE.exec(line);
-    let master: MasterBullet | null = m ? byId.get(m[1].toUpperCase()) ?? null : null;
-    let text = (m ? line.slice(m[0].length) : line.replace(BULLET, "")).trim();
+    let master: MasterBullet | null = m ? byId.get(m.id.toUpperCase()) ?? null : null;
+    let text = unwrapWholeBold((m ? m.text : line.replace(BULLET, "")).replace(STRAY_ID_RE, " ").trim());
     if (!master) {
       // No usable id: the closest master bullet in the current role, else anywhere.
       const pool = roles.find((r) => r.index === currentRole)?.bullets ?? [];

@@ -22,7 +22,7 @@ test("template text a model leaves for a missing figure is found", () => {
 
 test("real CV prose is never read as a placeholder", () => {
   const clean = [
-    "• [R1.3] Built REST services in Python and FastAPI, cutting response times by 25%",
+    "• Built REST services in Python and FastAPI, cutting response times by 25%",
     "Integrated the X (formerly Twitter) API to schedule 1,200 posts a day.",
     "Worked with X-ray imaging data in a university research project.",
     "Automated CI/CD with GitHub Actions; wrote C# and C++ services on .NET 8.",
@@ -34,6 +34,10 @@ test("real CV prose is never read as a placeholder", () => {
   for (const text of clean) assert.deepEqual(placeholderHits(text), [], text);
   assert.equal(hasPlaceholder(""), false);
   assert.equal(hasPlaceholder(undefined), false);
+});
+
+test("a bullet id left in finished text is reported: every check runs after the ids are stripped", () => {
+  assert.deepEqual(placeholderHits("• **[R1.1] Rebuilt the order service in Spring Boot.**"), ["[R1.1]"]);
 });
 
 test("each placeholder is reported once, in order", () => {

@@ -5,8 +5,9 @@
 // bullets and the /app notice, lib/supportCheck for the summary and letter).
 // Import-free: runs on the server, in the browser and under node:test.
 
-// The experience step's bullet ids ("[R1.3]") are markers, not placeholders.
-const BULLET_ID_RE = /^R\d+(?:\.\d+)?$/;
+// The experience step's bullet ids ("[R1.3]") count too: every check here
+// runs after lib/bulletIds has stripped them, so one that is still there is
+// a marker about to reach an employer (a paid eval run on 29 Sep had six).
 
 const PATTERNS: RegExp[] = [
   // Anything in square, angle or curly brackets: "[X%]", "[Company Name]",
@@ -33,10 +34,8 @@ export function placeholderHits(text: unknown): string[] {
   const found: { at: number; end: number; hit: string }[] = [];
   for (const re of PATTERNS) {
     for (const m of str.matchAll(re)) {
-      const hit = m[0].trim();
-      if (hit.startsWith("[") && BULLET_ID_RE.test(hit.slice(1, -1).trim())) continue;
       const at = m.index ?? 0;
-      found.push({ at, end: at + m[0].length, hit });
+      found.push({ at, end: at + m[0].length, hit: m[0].trim() });
     }
   }
   // "[X%]" is one placeholder, not "[X%]" and "X%", and "to XX users" one,

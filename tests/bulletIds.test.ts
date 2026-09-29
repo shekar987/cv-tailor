@@ -144,3 +144,33 @@ test("parseMasterExperience: a title on the line above its dates belongs to the 
   const f = parseMasterExperience(flat);
   assert.deepEqual(f.map((r) => r.bullets.length), [2, 1]);
 });
+
+// A paid eval run on 29 Sep: the model bolded whole bullets, ids included,
+// and six "[R1.1]"-style markers reached the finished CV.
+test("reconcileExperience: an id inside bold is still an id, stripped, and a wholly bold bullet unwrapped", () => {
+  const cv = `EXPERIENCE
+Backend Engineer | Shopwell | Mar 2022 – Present
+- Rebuilt the order service in Spring Boot, cutting p95 checkout latency from 900ms to 380ms.
+- Designed the PostgreSQL schema for 12 million orders a year; query time down 45% after indexing work.
+- Mentored 2 junior engineers through weekly code review.
+`;
+  const roles = parseMasterExperience(cv);
+  const output = [
+    "Backend Engineer | Shopwell | Mar 2022 – Present",
+    "• **[R1.1] Rebuilt the order service in Spring Boot, cutting p95 checkout latency from 900ms to 380ms.**",
+    "• **[R1.2]** Designed the PostgreSQL schema for **12 million orders** a year; query time down 45% after indexing work.",
+    "• Mentored 2 junior engineers through weekly code review. [R1.3]",
+  ].join("\n");
+  const { experience, changes } = reconcileExperience(output, roles);
+  assert.doesNotMatch(experience, /\[R\d/);
+  assert.equal(
+    experience,
+    [
+      "Backend Engineer | Shopwell | Mar 2022 – Present",
+      "• Rebuilt the order service in Spring Boot, cutting p95 checkout latency from 900ms to 380ms.",
+      "• Designed the PostgreSQL schema for **12 million orders** a year; query time down 45% after indexing work.",
+      "• Mentored 2 junior engineers through weekly code review.",
+    ].join("\n")
+  );
+  assert.deepEqual(changes!.roles[0].bullets.map((b) => [b.id, b.status]), [["R1.1", "kept"], ["R1.2", "kept"], ["R1.3", "kept"]]);
+});
