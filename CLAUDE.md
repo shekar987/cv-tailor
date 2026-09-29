@@ -608,6 +608,10 @@ Consequences for anyone touching this:
   visually. That check is what would have caught the original bug
   immediately, and its absence is why it shipped.
 
+### Word dates end at the text column, and the column moves with the density
+
+The .docx right-aligns every date (experience, projects, education) with a right tab stop. Until 29 Sep that stop was a fixed 9026 twips — the text column only for 1-inch margins — while `lib/cvDensity` sets margins of 1080 / 900 / 810 / 720 twips, so every date in every Word download ended 0.5–1 inch short of the justified text (the PDF, which uses `cursor.contentWidth`, was exact). The stop is now `textColumnWidth(d)` = page width − both margins, and the "does the title fit beside the date" estimate uses the same width. Measure alignment from the file, not by eye: `word/document.xml`'s `w:tab w:pos` against `w:pgSz` − `w:pgMar`, and the PDF text items' right edges.
+
 ### The @@JOB@@ marker system
 
 The experience section goes through a two-step rendering pipeline:

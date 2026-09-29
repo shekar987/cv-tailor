@@ -23,7 +23,14 @@ import {
 const NAVY = "1F3864";
 const GREY = "595959";
 const LINK = "0563C1";
-const DATE_TAB_POSITION = 9026;
+const PAGE_WIDTH = 11906; // A4, twips
+// Where every date ends: the right edge of the text column, i.e. the page
+// less both margins, which move with the density (lib/cvDensity). A fixed
+// 9026 - right only for 1-inch margins - left every date 0.5 to 1 inch
+// short of the justified text and the heading rules (found 29 Sep).
+function textColumnWidth(d: Density): number {
+  return PAGE_WIDTH - 2 * d.margin;
+}
 
 function sectionHeading(text: string, d: Density): Paragraph {
   return new Paragraph({
@@ -57,6 +64,7 @@ function datedHeaderParagraph(
   leftText: string,
   date: string,
   opts: {
+    width: number;
     spacingBefore: number;
     spacingAfter: number;
     leftSize?: number;
@@ -72,7 +80,7 @@ function datedHeaderParagraph(
   if (date) {
     const gap = 200; // twips of breathing room between title and date
     const wouldOverlap =
-      estimatedWidthTwips(leftText, leftSize) + gap + estimatedWidthTwips(date, dateSize) > DATE_TAB_POSITION;
+      estimatedWidthTwips(leftText, leftSize) + gap + estimatedWidthTwips(date, dateSize) > opts.width;
     if (wouldOverlap) {
       return [
         new Paragraph({
@@ -97,7 +105,7 @@ function datedHeaderParagraph(
   return [
     new Paragraph({
       spacing: { before: opts.spacingBefore, after: opts.spacingAfter },
-      tabStops: [{ type: TabStopType.RIGHT, position: DATE_TAB_POSITION }],
+      tabStops: [{ type: TabStopType.RIGHT, position: opts.width }],
       children,
     }),
   ];
@@ -155,7 +163,7 @@ function textToParagraphs(text: string, mode: "plain" | "skills", d: Density): P
         const parts = trimmed.replace("@@JOB@@", "").split("@@");
         const role = parts[0] || "";
         const date = parts[1] || "";
-        return datedHeaderParagraph(role, date, { spacingBefore: d.jobBefore, spacingAfter: d.tightAfter });
+        return datedHeaderParagraph(role, date, { width: textColumnWidth(d), spacingBefore: d.jobBefore, spacingAfter: d.tightAfter });
       }
 
       const isBullet = trimmed.startsWith("•") || trimmed.startsWith("-");
@@ -209,6 +217,7 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any, d: Density): P
     // and right-aligned the same way Experience/Education dates are.
     const { title: projectTitle, date: projectDate } = splitTrailingDate(meta.name || "");
     out.push(...datedHeaderParagraph(projectTitle, projectDate, {
+      width: textColumnWidth(d),
       spacingBefore: d.jobBefore,
       spacingAfter: d.tightAfter,
       leftSize: 22,
@@ -418,6 +427,7 @@ const extraSections = filterExtraSections(profile.extraSections);
           // The date bold at the header's size, like experience and project
           // dates (it was grey and a size smaller until 27 Sep).
           out.push(...datedHeaderParagraph(e.head, e.date, {
+            width: textColumnWidth(density),
             spacingBefore: density.tightAfter,
             spacingAfter: density.tightAfter,
             leftSize: 22,
@@ -468,7 +478,7 @@ const extraSections = filterExtraSections(profile.extraSections);
     const doc = new Document({
       styles: { default: { document: { run: { font: "Calibri", size: 21 } } } },
       numbering: { config: [{ reference: "default-bullet", levels: [{ level: 0, format: LevelFormat.BULLET, text: "•", alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 360, hanging: 200 } } } }] }] },
-      sections: [{ properties: { page: { size: { width: 11906, height: PAGE_HEIGHT }, margin: { top: density.margin, right: density.margin, bottom: density.margin, left: density.margin } } }, children }],
+      sections: [{ properties: { page: { size: { width: PAGE_WIDTH, height: PAGE_HEIGHT }, margin: { top: density.margin, right: density.margin, bottom: density.margin, left: density.margin } } }, children }],
     });
 
     const buffer = await Packer.toBuffer(doc);
