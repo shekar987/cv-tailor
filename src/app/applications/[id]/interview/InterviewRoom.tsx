@@ -134,7 +134,8 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
   const sendTurn = useCallback(async (answer: string): Promise<void> => {
     listenerRef.current?.stop();
     const seconds = Math.round((performance.now() - answerStartRef.current) / 1000);
-    for (let attempt = 0; attempt < 2; attempt++) {
+    let waitedForLimit = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), TURN_TIMEOUT_MS);
     try {
@@ -145,6 +146,15 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
         body: JSON.stringify({ action: "turn", interviewId: interview.id, answerIndex: stateRef.current.answers, answer, mode: typing ? "typed" : "voice", seconds }),
       });
       const data = await res.json().catch(() => ({}));
+      // Answering quickly can meet the per-minute limit: wait it out once.
+      if (res.status === 429 && data.errorType === "provider_limit" && !waitedForLimit) {
+        waitedForLimit = true;
+        const wait = Math.min(60, Math.max(1, Number(data.retryAfter) || 10));
+        setNotice(`${interview.persona.firstName} needs a moment — carrying on in ${wait} seconds.`);
+        await new Promise((resolve) => setTimeout(resolve, wait * 1000));
+        setNotice("");
+        continue;
+      }
       if (res.status === 409 && data.errorType === "stale_turn") {
         throw new Error("This interview moved on in another tab. Reload the page to continue there.");
       }
@@ -166,7 +176,7 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
       clearTimeout(timeout);
     }
     }
-  }, [interview.id, typing]);
+  }, [interview.id, interview.persona.firstName, typing]);
 
   // Every way an answer is finished comes here. "Can I have a moment?" and
   // "Could you repeat that?" are answered on the page, with no model call.

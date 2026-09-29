@@ -306,6 +306,17 @@ export function scrubPraise(text: string): string {
   return kept.join(" ").trim();
 }
 
+// The reaction only acknowledges: a question inside it would be a second,
+// unchecked probe on top of the next question (the live run on 30 Sep said
+// "And how did the front-end work feed back…? Are you currently eligible…?").
+export function neutralReaction(text: string): string {
+  return scrubPraise(text)
+    .split(/(?<=[.!?])\s+/)
+    .filter((s) => s && !s.includes("?"))
+    .join(" ")
+    .trim();
+}
+
 function digitsIn(text: string): string[] {
   return normalizeEvidenceText(text).match(/\d+/g) ?? [];
 }
@@ -356,7 +367,7 @@ export function decideTurn(
   const state = interviewState(plan, transcript);
   const text = str(answer, MAX_ANSWER_CHARS);
   const q = state.current;
-  const reaction = model ? scrubPraise(model.reaction) : STOCK_REACTION;
+  const reaction = model ? neutralReaction(model.reaction) : STOCK_REACTION;
   const candidate = (kind: EntryKind): TranscriptEntry => ({ who: "candidate", kind, questionId: q?.id ?? null, text, ...meta });
   const say = (kind: EntryKind, line: string, questionId: string | null): TranscriptEntry => ({ who: "interviewer", kind, questionId, text: line });
 

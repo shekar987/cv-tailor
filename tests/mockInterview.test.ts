@@ -13,6 +13,7 @@ import {
   decideTurn,
   normalizeTurnOutput,
   scrubPraise,
+  neutralReaction,
   reconcileFeedback,
   readout,
   answerMetrics,
@@ -128,6 +129,14 @@ test("turn: one follow-up per question, then the next question; praise is scrubb
   assert.equal(a2.reply.kind, "next", "a second probe on the same question is refused");
   assert.equal(a2.reply.question!.id, "q2");
   assert.equal(a2.reply.say, `Thank you. ${plan.questions[1].text}`);
+});
+
+test("turn: a question inside the reaction is dropped, so each turn asks one question (live run, 30 Sep)", () => {
+  assert.equal(neutralReaction("Right, thanks. And how did the front-end work feed back into the back end?"), "Right, thanks.");
+  const { plan, transcript } = play();
+  const r = decideTurn(plan, transcript, "At Brane Group I built the APIs myself.", model({ reaction: "Right, thanks. And how did that go?", move: "next" }), turnCtx);
+  assert.equal(r.reply.say, `Right, thanks. ${plan.questions[1].text}`);
+  assert.ok(!/how did that go/.test(r.reply.say), "the smuggled question is gone");
 });
 
 test("turn: a follow-up with an invented figure or an unlawful topic is refused; a failed model still advances", () => {
