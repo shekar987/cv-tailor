@@ -115,6 +115,52 @@ export async function callForUser(
   }
 }
 
+// The wallet a multi-call feature (the mock interview) was charged to at its
+// start; every later call goes to the same one. callForUser is not enough:
+// it sends every ordinary user to the shared Claude account, which would put
+// an own-key user's whole interview on the owner's bill.
+export type LlmPath = "claude" | "own_key" | "unlimited";
+
+export function llmPathOf(route: RouteGranted): LlmPath {
+  return route.reason === "own_key" ? "own_key" : route.reason === "unlimited" ? "unlimited" : "claude";
+}
+
+export async function callOnPath(
+  supabase: Supabase,
+  userId: string,
+  path: LlmPath,
+  bodyProvider: unknown,
+  options: { system: string; userInput: string; expectJson?: boolean; maxTokens?: number }
+): Promise<unknown> {
+  if (path === "own_key") {
+    const own = await loadOwnOpenRouterKey(supabase, userId);
+    if (!own.key) throw new Error("The OpenRouter key this interview started on is no longer available");
+    return callLLM({ provider: "openrouter", apiKeyOverride: own.key, ...options });
+  }
+  if (path === "unlimited") {
+    // Re-checked on every call: the path is stored in a row the user can write.
+    const { data: prof } = await supabase.from("profiles").select("is_unlimited").eq("id", userId).maybeSingle();
+    if (prof?.is_unlimited === true && (bodyProvider === "openrouter" || bodyProvider === "gemini")) {
+      let apiKeyOverride: string | undefined;
+      if (bodyProvider === "openrouter" && !process.env.OPENROUTER_API_KEY) {
+        const own = await loadOwnOpenRouterKey(supabase, userId);
+        if (!own.key) throw new Error("OpenRouter is selected but no OpenRouter key is available");
+        apiKeyOverride = own.key;
+      }
+      return callLLM({ provider: bodyProvider, apiKeyOverride, ...options });
+    }
+  }
+  try {
+    return await callClaude(options);
+  } catch (e) {
+    // The shared account ran out mid-interview: the user's own key, once.
+    if (!(e instanceof ProviderCreditError) && !(e instanceof ProviderRateLimitError)) throw e;
+    const own = await loadOwnOpenRouterKey(supabase, userId);
+    if (!own.key) throw e;
+    return callLLM({ provider: "openrouter", apiKeyOverride: own.key, ...options });
+  }
+}
+
 export type RouteGranted = {
   ok: true;
   provider: Provider;

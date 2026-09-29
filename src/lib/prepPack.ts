@@ -210,21 +210,28 @@ export function normalizePrepPack(raw: unknown, meta: PrepMeta): PrepPack | null
 // contiguous run of its tokens with every number intact. Separately, every
 // number the answer states (STAR result, points) must exist somewhere in the
 // CV — rule 4, faithful metrics — or it is listed for the user to check.
-export function verifyEvidence(pack: PrepPack, cvText: string): PrepPack {
-  const normCv = normalizeEvidenceText(cvText);
-  const cvTokens = normCv.split(" ").filter(Boolean);
-  const cvDigits = new Set(digitsOf(normCv));
-
-  const isVerified = (text: string): boolean => {
+// The tracer itself: is `text` in `source`, verbatim after normalization or
+// as a run of at least 60% of its tokens with every number intact? Also the
+// mock interview's check that a quoted piece of an answer is really in it.
+export function makeLineTracer(source: string): (text: string) => boolean {
+  const normSource = normalizeEvidenceText(source);
+  const sourceTokens = normSource.split(" ").filter(Boolean);
+  const sourceDigits = new Set(digitsOf(normSource));
+  return (text: string): boolean => {
     const norm = normalizeEvidenceText(text);
     if (!norm) return false;
-    if (normCv.includes(norm)) return true;
+    if (normSource.includes(norm)) return true;
     const tokens = norm.split(" ").filter(Boolean);
     if (tokens.length < 5) return false;
-    const numbersOk = digitsOf(norm).every((d) => cvDigits.has(d));
+    const numbersOk = digitsOf(norm).every((d) => sourceDigits.has(d));
     if (!numbersOk) return false;
-    return longestCommonRun(tokens, cvTokens) >= Math.ceil(tokens.length * 0.6);
+    return longestCommonRun(tokens, sourceTokens) >= Math.ceil(tokens.length * 0.6);
   };
+}
+
+export function verifyEvidence(pack: PrepPack, cvText: string): PrepPack {
+  const cvDigits = new Set(digitsOf(normalizeEvidenceText(cvText)));
+  const isVerified = makeLineTracer(cvText);
 
   const questions = pack.questions.map((q) => {
     const evidence = q.evidence.map((e) => ({ text: e.text, verified: isVerified(e.text) }));

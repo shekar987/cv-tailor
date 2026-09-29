@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored third-party code (TalkingHead, MIT), kept as published.
+    "src/vendor/**",
+    "public/vendor/**",
   ]),
 ]);
 

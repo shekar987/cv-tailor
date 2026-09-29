@@ -1616,6 +1616,14 @@ export default function ApplicationsPage() {
                               >
                                 {row.prep_generated_at ? "Prep ✓" : "Prep"}
                               </Link>
+                              <Link
+                                href={`/applications/${row.id}/interview`}
+                                className="appsActionBtn"
+                                aria-label={`Mock interview for ${row.company_name}`}
+                                title="Practise out loud with an AI interviewer"
+                              >
+                                Interview
+                              </Link>
                               <button
                                 type="button"
                                 className="appsActionBtn danger"
