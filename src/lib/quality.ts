@@ -14,6 +14,7 @@
 import { DENSITIES, PAGE_HEIGHT, TARGET_PAGES, wrappedLines, chooseDensity, estimatedHeight, capacity } from "./cvDensity.ts";
 import { extractFigures } from "./claims.ts";
 import { linksText } from "./projectLinks.ts";
+import { placeholderHits } from "./placeholders.ts";
 
 export type ProfileLike = {
   tagline?: string;
@@ -257,6 +258,7 @@ function flagBullet(bullet: string, company?: string): BulletFlag | null {
   const reasons: string[] = [];
   if (isRelevanceBoltOn(bullet, company)) reasons.push("ends with a clause narrating its relevance to the employer — state what was built, how, and the result, then stop");
   for (const h of inflationHits(bullet)) reasons.push(`filler: ${h.word}`);
+  for (const p of placeholderHits(bullet)) reasons.push(`placeholder "${p}" — never template text; state the result without a figure when the master CV gives none`);
   return reasons.length ? { bullet, reasons } : null;
 }
 
@@ -279,6 +281,12 @@ export const INFLATION_WORDS = [
   "results-driven", "seamless", "seamlessly", "robust", "leveraging", "leverage", "leveraged", "synergy", "synergies",
   "guru", "ninja", "rockstar", "highly skilled", "proven track record", "go-getter", "self-starter", "thought leader",
   "production-grade", "mission-critical", "at scale", "end-to-end", "hands-on", "game-changing", "disruptive",
+  // The words recruiters now read as machine-written (the owner's ATS brief,
+  // 29 Sep). "driven" alone is left out: "event-driven" and "data-driven"
+  // are real engineering terms.
+  "spearheaded", "spearheading", "pioneered", "pioneering", "revolutionised", "revolutionized", "transformative",
+  "synergised", "synergized", "fostered", "fostering", "delved", "delve", "testament", "highly motivated",
+  "strategic thinker", "excellent communication skills",
 ];
 const INFLATION_RE = new RegExp(`\\b(?:${INFLATION_WORDS.map((w) => w.replace(/[-/]/g, "[-\\s]?")).join("|")})\\b`, "gi");
 
@@ -327,6 +335,8 @@ export type QualityReport = {
   inflation: { word: string; count: number }[];
   // Bullets that end by narrating their relevance to the employer.
   boltOns: string[];
+  // Template text left in any section ("by X%", "[NUMBER]", "TBC").
+  placeholders: string[];
 };
 
 export function qualityReport(sections: Sections, profile: ProfileLike, coverLetter?: unknown, company?: string, targetPages: number = TARGET_PAGES): QualityReport {
@@ -337,5 +347,6 @@ export function qualityReport(sections: Sections, profile: ProfileLike, coverLet
     weakBullets: weakBullets(sections.experience, sections.projects),
     inflation: inflationHits(prose),
     boltOns: relevanceBoltOns(sections.experience, sections.projects, company),
+    placeholders: placeholderHits([prose, str(sections.skills)].join("\n")),
   };
 }

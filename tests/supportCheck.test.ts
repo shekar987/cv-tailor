@@ -16,6 +16,7 @@ import {
   statesDegreeAsHeld,
   mergedProjects,
   isMergeProblem,
+  isPlaceholderProblem,
 } from "../src/lib/supportCheck.ts";
 import { degreesInProgress } from "../src/lib/headline.ts";
 import { normalizeLetter, capEmDashes } from "../src/lib/letterFormat.ts";
@@ -224,4 +225,28 @@ test("capEmDashes: one em-dash at most — pairs become brackets, later singles 
   const n = normalizeLetter(letter, { name: "Alex Example" });
   assert.equal(((n.letter as string).match(/—/g) || []).length, 1);
   assert.equal(n.fixes.emDashes, 5);
+});
+
+test("template text in the summary or letter is fixed without it, or the sentence goes", () => {
+  const sentences = supportSentences("Backend engineer who cut response times by X% at Northwind Labs.", "Dear Northwind team,\nAt Northwind Labs I served [NUMBER] users.\nI am applying for the Platform Engineer role.");
+  const s1 = sentences.find((s) => s.id === "s1")!;
+  const l1 = sentences.find((s) => s.id === "l1")!;
+  assert.ok(isPlaceholderProblem(s1) && isPlaceholderProblem(l1));
+  assert.ok(!isPlaceholderProblem(sentences.find((s) => s.id === "l2")!));
+  const verdicts = normalizeSupportVerdicts(
+    {
+      checks: [
+        { id: "s1", supported: false, support: [], fix: "Backend engineer who cut response times by 25% at Northwind Labs." },
+        // A fix that keeps template text is refused.
+        { id: "l1", supported: false, support: [], fix: "At Northwind Labs I served XX users." },
+      ],
+    },
+    sentences
+  );
+  const by = Object.fromEntries(decideSupport(sentences, verdicts, [CV]).map((d) => [d.id, d]));
+  assert.equal(by.s1.action, "rewrite");
+  assert.equal(by.l1.action, "remove");
+  // No verdict at all (fast mode, or the model skipped it): it still goes.
+  const none = decideSupport(sentences, new Map(), [CV]);
+  assert.equal(none.find((d) => d.id === "s1")!.action, "remove");
 });

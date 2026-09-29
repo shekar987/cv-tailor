@@ -57,6 +57,7 @@ import {
   dropRepeatedSentences,
   mergedProjects,
   isMergeProblem,
+  isPlaceholderProblem,
   type SupportReport,
 } from "@/lib/supportCheck";
 import { normalizeLetter, capEmDashes } from "@/lib/letterFormat";
@@ -586,12 +587,12 @@ async function runPipeline(opts: {
   const facts = projectFacts(cv, projectsPool);
   if (fast) {
     // No model call: the narrating clause is cut where that is clean, and a
-    // sentence that merges two projects' facts goes.
+    // sentence that merges two projects' facts, or holds template text, goes.
     const changed: SupportReport["changed"] = [];
     let cur: RepairSections = { summary: typeof summary === "string" ? summary : "", skills: "", experience: "", projects: {}, coverLetter: typeof coverLetter === "string" ? coverLetter : "" };
     for (const s of supportSentences(cur.summary, cur.coverLetter, facts)) {
       if (s.problems.length === 0) continue;
-      const merged = isMergeProblem(s);
+      const merged = isMergeProblem(s) || isPlaceholderProblem(s);
       const t = merged ? (s.section === "coverLetter" && s.sentence === letterOpening && safeOpening ? safeOpening : "") : trimNarration(s.sentence);
       const next = t !== null ? applyToSection(cur, s.section, s.sentence, t) : null;
       if (!next) continue;

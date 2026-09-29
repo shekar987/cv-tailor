@@ -72,6 +72,17 @@ export const roleTitleRule = (roleTitle: string, asIdentity: boolean = false) =>
       ? `ROLE TITLE — HARD CONSTRAINT: open the summary with the exact role title "${roleTitle}", spelled exactly as given, as the candidate's professional identity ("${roleTitle} with …") — it plainly describes the paid work the master CV shows. Never in quotes, and never followed by a clause about the role, the team or the employer ("…where design and collaboration drive impact" is rejected). It is the highest-weighted term a recruiter searches for; a summary without it is rejected.`
       : `ROLE TITLE — HARD CONSTRAINT: the exact role title "${roleTitle}" must appear once in the summary, spelled exactly as given, as the job being applied for ("…, applying for the ${roleTitle} role") — never in quotes, never as a title the candidate has held, and never followed by a clause about the role, the team or the employer ("…role where design and collaboration drive impact" is rejected). It is the highest-weighted term a recruiter searches for; a summary without it is rejected.`;
 
+// Plain, human wording for every step that writes about the candidate (the
+// owner's ATS + humanisation brief, 29 Sep). lib/quality INFLATION_WORDS
+// flags the same words in the output and lib/placeholders the template
+// text, so a draft that ignores this is caught, not trusted.
+export const HUMAN_VOICE_RULE = `PLAIN, HUMAN WORDING:
+- Never use words a recruiter now reads as machine-written: spearheaded, pioneered, revolutionised, transformative, synergy, synergised, fostered, streamlined, delved, landscape, testament, cutting-edge, results-driven, proven track record, highly motivated, strategic thinker, excellent communication skills, passionate, innovative, dynamic, or "driven" as a personal adjective.
+- Prefer a plain verb that says what was done: Built, Developed, Designed, Implemented, Created, Wrote, Improved, Reduced, Fixed, Tested, Integrated, Automated, Deployed, Analysed, Optimised, Maintained, Configured, Collaborated, Supported. "Led" only where the master CV shows leading. The verb never claims more than the master CV does.
+- The job's key terms appear where the master CV genuinely supports them, woven into plain sentences — never a list of keywords, never a term repeated to raise a count.
+- No placeholders: when the master CV gives no figure for a result, say what was achieved without one; when it gives no result, end on what was built. Never a vague benefit it does not state ("improving efficiency", "enhancing user experience").
+- Before you answer, reread the draft as a recruiter would: every claim true to the master CV at its real level and in its real setting, no word from the list above, nothing in square, angle or curly brackets that is not an id the format asks for, no line that could not be sent as it is.`;
+
 // evidenceBlock: lib/evidenceMap renderEvidenceBlock — which of the
 // posting's requirements paid work shows, which only a project shows, and
 // which the master CV never shows (never claimed, never implied).
@@ -103,8 +114,10 @@ NEVER WRITE (each reads as generated and is rejected):
 - A clause about the role, the team or the employer's needs ("where technical design drives measurable impact", "ready to contribute to your mission").
 - Self-assessment: "demonstrating", "proven ability", "track record", "passion for", "strong communicator", "detail-oriented", "results-driven", "self-starter".
 - Filler: "at scale", "production-grade", "end-to-end", "hands-on", "leveraging", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "passionate".
+- An opening built on adjectives ("A passionate, highly motivated engineer…", "Results-driven developer…"): open on the field and the evidence.
 - More than one positioning: one field only, never two joined by a slash or a pipe.
 Before you answer, reread the draft and rewrite every sentence that breaks one of these.
+${HUMAN_VOICE_RULE}
 
 You will receive the JD analysis as JSON. Match its seniority_level: no "junior" framing unless it says junior or graduate.
 
@@ -126,6 +139,8 @@ CRITICAL ANTI-EMBELLISHMENT RULES FOR SKILLS:
 ${claimsBlock}
 - For a required JD skill the candidate lacks, surface the closest ADJACENT skill they genuinely have. Never list the missing skill itself.
 - A requirement the evidence map says paid work or a project shows is named in the posting's own words ("API development", not a synonym for it): a recruiter searches for those exact words.
+- Relevance over quantity: fewer tools this job actually uses beat a longer list. Never pad a line to reach its limit.
+- No proficiency ratings, levels ("Advanced", "Expert", "5/5"), years or soft skills on either line — just the skill.
 - Final check before output: for EVERY item in your skills list, confirm it appears verbatim in the master CV. If you cannot point to where, remove it.
 You will receive the JD analysis as JSON.
 
@@ -149,7 +164,7 @@ Output ONLY the skills line(s) as plain text. Never wrap the labels or any skill
 // the tailor route sends back with a section's rejected bullets for its one
 // regeneration (lib/quality.ts lintBullets decides what is rejected).
 export const BULLET_SHAPE_RULE = `BULLET SHAPE — HARD CONSTRAINT:
-A bullet states what was built, how, and the measured result, then STOPS. It must never end with a clause explaining why it is relevant to this employer or role, and it never names the employer. Rejected shapes: "… - directly applicable to Acme's technical file review workflows", "… - the production-grade compliance Acme's regulated customers demand", "… - core patterns for Acme's scheduling agents", "… - exactly what this role needs". It also never ends by grading the work or the candidate: "…, demonstrating full-stack ownership", "… — demonstrating problem-solving and analytical thinking", "… — translating business requirements into secure architecture", "… — designed for reliability and auditability" are rejected too. Relevance is shown by which bullets you choose and the order you put them in, never by narration. A deterministic check rejects any bullet that narrates its relevance or carries a banned filler phrase, and you will be asked to rewrite it.`;
+A bullet states what was built, how, and the measured result, then STOPS. It must never end with a clause explaining why it is relevant to this employer or role, and it never names the employer. Rejected shapes: "… - directly applicable to Acme's technical file review workflows", "… - the production-grade compliance Acme's regulated customers demand", "… - core patterns for Acme's scheduling agents", "… - exactly what this role needs". It also never ends by grading the work or the candidate: "…, demonstrating full-stack ownership", "… — demonstrating problem-solving and analytical thinking", "… — translating business requirements into secure architecture", "… — designed for reliability and auditability" are rejected too. When the master CV gives no measured result, the bullet ends on what was built or what it does — never an invented result, a vague benefit ("improving efficiency") or a placeholder ("by X%"). Relevance is shown by which bullets you choose and the order you put them in, never by narration. A deterministic check rejects any bullet that narrates its relevance or carries a banned filler phrase, and you will be asked to rewrite it.`;
 
 export function rejectedBulletsBlock(flags: { bullet: string; reasons: string[] }[]): string {
   if (flags.length === 0) return "";
@@ -180,6 +195,7 @@ ${idBlock}
 - Output every bullet as "• [R1.3] <text>" — the id first, then that bullet's master wording with AT MOST TWO word substitutions. A substitution swaps one word for the posting's exact term ONLY where the master CV already shows that work (e.g. "frontend" → "front-end", "tests" → "unit tests" when they were unit tests). Never add a figure, a technology, a scale or a claim; never merge two bullets.
 - A checker counts the substitutions in every bullet and reverts any bullet that changed by more than two words to its master wording, drops any bullet without an id it can match, and drops an id used twice.
 - Keep each bullet under the role its id belongs to. You may leave a bullet out; you may not invent one.
+- An inflated verb in a master bullet (Spearheaded, Leveraged, Pioneered, Fostered, Revolutionised) may be swapped for the plain verb that says the same thing (Led, Used, Built, Supported, Improved) — one substitution. Never swap to a verb that claims more.
 ` : ""}
 ${BULLET_SHAPE_RULE}
 
@@ -191,9 +207,10 @@ NATURAL WRITING RULES (write like a human, not an AI):
 - Prefer bullets that carry evidence from the master CV: a figure, a scale (users, requests, services, team size) or a named system. A bullet without one stays when it shows something the job asks for that no other bullet shows (testing, collaboration, ownership, delivery to users); otherwise leave it out. Never add a figure to a bullet to give it one.
 - Order each role's bullets by what this job asks for most: bullets showing requirements the evidence map says paid work shows come first.
 - Write the way a strong engineer describes their own work plainly: direct, specific, no filler.
-- ATS BALANCE: While varying your phrasing, you MUST still include the exact technical keywords and skills from the JD analysis that the candidate genuinely has (e.g. "REST API", "Spring Boot", "PostgreSQL", "CI/CD"). Natural phrasing does not mean dropping keywords — weave them into plain sentences. The scanner needs the exact terms; the recruiter needs readable prose. Deliver both.
+- ATS BALANCE: While varying your phrasing, you MUST still include the exact technical keywords and skills from the JD analysis that the candidate genuinely has (e.g. "REST API", "PostgreSQL", "CI/CD", "unit testing"). Natural phrasing does not mean dropping keywords — weave them into plain sentences. The scanner needs the exact terms; the recruiter needs readable prose. Deliver both.
 - Keep each bullet's core keyword density intact: name the real technology, the real metric, the real action verb. Just vary the SENTENCE STRUCTURE around them, not the keywords themselves.
 - Before you answer, search your draft for each banned phrase and for any bullet whose last clause explains why it matters to the employer, and rewrite those bullets.
+${HUMAN_VOICE_RULE}
 
 ${budget}
 ${retryBlock}
@@ -239,11 +256,13 @@ CRITICAL ANTI-EMBELLISHMENT RULES:
 - Describe each project using ONLY technologies, actions, and outcomes explicitly in the master CV for THAT project.
 - FORBIDDEN: inventing capabilities, tools, or metrics not in the CV for that project.
 - Every phrase must be defensible if an interviewer asks "show me exactly where you did this."
+- A project stays a project: never imply users, customers, revenue, production traffic, a client or a team its own text does not state. A university, coursework or research project keeps that label.
 
 NATURAL WRITING RULES:
 - Lead with the outcome or the number, then how. Prefer bullets with evidence from that project's own text (a figure, a scale or a named system); keep one without when it shows something this job asks for, and never add a figure to give a bullet one.
 - Vary bullet structure; do not end every bullet with an em-dash + "-ing" phrase.
 - Vary bullet length. Ban: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "showcasing", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "passionate", "results-driven".
+${HUMAN_VOICE_RULE}
 
 The candidate's CV contains these projects (by index):
 ${projectList}
@@ -300,6 +319,8 @@ ${coverageBlock}
 - If the pool contains only one project, pick that one alone.
 - Never invent a project. Never merge two pool entries into one (rule 7): each
   selected project keeps only its own tech and outcomes.
+- A project stays a project: never imply users, customers, revenue, production
+  traffic, a client or a team its pool entry does not state.
 
 For each selected project write 3 tailored bullets (What + How + Result),
 fewer when its pool entry has fewer, using ONLY that project's own pool entry.
@@ -311,6 +332,7 @@ NATURAL WRITING RULES:
 - Vary bullet structure; do not end every bullet with an em-dash + "-ing" phrase.
 - Vary bullet length. Ban: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "showcasing".
 - Prefer bullets with evidence from the pool entry (a figure, a scale or a named system); never add a figure to give a bullet one.
+${HUMAN_VOICE_RULE}
 ${retryBlock}
 Output ONLY valid JSON (no fences), exactly this shape:
 {
@@ -574,10 +596,10 @@ SALUTATION AND SIGN-OFF: open with "Dear Hiring Manager," — or "Dear <Company>
 STYLE:
 - At most ONE em-dash (—) in the whole letter.
 - No sentence strings more than two achievements together.
-- BAN: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "operational chaos", "cuts through", "passionate", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "results-driven", "I am excited", "thrilled", "fast learner", "hit the ground running", "perfect fit", "dream job", "not glamorous", "fast-paced", "from day one", "solid foundation", "track record", "taught me", "demonstrated the ability", "showing a", "directly transferable", "that exact", "exactly what".
+- BAN: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "operational chaos", "cuts through", "passionate", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "results-driven", "I am excited", "thrilled", "fast learner", "hit the ground running", "perfect fit", "dream job", "not glamorous", "fast-paced", "from day one", "solid foundation", "track record", "taught me", "demonstrated the ability", "showing a", "directly transferable", "that exact", "exactly what", "spearheaded", "pioneered", "revolutionised", "transformative", "synergy", "fostered", "delve", "landscape", "testament", "highly motivated", "strategic thinker", "excellent communication skills", "I am a passionate".
 - Never tell the reader what the role needs or emphasises, and never say the candidate's work matches it ("the foundation this role needs", "the craftsmanship your role emphasises", "under that exact constraint"): state the fact and let the reader connect it. A personal project is described at its real scale — never as production traffic it did not have.
 - Do not open with a dramatic scene or a general statement about engineering. Match the analysis tone_signals.
-- No date line, no address block, no bracketed placeholders of any kind — the app adds today's date itself.
+- No date line, no address block, no placeholders of any kind ("[Company]", "X%", "TBC") — the app adds today's date itself.
 ${omitRightToWork ? "- Do NOT mention visa, sponsorship, right to work or immigration status anywhere in the letter, even though the master CV states it. The application form asks that question.\n" : ""}
 Before you answer, reread the letter: delete every sentence that is not a fact from the master CV, a fact from the posting or the research, or part of the close.
 
@@ -637,7 +659,7 @@ For each sentence you check, return:
 - "id".
 - "support": the master-CV (or pool) lines that support it, COPIED VERBATIM — whole lines or exact spans — or [] when none does. A deterministic checker searches for every line you quote and ignores paraphrases.
 - "supported": true only when EVERY claim in the sentence is in those lines — the same work, the same employer or project, the same figures. A sentence that adds an anecdote, a conversation, a lesson learned, a personal quality, a figure, a scope or a context the lines do not state is NOT supported. Moving a result from one employer or project to another is NOT supported.
-- "fix": only when not supported — the sentence rewritten to say only what the master CV states about the same work, keeping its place and purpose in the text; "" when nothing true is left. A fix never repeats a fact another sentence of the text already states (you receive every sentence): when the only true content left would repeat one, return "". A fix never combines facts from two projects, or from a project and an employer — each fact stays with its own named project or employer.
+- "fix": only when not supported — the sentence rewritten to say only what the master CV states about the same work, keeping its place and purpose in the text; "" when nothing true is left. A fix never repeats a fact another sentence of the text already states (you receive every sentence): when the only true content left would repeat one, return "". A fix never combines facts from two projects, or from a project and an employer — each fact stays with its own named project or employer. A fix never contains template text ("X%", "[NUMBER]").
 A sentence that arrives with "problems" was flagged by a deterministic check (it narrates its relevance to the role, or grades the candidate): it is NOT acceptable as written even when its facts are true — return "supported": false and a fix that keeps only the plain fact.
 A sentence that names the role being applied for, or mixes interest in the job with a claim, keeps the role's name and the interest in its fix; drop only the unsupported part.
 

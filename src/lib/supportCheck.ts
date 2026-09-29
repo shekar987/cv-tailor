@@ -14,7 +14,9 @@
 // when the fix passes the caller's checks, and removed otherwise; a
 // "supported" verdict whose quotes cannot be found is reported, not acted on.
 //
-// Import-free (node:test).
+// Imports only ./placeholders.ts (node:test).
+
+import { placeholderHits, hasPlaceholder } from "./placeholders.ts";
 
 export type SupportSection = "summary" | "coverLetter";
 // problems: what a deterministic lint found in the sentence (relevance
@@ -93,9 +95,11 @@ export function supportSentences(summary: string, letter: string, facts?: { proj
   const problems = (sentence: string) => {
     const p = narrationProblem(sentence);
     const merged = facts ? mergedProjects(sentence, facts.projects, facts.paidWork) : [];
+    const held = placeholderHits(sentence);
     return [
       ...(p ? [p] : []),
       ...(merged.length ? [`${MERGED_PROBLEM} (${merged.join(", ")}) in one sentence — keep each fact with its own named project, or drop the one that is not this project's`] : []),
+      ...(held.length ? [`${PLACEHOLDER_PROBLEM} (${held.join(", ")}) — write it with the master CV's exact figure, or without a figure`] : []),
     ];
   };
   let s = 0;
@@ -219,6 +223,11 @@ function restates(a: string, b: string): boolean {
 export type ProjectFacts = { name: string; text: string };
 export const MERGED_PROBLEM = "combines facts from different projects";
 export const isMergeProblem = (s: SupportSentence) => s.problems.some((p) => p.startsWith(MERGED_PROBLEM));
+// "Cut load time by X%": template text never reaches an employer. With no
+// acceptable fix the sentence goes, like a merged-projects sentence.
+export const PLACEHOLDER_PROBLEM = "contains template text";
+export const isPlaceholderProblem = (s: SupportSentence) => s.problems.some((p) => p.startsWith(PLACEHOLDER_PROBLEM));
+const mustGo = (s: SupportSentence) => isMergeProblem(s) || isPlaceholderProblem(s);
 export function mergedProjects(sentence: string, projects: ProjectFacts[], paidWork: string = ""): string[] {
   if (projects.length < 2) return [];
   const words = new Set(contentWords(sentence));
@@ -314,17 +323,18 @@ export function decideSupport(
   return sentences.map((s) => {
     const v = verdicts.get(s.id);
     // Not listed: the model read it as no claim about the candidate's past.
-    if (!v) return isMergeProblem(s) ? { ...s, action: "remove", replacement: null } : s.problems.length ? trimmed(s) : { ...s, action: "keep", replacement: null };
+    if (!v) return mustGo(s) ? { ...s, action: "remove", replacement: null } : s.problems.length ? trimmed(s) : { ...s, action: "keep", replacement: null };
     const verified = v.support.filter((q) => quoteInSource(q, source));
     const fix = v.fix ?? "";
     if (v.supported && s.problems.length === 0) {
       if (verified.length > 0 && contentOverlap(s.sentence, verified) >= MIN_OVERLAP) return { ...s, action: "keep", replacement: null };
       return { ...s, action: "unverified", replacement: null };
     }
-    if (fix && fix !== s.sentence && !repeats(s, fix) && accept(s, fix)) return { ...s, action: "rewrite", replacement: fix };
+    if (fix && fix !== s.sentence && !hasPlaceholder(fix) && !repeats(s, fix) && accept(s, fix)) return { ...s, action: "rewrite", replacement: fix };
     // One project's facts told as another's is a false attribution, not
-    // narration: with no acceptable fix it goes.
-    if (isMergeProblem(s)) return { ...s, action: "remove", replacement: null };
+    // narration, and template text is never sent: with no acceptable fix
+    // either goes.
+    if (mustGo(s)) return { ...s, action: "remove", replacement: null };
     // Facts true but the sentence narrates: never delete a true fact for it.
     if (v.supported) return trimmed(s);
     return { ...s, action: "remove", replacement: null };

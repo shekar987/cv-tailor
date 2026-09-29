@@ -176,3 +176,18 @@ test("trimBoltOn cuts the bolt-on clause and keeps the fact", () => {
   );
   assert.equal(trimBoltOn("Optimised PostgreSQL queries, improving read times by 30%", "Acme"), null);
 });
+
+test("the machine-written words from the ATS brief are filler; engineering terms are not", () => {
+  const hits = inflationHits("Spearheaded a transformative rebuild, fostered a culture of testing; a highly motivated strategic thinker with excellent communication skills.");
+  assert.deepEqual(hits.map((h) => h.word).sort(), ["excellent-communication-skills", "fostered", "highly-motivated", "spearheaded", "strategic-thinker", "transformative"]);
+  assert.deepEqual(inflationHits("Built an event-driven, data-driven pipeline on AWS Lambda and SQS."), []);
+});
+
+test("a placeholder is a bullet flag and a report item", () => {
+  const l = lintBullets({ experience: role("Engineer", ["Reduced page load time by X% by caching API responses.", "Cut p95 latency by 40%."]) });
+  assert.equal(l.experience.length, 1);
+  assert.match(l.experience[0].reasons.join(" "), /placeholder "X%"/);
+  const r = qualityReport({ summary: "Backend engineer with [N] years of Python.", skills: "Python", experience: role("Engineer", ["Cut p95 latency by 40%."]), projects: {} }, profile, "Dear [Hiring Manager],");
+  assert.deepEqual(r.placeholders, ["[N]", "[Hiring Manager]"]);
+  assert.deepEqual(qualityReport({ experience: role("Engineer", ["Cut p95 latency by 40%."]) }, profile).placeholders, []);
+});

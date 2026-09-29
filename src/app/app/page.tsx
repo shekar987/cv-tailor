@@ -1502,7 +1502,8 @@ export default function Home() {
       quality.duplicates.length +
       (quality.weakBullets.length > 0 ? 1 : 0) +
       (quality.inflation.length > 0 ? 1 : 0) +
-      (quality.boltOns.length > 0 ? 1 : 0)
+      (quality.boltOns.length > 0 ? 1 : 0) +
+      (quality.placeholders.length > 0 ? 1 : 0)
     : 0;
 
   // Focus leaving a preview re-reads both notices when either has something
@@ -2621,6 +2622,17 @@ export default function Home() {
                 <div className="limitNotice__title">Before you send</div>
                 <div className="limitNotice__body">
                   <ul className="atsList">
+                    {quality.placeholders.length > 0 && (
+                      <li data-quality-placeholders={quality.placeholders.length}>
+                        <Badge variant="dot" tone="miss">✕</Badge>
+                        <span>
+                          Template text left in the document:{" "}
+                          <strong>{quality.placeholders.slice(0, 4).join(", ")}</strong>
+                          {quality.placeholders.length > 4 ? " and more" : ""}. Write the real figure from your CV, or reword the
+                          line without one, before you send it.
+                        </span>
+                      </li>
+                    )}
                     {quality.pages.overBudget && (
                       <li>
                         <Badge variant="dot" tone="miss">✕</Badge>
