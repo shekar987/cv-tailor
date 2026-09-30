@@ -40,6 +40,9 @@ export type PrepCheckContext = {
   jd: string;
   research: unknown | null;
   copyTerms: JdCopyTerm[];
+  // The employer, for telling a company claim from a candidate one written
+  // in the third person; the pack's own company when absent.
+  company?: string;
 };
 
 // Below this share of a sentence's content words being the CV's own, and
@@ -147,22 +150,28 @@ export function prepCopyTerms(ats: unknown, knownGaps: string[], stack: string[]
 
 // ── The pack ─────────────────────────────────────────────────────────────────
 
-type Field = { questionId: string | null; field: PrepFlagField; index: number; text: string; candidate: boolean; company: boolean; kind: PrepSentenceKind; narration: boolean };
+// company: "always" — the field is about the employer (questions to ask,
+// a company question's intent); "ifNamed" — only a sentence that names or
+// refers to the employer, in neither the candidate's voice; "never".
+type Field = { questionId: string | null; field: PrepFlagField; index: number; text: string; candidate: boolean; company: "always" | "ifNamed" | "never"; kind: PrepSentenceKind; narration: boolean };
 
 function fieldsOf(pack: PrepPack): Field[] {
   const out: Field[] = [];
-  out.push({ questionId: null, field: "headline", index: 0, text: pack.angle.headline, candidate: true, company: true, kind: "prose", narration: false });
-  pack.angle.whyYou.forEach((t, i) => out.push({ questionId: null, field: "whyYou", index: i, text: t, candidate: true, company: true, kind: "prose", narration: false }));
-  out.push({ questionId: null, field: "opener", index: 0, text: pack.opener, candidate: true, company: true, kind: "prose", narration: true });
-  pack.questionsToAsk.forEach((t, i) => out.push({ questionId: null, field: "questionToAsk", index: i, text: t, candidate: false, company: true, kind: "prose", narration: false }));
+  // The angle's headline and reasons are claims about the candidate whatever
+  // their grammar (the prompt asks for "each defensible from the master CV").
+  // A company fact there is marked, never removed.
+  out.push({ questionId: null, field: "headline", index: 0, text: pack.angle.headline, candidate: true, company: "never", kind: "star", narration: false });
+  pack.angle.whyYou.forEach((t, i) => out.push({ questionId: null, field: "whyYou", index: i, text: t, candidate: true, company: "never", kind: "star", narration: false }));
+  out.push({ questionId: null, field: "opener", index: 0, text: pack.opener, candidate: true, company: "ifNamed", kind: "prose", narration: true });
+  pack.questionsToAsk.forEach((t, i) => out.push({ questionId: null, field: "questionToAsk", index: i, text: t, candidate: false, company: "always", kind: "prose", narration: false }));
   for (const q of pack.questions) {
     if (q.category === "gap") continue;
     const company = q.category === "company";
     if (q.star) {
-      for (const field of ["situation", "task", "action", "result"] as const) out.push({ questionId: q.id, field, index: 0, text: q.star[field], candidate: true, company: false, kind: "star", narration: true });
+      for (const field of ["situation", "task", "action", "result"] as const) out.push({ questionId: q.id, field, index: 0, text: q.star[field], candidate: true, company: "never", kind: "star", narration: true });
     }
-    q.points.forEach((t, i) => out.push({ questionId: q.id, field: "point", index: i, text: t, candidate: true, company, kind: "prose", narration: true }));
-    if (company) out.push({ questionId: q.id, field: "whyTheyAsk", index: 0, text: q.whyTheyAsk, candidate: false, company: true, kind: "prose", narration: false });
+    q.points.forEach((t, i) => out.push({ questionId: q.id, field: "point", index: i, text: t, candidate: true, company: company ? "ifNamed" : "never", kind: "prose", narration: true }));
+    if (company) out.push({ questionId: q.id, field: "whyTheyAsk", index: 0, text: q.whyTheyAsk, candidate: false, company: "always", kind: "prose", narration: false });
   }
   return out;
 }
@@ -191,9 +200,29 @@ function writeField(pack: PrepPack, f: Field, text: string): void {
 const clone = (pack: PrepPack): PrepPack => JSON.parse(JSON.stringify(pack)) as PrepPack;
 
 // A sentence spoken by or to the candidate ("I built…", "You were selected…")
-// is a claim about them; one with neither voice, in a field that may talk
-// about the company ("PwC's client work spans FTSE 500 companies."), is a
-// claim about the company.
+// is a claim about them. A company claim names the employer or refers to
+// it ("PwC's client work spans FTSE 500 companies.", "Their platform
+// handles…"); the angle's reasons are written in the third person about the
+// CANDIDATE ("2+ years shipping production systems: engineered…") and must
+// never be read as company facts — over the owner's stored packs (30 Sep)
+// the earlier rule removed six such reasons because the corrected master CV
+// no longer named their stack.
+const COMPANY_REF_RE = /\b(?:they|their|them|the (?:firm|company|business|practice|organi[sz]ation|employer|bank|agency))\b/i;
+// A company name's common words never identify it ("Epos Now Group": "now"
+// is in half of all prose).
+const COMPANY_STOP = new Set([
+  "ltd", "limited", "plc", "group", "uk", "the", "and", "inc", "llp", "llc", "co", "corp", "holdings", "international", "global", "services", "solutions", "technologies", "technology", "systems",
+  "now", "new", "one", "all", "for", "with", "our", "you", "its", "are", "can", "get", "has", "not", "big", "first", "next", "digital", "capital", "partners", "management", "consulting", "labs", "software",
+]);
+export function refersToCompany(sentence: string, company: string): boolean {
+  if (COMPANY_REF_RE.test(sentence)) return true;
+  const folded = ` ${sentence.toLowerCase().replace(/[^a-z0-9]+/g, " ")} `;
+  return company
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !COMPANY_STOP.has(w))
+    .some((w) => folded.includes(` ${w} `));
+}
 const CANDIDATE_VOICE_RE = /\b(?:I|I'm|I’m|I've|I’ve|I'd|I’d|I'll|I’ll|my|me|we|we've|we’ve|our|you|you're|you’re|you've|you’ve|your)\b/i;
 export const aboutCandidate = (s: string) => CANDIDATE_VOICE_RE.test(s);
 
@@ -201,6 +230,7 @@ export const aboutCandidate = (s: string) => CANDIDATE_VOICE_RE.test(s);
 export function checkPrepPack(input: PrepPack, ctx: PrepCheckContext): PrepPack {
   const pack = clone(input);
   const companySources = [ctx.jd, ctx.research ? JSON.stringify(ctx.research) : ""];
+  const company = ctx.company ?? pack.company;
   const flags: PrepFlag[] = [];
   let sentences = 0;
   for (const f of fieldsOf(pack)) {
@@ -208,7 +238,7 @@ export function checkPrepPack(input: PrepPack, ctx: PrepCheckContext): PrepPack 
     if (!text.trim()) continue;
     for (const s of prepSentences(text)) {
       sentences++;
-      if (f.company && !aboutCandidate(s)) {
+      if (f.company === "always" || (f.company === "ifNamed" && !aboutCandidate(s) && refersToCompany(s, company))) {
         const problems = companyFactProblems(s, [...companySources, ctx.cv]);
         if (problems.length > 0) {
           text = withoutSentence(text, s);

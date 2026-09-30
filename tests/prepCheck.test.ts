@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizePrepPack, packFromRow, verifyEvidence, type PrepPack, type PrepMeta } from "../src/lib/prepPack.ts";
-import { candidateSentenceFlag, companyFactProblems, prepCopyTerms, checkPrepPack, flaggedForTarget, normalizePrepRewrites, applyPrepRewrites, claimLike, type PrepCheckContext } from "../src/lib/prepCheck.ts";
+import { candidateSentenceFlag, companyFactProblems, prepCopyTerms, checkPrepPack, flaggedForTarget, normalizePrepRewrites, applyPrepRewrites, claimLike, refersToCompany, type PrepCheckContext } from "../src/lib/prepCheck.ts";
 
 const CV = `ALEX EXAMPLE
 Software Engineer
@@ -38,7 +38,11 @@ function ctxFor(over: Partial<PrepCheckContext> = {}): PrepCheckContext {
 const RAW = {
   angle: {
     headline: "You were selected for AssetGuard+ because of a track record of shipping cutting-edge dashboards.",
-    whyYou: ["Built REST services in Python and FastAPI for an internal billing product used by 3,000 staff.", "PwC's client work spans FTSE 500 companies."],
+    whyYou: [
+      "Built REST services in Python and FastAPI for an internal billing product used by 3,000 staff.",
+      "PwC's client work spans FTSE 500 companies.",
+      "2+ years shipping production systems: engineered a high-volume Spring Boot transaction API reducing latency by 40%.",
+    ],
     honestGaps: [{ gap: "MongoDB", howToAddress: "Say you have used PostgreSQL and Redis in production and would learn MongoDB on the job." }],
   },
   questions: [
@@ -129,8 +133,21 @@ test("checkPrepPack: candidate claims flagged and kept, company claims removed, 
   assert.ok(!kept.some((f) => f.questionId === "q5"), "a forward-looking line is advice");
   assert.ok(!kept.some((f) => f.questionId === "q2" && f.index === 2), "a verbatim CV bullet passes");
   // The company claims the sources never state are gone from the text.
-  assert.deepEqual(removed.map((f) => f.sentence), ["PwC's client work spans FTSE 500 companies.", "How is the FTSE 500 practice structured?", "PwC's FTSE 500 practice is the largest in Europe."]);
-  assert.deepEqual(checked.angle.whyYou, ["Built REST services in Python and FastAPI for an internal billing product used by 3,000 staff."]);
+  assert.deepEqual(removed.map((f) => f.sentence), ["How is the FTSE 500 practice structured?", "PwC's FTSE 500 practice is the largest in Europe."]);
+  // The angle is about the candidate: a company fact there is marked, not removed.
+  assert.deepEqual(checked.angle.whyYou, [
+    "Built REST services in Python and FastAPI for an internal billing product used by 3,000 staff.",
+    "PwC's client work spans FTSE 500 companies.",
+    "2+ years shipping production systems: engineered a high-volume Spring Boot transaction API reducing latency by 40%.",
+  ]);
+  assert.ok(kept.some((f) => f.field === "whyYou" && f.index === 1), "the FTSE 500 reason is marked");
+  // A third-person reason about the CANDIDATE that the CV does not support is kept and marked, never removed as a company fact.
+  assert.ok(kept.some((f) => f.field === "whyYou" && f.index === 2 && (f.reason === "figure" || f.reason === "not_in_cv")), JSON.stringify(kept.filter((f) => f.field === "whyYou")));
+  assert.equal(refersToCompany("PwC's client work spans FTSE 500 companies.", "PwC UK"), true);
+  assert.equal(refersToCompany("Their platform handles 40% of the market.", "Acme"), true);
+  assert.equal(refersToCompany("2+ years shipping production systems: engineered a high-volume Spring Boot transaction API.", "PwC UK"), false);
+  assert.equal(refersToCompany("The company reported record revenue.", "Epos Now Group"), true, "a company reference by noun");
+  assert.equal(refersToCompany("Right now the pipeline processes 2,000 events a minute.", "Epos Now Group"), false, "a common word in the name is no reference");
   assert.deepEqual(checked.questionsToAsk, ["Which data platforms do your teams build most?"]);
   assert.equal(checked.questions.find((q) => q.category === "company")!.whyTheyAsk, "");
   assert.equal(checked.questions.find((q) => q.category === "company")!.points.length, 1, "a company point the research supports stays");
@@ -138,7 +155,7 @@ test("checkPrepPack: candidate claims flagged and kept, company claims removed, 
   assert.match(checked.questions[0].star!.action, /^Diagnosed slow queries/);
   assert.match(checked.opener, /AWS Certified/);
   assert.equal(checked.check?.flagged, kept.length);
-  assert.equal(checked.check?.removed, 3);
+  assert.equal(checked.check?.removed, 2);
   assert.deepEqual(checked.check?.companySources, ["jd", "research"]);
   assert.equal(checked.check?.terms, 3);
   assert.ok(checked.check!.sentences > 15);
