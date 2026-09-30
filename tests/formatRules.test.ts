@@ -6,6 +6,7 @@ import {
   capSummary,
   splitSentences,
   applyFormatRules,
+  dedupeSkillLines,
   dropUnsupportedTools,
   dropUnsupportedCompetencies,
   MAX_TECHNICAL_TOOLS,
@@ -102,7 +103,7 @@ test("applyFormatRules: both rules run from the analysis, and a clean result rep
   assert.equal(r.fixes.tools?.kept.length, 15);
   assert.ok(r.fixes.tools?.kept.includes("Docker") && r.fixes.tools?.kept.includes("Kubernetes"));
   const clean = applyFormatRules({ summary: "A.\nB.\nC.", skills: skillsBlock(tools25.slice(0, 10)) }, null);
-  assert.deepEqual(clean.fixes, { tools: null, summary: null, unsupportedTools: null, competencies: null, restoredTools: null, skillLines: null });
+  assert.deepEqual(clean.fixes, { tools: null, summary: null, unsupportedTools: null, competencies: null, restoredTools: null, skillLines: null, duplicateLines: null });
   assert.equal(clean.skills, skillsBlock(tools25.slice(0, 10)));
 });
 
@@ -218,4 +219,19 @@ test("restoreAskedTools: never a capability, never from the master CV's competen
   const c = comp.replace(/^[^:]*:\s*/, "").split(" | ").map((x) => x.toLowerCase());
   const t = tools.replace(/^[^:]*:\s*/, "").split(" | ").map((x) => x.toLowerCase());
   assert.deepEqual(c.filter((x) => t.includes(x)), [], "no item on both lines");
+});
+
+test("dedupeSkillLines: one line per label — a second Technical Tools line (bold or plain) goes, different labels stay, an exact repeat goes", () => {
+  const twice = "Functional Competencies: REST API design | Testing\nTechnical Tools: Python | FastAPI\n**Technical Tools:** Python | FastAPI | PostgreSQL | Redis";
+  const r = dedupeSkillLines(twice);
+  assert.equal(r.skills, "Functional Competencies: REST API design | Testing\nTechnical Tools: Python | FastAPI");
+  assert.deepEqual(r.dropped, ["**Technical Tools:** Python | FastAPI | PostgreSQL | Redis"]);
+  const fine = "Functional Competencies: A | B\nTechnical Tools: C | D";
+  assert.equal(dedupeSkillLines(fine).skills, fine, "different labels are untouched (same string back)");
+  assert.deepEqual(dedupeSkillLines("Python | FastAPI\nPython | FastAPI").dropped, ["Python | FastAPI"]);
+  assert.deepEqual(dedupeSkillLines(null).dropped, []);
+  // applyFormatRules runs it first, so the cap sees the one line.
+  const out = applyFormatRules({ summary: "S.", skills: twice }, { top_15_ats_keywords: ["Python"], required_skills: [] });
+  assert.equal((out.skills as string).split("\n").filter((l) => /technical tools/i.test(l)).length, 1);
+  assert.deepEqual(out.fixes.duplicateLines, ["**Technical Tools:** Python | FastAPI | PostgreSQL | Redis"]);
 });

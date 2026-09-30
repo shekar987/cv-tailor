@@ -13,6 +13,7 @@ import {
   autoProjectLinks,
   linksForProject,
   attachProjectLinks,
+  stripLinkText,
   normalizeProjectLinks,
   repoLabel,
   MAX_SAVED_PROJECTS,
@@ -194,4 +195,22 @@ test("normalizeProjectLinks: bounded, keys letters and digits, addresses cleaned
   const polluted = normalizeProjectLinks(JSON.parse('{"__proto__": {"github": "github.com/a/b", "live": ""}}'));
   assert.deepEqual(Object.keys(polluted), ["proto"]);
   assert.equal(({} as Record<string, unknown>).github, undefined);
+});
+
+test("stripLinkText: link labels and bare addresses go from a project's own text; prose stays", () => {
+  assert.equal(stripLinkText("React, Firebase | GitHub | Live: Ridex"), "React, Firebase");
+  assert.equal(stripLinkText("Live: https://uber-demo-omega.vercel.app · GitHub: https://github.com/shekar987/RideX-app"), "");
+  assert.equal(stripLinkText("Next.js, Supabase"), "Next.js, Supabase");
+  assert.equal(stripLinkText("Deployed on Vercel with GitHub Actions"), "Deployed on Vercel with GitHub Actions", "a label followed by words is prose");
+  assert.equal(stripLinkText("Code: Python, TypeScript"), "Code: Python, TypeScript", "'Code:' is not a link label here");
+  assert.equal(stripLinkText("https://ridex.example"), "");
+  assert.equal(stripLinkText(""), "");
+});
+
+test("attachProjectLinks: the tech line and original bullets lose their link text; the links line carries the addresses once", () => {
+  const cv = "PROJECTS\nRideX | 2025\nLive: https://uber-demo-omega.vercel.app · GitHub: https://github.com/shekar987/RideX-app\n- Ride hailing.";
+  const [p] = attachProjectLinks([{ name: "RideX | 2025", tech: "React, Firebase | GitHub | Live: Ridex", originalBullets: ["Live: https://uber-demo-omega.vercel.app · GitHub: https://github.com/shekar987/RideX-app", "Ride hailing."], links: [{ url: "GitHub" }, { url: "Ridex" }] }], {}, [cv]);
+  assert.equal(p.tech, "React, Firebase");
+  assert.deepEqual(p.originalBullets, ["Ride hailing."]);
+  assert.deepEqual((p.links as { label: string; text: string }[]).map((l) => `${l.label}: ${l.text}`), ["Live: uber-demo-omega.vercel.app", "GitHub: github.com/shekar987/RideX-app"]);
 });

@@ -27,6 +27,7 @@
 //
 // Imports only relative .ts modules so it runs under node:test.
 import { estimatePages, hasEvidence, type Sections, type ProfileLike } from "./quality.ts";
+import { stripLinkText } from "./projectLinks.ts";
 import { matchAtsKeywords } from "./atsMatch.ts";
 import { capTechnicalTools, splitSentences } from "./formatRules.ts";
 import { diffAgainstMaster, overlap, type MasterRole } from "./bulletIds.ts";
@@ -349,7 +350,8 @@ export function projectRefillCandidates(
     const have = list.filter((b): b is string => typeof b === "string");
     for (const raw of meta?.originalBullets ?? []) {
       const text = typeof raw === "string" ? raw.replace(BULLET_RE, "").trim() : "";
-      if (!text || have.some((b) => overlap(b, text) >= 0.5)) continue;
+      // A "Live: … · GitHub: …" line is drawn as the project's links, never as a bullet.
+      if (!text || !stripLinkText(text) || have.some((b) => overlap(b, text) >= 0.5)) continue;
       out.push({ where: "projects", key, project: meta?.name?.trim() || `Project ${Number(key) + 1}`, text });
     }
   }

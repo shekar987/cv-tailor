@@ -43,6 +43,7 @@ import { experienceBudget, onePageExperienceBudget, projectsBudget, normalizeExp
 import { parseMasterExperience, renderIdBlock, reconcileExperience, lockRoleHeaders, sortRolesByDate, diffAgainstMaster, diffProjects, type HeaderLock, type ChronologyReport } from "@/lib/bulletIds";
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
+import { stripLinkText } from "@/lib/projectLinks";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 import {
   surgicalUntilStable,
@@ -382,7 +383,14 @@ async function runPipeline(opts: {
   if (projectsFinal && typeof projectsFinal === "object") {
     const trimmedProjects: Record<string, string[]> = {};
     for (const [k, list] of Object.entries(projectsFinal as Record<string, unknown>)) {
-      trimmedProjects[k] = Array.isArray(list) ? list.map((b) => (typeof b === "string" ? trimBoltOn(b, company) ?? b : b)).filter((b): b is string => typeof b === "string") : [];
+      trimmedProjects[k] = Array.isArray(list)
+        ? list
+            .map((b) => (typeof b === "string" ? trimBoltOn(b, company) ?? b : b))
+            .filter((b): b is string => typeof b === "string")
+            // A bullet that is only a link ("Live: … | GitHub: …") is drawn as the project's links line, once.
+            .map((b) => stripLinkText(b))
+            .filter(Boolean)
+        : [];
     }
     projectsFinal = trimmedProjects;
     if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: trimmedProjects[String(i)] ?? p.bullets }));

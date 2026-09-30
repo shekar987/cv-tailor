@@ -49,6 +49,10 @@ export type FormatFixes = {
   // Functional Competencies, and items dropped from one line because the
   // other already carries them.
   skillLines?: SkillLinesFix | null;
+  // dedupeSkillLines(): a later line with a label an earlier one already
+  // carries ("Technical Tools:" written twice — the Marshall Wace CV, 30 Sep),
+  // or an exact repeat of an earlier line.
+  duplicateLines?: string[] | null;
 };
 export type SkillLinesFix = { moved: string[]; removedFromTools: string[]; removedFromCompetencies: string[] };
 
@@ -366,7 +370,10 @@ export function applyFormatRules(
   registry: ClaimsRegistry | null = null
 ): { summary: unknown; skills: unknown; fixes: FormatFixes } {
   const a = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
-  const unsupported = dropUnsupportedTools(sections.skills, sources);
+  // First, so every rule below works on the one line per label it expects
+  // (each finds the FIRST matching line and would leave a second untouched).
+  const deduped = dedupeSkillLines(sections.skills);
+  const unsupported = dropUnsupportedTools(deduped.skills, sources);
   const competencies = dropUnsupportedCompetencies(unsupported.skills, sources);
   const tools = capTechnicalTools(competencies.skills, a.top_15_ats_keywords, a.required_skills);
   const restored = typeof sources[0] === "string" ? restoreAskedTools(tools.skills, analysis, sources[0], registry) : { skills: tools.skills, restored: [] };
@@ -382,6 +389,32 @@ export function applyFormatRules(
       competencies: competencies.dropped.length ? competencies.dropped : null,
       restoredTools: restored.restored.length ? restored.restored : null,
       skillLines: separated.fix,
+      duplicateLines: deduped.dropped.length ? deduped.dropped : null,
     },
   };
+}
+
+// One skills line per label. The model sometimes writes "Technical Tools:"
+// twice (plain then bold, or the block repeated); every rule above finds the
+// first matching line, so the second passed through uncapped and printed
+// twice in all three renderers. The later line goes, whatever it carries.
+export function dedupeSkillLines(skills: unknown): { skills: unknown; dropped: string[] } {
+  if (typeof skills !== "string") return { skills, dropped: [] };
+  const seen = new Set<string>();
+  const dropped: string[] = [];
+  const lines = skills.split("\n").filter((line) => {
+    const t = line.trim();
+    if (!t) return true;
+    const plain = t.replace(/\*\*/g, "").trim();
+    const colon = plain.indexOf(":");
+    const label = colon > 0 && colon <= 40 ? plain.slice(0, colon).trim().toLowerCase() : "";
+    const key = label ? `label:${label}` : `line:${plain.toLowerCase()}`;
+    if (seen.has(key)) {
+      dropped.push(t);
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+  return { skills: dropped.length ? lines.join("\n") : skills, dropped };
 }

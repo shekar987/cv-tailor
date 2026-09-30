@@ -247,14 +247,42 @@ export function linksForProject(
   return [...main, ...auto.others.filter((l) => !seen.has(l.url))];
 }
 
-// Every project with its links attached (a copy; the input is never mutated).
-export function attachProjectLinks<P extends { name: string; links?: readonly ProjectLinkLike[] }>(
+// A link written as words inside a project's own text — "GitHub | Live:
+// Ridex" on the tech line, a "Live: https://…" bullet — which every renderer
+// drew verbatim next to the resolved links line, so the same project showed
+// both (30 Sep). The segments that are a link label, with or without an
+// address, and bare addresses go; "" when nothing else is left. A label
+// followed by words ("Deployed on Vercel") is prose and stays.
+const LINK_SEGMENT_RE =
+  /^(?:github|gitlab|bitbucket|repo|repository|live|live site|live demo|live app|demo|website|url|link|deployed|deployment)\s*(?::\s*[^\s|]*)?$/i;
+export function stripLinkText(text: string): string {
+  if (!text) return text;
+  const segments = text.split(/\s*(?:\||·|•|—|–)\s*/);
+  const kept = segments.filter((seg) => {
+    const t = seg.trim();
+    if (!t) return false;
+    if (LINK_SEGMENT_RE.test(t)) return false;
+    if (/^(?:https?:\/\/|www\.)\S+$/i.test(t)) return false;
+    return true;
+  });
+  return kept.length === segments.filter((x) => x.trim()).length ? text : kept.join(" | ");
+}
+
+// Every project with its links attached (a copy; the input is never mutated),
+// and the link text its own tech line and original bullets carried removed —
+// the links line is the one place a link is drawn.
+export function attachProjectLinks<P extends { name: string; links?: readonly ProjectLinkLike[]; tech?: string; originalBullets?: string[] }>(
   projects: readonly P[],
   saved: SavedProjectLinks | null | undefined,
   sources: readonly (string | null | undefined)[]
 ): (P & { links: ShownLink[] })[] {
   const names = projects.map((p) => p.name);
-  return projects.map((p) => ({ ...p, links: linksForProject(p.name, p.links, saved, sources, names) }));
+  return projects.map((p) => ({
+    ...p,
+    ...(typeof p.tech === "string" ? { tech: stripLinkText(p.tech) } : {}),
+    ...(Array.isArray(p.originalBullets) ? { originalBullets: p.originalBullets.map((b) => stripLinkText(b)).filter(Boolean) } : {}),
+    links: linksForProject(p.name, p.links, saved, sources, names),
+  }));
 }
 
 // Saved entries from storage or a request body: at most MAX_SAVED_PROJECTS,

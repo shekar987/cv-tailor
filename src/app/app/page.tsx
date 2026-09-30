@@ -136,6 +136,8 @@ type Result = {
     restoredTools?: string[] | null;
     // The two skills lines kept apart (lib/formatRules separateSkillLines).
     skillLines?: SkillLinesFix | null;
+    // A skills line written twice; the later copy dropped.
+    duplicateLines?: string[] | null;
   };
   // Requirement → evidence for this posting, and what the sentence-by-
   // sentence check of the summary and letter against the master CV changed.
@@ -2524,7 +2526,7 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.skillLines) && (
+            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines) && (
               <div className="limitNotice" role="status" data-format-fixes>
                 <div className="limitNotice__title">Formatting rules applied</div>
                 <div className="limitNotice__body">
@@ -2578,6 +2580,15 @@ export default function Home() {
                       <li data-format-fix="skill-lines">
                         <Badge variant="dot" tone="rec">→</Badge>
                         <span>{skillLinesNotice(result.formatFixes.skillLines)}</span>
+                      </li>
+                    )}
+                    {result.formatFixes.duplicateLines && result.formatFixes.duplicateLines.length > 0 && (
+                      <li data-format-fix="duplicate-lines">
+                        <Badge variant="dot" tone="miss">−</Badge>
+                        <span>
+                          A skills line was written twice; the later copy was dropped:{" "}
+                          {result.formatFixes.duplicateLines.map((l) => `“${clip(l, 80)}”`).join(" · ")}
+                        </span>
                       </li>
                     )}
                   </ul>
