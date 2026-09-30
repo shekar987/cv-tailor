@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseMasterExperience, renderIdBlock, substitutions, reconcileExperience, diffAgainstMaster, diffProjects, MAX_SUBSTITUTIONS } from "../src/lib/bulletIds.ts";
+import { parseMasterExperience, renderIdBlock, substitutions, reconcileExperience, lockRoleHeaders, diffAgainstMaster, diffProjects, MAX_SUBSTITUTIONS } from "../src/lib/bulletIds.ts";
 
 const master = `SOMA SHEKAR
 Full Stack Engineer
@@ -173,4 +173,44 @@ Backend Engineer | Shopwell | Mar 2022 – Present
     ].join("\n")
   );
   assert.deepEqual(changes!.roles[0].bullets.map((b) => [b.id, b.status]), [["R1.1", "kept"], ["R1.2", "kept"], ["R1.3", "kept"]]);
+});
+
+// ── lockRoleHeaders (30 Sep: rule 8 in code) ─────────────────────────────────
+
+test("lockRoleHeaders: a retitled role gets its master header back, matched by employer", () => {
+  const roles = parseMasterExperience(master);
+  const out = "Research Assistant, AI & Full-Stack Development | University of East London | Jan 2026 – Present\n• Analysed 11 industry asset-management platforms from verified user reviews.\n\nFull-Stack & AI Engineer (Industrial Placement) | Brane Group | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.";
+  const r = lockRoleHeaders(out, roles);
+  assert.equal(
+    r.experience,
+    "Research Assistant | University of East London | Jan 2026 – Present\n• Analysed 11 industry asset-management platforms from verified user reviews.\n\nFull Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting."
+  );
+  assert.equal(r.report.locked.length, 2, "both restored, each to its own role — the output order is not the master's");
+  assert.deepEqual(r.report.unmatched, []);
+  assert.deepEqual(r.report.droppedEmpty, []);
+});
+
+test("lockRoleHeaders: matched by dates when no part is shared; an already-verbatim header is not reported", () => {
+  const roles = parseMasterExperience(master);
+  const r = lockRoleHeaders("Software Engineer | Brane | Jul 2023 – Sep 2024\n• Wrote 90+ Jest tests covering the checkout flow.\n\nResearch Assistant | University of East London | Jan 2026 – Present\n• Built a gap-analysis dashboard in Next.js.", roles);
+  assert.match(r.experience, /^Full Stack Engineer \| Brane Group \| Jul 2023 – Sep 2024\n/);
+  assert.deepEqual(r.report.locked, [{ output: "Software Engineer | Brane | Jul 2023 – Sep 2024", master: "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024" }]);
+});
+
+test("lockRoleHeaders: an invented role goes when nothing survives under it, stays (reported) when bullets do", () => {
+  const roles = parseMasterExperience(master);
+  const empty = lockRoleHeaders("Consultant | Acme Ltd | Jan 2020 – Dec 2021\n\nFull Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.", roles);
+  assert.equal(empty.experience, "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.");
+  assert.deepEqual(empty.report.droppedEmpty, ["Consultant | Acme Ltd | Jan 2020 – Dec 2021"]);
+  const withBullets = lockRoleHeaders("Consultant | Acme Ltd | Jan 2020 – Dec 2021\n• Advised three clients.\n\nFull Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.\n\nResearch Assistant | University of East London | Jan 2026 – Present\n• Built a gap-analysis dashboard in Next.js.", roles);
+  assert.deepEqual(withBullets.report.unmatched, ["Consultant | Acme Ltd | Jan 2020 – Dec 2021"], "three output roles, two master roles: never matched by position");
+  assert.match(withBullets.experience, /^Consultant \| Acme Ltd/);
+});
+
+test("lockRoleHeaders: by position only when the counts agree and nothing else matches", () => {
+  const roles = parseMasterExperience(master);
+  const r = lockRoleHeaders("Engineer | Somewhere | 2010 – 2011\n• A.\n\nAssistant | Elsewhere | 2012 – 2013\n• B.", roles);
+  assert.deepEqual(r.report.locked.map((l) => l.master), ["Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024", "Research Assistant | University of East London | Jan 2026 – Present"]);
+  assert.deepEqual(lockRoleHeaders("", roles).report, { locked: [], unmatched: [], droppedEmpty: [] });
+  assert.equal(lockRoleHeaders("• A bullet with no header.", roles).experience, "• A bullet with no header.");
 });

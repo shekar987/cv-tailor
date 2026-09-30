@@ -333,3 +333,92 @@ export function diffProjects(
   }
   return out;
 }
+
+// ── Role headers ─────────────────────────────────────────────────────────────
+// Rule 8 in code: every role header in the output is the master CV's own
+// ("Title | Employer | Dates", verbatim). The prompts say so, and the model
+// still retitled one role "Full-Stack & AI Engineer (Industrial Placement)"
+// on one run and "Research Assistant, AI & Full-Stack Development" on the
+// next (30 Sep audit). Each output header is matched to one master role —
+// by a shared employer or title part, then by the same dates, then by token
+// overlap, then by position when the counts agree — and replaced by that
+// role's header. An output role that matches nothing keeps its header only
+// while bullets survive under it (reported as unmatched); with none it goes.
+
+export type HeaderLock = { locked: { output: string; master: string }[]; unmatched: string[]; droppedEmpty: string[] };
+
+const HEADER_PART_SEP = /\s*(?:\||—|–|\s-\s)\s*/;
+const headerParts = (h: string) => h.split(HEADER_PART_SEP).map((p) => p.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()).filter((p) => p.length >= 3);
+const headerDates = (h: string) => {
+  const m = ROLE_HEADER.exec(h);
+  return m ? m[0].toLowerCase().replace(/\s+/g, "").replace(/[–—]/g, "-") : null;
+};
+
+export function lockRoleHeaders(output: string, roles: MasterRole[]): { experience: string; report: HeaderLock } {
+  const report: HeaderLock = { locked: [], unmatched: [], droppedEmpty: [] };
+  if (roles.length === 0 || !output.trim()) return { experience: output, report };
+  const lines = output.split("\n");
+  const headerIdx = lines.map((l, i) => (OUTPUT_HEADER.test(l.trim()) ? i : -1)).filter((i) => i >= 0);
+  if (headerIdx.length === 0) return { experience: output, report };
+  const bulletsUnder = (k: number) => {
+    const end = k + 1 < headerIdx.length ? headerIdx[k + 1] : lines.length;
+    return lines.slice(headerIdx[k] + 1, end).filter((l) => BULLET.test(l.trim())).length;
+  };
+  const used = new Set<number>();
+  const free = () => roles.filter((r) => !used.has(r.index));
+  const pick = (header: string): MasterRole | null => {
+    const parts = headerParts(header);
+    const byPart = free().find((r) => headerParts(r.header).some((p) => parts.includes(p)));
+    if (byPart) return byPart;
+    const dates = headerDates(header);
+    const byDates = dates ? free().find((r) => headerDates(r.header) === dates) : undefined;
+    if (byDates) return byDates;
+    let best: MasterRole | null = null, bestScore = 0;
+    for (const r of free()) {
+      const s = overlap(header, r.header);
+      if (s > bestScore) { best = r; bestScore = s; }
+    }
+    return best && bestScore >= 0.5 ? best : null;
+  };
+  // Two passes: every header that names its role is matched first, and only
+  // then, when the counts agree, is a header that names nothing matched by
+  // position — an invented first role must never take the first master's
+  // header away from the real one below it.
+  const picks: (MasterRole | null)[] = headerIdx.map((idx) => {
+    const m = pick(lines[idx].trim());
+    if (m) used.add(m.index);
+    return m;
+  });
+  if (headerIdx.length === roles.length) {
+    headerIdx.forEach((_, k) => {
+      if (picks[k]) return;
+      const r = free().find((x) => x.index === k + 1);
+      if (r) { picks[k] = r; used.add(r.index); }
+    });
+  }
+  const remove = new Set<number>();
+  headerIdx.forEach((idx, k) => {
+    const header = lines[idx].trim();
+    const master = picks[k];
+    if (!master) {
+      if (bulletsUnder(k) === 0) {
+        remove.add(idx);
+        report.droppedEmpty.push(header);
+      } else report.unmatched.push(header);
+      return;
+    }
+    if (header !== master.header) {
+      report.locked.push({ output: header, master: master.header });
+      lines[idx] = master.header;
+    }
+  });
+  if (remove.size === 0) return { experience: lines.join("\n"), report };
+  const kept: string[] = [];
+  lines.forEach((l, i) => {
+    if (remove.has(i)) return;
+    // The blank line after a removed header, and a second blank left before it.
+    if (!l.trim() && (remove.has(i - 1) || (remove.has(i + 1) && kept.length && !kept[kept.length - 1].trim()))) return;
+    kept.push(l);
+  });
+  return { experience: kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/^\n+/, ""), report };
+}

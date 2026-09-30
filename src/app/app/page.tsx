@@ -26,6 +26,7 @@ import { REPAIR_SECTION_LABEL, type RepairChange } from "@/lib/claimRepair";
 import { buildEvidenceMap, graftRules, type EvidenceMap, type EvidenceItem } from "@/lib/evidenceMap";
 import type { SupportReport } from "@/lib/supportCheck";
 import type { RightToWorkReport } from "@/lib/rightToWorkText";
+import type { HeaderLock } from "@/lib/bulletIds";
 import { normalizeVariants, pickVariant, leadSkillsNotice, type VariantsConfig, type LeadSkillDrop } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTarget, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import { attachProjectLinks, linksForProject, projectKey } from "@/lib/projectLinks";
@@ -152,7 +153,7 @@ type Result = {
   headline?: string;
   // "Changes vs master CV" (lib/bulletIds): the finished bullets against the
   // master's own — kept, edited (which words), reverted, dropped, new.
-  bulletChanges?: { protocol: boolean; experience: BulletChanges | null; projects: RoleChanges[] };
+  bulletChanges?: { protocol: boolean; headers?: HeaderLock | null; experience: BulletChanges | null; projects: RoleChanges[] };
   // The variant's lead skills the run could not use (lib/variants): only
   // production-level registry skills lead.
   variantLeadSkills?: { kept: string[]; dropped: LeadSkillDrop[] } | null;
@@ -2988,8 +2989,27 @@ export default function Home() {
                   </summary>
                   <p className="fitEvidence">
                     Every experience bullet is one of the master CV&apos;s, chosen and reordered for this posting, with at most two words
-                    changed. {result.bulletChanges.protocol ? "Ids were checked on this run." : "This run came back without bullet ids, so the comparison below is by closest match."}
+                    changed. {result.bulletChanges.protocol ? "Ids were checked on this run." : "This run came back without bullet ids, so the comparison below is by closest match."}{" "}
+                    Role titles, employers and dates are the master CV&apos;s, verbatim
+                    {result.bulletChanges.headers && (result.bulletChanges.headers.locked.length > 0 || result.bulletChanges.headers.droppedEmpty.length > 0)
+                      ? ` (${[
+                          result.bulletChanges.headers.locked.length > 0 ? `${result.bulletChanges.headers.locked.length} restored` : "",
+                          result.bulletChanges.headers.droppedEmpty.length > 0 ? `${result.bulletChanges.headers.droppedEmpty.length} invented role${result.bulletChanges.headers.droppedEmpty.length === 1 ? "" : "s"} removed` : "",
+                        ]
+                          .filter(Boolean)
+                          .join(", ")})`
+                      : ""}
+                    .
                   </p>
+                  {result.bulletChanges.headers && result.bulletChanges.headers.locked.length > 0 && (
+                    <ul className="atsList" data-header-lock>
+                      {result.bulletChanges.headers.locked.map((h, i) => (
+                        <li key={i}>
+                          <span className="changesView__diff">&ldquo;{h.output}&rdquo;</span> → {h.master}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   {[...(result.bulletChanges.experience?.roles ?? []), ...result.bulletChanges.projects].map((r, ri) => (
                     <div key={ri} className="changesView__role">
                       <div className="changesView__title">

@@ -40,7 +40,7 @@ import { normalizeProfile } from "@/lib/profile";
 import { coreTitle, titleInText, titleAsIdentity } from "@/lib/roleTitle";
 import { unsupportedProperNouns, sentencesNaming, dropSentences } from "@/lib/properNouns";
 import { experienceBudget, onePageExperienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
-import { parseMasterExperience, renderIdBlock, reconcileExperience, diffAgainstMaster, diffProjects } from "@/lib/bulletIds";
+import { parseMasterExperience, renderIdBlock, reconcileExperience, lockRoleHeaders, diffAgainstMaster, diffProjects, type HeaderLock } from "@/lib/bulletIds";
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
@@ -307,9 +307,18 @@ async function runPipeline(opts: {
   // bullets. Done BEFORE ATS scoring, so the score sees exactly the text the
   // user gets.
   // Id protocol first: every bullet must resolve to a master bullet, with at
-  // most MAX_SUBSTITUTIONS changed words, or it is reverted / dropped.
-  const reconciled = typeof experience === "string" ? reconcileExperience(experience, masterRoles) : { experience, changes: null };
+  // most MAX_SUBSTITUTIONS changed words, or it is reverted / dropped. Then
+  // every role header is restored to the master's own (rule 8 in code —
+  // lib/bulletIds lockRoleHeaders); the lint retry below goes through the
+  // same two steps.
+  const reconcileAndLock = (text: string) => {
+    const r = reconcileExperience(text, masterRoles);
+    const l = lockRoleHeaders(r.experience, masterRoles);
+    return { experience: l.experience, changes: r.changes, headers: l.report };
+  };
+  const reconciled = typeof experience === "string" ? reconcileAndLock(experience) : { experience, changes: null, headers: null };
   const idProtocol = reconciled.changes !== null;
+  let headerLock: HeaderLock | null = reconciled.headers;
   const experienceOut = typeof reconciled.experience === "string" ? normalizeExperienceOutput(reconciled.experience) : reconciled.experience;
 
   // Bullet lint, then ONE retry per flagged section. The same deterministic
@@ -342,9 +351,11 @@ async function runPipeline(opts: {
     ]);
     if (draftLint.experience.length > 0) {
       const candidate = dropRefusal(experienceRetry);
-      const candidateOut = typeof candidate === "string" && candidate.trim() ? normalizeExperienceOutput(reconcileExperience(candidate, masterRoles).experience) : "";
+      const candidateLock = typeof candidate === "string" && candidate.trim() ? reconcileAndLock(candidate) : null;
+      const candidateOut = candidateLock ? normalizeExperienceOutput(candidateLock.experience) : "";
       if (candidateOut && lintBullets({ experience: candidateOut }, company).experience.length < draftLint.experience.length) {
         experienceFinal = candidateOut;
+        headerLock = candidateLock?.headers ?? headerLock;
         retried.experience = true;
       }
     }
@@ -810,6 +821,7 @@ async function runPipeline(opts: {
     // bullets (lib/bulletIds) — kept, edited (which words), dropped, new.
     bulletChanges: {
       protocol: idProtocol,
+      headers: headerLock,
       experience: typeof sections.experience === "string" ? diffAgainstMaster(sections.experience, masterRoles) : null,
       projects: projectsPool ? [] : diffProjects(sections.projects, (profile as { projects?: { name?: string; originalBullets?: string[] }[] } | null)?.projects),
     },
