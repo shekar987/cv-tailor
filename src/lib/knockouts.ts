@@ -1061,3 +1061,31 @@ export const CATEGORY_LABEL: Record<GateCategory, string> = {
   licence: "Licence / certification",
   employment_type: "Contract type",
 };
+
+// ── The CV's own degree classifications ──────────────────────────────────────
+// For Customize's consistency warning (30 Sep audit): the classes a CV text
+// names — "First", "2:1", "2:2", and the master's-scale "Distinction" and
+// "Merit" — against the Eligibility answer. Warn only; a CV can honestly
+// carry a First and a Distinction for two degrees, so the warning fires only
+// when the CV names classes and the Eligibility answer is not among them.
+export type CvDegreeClass = "first" | "2:1" | "2:2" | "distinction" | "merit";
+export const CLASS_LABEL: Record<CvDegreeClass | "other" | "unknown", string> = { first: "First", "2:1": "2:1", "2:2": "2:2", distinction: "Distinction", merit: "Merit", other: "Other", unknown: "Not set" };
+const CV_CLASS_RE =
+  /\b(?:(first[- ]class|1st[- ]class|first class honou?rs|a first|\(first\)|with a first)|(2[:.]1|upper[- ]second(?:[- ]class)?|second class \(upper\)|2\.i)|(2[:.]2|lower[- ]second(?:[- ]class)?|second class \(lower\)|2\.ii)|(with distinction|distinction)|(with merit|merit))\b/gi;
+export function classificationsInText(text: string): CvDegreeClass[] {
+  const out = new Set<CvDegreeClass>();
+  for (const m of (text || "").matchAll(CV_CLASS_RE)) {
+    if (m[1]) out.add("first");
+    else if (m[2]) out.add("2:1");
+    else if (m[3]) out.add("2:2");
+    else if (m[4]) out.add("distinction");
+    else if (m[5]) out.add("merit");
+  }
+  return [...out];
+}
+export function classificationDisagrees(text: string, answer: Eligibility["degree"]["classification"]): { cv: CvDegreeClass[]; answer: "first" | "2:1" | "2:2" } | null {
+  if (answer !== "first" && answer !== "2:1" && answer !== "2:2") return null;
+  const cv = classificationsInText(text);
+  if (cv.length === 0 || cv.includes(answer)) return null;
+  return { cv, answer };
+}

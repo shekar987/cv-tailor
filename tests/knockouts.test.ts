@@ -18,6 +18,8 @@ import {
   CATEGORY_LABEL,
   type Eligibility,
   type Gate,
+  classificationsInText,
+  classificationDisagrees,
 } from "../src/lib/knockouts.ts";
 
 const profile = (over: Partial<Eligibility> = {}): Eligibility => ({ ...EMPTY_ELIGIBILITY, ...over });
@@ -445,4 +447,18 @@ test("location: an accented city matches its ASCII spelling in either direction"
   assert.equal(verdictOf(accented, "location", profile({ location: { base: ["Zurich"], onsiteOk: true, hybridOk: true, relocateOk: false } })).verdict, "pass");
   const ascii = "This role is fully on-site at our Zurich office.";
   assert.equal(verdictOf(ascii, "location", profile({ location: { base: ["Zürich"], onsiteOk: true, hybridOk: true, relocateOk: false } })).verdict, "pass");
+});
+
+test("classificationsInText / classificationDisagrees: the CV's classes against the Eligibility answer, warn only when they cannot both be true", () => {
+  const cv = "BSc Computer Science — First Class Honours, 2022\nMSc Computer Science — Distinction, 2027";
+  assert.deepEqual(classificationsInText(cv), ["first", "distinction"]);
+  assert.deepEqual(classificationsInText("Graduated with a 2:1 (upper second)."), ["2:1"]);
+  assert.deepEqual(classificationsInText("Wrote a first-class service."), ["first"], "a phrase the regex cannot tell apart — the warning only says 'check'");
+  assert.deepEqual(classificationsInText("No classes here."), []);
+  assert.equal(classificationDisagrees(cv, "first"), null, "the answer is among the CV's classes");
+  assert.deepEqual(classificationDisagrees("MSc Computer Science — Distinction", "first"), { cv: ["distinction"], answer: "first" });
+  assert.deepEqual(classificationDisagrees("BSc — 2:2", "2:1"), { cv: ["2:2"], answer: "2:1" });
+  assert.equal(classificationDisagrees("No classes here.", "first"), null, "a CV that names no class never disagrees");
+  assert.equal(classificationDisagrees(cv, "other"), null);
+  assert.equal(classificationDisagrees(cv, "unknown"), null);
 });
