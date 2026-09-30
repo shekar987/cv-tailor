@@ -5,7 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getUsage, type Usage } from "@/lib/usage";
 import { saveBlob } from "@/lib/saveBlob";
-import { packFromRow, prepPdfFilename, type PrepPack } from "@/lib/prepPack";
+import { packFromRow, prepPdfFilename, rewriteKey, type PrepPack, type PrepRewriteTarget } from "@/lib/prepPack";
 import { loadPrepProgress, savePrepProgress, type PrepRating, type PrepRatings } from "@/lib/prepProgress";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -63,6 +63,9 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
   const [confirmRegen, setConfirmRegen] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState("");
+  // "Use only CV facts": the target being rewritten (lib/prepPack rewriteKey), and the outcome.
+  const [rewriting, setRewriting] = useState<string | null>(null);
+  const [rewriteMsg, setRewriteMsg] = useState("");
 
   // ── Load the row (and any cached pack) ──────────────────────────────────────
   useEffect(() => {
@@ -161,6 +164,39 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
     } finally {
       setGenerating(false);
       getUsage().then(setUsage);
+    }
+  }
+
+  // One unmetered call per click (the route's rewrite action): the flagged
+  // sentences come back rewritten from the CV or removed; ratings survive
+  // because generatedAt does not change.
+  async function rewrite(target: PrepRewriteTarget) {
+    if (!pack || rewriting || generating) return;
+    setRewriting(rewriteKey(target));
+    setRewriteMsg("");
+    setError("");
+    try {
+      const res = await fetch("/api/prep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applicationId: id, rewrite: target }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) { setLoad("expired"); return; }
+      if (!res.ok) { setError(data.error || "Couldn't rewrite that. Try again."); return; }
+      const fresh = packFromRow(data.pack);
+      if (!fresh) { setError("The prep pack came back in an unexpected shape. Try again."); return; }
+      setPack(fresh);
+      const n = (v: unknown) => (typeof v === "number" ? v : 0);
+      setRewriteMsg(
+        `${n(data.rewritten)} sentence${n(data.rewritten) === 1 ? "" : "s"} rewritten from your CV, ${n(data.removed)} removed${
+          data.model?.error ? " — the model gave no usable answer, so nothing was rewritten" : ""
+        }${data.saved === false ? " (not saved: reload and it will be gone)" : ""}.`
+      );
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setRewriting(null);
     }
   }
 
@@ -265,8 +301,8 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
           title="Interview prep"
           tagline={
             row
-              ? `${row.role} at ${row.company_name} — answers built only from your real CV, each traced back to the line it came from.`
-              : "Answers built only from your real CV, each traced back to the line it came from."
+              ? `${row.role} at ${row.company_name} — answers built from your real CV and checked sentence by sentence; anything it couldn't trace is marked.`
+              : "Answers built from your real CV and checked sentence by sentence; anything it couldn't trace is marked."
           }
         />
         <p className="prepBack">
@@ -317,7 +353,7 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
             <div className="label">What you&apos;ll get</div>
             <ul>
               <li>8–10 likely questions for this exact role: behavioral, technical, motivation, company — and the honest gaps they&apos;ll probe.</li>
-              <li>A STAR answer for each, built only from your master CV, with the CV lines it came from and a ✓ when they trace verbatim.</li>
+              <li>A STAR answer for each, built from your master CV and checked sentence by sentence: the CV lines it came from with a ✓ when they trace verbatim, and a mark on any sentence the check couldn&apos;t trace, with one click to rewrite it from CV facts alone.</li>
               <li>Questions worth asking them, and a 30-second opener.</li>
               <li>Practice mode: one question at a time, reveal the answer, rate yourself, review the shaky ones.</li>
             </ul>
@@ -395,7 +431,8 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
             )}
             {!generating && !practicing && (
               <Card>
-                <PrepPackView pack={pack} ratings={ratings} />
+                {rewriteMsg && <StatusText as="span" tone="success" role="status" data-prep-rewrite-msg>{rewriteMsg}</StatusText>}
+                <PrepPackView pack={pack} ratings={ratings} onRewrite={rewrite} rewriting={rewriting} />
               </Card>
             )}
           </>

@@ -188,7 +188,7 @@ export default function PracticeMode({ pack, ratings, onRate, onExit }: Props) {
                   <span className="prepWhyLabel">Why they ask</span> {current.whyTheyAsk}
                 </p>
               )}
-              <AnswerBody q={current} />
+              <AnswerBody q={current} flags={pack.flags} />
               <div className="practiceRate" role="group" aria-label="How did that go?">
                 <span className="practiceRateLabel">How did that go?</span>
                 <button type="button" className="practiceRateBtn shaky" onClick={() => rate(1)}>

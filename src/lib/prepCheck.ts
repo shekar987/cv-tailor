@@ -27,7 +27,8 @@
 //
 // Imports ./prepPack.ts, ./supportCheck.ts, ./claims.ts, ./properNouns.ts,
 // ./jdCopyGuard.ts and ./atsMatch.ts (node:test).
-import { makeLineTracer, type PrepPack, type PrepQuestion, type PrepFlag, type PrepFlagField, type PrepFlagReason, type PrepCheckSummary, MAX_PREP_FLAGS } from "./prepPack.ts";
+import { makeLineTracer, type PrepPack, type PrepQuestion, type PrepFlag, type PrepFlagField, type PrepFlagReason, type PrepCheckSummary, type PrepRewriteTarget, MAX_PREP_FLAGS } from "./prepPack.ts";
+export type { PrepRewriteTarget } from "./prepPack.ts";
 import { narrationProblem, contentOverlap } from "./supportCheck.ts";
 import { checkClaims, extractFigures, numberWordsToDigits, namesRequirement } from "./claims.ts";
 import { unsupportedProperNouns } from "./properNouns.ts";
@@ -209,8 +210,6 @@ export function checkPrepPack(input: PrepPack, ctx: PrepCheckContext): PrepPack 
 }
 
 // ── "Use only CV facts": the rewrite ─────────────────────────────────────────
-
-export type PrepRewriteTarget = { target: "question"; questionId: string } | { target: "angle" } | { target: "opener" };
 
 // The kept flags the target covers, each with a stable id for the model.
 export function flaggedForTarget(pack: PrepPack, target: PrepRewriteTarget): { id: string; flag: PrepFlag }[] {

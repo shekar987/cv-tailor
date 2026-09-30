@@ -50,6 +50,10 @@ export type PrepFlag = {
 };
 export type PrepCheckSummary = { version: 1; sentences: number; flagged: number; removed: number; companySources: ("jd" | "research")[]; terms: number };
 export const MAX_PREP_FLAGS = 80;
+// What "Use only CV facts" rewrites: one question's flagged sentences, the
+// angle's, or the opener's.
+export type PrepRewriteTarget = { target: "question"; questionId: string } | { target: "angle" } | { target: "opener" };
+export const rewriteKey = (t: PrepRewriteTarget) => (t.target === "question" ? `question:${t.questionId}` : t.target);
 
 export type PrepPack = {
   version: typeof PREP_PACK_VERSION;

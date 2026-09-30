@@ -5,7 +5,7 @@
 
 import { jsPDF } from "jspdf";
 import { PdfCursor, parseWords, drawWrapped, drawLine, drawBullet, registerFonts, hexToRgb, type Rgb } from "@/lib/pdfText";
-import type { PrepPack, PrepQuestion } from "@/lib/prepPack";
+import type { PrepPack, PrepQuestion, PrepFlag } from "@/lib/prepPack";
 
 const MARGIN_PT = 56;
 const BODY = 10.5;
@@ -42,23 +42,29 @@ function bullets(doc: jsPDF, cursor: PdfCursor, items: string[], size = BODY, co
   }
 }
 
-function question(doc: jsPDF, cursor: PdfCursor, q: PrepQuestion, index: number): void {
+// The check's mark, as text (no glyph the embedded font lacks).
+const NOT_FROM_CV_MARK = " [not from your CV — rephrase]";
+function marked(pack: PrepPack, questionId: string | null, field: PrepFlag["field"], index: number, text: string): string {
+  return pack.flags.some((f) => f.action === "kept" && f.questionId === questionId && f.field === field && f.index === index) ? `${text}${NOT_FROM_CV_MARK}` : text;
+}
+
+function question(doc: jsPDF, cursor: PdfCursor, pack: PrepPack, q: PrepQuestion, index: number): void {
   cursor.ensureRoom(BODY_LH * 4);
   cursor.advance(6);
   drawLine(doc, cursor, `${index}. ${q.question}`, BODY, BODY_LH, { bold: true });
   paragraph(doc, cursor, `${CATEGORY_LABEL[q.category]}${q.whyTheyAsk ? ` · Why they ask: ${q.whyTheyAsk}` : ""}`, { size: SMALL, color: MUTED });
   cursor.advance(2);
   if (q.star) {
-    for (const [label, text] of [
-      ["Situation", q.star.situation],
-      ["Task", q.star.task],
-      ["Action", q.star.action],
-      ["Result", q.star.result],
+    for (const [label, field, text] of [
+      ["Situation", "situation", q.star.situation],
+      ["Task", "task", q.star.task],
+      ["Action", "action", q.star.action],
+      ["Result", "result", q.star.result],
     ] as const) {
-      if (text) paragraph(doc, cursor, `**${label}:** ${text}`);
+      if (text) paragraph(doc, cursor, `**${label}:** ${marked(pack, q.id, field, 0, text)}`);
     }
   }
-  if (q.points.length) bullets(doc, cursor, q.points);
+  if (q.points.length) bullets(doc, cursor, q.points.map((p, i) => marked(pack, q.id, "point", i, p)));
   if (q.evidence.length) {
     cursor.advance(2);
     bullets(
@@ -86,16 +92,20 @@ export function buildPrepPdf(pack: PrepPack): Uint8Array {
   paragraph(
     doc,
     cursor,
-    `${stamp ? `Generated ${stamp}. ` : ""}Every answer below is built only from your master CV. "[traced]" marks a citation found verbatim in it; "[not traced]" means check the line before you rely on it.`,
+    `${stamp ? `Generated ${stamp}. ` : ""}Every answer below is built from your master CV and checked sentence by sentence. "[traced]" marks a citation found verbatim in it; "[not traced]" means check the line before you rely on it; "[not from your CV — rephrase]" marks a sentence the check could not trace to your CV.${
+      pack.check
+        ? ` ${pack.check.sentences} sentences checked, ${pack.check.flagged} marked${pack.check.removed ? `, ${pack.check.removed} company claims removed` : ""}.`
+        : " This pack was generated before sentence checks existed."
+    }`,
     { size: SMALL, color: MUTED }
   );
 
   if (pack.angle.headline || pack.angle.whyYou.length || pack.angle.honestGaps.length) {
     heading(doc, cursor, "Your angle");
-    paragraph(doc, cursor, pack.angle.headline);
+    paragraph(doc, cursor, marked(pack, null, "headline", 0, pack.angle.headline));
     if (pack.angle.whyYou.length) {
       cursor.advance(2);
-      bullets(doc, cursor, pack.angle.whyYou);
+      bullets(doc, cursor, pack.angle.whyYou.map((w, i) => marked(pack, null, "whyYou", i, w)));
     }
     if (pack.angle.honestGaps.length) {
       cursor.advance(4);
@@ -105,7 +115,7 @@ export function buildPrepPdf(pack: PrepPack): Uint8Array {
   }
 
   heading(doc, cursor, "Likely questions");
-  pack.questions.forEach((q, i) => question(doc, cursor, q, i + 1));
+  pack.questions.forEach((q, i) => question(doc, cursor, pack, q, i + 1));
 
   if (pack.questionsToAsk.length) {
     heading(doc, cursor, "Questions to ask them");
@@ -114,7 +124,7 @@ export function buildPrepPdf(pack: PrepPack): Uint8Array {
 
   if (pack.opener) {
     heading(doc, cursor, "30-second opener");
-    paragraph(doc, cursor, pack.opener);
+    paragraph(doc, cursor, marked(pack, null, "opener", 0, pack.opener));
   }
 
   return doc.output("arraybuffer") as unknown as Uint8Array;

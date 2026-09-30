@@ -1,12 +1,47 @@
 "use client";
 
 import { useState } from "react";
-import type { PrepPack, PrepQuestion, PrepCategory } from "@/lib/prepPack";
+import { rewriteKey, type PrepPack, type PrepQuestion, type PrepCategory, type PrepFlag, type PrepFlagField, type PrepRewriteTarget } from "@/lib/prepPack";
 import type { PrepRatings } from "@/lib/prepProgress";
 
 // The reading view of a prep pack. Every answer is shown WITH the CV lines it
 // was built from and the tracer's verdict on each — the honesty contract made
 // visible, so the user knows exactly which claims they can defend in the room.
+// Since 30 Sep every sentence the check could not trace to the CV
+// (lib/prepCheck) is marked "Not from your CV: rephrase before you say this",
+// with "Use only CV facts" to rewrite a question, the angle or the opener
+// from the CV alone.
+
+export const NOT_FROM_CV = "Not from your CV: rephrase before you say this";
+
+// The kept flags on one field of one question (null = the angle / opener).
+export function flagsFor(flags: PrepFlag[], questionId: string | null, field: PrepFlagField, index = 0): PrepFlag[] {
+  return flags.filter((f) => f.action === "kept" && f.questionId === questionId && f.field === field && f.index === index);
+}
+
+export function NotFromCv({ flags }: { flags: PrepFlag[] }) {
+  if (flags.length === 0) return null;
+  return (
+    <>
+      {flags.map((f, i) => (
+        <span key={i} className="prepTrace warn prepFlag" title={f.detail} data-prep-flag={f.reason}>
+          {NOT_FROM_CV}
+          {flags.length > 1 ? `: “${f.sentence.length > 60 ? `${f.sentence.slice(0, 59)}…` : f.sentence}”` : ""}
+        </span>
+      ))}
+    </>
+  );
+}
+
+export function RewriteButton({ target, onRewrite, rewriting }: { target: PrepRewriteTarget; onRewrite?: (t: PrepRewriteTarget) => void; rewriting?: string | null }) {
+  if (!onRewrite) return null;
+  const busy = rewriting === rewriteKey(target);
+  return (
+    <button type="button" className="inlineLink" onClick={() => onRewrite(target)} disabled={!!rewriting} aria-busy={busy || undefined} data-prep-rewrite={rewriteKey(target)}>
+      {busy ? "Rewriting from your CV…" : "Use only CV facts"}
+    </button>
+  );
+}
 
 export const CATEGORY_LABEL: Record<PrepCategory, string> = {
   behavioral: "Behavioral",
@@ -22,24 +57,28 @@ export const RATING_LABEL: Record<1 | 2 | 3, string> = { 1: "Shaky", 2: "OK", 3:
 
 // STAR + strategy points + evidence + figure check — shared by the reading
 // view and practice mode so the two can never drift.
-export function AnswerBody({ q }: { q: PrepQuestion }) {
+export function AnswerBody({ q, flags = [], onRewrite, rewriting }: { q: PrepQuestion; flags?: PrepFlag[]; onRewrite?: (t: PrepRewriteTarget) => void; rewriting?: string | null }) {
+  const flagged = flags.some((f) => f.action === "kept" && f.questionId === q.id);
   return (
     <>
       {q.star && (
         <dl className="prepStar">
           {(
             [
-              ["Situation", q.star.situation],
-              ["Task", q.star.task],
-              ["Action", q.star.action],
-              ["Result", q.star.result],
+              ["Situation", "situation", q.star.situation],
+              ["Task", "task", q.star.task],
+              ["Action", "action", q.star.action],
+              ["Result", "result", q.star.result],
             ] as const
           )
-            .filter(([, text]) => text)
-            .map(([label, text]) => (
+            .filter(([, , text]) => text)
+            .map(([label, field, text]) => (
               <div className="prepStarRow" key={label}>
                 <dt className="prepStarLabel">{label}</dt>
-                <dd className="prepStarText">{text}</dd>
+                <dd className="prepStarText">
+                  {text}
+                  <NotFromCv flags={flagsFor(flags, q.id, field)} />
+                </dd>
               </div>
             ))}
         </dl>
@@ -47,9 +86,17 @@ export function AnswerBody({ q }: { q: PrepQuestion }) {
       {q.points.length > 0 && (
         <ul className="prepPoints">
           {q.points.map((p, i) => (
-            <li key={i}>{p}</li>
+            <li key={i}>
+              {p}
+              <NotFromCv flags={flagsFor(flags, q.id, "point", i)} />
+            </li>
           ))}
         </ul>
+      )}
+      {flagged && onRewrite && (
+        <div className="prepOpenerActions">
+          <RewriteButton target={{ target: "question", questionId: q.id }} onRewrite={onRewrite} rewriting={rewriting} />
+        </div>
       )}
       {q.evidence.length > 0 && (
         <div className="prepEvidence">
@@ -73,7 +120,7 @@ export function AnswerBody({ q }: { q: PrepQuestion }) {
   );
 }
 
-function QuestionCard({ q, index, rating }: { q: PrepQuestion; index: number; rating?: 1 | 2 | 3 }) {
+function QuestionCard({ q, index, rating, flags, onRewrite, rewriting }: { q: PrepQuestion; index: number; rating?: 1 | 2 | 3; flags: PrepFlag[]; onRewrite?: (t: PrepRewriteTarget) => void; rewriting?: string | null }) {
   return (
     <article className="prepQuestion" id={q.id}>
       <div className="prepQHead">
@@ -87,7 +134,7 @@ function QuestionCard({ q, index, rating }: { q: PrepQuestion; index: number; ra
           <span className="prepWhyLabel">Why they ask</span> {q.whyTheyAsk}
         </p>
       )}
-      <AnswerBody q={q} />
+      <AnswerBody q={q} flags={flags} onRewrite={onRewrite} rewriting={rewriting} />
     </article>
   );
 }
@@ -97,7 +144,9 @@ export function formatGenerated(iso: string): string {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-export default function PrepPackView({ pack, ratings }: { pack: PrepPack; ratings: PrepRatings }) {
+export default function PrepPackView({ pack, ratings, onRewrite, rewriting }: { pack: PrepPack; ratings: PrepRatings; onRewrite?: (t: PrepRewriteTarget) => void; rewriting?: string | null }) {
+  const angleFlagged = pack.flags.some((f) => f.action === "kept" && f.questionId === null && (f.field === "headline" || f.field === "whyYou"));
+  const openerFlagged = pack.flags.some((f) => f.action === "kept" && f.questionId === null && f.field === "opener");
   const [filter, setFilter] = useState<PrepCategory | "all">("all");
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
@@ -128,13 +177,26 @@ export default function PrepPackView({ pack, ratings }: { pack: PrepPack; rating
       {(pack.angle.headline || pack.angle.whyYou.length > 0 || pack.angle.honestGaps.length > 0) && (
         <section className="prepSection" aria-labelledby="prep-angle">
           <h2 className="prepSectionTitle" id="prep-angle">Your angle</h2>
-          {pack.angle.headline && <p className="prepHeadline">{pack.angle.headline}</p>}
+          {pack.angle.headline && (
+            <p className="prepHeadline">
+              {pack.angle.headline}
+              <NotFromCv flags={flagsFor(pack.flags, null, "headline")} />
+            </p>
+          )}
           {pack.angle.whyYou.length > 0 && (
             <ul className="prepList">
               {pack.angle.whyYou.map((w, i) => (
-                <li key={i}>{w}</li>
+                <li key={i}>
+                  {w}
+                  <NotFromCv flags={flagsFor(pack.flags, null, "whyYou", i)} />
+                </li>
               ))}
             </ul>
+          )}
+          {angleFlagged && onRewrite && (
+            <div className="prepOpenerActions">
+              <RewriteButton target={{ target: "angle" }} onRewrite={onRewrite} rewriting={rewriting} />
+            </div>
           )}
           {pack.angle.honestGaps.length > 0 && (
             <div className="prepGaps">
@@ -180,7 +242,7 @@ export default function PrepPackView({ pack, ratings }: { pack: PrepPack; rating
         )}
         <div className="prepQuestions">
           {visible.map((q) => (
-            <QuestionCard key={q.id} q={q} index={pack.questions.indexOf(q)} rating={ratings[q.id]} />
+            <QuestionCard key={q.id} q={q} index={pack.questions.indexOf(q)} rating={ratings[q.id]} flags={pack.flags} onRewrite={onRewrite} rewriting={rewriting} />
           ))}
         </div>
       </section>
@@ -199,17 +261,30 @@ export default function PrepPackView({ pack, ratings }: { pack: PrepPack; rating
       {pack.opener && (
         <section className="prepSection" aria-labelledby="prep-opener">
           <h2 className="prepSectionTitle" id="prep-opener">30-second opener</h2>
-          <p className="prepOpener">{pack.opener}</p>
+          <p className="prepOpener">
+            {pack.opener}
+            <NotFromCv flags={flagsFor(pack.flags, null, "opener")} />
+          </p>
           <div className="prepOpenerActions">
             <button type="button" className="inlineLink" onClick={copyOpener}>
               {copied ? "Copied ✓" : "Copy opener"}
             </button>
+            {openerFlagged && <RewriteButton target={{ target: "opener" }} onRewrite={onRewrite} rewriting={rewriting} />}
             {copyError && <span className="error">{copyError}</span>}
           </div>
         </section>
       )}
 
-      {sources.length > 0 && <p className="prepSources">Built from {sources.join(" · ")}. Nothing in it comes from anywhere else.</p>}
+      {sources.length > 0 && (
+        <p className="prepSources" data-prep-check={pack.check ? "checked" : "unchecked"}>
+          Built from {sources.join(" · ")}.{" "}
+          {pack.check
+            ? `${pack.check.sentences} sentence${pack.check.sentences === 1 ? "" : "s"} checked against your master CV — ${pack.check.flagged} marked as not from it${
+                pack.check.removed > 0 ? `, ${pack.check.removed} company claim${pack.check.removed === 1 ? "" : "s"} removed because the job description and your research don't state ${pack.check.removed === 1 ? "it" : "them"}` : ""
+              }.`
+            : "Generated before sentence checks existed — regenerate to check it against your CV."}
+        </p>
+      )}
     </div>
   );
 }
