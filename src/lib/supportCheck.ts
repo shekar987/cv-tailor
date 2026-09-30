@@ -45,7 +45,7 @@ const INTENT_RE = /^(?:i am|i'm|i would be|i'd be)\s+(?:based in|available|ready
 // ended two years ago) and teamwork the CV does not state: the model must
 // restate either from the master CV's own dates and lines.
 const NARRATION_RE =
-  /\b(?:the|this)\s+(?:last|past)\s+(?:\d+\s+|few\s+|two\s+|three\s+|couple\s+of\s+)?(?:years?|months?)\b|\brecently\b|\bcollaborat\w*\s+(?:closely\s+)?(?:across|with)\s+(?:teams|stakeholders|colleagues|product|business|designers|cross[- ]functional)\b|\balign(?:s|ed|ing)?\s+(?:exactly|directly|closely|perfectly|well|neatly)?\s*with\s+(?:how|what|the|your|this|my)\b|\bmirror(?:s|ing)?\s+(?:the|your|this|how)\b|\bthe\s+same\s+(?:rigou?r|discipline|mindset|care|approach)\b|\b(?:the\s+)?(?:technical\s+)?foundation\s+(?:you|your|this|the\s+role)\b|\byour\s+team\s+relies\s+on\b|\bexactly\s+how\b|\bproblems?\s+I\s+have\s+tackled\s+directly\b|\b(?:this|the|your)\s+role\s+(?:needs|requires|demands|emphasi[sz]es|calls\s+for|asks\s+for)\b|\bexactly\s+what\b|\bthat\s+exact\b|\bthe\s+(?:same|exact)\s+(?:constraints?|challenges?|problems?|thinking|skills?)\b|\btaught\s+me\b|\bdemonstrat\w*\s+(?:the\s+|my\s+|a\s+|strong\s+)?(?:ability|capacity|commitment|skills?|craftsmanship|ownership)\b|\bshowing\s+(?:a|my)\b|\bsolid\s+foundation\b|\b(?:from|on)\s+day\s+one\b|\bfast[- ]paced\b|\bproven\s+(?:ability|track)\b|\btrack\s+record\b|\bi\s+have\s+consistently\b|\bthriv(?:e|ed)\b|\bpassion(?:ate)?\s+(?:for|about)\b|\bsustained\s+commitment\b|\bdirectly\s+transferable\b|\bperfect\s+fit\b|\bexactly\s+the\s+(?:skills?|skill\s*set|experience|kind|type|sort|mindset|approach|work)\b|\bskill\s*set\b[^.]{0,60}\b(?:demand|require|need)s?\b|\bdirectly\s+(?:applicable|relevant)\s+to\b|\b(?:a|an|the|this|my)\s+(?:[\w-]+\s+)?mindset\b|\bmaps?\s+(?:directly\s+|closely\s+|neatly\s+|well\s+)?(?:on)?to\s+(?:the\s+)?(?:work|what|my|experience)\b|\bthe\s+same\s+(?:[\w-]+\s+){1,6}(?:rigou?r|discipline|mindset|care|approach|thinking)\b|\bproficien(?:cy|t)\b/i;
+  /\b(?:the|this)\s+(?:last|past)\s+(?:\d+\s+|few\s+|two\s+|three\s+|couple\s+of\s+)?(?:years?|months?)\b|\brecently\b|\bcollaborat\w*\s+(?:closely\s+)?(?:across|with)\s+(?:teams|stakeholders|colleagues|product|business|designers|cross[- ]functional)\b|\balign(?:s|ed|ing)?\s+(?:exactly|directly|closely|perfectly|well|neatly)?\s*with\s+(?:how|what|the|your|this|my)\b|\bmirror(?:s|ing)?\s+(?:the|your|this|how)\b|\bthe\s+same\s+(?:rigou?r|discipline|mindset|care|approach)\b|\b(?:the\s+)?(?:technical\s+)?foundation\s+(?:you|your|this|the\s+role)\b|\byour\s+team\s+relies\s+on\b|\bexactly\s+how\b|\bproblems?\s+I\s+have\s+tackled\s+directly\b|\b(?:this|the|your)\s+role\s+(?:needs|requires|demands|emphasi[sz]es|calls\s+for|asks\s+for)\b|\bexactly\s+what\b|\bthat\s+exact\b|\bthe\s+(?:same|exact)\s+(?:constraints?|challenges?|problems?|thinking|skills?)\b|\btaught\s+me\b|\bdemonstrat\w*\s+(?:the\s+|my\s+|a\s+|strong\s+)?(?:ability|capacity|commitment|skills?|craftsmanship|ownership)\b|\bshowing\s+(?:a|my)\b|\bsolid\s+foundation\b|\b(?:from|on)\s+day\s+one\b|\bfast[- ]paced\b|\bproven\s+(?:ability|track)\b|\btrack\s+record\b|\bi\s+have\s+consistently\b|\bthriv(?:e|ed)\b|\bpassion(?:ate)?\s+(?:for|about)\b|\bsustained\s+commitment\b|\bdirectly\s+transferable\b|\bperfect\s+fit\b|\bexactly\s+the\s+(?:skills?|skill\s*set|experience|kind|type|sort|mindset|approach|work)\b|\bskill\s*set\b[^.]{0,60}\b(?:demand|require|need)s?\b|\bdirectly\s+(?:applicable|relevant)\s+to\b|\b(?:a|an|the|this|my)\s+(?:[\w-]+\s+)?mindset\b|\bmaps?\s+(?:directly\s+|closely\s+|neatly\s+|well\s+)?(?:on)?to\s+(?:the\s+)?(?:work|what|my|experience)\b|\bthe\s+same\s+(?:[\w-]+\s+){1,6}(?:rigou?r|discipline|mindset|care|approach|thinking)\b|\bproficien(?:cy|t)\b|\bdirectly\s+match(?:es|ing)?\b|\bcore\s+requirements?\b|\b(?:my|our)\s+experience\s+(?:directly\s+|closely\s+)?(?:matches|meets|covers|fits)\b/i;
 
 export function narrationProblem(sentence: string): string | null {
   return NARRATION_RE.test(sentence)
@@ -90,21 +90,27 @@ function sentencesOfLine(line: string): string[] {
 // The sentences to check, with stable ids ("s1" summary, "l1" letter). The
 // letter's salutation, sign-off lines, the name after the sign-off and a date
 // line are skipped.
-export function supportSentences(summary: string, letter: string, facts?: { projects: ProjectFacts[]; paidWork: string }): SupportSentence[] {
+// `facts.extraLint` is the caller's own deterministic lint (the JD-copy
+// guard, lib/jdCopyGuard): its problems ride with the sentence like the
+// others, and a JD-copy problem is a must-go one.
+export type SupportFacts = { projects: ProjectFacts[]; paidWork: string; extraLint?: (sentence: string, section: SupportSection) => string[] };
+export function supportSentences(summary: string, letter: string, facts?: SupportFacts): SupportSentence[] {
   const out: SupportSentence[] = [];
-  const problems = (sentence: string) => {
+  const problems = (sentence: string, section: SupportSection) => {
     const p = narrationProblem(sentence);
     const merged = facts ? mergedProjects(sentence, facts.projects, facts.paidWork) : [];
     const held = placeholderHits(sentence);
+    const extra = facts?.extraLint ? facts.extraLint(sentence, section) : [];
     return [
       ...(p ? [p] : []),
       ...(merged.length ? [`${MERGED_PROBLEM} (${merged.join(", ")}) in one sentence — keep each fact with its own named project, or drop the one that is not this project's`] : []),
       ...(held.length ? [`${PLACEHOLDER_PROBLEM} (${held.join(", ")}) — write it with the master CV's exact figure, or without a figure`] : []),
+      ...extra,
     ];
   };
   let s = 0;
   for (const line of (summary || "").split(/\n+/)) {
-    for (const sentence of sentencesOfLine(line.trim())) out.push({ id: `s${++s}`, section: "summary", sentence, problems: problems(sentence) });
+    for (const sentence of sentencesOfLine(line.trim())) out.push({ id: `s${++s}`, section: "summary", sentence, problems: problems(sentence, "summary") });
   }
   const lines = (letter || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
   const signoff = lines.findIndex((l) => SIGNOFF_RE.test(l));
@@ -114,7 +120,7 @@ export function supportSentences(summary: string, letter: string, facts?: { proj
     if (signoff !== -1 && i > signoff) return; // the name under the sign-off
     for (const sentence of sentencesOfLine(line)) {
       if (COURTESY_RE.test(sentence) || INTENT_RE.test(sentence)) continue;
-      out.push({ id: `l${++l}`, section: "coverLetter", sentence, problems: problems(sentence) });
+      out.push({ id: `l${++l}`, section: "coverLetter", sentence, problems: problems(sentence, "coverLetter") });
     }
   });
   return out.slice(0, MAX_SUPPORT_SENTENCES);
@@ -188,7 +194,7 @@ const STOP = new Set(
   )
 );
 const stem = (w: string) => w.replace(/(?:ing|ed|es|s)$/, "");
-function contentWords(t: string): string[] {
+export function contentWords(t: string): string[] {
   return norm(t)
     .split(" ")
     .map((w) => w.replace(/^[.'/-]+|[.'/-]+$/g, ""))
@@ -227,7 +233,11 @@ export const isMergeProblem = (s: SupportSentence) => s.problems.some((p) => p.s
 // acceptable fix the sentence goes, like a merged-projects sentence.
 export const PLACEHOLDER_PROBLEM = "contains template text";
 export const isPlaceholderProblem = (s: SupportSentence) => s.problems.some((p) => p.startsWith(PLACEHOLDER_PROBLEM));
-const mustGo = (s: SupportSentence) => isMergeProblem(s) || isPlaceholderProblem(s);
+// A posting requirement the master CV never shows, stated as the
+// candidate's own work (lib/jdCopyGuard): with no acceptable fix it goes.
+export const JD_COPY_PROBLEM = "claims a posting requirement the master CV never shows";
+export const isJdCopyProblem = (s: SupportSentence) => s.problems.some((p) => p.startsWith(JD_COPY_PROBLEM));
+const mustGo = (s: SupportSentence) => isMergeProblem(s) || isPlaceholderProblem(s) || isJdCopyProblem(s);
 export function mergedProjects(sentence: string, projects: ProjectFacts[], paidWork: string = ""): string[] {
   if (projects.length < 2) return [];
   const words = new Set(contentWords(sentence));
