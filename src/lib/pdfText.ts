@@ -291,7 +291,9 @@ export function drawLine(
   lineHeight: number,
   opts: DrawOpts & { bold?: boolean } = {}
 ): void {
-  drawWrapped(doc, cursor, [{ text, bold: opts.bold }], size, lineHeight, opts);
+  // Real words, so a line longer than the measure wraps between them rather
+  // than being cut character by character (the CV headline, a prep question).
+  drawWrapped(doc, cursor, parseWords(text, !!opts.bold), size, lineHeight, opts);
 }
 
 // Bold left text (role, project title, or degree) with a date right-aligned

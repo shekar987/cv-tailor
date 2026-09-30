@@ -170,7 +170,7 @@ function drawEducation(doc: jsPDF, cursor: PdfCursor, education: any[], d: Densi
     cursor.advance(pt(d.tightAfter));
 
     if (e.school) {
-      drawWrapped(doc, cursor, [{ text: e.school }], 10.5, lineOf(10.5));
+      drawWrapped(doc, cursor, parseWords(e.school), 10.5, lineOf(10.5));
       cursor.advance(pt(d.tightAfter));
     }
     // e.note can hold multiple bullets, one per line — draw one bullet per
@@ -241,7 +241,9 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
   cursor.advance(2);
 
   if (contact.tagline) {
-    drawWrapped(doc, cursor, [{ text: contact.tagline }], 10, lineOf(10), { color: GREY, align: "center" });
+    // Real words, so a long headline wraps between them: as one `Word` it
+    // was split character by character ("produ-ction", 30 Sep).
+    drawWrapped(doc, cursor, parseWords(contact.tagline), 10, lineOf(10), { color: GREY, align: "center" });
     cursor.advance(2);
   }
   if (contact.hasRow) {
