@@ -13,7 +13,7 @@
 // again is free; `force` regenerates and is charged again.
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { callLLM, ProviderRateLimitError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
@@ -66,12 +66,9 @@ export const maxDuration = 300;
 export async function POST(req: NextRequest) {
   try {
     // ── Auth ──────────────────────────────────────────────────────────────────
-    const supabase = await createClient();
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-    if (claimsError || !claimsData?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = claimsData.claims.sub as string;
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { supabase, userId } = caller;
 
     // ── Burst rate limit — first, before any DB work ──────────────────────────
     const burst = await checkBurstLimit(userId, "prep");
@@ -87,12 +84,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Input ─────────────────────────────────────────────────────────────────
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
     const applicationId = typeof body.applicationId === "string" ? body.applicationId.trim() : "";
     const force = body.force === true;
     if (!UUID_RE.test(applicationId)) {

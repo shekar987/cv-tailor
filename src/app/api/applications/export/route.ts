@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized } from "@/lib/routeAuth";
 
 // CSV export of the signed-in user's application tracker. RLS scopes the read;
 // no LLM call, so no burst limiter.
@@ -44,11 +44,9 @@ function csvField(value: unknown): string {
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.auth.getClaims();
-    if (error || !data?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { supabase } = caller;
 
     const params = new URL(req.url).searchParams;
     const status = params.get("status");

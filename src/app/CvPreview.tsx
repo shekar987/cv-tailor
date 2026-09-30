@@ -23,6 +23,8 @@ import { splitTrailingDate } from "@/lib/projectDate";
 import { pastePlainText } from "@/lib/pastePlainText";
 import { parseBoldSegments, stripBoldMarkers } from "@/lib/markdownText";
 import { linkParts } from "@/lib/projectLinks";
+import { cleanTagline } from "@/lib/profile";
+import { ensureHttps } from "@/lib/cvDocument";
 
 // **span** → <strong> — the render half of the bold contract (see
 // lib/markdownText). readInline() below is its exact inverse, used by
@@ -119,16 +121,9 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
   // Fallbacks keep it working if profile is missing
   const p = profile || null;
   const name = p?.name || "YOUR NAME";
-  // Mirror the download route's tagline cleanup so the on-screen preview matches
-  // the PDF/Word: a headline never carries contact/social URLs (would duplicate
-  // the GitHub/LinkedIn shown below). Bare words like "GitHub Actions" are kept.
-  const tagline = (p?.tagline || "")
-    .replace(/https?:\/\/\S+/gi, " ")
-    .replace(/\b(?:www\.)?(?:linkedin|github)\.com\/?\S*/gi, " ")
-    .replace(/\b(?:LinkedIn|GitHub)\s*:/gi, " ")
-    .replace(/^\s*[|•·,\-–—]+\s*|\s*[|•·,\-–—]+\s*$/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  // The same headline cleanup the .docx and the PDF apply (lib/profile), so
+  // the preview never shows a contact URL the downloads would drop.
+  const tagline = cleanTagline(p?.tagline || "");
   const location = p?.location || "";
   const phone = p?.phone || "";
   const email = p?.email || "";
@@ -467,7 +462,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
       if (bullets.length > 0) domExtras.push({ title, bullets });
     });
 
-    const domName = (div.querySelector("h1.cvName")?.textContent || "").trim();
+    const domName = (div.querySelector(".cvName")?.textContent || "").trim();
     const domTagline = (div.querySelector("p.cvTagline")?.textContent || "").trim();
 
     const summary = readText("professional summary") || data.summary || "";
@@ -549,6 +544,9 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
     summary: () =>
       data.summary ? (
         <>
+          {/* Section headings are <h2> by contract: collectPayload() finds each
+              section by tagName H2 (headingIdx / sectionKids) for both downloads
+              and the Applied snapshot. Change the element there and here, or neither. */}
           <h2 className="cvHead">Professional Summary</h2>
           {lines(data.summary).map((l, i) => (<p className="cvText" key={`sum-${i}`}>{renderInline(l)}</p>))}
         </>
@@ -703,7 +701,9 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
       {docErr && <StatusText role="alert">{docErr}</StatusText>}
       <p className="editHint">Click any text to edit it. Your changes are included when you download.</p>
       <div className="cvDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false} onPaste={pastePlainText}>
-        <h1 className="cvName">{name}</h1>
+        {/* A div, not an h1: the page's h1 is the AppHeader's, and the tracker
+            renders several of these documents on one page. */}
+        <div className="cvName">{name}</div>
         {tagline && <p className="cvTagline">{tagline}</p>}
         {hasContactRow && (
           // contentEditable={false}: contact fields are never read back out of
@@ -720,13 +720,13 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
                 <a key="email" href={`mailto:${email}`} className="cvLink">{email}</a>
               ) : null,
               linkedin ? (
-                <a key="li" href={linkedin.startsWith("http") ? linkedin : "https://" + linkedin} className="cvLink" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+                <a key="li" href={ensureHttps(linkedin)} className="cvLink" target="_blank" rel="noopener noreferrer">LinkedIn</a>
               ) : null,
               github ? (
-                <a key="gh" href={github.startsWith("http") ? github : "https://" + github} className="cvLink" target="_blank" rel="noopener noreferrer">GitHub</a>
+                <a key="gh" href={ensureHttps(github)} className="cvLink" target="_blank" rel="noopener noreferrer">GitHub</a>
               ) : null,
               website ? (
-                <a key="web" href={website.startsWith("http") ? website : "https://" + website} className="cvLink" target="_blank" rel="noopener noreferrer">Portfolio</a>
+                <a key="web" href={ensureHttps(website)} className="cvLink" target="_blank" rel="noopener noreferrer">Portfolio</a>
               ) : null,
             ]
               .filter((piece) => piece !== null && piece !== "")

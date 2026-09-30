@@ -5,7 +5,7 @@
 // hands lib/insights the rest. No LLM call, no burst limiter.
 
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized } from "@/lib/routeAuth";
 import { computeInsights, rowFromApplication, scoreOutcome } from "@/lib/insights";
 
 const WITH_SNAPSHOT_PATHS =
@@ -14,11 +14,9 @@ const PLAIN = "status, role, company_name, source, followup_date";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.auth.getClaims();
-    if (error || !data?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { supabase } = caller;
 
     let rows: unknown[] | null = null;
     let readError: { code?: string; message: string } | null = null;

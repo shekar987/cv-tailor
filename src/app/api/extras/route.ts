@@ -5,7 +5,7 @@
 // the daily counter already metered (the research + tailor runs).
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { callLLM, ProviderRateLimitError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { MAX_CV_CHARS, CV_TOO_LONG, MAX_CLAIMS_JSON } from "@/lib/limits";
@@ -17,12 +17,9 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-    if (claimsError || !claimsData?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = claimsData.claims.sub as string;
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { supabase, userId } = caller;
 
     const burst = await checkBurstLimit(userId, "extras");
     if (!burst.ok) {
@@ -32,12 +29,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
 
     const kind =
       body.kind === "pitch" || body.kind === "talking_points" || body.kind === "cold_email" ? body.kind : null;

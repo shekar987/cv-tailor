@@ -99,7 +99,7 @@ user_projects, user_skills   present in the DB, unused by the code (routes remov
 
 **Projects keyed by index** — The projects AI step returns `{ "0": [...], "1": [...] }`. Index matches `profile.projects` order. If the user reorders or removes projects, old tailored bullets will be mismatched. Saving a new master CV clears the result.
 
-**`MASTER_CV` is dev-only** — `src/prompts/masterCV.ts` contains the owner's CV (name and public links; phone/email were replaced with placeholders in S3). Never import it in any route or production path.
+**No CV in the repo** — `src/prompts/masterCV.ts` (the owner's CV as a dev fallback) was deleted on 2026-09-27; every route receives `cvText` from the client. Test with a synthetic CV (eval/pairs.json, the harnesses' seeded CVs). It was never imported in any route or production path.
 
 ---
 

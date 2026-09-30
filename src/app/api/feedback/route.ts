@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { MAX_FEEDBACK_CHARS } from "@/lib/limits";
 
 // Insert-only feedback endpoint. RLS ("auth.uid() = user_id", insert-only for
@@ -11,20 +11,12 @@ const MAX_MESSAGE = MAX_FEEDBACK_CHARS;
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.auth.getClaims();
-    if (error || !data?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = data.claims.sub as string;
-    const email = (data.claims.email as string | undefined) ?? "";
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { supabase, userId, email } = caller;
 
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
 
     const message = typeof body.message === "string" ? body.message.trim() : "";
     if (!message) {

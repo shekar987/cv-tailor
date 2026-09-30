@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, readJsonBody, invalidBody, declaresMoreThan, payloadTooLarge } from "@/lib/routeAuth";
 import { buildCvPdf } from "@/lib/buildCvPdf";
 import { normalizeProfile } from "@/lib/profile";
 import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
@@ -15,24 +15,15 @@ export const runtime = "nodejs";
 // PDFs with no text layer at all.
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-    if (claimsError || !claimsData?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
 
     // jsPDF lays the document out synchronously; refuse oversized bodies from
     // the header before reading them into memory.
-    if (Number(req.headers.get("content-length") || 0) > MAX_DOCUMENT_BODY_BYTES) {
-      return NextResponse.json({ error: "Document payload is too large." }, { status: 413 });
-    }
+    if (declaresMoreThan(req, MAX_DOCUMENT_BODY_BYTES)) return payloadTooLarge();
 
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
 
     const text = (v: unknown) => (typeof v === "string" ? v : "");
     const profile = normalizeProfile(body.profile);

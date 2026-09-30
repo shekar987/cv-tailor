@@ -38,7 +38,6 @@ export const MAX_PREP_PACK_JSON = 80_000;
 // The eligibility profile is a handful of enums and short lists; the claims
 // registry is up to 80 skills. Checked as serialized JSON on the server.
 export const MAX_ELIGIBILITY_JSON = 4_000;
-export const MAX_CLAIMS_SKILLS = 80;
 export const MAX_CLAIMS_JSON = 12_000;
 
 // A posting under this many characters is usually a fragment - eligibility

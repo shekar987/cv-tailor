@@ -5,14 +5,15 @@
 // rasterization pipeline that produced image-only, ATS-invisible PDFs.
 
 import { jsPDF } from "jspdf";
-import { filterExtraSections } from "@/lib/sections";
-import { chooseDensity, wrappedLines, type Density } from "@/lib/cvDensity";
+import { normalizeProfile } from "@/lib/profile";
+import { prepareCvDocument } from "@/lib/cvDocument";
+import { type Density } from "@/lib/cvDensity";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { PdfCursor, parseWords, drawWrapped, drawBullet, drawHeaderLine, hexToRgb, registerFonts, FONT, type Word } from "@/lib/pdfText";
 import { SECTION_HEADING_LINE_RE } from "@/lib/sections";
 import { stripBoldMarkers } from "@/lib/markdownText";
 import { splitTrailingDate } from "@/lib/projectDate";
-import { linkParts, linksText, type LinkPart } from "@/lib/projectLinks";
+import { linkParts, type LinkPart } from "@/lib/projectLinks";
 
 const NAVY = hexToRgb("1F3864");
 const GREY = hexToRgb("595959");
@@ -211,57 +212,17 @@ export type CvPdfPayload = {
 export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
   const { summary = "", skills = "", experience = "", projects = {}, projectsMeta = [], profile, sectionOrder, targetPages = 2 } = payload;
 
-  // Same fallback/cleanup rules as the docx route — missing fields render
-  // blank, never fall back to owner data.
-  const contactName = profile?.name || "";
-  const cleanTagline = (t: string): string =>
-    (t || "")
-      .replace(/https?:\/\/\S+/gi, " ")
-      .replace(/\b(?:www\.)?(?:linkedin|github)\.com\/?\S*/gi, " ")
-      .replace(/\b(?:LinkedIn|GitHub)\s*:/gi, " ")
-      .replace(/^\s*[|•·,\-–—]+\s*|\s*[|•·,\-–—]+\s*$/g, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-  const contactTagline = cleanTagline(profile?.tagline ?? "");
-  // String() to match the docx route — a non-string email must not make the
-  // PDF fail where the Word download succeeds.
-  const contactEmail = String(profile?.email || "").trim();
-  const contactLinkedin = profile?.linkedin ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin) : "";
-  const contactGithub = profile?.github ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github) : "";
-  const contactWebsite = profile?.website ? (profile.website.startsWith("http") ? profile.website : "https://" + profile.website) : "";
-  const education = (profile?.education || []).map((e: any) => ({
-    head: e.degree || "",
-    date: e.dates || "",
-    school: e.institution || "",
-    note: e.note,
-  }));
-  const certs: string[] = profile?.certifications || [];
-  const rightToWork: string[] = profile?.rightToWork || [];
-  const extraSections = filterExtraSections(profile?.extraSections);
-
-  // Same density calculation as the docx route, from the same library.
-  const projectText = Object.values(projects as Record<string, unknown>)
-    .flatMap((v) => (Array.isArray(v) ? v : []))
-    .join("\n");
-  const projectMetaText = (Array.isArray(projectsMeta) ? projectsMeta : [])
-    .map((m: any) => [m?.name, m?.tech, linksText(m?.links)].filter(Boolean).join("\n"))
-    .join("\n");
-  const educationText = education.map((e: any) => [e.head, e.school, e.note].filter(Boolean).join("\n")).join("\n");
-  const extrasText = extraSections.map((s) => s.bullets.join("\n")).join("\n");
-  const bodyText = [summary, skills, experience, projectText, projectMetaText, educationText, certs.join("\n"), rightToWork.join("\n"), extrasText]
-    .filter(Boolean)
-    .join("\n");
-  const hasContactRow = !!(profile?.location || profile?.phone || contactEmail || contactLinkedin || contactGithub || contactWebsite);
-  const contactLines = 1 + (contactTagline ? 1 : 0) + (hasContactRow ? 1 : 0);
-  const headingCount =
-    (summary ? 1 : 0) + (skills ? 1 : 0) + (experience ? 1 : 0) +
-    (education.length > 0 ? 1 : 0) + (certs.length > 0 ? 1 : 0) +
-    (rightToWork.length > 0 ? 1 : 0) + extraSections.length + (projectMetaText ? 1 : 0);
-  const density = chooseDensity({
-    lines: wrappedLines(bodyText) + contactLines,
-    paragraphs: bodyText.split("\n").filter((l) => l.trim()).length + contactLines,
-    headings: headingCount,
-  }, targetPages === 1 ? 1 : 2);
+  // One pass shared with the docx route (lib/cvDocument): the contact pieces,
+  // the profile's lists and the density for the target page count. The
+  // profile is normalised here too, so a missing field renders blank —
+  // never owner data.
+  const { contact, education, certs, rightToWork, extraSections, density } = prepareCvDocument({
+    profile: normalizeProfile(profile),
+    summary, skills, experience,
+    projects: projects as Record<string, unknown>,
+    projectsMeta,
+    targetPages: targetPages === 1 ? 1 : 2,
+  });
 
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
   registerFonts(doc);
@@ -273,17 +234,17 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
   doc.setFont(FONT, "bold");
   doc.setFontSize(20);
   doc.setTextColor(...NAVY);
-  const nameWidth = doc.getTextWidth(contactName);
-  doc.text(contactName, cursor.marginLeft + (cursor.contentWidth - nameWidth) / 2, cursor.y);
+  const nameWidth = doc.getTextWidth(contact.name);
+  doc.text(contact.name, cursor.marginLeft + (cursor.contentWidth - nameWidth) / 2, cursor.y);
   doc.setTextColor(0, 0, 0);
   cursor.advance(lineOf(20));
   cursor.advance(2);
 
-  if (contactTagline) {
-    drawWrapped(doc, cursor, [{ text: contactTagline }], 10, lineOf(10), { color: GREY, align: "center" });
+  if (contact.tagline) {
+    drawWrapped(doc, cursor, [{ text: contact.tagline }], 10, lineOf(10), { color: GREY, align: "center" });
     cursor.advance(2);
   }
-  if (hasContactRow) {
+  if (contact.hasRow) {
     // One line: location · phone · email (mailto) · LinkedIn · GitHub — only
     // the pieces that exist, each separated by "·", never a dangling
     // separator for a missing piece.
@@ -292,12 +253,12 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
       if (contactWords.length > 0) contactWords.push({ text: "·" });
       contactWords.push(piece);
     };
-    if (profile?.location) addPiece({ text: profile.location });
-    if (profile?.phone) addPiece({ text: profile.phone });
-    if (contactEmail) addPiece({ text: contactEmail, link: "mailto:" + contactEmail });
-    if (contactLinkedin) addPiece({ text: "LinkedIn", link: contactLinkedin });
-    if (contactGithub) addPiece({ text: "GitHub", link: contactGithub });
-    if (contactWebsite) addPiece({ text: "Portfolio", link: contactWebsite });
+    if (contact.location) addPiece({ text: contact.location });
+    if (contact.phone) addPiece({ text: contact.phone });
+    if (contact.email) addPiece({ text: contact.email, link: "mailto:" + contact.email });
+    if (contact.linkedin) addPiece({ text: "LinkedIn", link: contact.linkedin });
+    if (contact.github) addPiece({ text: "GitHub", link: contact.github });
+    if (contact.website) addPiece({ text: "Portfolio", link: contact.website });
     drawWrapped(doc, cursor, contactWords, 10, lineOf(10), { align: "center", linkColor: LINK });
     cursor.advance(2);
   }

@@ -22,6 +22,28 @@ export type Profile = {
   extraSections?: ExtraSection[];
 };
 
+// A professional headline never carries contact/social URLs. When the extractor
+// mis-files the CV's contact line into the tagline, the GitHub/LinkedIn URL
+// would render as the headline AND again as the link under it — the "GitHub
+// twice" bug. Strips URL/social forms only: bare words like "GitHub Actions"
+// stay. One function for the preview, the .docx and the PDF (each used to
+// carry its own copy).
+export function cleanTagline(tagline: string): string {
+  let t = (tagline || "")
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/\b(?:www\.)?(?:linkedin|github)\.com\/?\S*/gi, " ")
+    .replace(/\b(?:LinkedIn|GitHub)\s*:/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  // Separators left at either edge once the URLs are gone ("Engineer | | ").
+  // Until stable: one pass left "Backend Engineer |" behind a second bar.
+  for (;;) {
+    const next = t.replace(/^[|•·,\-–—]+\s*|\s*[|•·,\-–—]+$/g, "").trim();
+    if (next === t) return t;
+    t = next;
+  }
+}
+
 function obj(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }

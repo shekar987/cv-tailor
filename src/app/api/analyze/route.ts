@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { callClaude, callLLM, ProviderCreditError, ProviderRateLimitError } from "@/lib/claude";
 import { loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { openRouterLimitMessage, fallbackExhaustedMessage } from "@/lib/fallbackRoute";
@@ -58,11 +59,9 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.auth.getClaims();
-    if (error || !data?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { supabase, userId } = caller;
 
     // Burst limit: this endpoint calls Claude on the owner's key with no DB
     // quota, so an unmetered loop here would drain the wallet. Gate it.
@@ -70,7 +69,6 @@ export async function POST(req: NextRequest) {
     // analysis alone, a fraction of a full tailor run) must not consume one of
     // the paid-tailor quota slots. Those RPCs only fire inside /api/tailor when
     // the full pipeline actually runs.
-    const userId = data.claims.sub as string;
     const burst = await checkBurstLimit(userId, "analyze");
     if (!burst.ok) {
       return NextResponse.json(
@@ -79,12 +77,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
 
     const jobDescription = typeof body.jobDescription === "string" ? body.jobDescription.trim() : "";
     if (!jobDescription) {

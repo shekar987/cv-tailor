@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, declaresMoreThan } from "@/lib/routeAuth";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { parseCvFile, CvParseError, MAX_FILE_BYTES } from "@/lib/parseCv";
 import { UPLOAD_TOO_LARGE } from "@/lib/limits";
@@ -27,12 +27,9 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.auth.getClaims();
-    if (error || !data?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = data.claims.sub as string;
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { userId } = caller;
 
     // Same gate as the other routes: cheap rejection of floods before doing work.
     const burst = await checkBurstLimit(userId, "parse-cv");
@@ -45,8 +42,7 @@ export async function POST(req: NextRequest) {
 
     // Reject oversized bodies from the header before buffering them, so a huge
     // upload doesn't get read into memory just to be thrown away.
-    const declaredLength = Number(req.headers.get("content-length") || 0);
-    if (declaredLength > MAX_FILE_BYTES * 1.1) {
+    if (declaresMoreThan(req, MAX_FILE_BYTES * 1.1)) {
       return NextResponse.json(
         { error: UPLOAD_TOO_LARGE },
         { status: 400 }

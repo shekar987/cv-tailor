@@ -12,7 +12,7 @@
 // registry, CV and pool arrive in the body, as on /api/tailor.
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { callForUser } from "@/lib/llmRouting";
 import { ProviderCreditError, ProviderRateLimitError } from "@/lib/claude";
@@ -78,12 +78,9 @@ const stringList = (v: unknown): string[] =>
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.auth.getClaims();
-    if (error || !data?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = data.claims.sub as string;
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { supabase, userId } = caller;
 
     const burst = await checkBurstLimit(userId, "fix-claims");
     if (!burst.ok) {
@@ -93,12 +90,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
 
     const cv = boundedString(body.cvText, MAX_CV_CHARS);
     if (cv === null) return NextResponse.json({ error: CV_TOO_LONG }, { status: 400 });

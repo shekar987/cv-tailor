@@ -96,9 +96,11 @@ src/
   lib/
     games/                    ← The waiting-room games (framework-free, import-free except each other; tests/games.test.ts runs the physics with no DOM). REAL-WORLD SCALE since 27 Sep — the owner: "a man can't fly… think logically and technically before implementation": core.ts (480×320 view; PX_PER_M 36 — the 1.78 m figure is FIGURE_PX 64; G = 9.81 m/s² in px; m() converts metres; InputState { left, right, up (held), jumpPressed (edge) }; seeded makeRng + hash01; runLoop fixed 60 Hz with a clamped long frame; drawCityBackdrop: dusk sky, clouds, two parallax skylines with lit windows; the only canvas text is a number), employer.ts (a man in a navy suit, white shirt, amber tie; limbPose: run cycle, jump tuck, a landing crouch whose squat() keeps the feet under the hips, a climb whose arms are solved by two-joint reach() so the hands hold the edge's corner as he rises, and the jetpack pose — hands on the rocket belt's waist grips, legs hanging with the motion — NOTHING flaps; drawEmployer draws the belt's tanks, nozzles, grip arm and thrust-scaled flames, `tilt` for a stumble / flight lean / crash tumble), platformer.ts (Game 1, the walk to the interview along a street: runs at 5 m/s, a running jump rises 0.59 m with 0.8 m of foot clearance (TUCK) and carries ~3.5 m, no air control, a standing jump goes ~1.7 m; kerbs and stairs ≤ STEP_UP 0.2 m are walked; crates 0.45–0.6 m, pallets 0.85–0.95 m and walls 1.0–1.1 m are jumped or CLIMBED (≤ CLIMB_MAX 1.15 m: jump against a face, or an airborne edge grab); puddles ≤ 2 m slow him to a 1.5 m/s wade, a cone he runs into falls over and costs a stumble — nothing kills; ≥ 3 m of clear pavement before every obstacle; score = metres walked; a scripted walker test gets through a minute on every seed), flyer.ts (Game 2, a jetpack flight over the rooftops: he stands on the roof until the first thrust; holding `up` fires a rocket belt at 2× his weight (1 g net up, spooling in 0.12 s; climb capped 4 m/s, drop 8 m/s, gravity 9.81) — at 1.6× every gap was reachable but a quarter-second-ahead pilot sank through gaps while braking; flies at 5→6 m/s; chimney stacks / aerial masts from the roofs and crane loads on cables from above, gaps 3.3–3.9 m, centres ≤ 2.2 m apart, 6.5 m spacing; touching the roof is a landing (he runs), flying into anything is a crash (tumble, reset); a physics-aware scripted pilot flies 150+ gaps on every seed without a crash), pick.ts (gameForTailorCount: 1st/3rd… street, 2nd/4th… jetpack; nextTailorCount per user in localStorage `cvtailor:games:<userId>`, memory fallback). The scratchpad harness gameharness/serve.mjs stages scenes (type-stripped modules on :3200) for screenshots
     claude.ts                 ← callClaude() / callLLM() — every model call goes through here
+    routeAuth.ts              ← The route preamble every handler shares: signedIn() (getClaims, → { supabase, userId, email } | null), unauthorized(), readJsonBody() (an object or null — a non-object body is a 400, not a 500 on the first field read), invalidBody(), declaresMoreThan(req, bytes) + payloadTooLarge() (the Content-Length check before the body is read)
+    cvDocument.ts             ← prepareCvDocument(): the pre-pass both CV builders share (imports ./cvDensity, ./sections, ./projectLinks, ./profile; tests/) — contact pieces (cleanTagline, ensureHttps), the education/certs/right-to-work/extra lists and the density for the target page count, so the .docx and the PDF of one CV can never measure it differently
     limits.ts                 ← MAX_JD_CHARS, MAX_CV_CHARS, notes/feedback/cover-letter caps, DAILY_TAILOR_LIMIT + CLAUDE_LIFETIME_LIMIT (one definition — UI and /api/tailor share these)
     usage.ts                  ← getUsage(): the signed-in user's own quota position from their profiles row; fail-soft null (consumers hide their usage UI). Powers the /app chip and the Settings account card
-    profile.ts                ← Profile type + normalizeProfile() (coerces model JSON to the shape renderers assume)
+    profile.ts                ← Profile type + normalizeProfile() (coerces model JSON to the shape renderers assume) + cleanTagline() (a headline never carries contact/social URLs; the preview, the .docx and the PDF share it; tests/)
     cvStore.ts                ← Master CV + profile CRUD against Supabase (browser client); also user_settings (getUserSettings / saveEligibility / saveClaims)
     workspace.ts              ← Per-user localStorage envelope: JD, result, provider, tailor session id, the text the result was tailored from + its source (jd/outreach), research
     applicationSnapshot.ts    ← Applied-button helpers: local dates, strict salary extraction, notes, second-person rewrite
@@ -162,9 +164,8 @@ src/
   prompts/
     rules.ts                  ← ABSOLUTE_RULES constant (the honesty contract)
     steps.ts                  ← All prompt templates (summaryPrompt, skillsPrompt, etc.)
-    masterCV.ts               ← Owner's CV — DEV FALLBACK ONLY, never imported by a production path
 supabase/migrations/          ← Checked-in SQL (applications table, tailored_cv, company_profiles, projects_pool, prep_pack, user_settings + find_applications_by_jd, user_settings.variants …); see supabase/schema.md
-tests/                        ← node:test unit suites (atsMatch, companyMatch, knockouts, claims, insights, quality, extractionCheck, variants, preferences, visibilityVerdict, formatRules, trackerSearch, seniority, roleTitle, properNouns, providerErrors, rightToWorkText, pdfTextCheck, onePage, headline, graduateMode, bulletIds, fallbackRoute, postingAge, claimRepair, evidenceMap, supportCheck, games, projectLinks, sentCv) — `npm test`, zero dependencies
+tests/                        ← node:test unit suites (atsMatch, companyMatch, knockouts, claims, insights, quality, extractionCheck, variants, preferences, visibilityVerdict, formatRules, trackerSearch, seniority, roleTitle, properNouns, providerErrors, rightToWorkText, pdfTextCheck, onePage, headline, graduateMode, bulletIds, fallbackRoute, postingAge, claimRepair, evidenceMap, supportCheck, games, projectLinks, sentCv, profile, cvDocument) — `npm test`, zero dependencies
 scripts/backfill-tracker-scores.mjs ← one-off: tracker rows saved before the snapshot carried a score get counts from the notes' reconciled "Search visibility: 13/15 keywords" line, a recomputed eligibility read and the role seniority (reads SUPABASE_SECRET_KEY from .env.local; dry run by default, --apply writes)
 eval/                         ← Tailoring evaluation harness: pairs.json (5 synthetic CVs × 2 JDs), run.mjs (PAID: 10 tailors → eval/out/<label>), assert.mjs (free: the four assertions + metrics, two labels = a delta), inspect.mjs (filler words / weak bullets of a run)
 ```
@@ -218,15 +219,14 @@ Auth-gated pages are listed in `PROTECTED_PREFIXES` in `src/lib/supabase/proxy.t
 
 **The owner's provider dropdown** (unlimited accounts) sits on the first action row of /app, before the pre-check, and both `/api/analyze` (checked against `profiles.is_unlimited` server-side) and `/api/tailor` honour it. OpenRouter chosen with no `OPENROUTER_API_KEY` deployed runs on the user's own saved key; Vercel currently has no OpenRouter env key and its Gemini one is misnamed `Gemini_API_Key`, so "Claude" and "OpenRouter (own key)" are the two that work in production.
 
-**Auth verification in Route Handlers: always use `getClaims()`.** It verifies the JWT locally (no network call) and returns `claims.sub` as the user ID. Never use `getSession()` in server contexts — it makes a network round-trip and can return stale data.
+**Auth verification in Route Handlers: `signedIn()` from `lib/routeAuth`.** It is `getClaims()` — verifies the JWT locally (no network call) and returns `claims.sub` as the user ID; never `getSession()` in server contexts, which makes a network round-trip and can return stale data. The same module holds the rest of the route preamble (`readJsonBody`/`invalidBody`, `declaresMoreThan`/`payloadTooLarge`), so a route reads:
 
 ```ts
-const supabase = await createClient();
-const { data, error } = await supabase.auth.getClaims();
-if (error || !data?.claims?.sub) {
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-}
-const userId = data.claims.sub as string;
+const caller = await signedIn();
+if (!caller) return unauthorized();
+const { supabase, userId } = caller;
+const body = await readJsonBody(req);
+if (!body) return invalidBody();
 ```
 
 ### Database schema
@@ -398,7 +398,7 @@ callClaude({ ... }).catch(() => null)   // nullable steps (atsScore)
 
 **Profile in request body, always.** The download routes receive `profile` in the POST body. They use it exclusively. If a field is missing, it renders blank. See the fallback-leakage trap below.
 
-**`MASTER_CV` is dev-only.** The hardcoded CV in `src/prompts/masterCV.ts` is a fallback for local prompt testing only. Production always receives `cvText` from the client. Never reference `MASTER_CV` in a production code path.
+**No CV lives in the repo.** Every route receives `cvText` from the client; there is no hardcoded fallback CV (the owner's dev-fallback `src/prompts/masterCV.ts` was deleted on 2026-09-27 — test with a synthetic CV: `eval/pairs.json`, the harnesses' seeded CVs). Never add one back.
 
 **`React.memo` on `CvPreview`** exists specifically to prevent `contentEditable` from being reset by parent re-renders (e.g. the user typing in the JD box). Don't remove it.
 
@@ -566,7 +566,7 @@ const contactName = profile?.name || "";
 const contactName = profile?.name || OWNER_NAME_FALLBACK;
 ```
 
-`src/prompts/masterCV.ts` contains the owner's real CV. It must never be imported in any download or tailor route. It exists only for prompt development/testing.
+There is no hardcoded CV anywhere in the repo to fall back to (the owner's dev-fallback file was deleted on 2026-09-27) — keep it that way: a missing field renders blank, full stop.
 
 ### PDF must have a real text layer — never rasterize it
 
@@ -746,7 +746,7 @@ memoization could not be preserved", reported twice, with a misleading
 "this dependency may be mutated later" pointing at an unrelated memo dep).
 Declare run-derived values right after the state they read, above the
 handlers (`runSectionOrder` in `app/page.tsx` is the example). The lint
-baseline is 27 problems (a landing-page count-up with setState in an effect was removed on 24 Sep); a change that moves it is a change to look at.
+baseline is 19 problems (27 until the 27 Sep dedupe removed the `any`s in the two CV builders' pre-pass); a change that moves it is a change to look at.
 
 ### A claims rewrite must see the full sentence, not the display excerpt
 

@@ -1,13 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { filterExtraSections, SECTION_HEADING_LINE_RE } from "@/lib/sections";
-import { chooseDensity, wrappedLines, PAGE_HEIGHT, type Density } from "@/lib/cvDensity";
+import { NextRequest } from "next/server";
+import { signedIn, unauthorized, readJsonBody, invalidBody, declaresMoreThan, payloadTooLarge } from "@/lib/routeAuth";
+import { SECTION_HEADING_LINE_RE } from "@/lib/sections";
+import { PAGE_HEIGHT, type Density } from "@/lib/cvDensity";
 import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
 import { normalizeProfile } from "@/lib/profile";
+import { prepareCvDocument } from "@/lib/cvDocument";
 import { parseBoldSegments, stripBoldMarkers } from "@/lib/markdownText";
 import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
-import { linkParts, linksText, type LinkPart } from "@/lib/projectLinks";
+import { linkParts, type LinkPart } from "@/lib/projectLinks";
 import {
   Document,
   Packer,
@@ -260,24 +261,15 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any, d: Density): P
 }
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-    if (claimsError || !claimsData?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
 
     // docx's Packer runs synchronously; refuse oversized bodies from the
     // header before reading them into memory.
-    if (Number(req.headers.get("content-length") || 0) > MAX_DOCUMENT_BODY_BYTES) {
-      return NextResponse.json({ error: "Document payload is too large." }, { status: 413 });
-    }
+    if (declaresMoreThan(req, MAX_DOCUMENT_BODY_BYTES)) return payloadTooLarge();
 
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
     const text = (v: unknown) => (typeof v === "string" ? v : "");
     const summary = text(body.summary);
     const skills = text(body.skills);
@@ -285,88 +277,32 @@ export async function POST(req: NextRequest) {
     const projects = body.projects && typeof body.projects === "object" ? (body.projects as Record<string, unknown>) : {};
     const projectsMeta = Array.isArray(body.projectsMeta) ? body.projectsMeta : [];
     const sectionOrder = body.sectionOrder;
-// Always use profile data exclusively. Missing fields render blank — never fall
-// back to owner data. Normalised first so a malformed stored profile (a model
-// returning `"education": {}`) renders blank instead of crashing the download.
-const profile = normalizeProfile(body.profile);
-const contactName = profile.name;
-// A professional headline should never contain contact/social URLs. When the
-// extractor mis-files the CV's contact line into the tagline, the GitHub/LinkedIn
-// URL renders here AND again as the link label below — the "GitHub twice" bug.
-// Strip URL/social forms only (bare words like "GitHub Actions" are preserved).
-const cleanTagline = (t: string): string =>
-  (t || "")
-    .replace(/https?:\/\/\S+/gi, " ")
-    .replace(/\b(?:www\.)?(?:linkedin|github)\.com\/?\S*/gi, " ")
-    .replace(/\b(?:LinkedIn|GitHub)\s*:/gi, " ")
-    .replace(/^\s*[|•·,\-–—]+\s*|\s*[|•·,\-–—]+\s*$/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-const contactTagline = cleanTagline(profile.tagline);
-const contactEmail = profile.email;
-const contactLinkedin = profile.linkedin
-  ? (profile.linkedin.startsWith("http") ? profile.linkedin : "https://" + profile.linkedin)
-  : "";
-const contactGithub = profile.github
-  ? (profile.github.startsWith("http") ? profile.github : "https://" + profile.github)
-  : "";
-const contactWebsite = profile.website
-  ? (profile.website.startsWith("http") ? profile.website : "https://" + profile.website)
-  : "";
-const education = profile.education.map((e) => ({
-  head: e.degree,
-  date: e.dates,
-  school: e.institution,
-  note: e.note,
-}));
-const certs = profile.certifications;
-const rightToWork = profile.rightToWork;
-const extraSections = filterExtraSections(profile.extraSections);
-
-    // Size the content before laying it out, so the spacing can be chosen to
-    // fill two pages rather than either cramming or leaving page 2 half empty.
-    const projectText = Object.values((projects || {}) as Record<string, unknown>)
-      .flatMap((v) => (Array.isArray(v) ? v : []))
-      .join("\n");
-    const projectMetaText = (Array.isArray(projectsMeta) ? projectsMeta : [])
-      .map((m: any) => [m?.name, m?.tech, linksText(m?.links)].filter(Boolean).join("\n"))
-      .join("\n");
-    const educationText = education.map((e: any) => [e.head, e.school, e.note].filter(Boolean).join("\n")).join("\n");
-    const extrasText = extraSections.map((s) => s.bullets.join("\n")).join("\n");
-
-    const bodyText = [
-      summary, skills, experience, projectText, projectMetaText,
-      educationText, certs.join("\n"), rightToWork.join("\n"), extrasText,
-    ].filter(Boolean).join("\n");
-
-    const hasContactRow = !!(profile.location || profile.phone || contactEmail || contactLinkedin || contactGithub || contactWebsite);
-    const contactLines = 1 + (contactTagline ? 1 : 0) + (hasContactRow ? 1 : 0);
-    const headingCount =
-      (summary ? 1 : 0) + (skills ? 1 : 0) + (experience ? 1 : 0) +
-      (education.length > 0 ? 1 : 0) + (certs.length > 0 ? 1 : 0) +
-      (rightToWork.length > 0 ? 1 : 0) + extraSections.length +
-      (projectMetaText ? 1 : 0);
-
-    // One page for a candidate with under three years (the preview sends
-    // targetPages: 1 — lib/onePage trimmed the content to fit it); two otherwise.
-    const targetPages = body.targetPages === 1 ? 1 : 2;
-    const density = chooseDensity({
-      lines: wrappedLines(bodyText) + contactLines,
-      paragraphs: bodyText.split("\n").filter((l) => l.trim()).length + contactLines,
-      headings: headingCount,
-    }, targetPages);
+    // Everything both builders work out before drawing — the contact pieces,
+    // the profile's lists and the spacing for the target page count — comes
+    // from one pass (lib/cvDocument), so the PDF of the same CV can never
+    // measure it differently. Profile data is used exclusively: normalised
+    // first, so a malformed stored profile (a model returning
+    // `"education": {}`) renders blank instead of crashing the download, and
+    // a missing field renders blank — never owner data.
+    // One page for a candidate who chose it (the preview sends targetPages: 1
+    // — lib/onePage trimmed the content to fit it); two otherwise.
+    const { contact, education, certs, rightToWork, extraSections, density } = prepareCvDocument({
+      profile: normalizeProfile(body.profile),
+      summary, skills, experience, projects, projectsMeta,
+      targetPages: body.targetPages === 1 ? 1 : 2,
+    });
 
     const children: Paragraph[] = [];
 
     // Contact header — render only the parts that exist, so empty fields don't
     // leave blank centered lines (spacing bug) or broken empty hyperlinks.
     children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 },
-      children: [new TextRun({ text: contactName, bold: true, size: 40, color: NAVY, font: "Calibri" })] }));
-    if (contactTagline) {
+      children: [new TextRun({ text: contact.name, bold: true, size: 40, color: NAVY, font: "Calibri" })] }));
+    if (contact.tagline) {
       children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 },
-        children: [new TextRun({ text: contactTagline, size: 20, color: GREY, font: "Calibri" })] }));
+        children: [new TextRun({ text: contact.tagline, size: 20, color: GREY, font: "Calibri" })] }));
     }
-    if (hasContactRow) {
+    if (contact.hasRow) {
       // One line: location · phone · email (mailto) · LinkedIn · GitHub —
       // only the pieces that exist, each separated by " · ", never a
       // dangling separator for a missing piece. Email gets its own mailto:
@@ -379,22 +315,22 @@ const extraSections = filterExtraSections(profile.extraSections);
         if (contactRuns.length > 0) contactRuns.push(new TextRun({ text: " · ", size: 20, font: "Calibri" }));
         contactRuns.push(run);
       };
-      if (profile.location) addContactRun(new TextRun({ text: profile.location, size: 20, font: "Calibri" }));
-      if (profile.phone) addContactRun(new TextRun({ text: profile.phone, size: 20, font: "Calibri" }));
-      if (contactEmail) {
+      if (contact.location) addContactRun(new TextRun({ text: contact.location, size: 20, font: "Calibri" }));
+      if (contact.phone) addContactRun(new TextRun({ text: contact.phone, size: 20, font: "Calibri" }));
+      if (contact.email) {
         addContactRun(new ExternalHyperlink({
-          link: `mailto:${contactEmail}`,
-          children: [new TextRun({ text: contactEmail, size: 20, color: LINK, underline: {}, font: "Calibri" })],
+          link: `mailto:${contact.email}`,
+          children: [new TextRun({ text: contact.email, size: 20, color: LINK, underline: {}, font: "Calibri" })],
         }));
       }
-      if (contactLinkedin) {
-        addContactRun(new ExternalHyperlink({ link: contactLinkedin, children: [new TextRun({ text: "LinkedIn", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
+      if (contact.linkedin) {
+        addContactRun(new ExternalHyperlink({ link: contact.linkedin, children: [new TextRun({ text: "LinkedIn", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
       }
-      if (contactGithub) {
-        addContactRun(new ExternalHyperlink({ link: contactGithub, children: [new TextRun({ text: "GitHub", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
+      if (contact.github) {
+        addContactRun(new ExternalHyperlink({ link: contact.github, children: [new TextRun({ text: "GitHub", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
       }
-      if (contactWebsite) {
-        addContactRun(new ExternalHyperlink({ link: contactWebsite, children: [new TextRun({ text: "Portfolio", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
+      if (contact.website) {
+        addContactRun(new ExternalHyperlink({ link: contact.website, children: [new TextRun({ text: "Portfolio", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
       }
       children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 }, children: contactRuns }));
     }

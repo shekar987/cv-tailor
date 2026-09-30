@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, readJsonBody, invalidBody, declaresMoreThan, payloadTooLarge } from "@/lib/routeAuth";
 import { buildCoverLetterPdf } from "@/lib/buildCoverLetterPdf";
 import { MAX_COVER_LETTER_CHARS, MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
 import { extractPdfText, checkPdfTextLayer, countWords } from "@/lib/pdfTextCheck";
@@ -13,22 +13,13 @@ export const runtime = "nodejs";
 // rasterizer (src/lib/docxToPdf.ts, removed).
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-    if (claimsError || !claimsData?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
 
-    if (Number(req.headers.get("content-length") || 0) > MAX_DOCUMENT_BODY_BYTES) {
-      return NextResponse.json({ error: "Document payload is too large." }, { status: 413 });
-    }
+    if (declaresMoreThan(req, MAX_DOCUMENT_BODY_BYTES)) return payloadTooLarge();
 
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
     if (body.coverLetter !== undefined && typeof body.coverLetter !== "string") {
       return NextResponse.json({ error: "Cover letter must be text." }, { status: 400 });
     }

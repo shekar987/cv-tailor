@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { callClaude, callLLM, ProviderCreditError } from "@/lib/claude";
 import { loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
@@ -12,15 +12,13 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.auth.getClaims();
-    if (error || !data?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { supabase, userId } = caller;
 
     // Burst limit: this endpoint calls Claude on the owner's key with no DB
     // quota, so an unmetered loop here would drain the wallet. Gate it.
-    const burst = await checkBurstLimit(data.claims.sub as string, "extract-profile");
+    const burst = await checkBurstLimit(userId, "extract-profile");
     if (!burst.ok) {
       return NextResponse.json(
         { error: `Too many requests. Please wait ${burst.retryAfterSeconds}s and try again.` },
@@ -28,12 +26,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
 
     const cvText = typeof body.cvText === "string" ? body.cvText.trim() : "";
     if (!cvText) {
@@ -65,7 +59,7 @@ export async function POST(req: NextRequest) {
       // The shared account out of credit: the same extraction on the user's
       // own OpenRouter key, once (lib/fallbackRoute); without a key, rethrow.
       if (!(e instanceof ProviderCreditError)) throw e;
-      const own = await loadOwnOpenRouterKey(supabase, data.claims.sub as string);
+      const own = await loadOwnOpenRouterKey(supabase, userId);
       if (!own.key) throw e;
       console.warn("Extract-profile fallback: anthropic → openrouter (own_key) after provider_credit");
       raw = await callLLM({ provider: "openrouter", apiKeyOverride: own.key, system: PROFILE_EXTRACTION_PROMPT, userInput: cvText, expectJson: true, maxTokens: 8000 });

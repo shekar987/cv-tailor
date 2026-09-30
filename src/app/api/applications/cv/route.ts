@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, declaresMoreThan, type RouteSupabase } from "@/lib/routeAuth";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { parseCvFile, detectFileKind, CvParseError, MAX_FILE_BYTES } from "@/lib/parseCv";
 import { UPLOAD_TOO_LARGE } from "@/lib/limits";
@@ -51,18 +51,9 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-type Supabase = Awaited<ReturnType<typeof createClient>>;
-
-async function signedIn(): Promise<{ supabase: Supabase; userId: string } | null> {
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.getClaims();
-  if (error || !data?.claims?.sub) return null;
-  return { supabase, userId: data.claims.sub as string };
-}
-
 // The application row (own rows only) and whatever file it records.
 async function readRow(
-  supabase: Supabase,
+  supabase: RouteSupabase,
   userId: string,
   id: string
 ): Promise<{ found: false } | { found: true; sent: SentCv | null } | { missingColumn: true } | { error: string }> {
@@ -78,7 +69,6 @@ async function readRow(
 }
 
 const notFound = () => NextResponse.json({ error: "Application not found" }, { status: 404 });
-const unauthorized = () => NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
 export async function POST(req: NextRequest) {
   try {
@@ -95,7 +85,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Reject an oversized body from its header before buffering it.
-    if (Number(req.headers.get("content-length") || 0) > MAX_FILE_BYTES * 1.1) {
+    if (declaresMoreThan(req, MAX_FILE_BYTES * 1.1)) {
       return NextResponse.json({ error: TOO_LARGE }, { status: 400 });
     }
     let form: FormData;

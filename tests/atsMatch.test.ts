@@ -1,6 +1,6 @@
 // Unit tests for the deterministic keyword matcher. Runs on node:test with
-// zero dependencies: `npm test`. The CV below is SYNTHETIC — never the owner's
-// real CV from src/prompts/masterCV.ts.
+// zero dependencies: `npm test`. The CV below is SYNTHETIC — no real CV is
+// checked in.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { matchAtsKeywords, tailoredSectionsText } from "../src/lib/atsMatch.ts";

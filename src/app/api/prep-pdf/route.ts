@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, readJsonBody, invalidBody, declaresMoreThan, payloadTooLarge } from "@/lib/routeAuth";
 import { buildPrepPdf } from "@/lib/buildPrepPdf";
 import { packFromRow, prepPdfFilename } from "@/lib/prepPack";
 import { MAX_DOCUMENT_BODY_BYTES, MAX_PREP_PACK_JSON } from "@/lib/limits";
@@ -14,22 +14,13 @@ export const runtime = "nodejs";
 // a crash, and nothing here ever falls back to anyone else's data.
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-    if (claimsError || !claimsData?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
 
-    if (Number(req.headers.get("content-length") || 0) > MAX_DOCUMENT_BODY_BYTES) {
-      return NextResponse.json({ error: "Document payload is too large." }, { status: 413 });
-    }
+    if (declaresMoreThan(req, MAX_DOCUMENT_BODY_BYTES)) return payloadTooLarge();
 
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
     if (JSON.stringify(body.pack ?? null).length > MAX_PREP_PACK_JSON) {
       return NextResponse.json({ error: "Prep pack is too large." }, { status: 400 });
     }

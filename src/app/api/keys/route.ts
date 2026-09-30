@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { encrypt } from "@/lib/keyEncryption";
 
 const VALID_PROVIDERS = new Set(["gemini", "openrouter"]);
@@ -9,19 +9,12 @@ const MAX_KEY_LEN = 500;
 // ─── POST /api/keys — save an encrypted key for a provider ────────────────────
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-    if (claimsError || !claimsData?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = claimsData.claims.sub as string;
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { supabase, userId } = caller;
 
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
     const { provider, key } = body;
 
     if (typeof provider !== "string" || !VALID_PROVIDERS.has(provider)) {
@@ -76,12 +69,9 @@ export async function POST(req: NextRequest) {
 // ─── DELETE /api/keys?provider=gemini — remove a stored key ──────────────────
 export async function DELETE(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-    if (claimsError || !claimsData?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = claimsData.claims.sub as string;
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { supabase, userId } = caller;
 
     const provider = new URL(req.url).searchParams.get("provider");
     if (!provider || !VALID_PROVIDERS.has(provider)) {

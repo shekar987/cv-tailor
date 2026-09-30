@@ -11,7 +11,7 @@
 // (user, domain) for 7 days; a cache hit costs no credit and no model call.
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { callLLM, ProviderRateLimitError } from "@/lib/claude";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration } from "@/lib/llmRouting";
@@ -41,12 +41,9 @@ export const maxDuration = 300;
 export async function POST(req: NextRequest) {
   try {
     // ── Auth ──────────────────────────────────────────────────────────────────
-    const supabase = await createClient();
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-    if (claimsError || !claimsData?.claims?.sub) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = claimsData.claims.sub as string;
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { supabase, userId } = caller;
 
     // ── Burst rate limit (also caps how hard anyone can drive our fetcher) ────
     const burst = await checkBurstLimit(userId, "research");
@@ -62,12 +59,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Input validation ──────────────────────────────────────────────────────
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
 
     const rawUrl = typeof body.url === "string" ? body.url.trim() : "";
     const cv = typeof body.cvText === "string" ? body.cvText.trim() : "";
