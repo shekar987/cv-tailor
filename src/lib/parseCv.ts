@@ -8,6 +8,7 @@
 // Nothing here ever logs file bytes or extracted text.
 
 import { MAX_CV_CHARS, MAX_UPLOAD_BYTES, UPLOAD_TOO_LARGE } from "@/lib/limits";
+import { needsSpace } from "@/lib/textRuns";
 
 export const MAX_FILE_BYTES = MAX_UPLOAD_BYTES;
 export { MAX_CV_CHARS };
@@ -153,8 +154,10 @@ function itemsToLines(items: TextItem[]): string[] {
         if (previousEnd !== null) {
           // A gap wider than a fraction of the type size is a real space; PDFs
           // frequently omit space glyphs between separately positioned runs.
+          // A narrower gap across a word seam ("APIs" then "LlamaIndex") is
+          // one too (lib/textRuns).
           const gap = item.x - previousEnd;
-          if (gap > (item.fontSize || 10) * 0.2) line += " ";
+          if (needsSpace(line, item.str, gap / (item.fontSize || 10))) line += " ";
         }
         line += item.str;
         previousEnd = item.x + (item.width || 0);

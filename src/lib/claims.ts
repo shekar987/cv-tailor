@@ -22,6 +22,7 @@
 // browser (the live re-check) and under node:test.
 
 import { matchAtsKeywords } from "./atsMatch.ts";
+import { unglue } from "./textRuns.ts";
 
 export type ClaimLevel = "production" | "project" | "learning";
 export type ClaimSkill = { name: string; level: ClaimLevel; confirmed: boolean };
@@ -67,7 +68,11 @@ export function normalizeSkillGuesses(v: unknown): { name: string; level: ClaimL
     // 19" is React), no group label, and a "JWT / OAuth 2.0 / RBAC" guess is
     // three skills, not one.
     const raw0 = typeof g.name === "string" ? g.name.trim().replace(/\s+/g, " ").slice(0, MAX_SKILL_NAME) : "";
-    const parts = raw0.split(/\s+\/\s+/).map((p) => cleanSkill(p)).filter((p) => p.length >= 2 && !GROUP_LABEL_RE.test(p));
+    const parts = raw0
+      .split(/\s+\/\s+/)
+      .flatMap((p) => unglueItem(p))
+      .map((p) => cleanSkill(p))
+      .filter((p) => p.length >= 2 && !GROUP_LABEL_RE.test(p) && !LINK_ITEM_RE.test(p));
     if (parts.length > 1) {
       for (const p of parts) {
         const pk = skillKey(p);
@@ -182,6 +187,10 @@ const TECH_LINE_PREFIX_RE = /^(?:tech(?:nologies)?|stack|tech\s+stack|built\s+wi
 const LINK_LINE_RE = /^(?:live|github|demo|url|link|repo)\b|https?:\/\//i;
 const SPLIT_RE = /\s*(?:[|·•;,]|\s\/\s)\s*/;
 const NOT_A_SKILL_RE = /^(?:and|or|etc\.?|others?|more|various|including|e\.g\.?|i\.e\.?|with|using|via)$/i;
+// A link written as an item — "Live: jobhuntz.app", "GitHub: github.com/x/y",
+// a bare address — is not a skill (30 Sep audit; the line-level link filter
+// never saw an item inside a tech line).
+const LINK_ITEM_RE = /^(?:live|github|gitlab|bitbucket|demo|url|link|links|repo|repository|website|site|code|source)\s*:|^(?:https?:\/\/|www\.)|^[\w-]+(?:\.[\w-]+)*\.(?:app|com|io|dev|ai|org|net|uk|co\.uk|me|xyz|tech|cloud)(?:\/\S*)?$/i;
 // A group label, not a skill: "Auth (JWT, OAuth 2.0, RBAC)" registers JWT,
 // OAuth 2.0 and RBAC — the items a recruiter searches for — never "Auth".
 // The same words alone ("RLS", "Security") are dropped for the same reason:
@@ -210,6 +219,14 @@ export function sectionsOf(cvText: string): Record<CvSection, string[]> {
     if (!t) continue;
     if (HEADING_RE.test(t) && t.length <= 45) {
       const h = t.replace(/:$/, "");
+      // Inside the skills section a short mixed-case line that names no
+      // known section ("Python", "REST APIs" — one skill per line) is an
+      // item, not a heading: such lists seeded nothing until 1 Oct.
+      const knownHeading = SKILLS_HEADING_RE.test(h) || EXPERIENCE_HEADING_RE.test(h) || PROJECTS_HEADING_RE.test(h) || KNOWN_HEADING_RE.test(h);
+      if (current === "skills" && !knownHeading && t.length <= 30 && /[a-z]/.test(t) && !/:$/.test(t)) {
+        out.skills.push(t);
+        continue;
+      }
       current = SKILLS_HEADING_RE.test(h) ? "skills" : EXPERIENCE_HEADING_RE.test(h) ? "experience" : PROJECTS_HEADING_RE.test(h) ? "projects" : "other";
       if (current !== "other" || KNOWN_HEADING_RE.test(h)) sectioned = true;
       continue;
@@ -247,9 +264,27 @@ function splitSkillItems(line: string): string[] {
     return " · ";
   });
   for (const piece of rest.split(SPLIT_RE)) items.push(cleanSkill(piece));
-  return items.filter(
-    (s) => s.length >= 2 && s.length <= MAX_SKILL_NAME && /[a-z]/i.test(s) && !NOT_A_SKILL_RE.test(s) && !GROUP_LABEL_RE.test(s)
-  );
+  return items
+    // A plural glued to the next word by a PDF's missing space is two items.
+    .flatMap((s) => unglueItem(s))
+    .filter((s) => s.length >= 2 && s.length <= MAX_SKILL_NAME && /[a-z]/i.test(s) && !NOT_A_SKILL_RE.test(s) && !GROUP_LABEL_RE.test(s) && !LINK_ITEM_RE.test(s));
+}
+
+// "REST APIsLlamaIndex" → "REST APIs", "LlamaIndex" (lib/textRuns unglue on
+// each whitespace-separated token; the split token starts a new item).
+function unglueItem(item: string): string[] {
+  const out: string[] = [];
+  let current: string[] = [];
+  for (const tok of item.split(/\s+/)) {
+    const parts = unglue(tok);
+    current.push(parts[0]);
+    for (const extra of parts.slice(1)) {
+      out.push(current.join(" "));
+      current = [extra];
+    }
+  }
+  out.push(current.join(" "));
+  return out.map((s) => cleanSkill(s)).filter(Boolean);
 }
 
 export function skillsFromCv(cvText: string): { name: string; level: ClaimLevel }[] {

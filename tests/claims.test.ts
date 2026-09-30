@@ -528,3 +528,29 @@ test("a figure the posting spells out supports the same figure in digits (Softwi
   // The output side is unchanged: a CV's own "two years" is not newly checked.
   assert.deepEqual(checkClaims([{ where: "cv", text: "Two years of production Python." }], null, ["Built FastAPI services"]).numberViolations, []);
 });
+
+// ── Seeding noise (30 Sep audit, Phase 3) ────────────────────────────────────
+
+test("seed: a link written as an item is not a skill; a plural glued to the next word is two; one skill per line seeds", () => {
+  const cv = `SKILLS
+Python
+REST APIs
+Docker
+
+PROJECTS
+Jobhuntz — Full-Stack AI Application · 2026
+Next.js, TypeScript, Supabase | Live: jobhuntz.app | GitHub: github.com/x/jobhuntz
+Tech Stack: FastAPI, Redis | Live: https://ridex.example
+- Built REST APIsLlamaIndex pipelines.
+
+EXPERIENCE
+Engineer | Acme | 2022 – 2024
+- Built things in Python.`;
+  const names = seedClaimsFromCv(cv).skills.map((s) => s.name);
+  for (const want of ["Python", "REST APIs", "Docker", "Next.js", "TypeScript", "Supabase", "FastAPI", "Redis"]) assert.ok(names.includes(want), `${want} in ${names.join(", ")}`);
+  for (const not of ["Live: jobhuntz.app", "jobhuntz.app", "GitHub: github.com/x/jobhuntz", "Live: https://ridex.example", "https://ridex.example"]) assert.ok(!names.includes(not), `${not} not in ${names.join(", ")}`);
+  const glued = seedClaimsFromCv("SKILLS\nREST APIsLlamaIndex, PostgreSQL\nEXPERIENCE\nEngineer | Acme | 2022 – 2024\n- Built things.").skills.map((s) => s.name);
+  assert.deepEqual(glued, ["REST APIs", "LlamaIndex", "PostgreSQL"]);
+  const guessed = normalizeSkillGuesses([{ name: "REST APIsLlamaIndex", level: "project" }, { name: "Live: jobhuntz.app", level: "project" }, { name: "github.com/x/y", level: "project" }]).map((g) => g.name);
+  assert.deepEqual(guessed, ["REST APIs", "LlamaIndex"]);
+});
