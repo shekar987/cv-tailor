@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseMasterExperience, renderIdBlock, substitutions, reconcileExperience, lockRoleHeaders, diffAgainstMaster, diffProjects, MAX_SUBSTITUTIONS } from "../src/lib/bulletIds.ts";
+import { parseMasterExperience, renderIdBlock, substitutions, reconcileExperience, lockRoleHeaders, canonicalHeader, diffAgainstMaster, diffProjects, MAX_SUBSTITUTIONS } from "../src/lib/bulletIds.ts";
 
 const master = `SOMA SHEKAR
 Full Stack Engineer
@@ -205,6 +205,28 @@ test("lockRoleHeaders: an invented role goes when nothing survives under it, sta
   const withBullets = lockRoleHeaders("Consultant | Acme Ltd | Jan 2020 – Dec 2021\n• Advised three clients.\n\nFull Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.\n\nResearch Assistant | University of East London | Jan 2026 – Present\n• Built a gap-analysis dashboard in Next.js.", roles);
   assert.deepEqual(withBullets.report.unmatched, ["Consultant | Acme Ltd | Jan 2020 – Dec 2021"], "three output roles, two master roles: never matched by position");
   assert.match(withBullets.experience, /^Consultant \| Acme Ltd/);
+});
+
+test("lockRoleHeaders: the master's content in the output's shape — a dash-and-tab master header never replaces a pipe-separated one", () => {
+  // The owner's master CV (30 Sep): a dash between title and employer, a tab before the dates.
+  const dashed = `EXPERIENCE
+Full-Stack & AI Engineer (Industrial Placement) | University of East London | AssetGuard+ — London, UK\tJun 2026 – Present
+- Built a gap-analysis dashboard.
+
+Full Stack Engineer — Brane Group\tJul 2022 – Sep 2024
+- Built AI-enabled services with FastAPI and React for 3,000 users.
+`;
+  const roles = parseMasterExperience(dashed);
+  assert.equal(canonicalHeader(roles[1].header), "Full Stack Engineer | Brane Group | Jul 2022 – Sep 2024");
+  assert.equal(canonicalHeader(roles[0].header), "Full-Stack & AI Engineer (Industrial Placement) | University of East London | AssetGuard+ — London, UK | Jun 2026 – Present");
+  const same = lockRoleHeaders(
+    "Full-Stack & AI Engineer (Industrial Placement) | University of East London | AssetGuard+ — London, UK | Jun 2026 – Present\n• Built a gap-analysis dashboard.\n\nFull Stack Engineer | Brane Group | Jul 2022 – Sep 2024\n• Built AI-enabled services with FastAPI and React for 3,000 users.",
+    roles
+  );
+  assert.deepEqual(same.report.locked, [], "the output already says what the master says");
+  const retitled = lockRoleHeaders("Software Developer | Brane Group | Jul 2022 – Sep 2024\n• Built AI-enabled services with FastAPI and React for 3,000 users.", roles);
+  assert.deepEqual(retitled.report.locked, [{ output: "Software Developer | Brane Group | Jul 2022 – Sep 2024", master: "Full Stack Engineer | Brane Group | Jul 2022 – Sep 2024" }]);
+  assert.match(retitled.experience, /^Full Stack Engineer \| Brane Group \| Jul 2022 – Sep 2024\n/, "the replacement keeps the shape every renderer parses");
 });
 
 test("lockRoleHeaders: by position only when the counts agree and nothing else matches", () => {

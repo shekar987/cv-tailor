@@ -344,8 +344,37 @@ export function diffProjects(
 // overlap, then by position when the counts agree — and replaced by that
 // role's header. An output role that matches nothing keeps its header only
 // while bullets survive under it (reported as unmatched); with none it goes.
+//
+// The replacement is the master's CONTENT in the output's own shape,
+// "Title | Employer | Dates" (canonicalHeader): the master CV writes its
+// headers as it likes ("Full Stack Engineer — Brane Group<tab>Jul 2022 –
+// Sep 2024" on the owner's, 30 Sep), and the preview, the .docx and the PDF
+// only read a pipe-separated line as a job header. Measured over the
+// owner's 174 stored runs before this shape rule, 350 "restorations" were
+// pipes-versus-dashes and every one would have broken the header.
 
 export type HeaderLock = { locked: { output: string; master: string }[]; unmatched: string[]; droppedEmpty: string[] };
+
+// "Full Stack Engineer — Brane Group  Jul 2022 – Sep 2024" → "Full Stack
+// Engineer | Brane Group | Jul 2022 – Sep 2024"; a header already in that
+// shape comes back as it is (whitespace collapsed).
+export function canonicalHeader(header: string): string {
+  const h = header.replace(/\s+/g, " ").trim();
+  const d = ROLE_HEADER.exec(h);
+  // The dates regex anchors on the first year; a month name before it
+  // ("Jul 2022 – Sep 2024") belongs to the dates, not the employer.
+  let start = d ? d.index : 0;
+  if (d) {
+    const before = /(?:^|\s)((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?)\s+$/i.exec(h.slice(0, d.index));
+    if (before) start = d.index - before[1].length - 1;
+  }
+  const dates = d ? h.slice(start, d.index + d[0].length).trim() : "";
+  const rest = (d ? `${h.slice(0, start)} ${h.slice(d.index + d[0].length)}` : h).replace(/\s+/g, " ").replace(/^[\s|·,—–-]+|[\s|·,—–-]+$/g, "").trim();
+  let parts = rest.split(/\s*\|\s*/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 1) parts = rest.split(/\s+[—–]\s+|\s+-\s+/).map((p) => p.trim()).filter(Boolean);
+  return [...parts, dates].filter(Boolean).join(" | ");
+}
+const foldHeader = (h: string) => canonicalHeader(h).toLowerCase().replace(/[–—]/g, "-").replace(/\s+/g, " ");
 
 const HEADER_PART_SEP = /\s*(?:\||—|–|\s-\s)\s*/;
 const headerParts = (h: string) => h.split(HEADER_PART_SEP).map((p) => p.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()).filter((p) => p.length >= 3);
@@ -407,9 +436,10 @@ export function lockRoleHeaders(output: string, roles: MasterRole[]): { experien
       } else report.unmatched.push(header);
       return;
     }
-    if (header !== master.header) {
-      report.locked.push({ output: header, master: master.header });
-      lines[idx] = master.header;
+    const canonical = canonicalHeader(master.header);
+    if (foldHeader(header) !== foldHeader(canonical)) {
+      report.locked.push({ output: header, master: canonical });
+      lines[idx] = canonical;
     }
   });
   if (remove.size === 0) return { experience: lines.join("\n"), report };
