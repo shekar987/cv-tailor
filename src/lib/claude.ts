@@ -187,6 +187,13 @@ async function anthropicRaw(options: BaseCallOptions): Promise<{ text: string; t
     if (looksLikeBilling(status, text)) {
       throw new ProviderCreditError("anthropic", "Anthropic credit balance exhausted");
     }
+    // A rate limit is a rate limit on every path: the pre-check and the
+    // profile extraction call callClaude directly and used to answer a bare
+    // 500 ("Failed to analyze JD") for an Anthropic 429.
+    if (err instanceof Anthropic.RateLimitError) {
+      const retryAfter = err.headers?.get("retry-after");
+      throw new ProviderRateLimitError("anthropic", "Claude rate limit exceeded", retryAfter ? Number(retryAfter) : undefined);
+    }
     throw err;
   }
 

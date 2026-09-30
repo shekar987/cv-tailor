@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { getUsage, type Usage } from "@/lib/usage";
+import { describeRouting } from "@/lib/routingText";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -229,20 +230,9 @@ export default function SettingsPage() {
   // What actually runs a tailor for this account right now — the honest
   // routing summary the two key cards used to leave implicit.
   const hasOpenRouter = savedKeys.openrouter !== null;
-  const claudeLeft = usage ? Math.max(usage.claudeLimit - usage.claudeUsed, 0) : null;
-  const routing = usage?.unlimited
-    ? "This account runs without limits."
-    : claudeLeft === null
-      ? hasOpenRouter
-        ? "After the free credits, tailoring runs on your OpenRouter key."
-        : "After the free credits, an OpenRouter key keeps tailoring running."
-      : claudeLeft > 0
-        ? hasOpenRouter
-          ? "Right now tailoring runs on us. When your free credits are used, your OpenRouter key takes over."
-          : "Right now tailoring runs on us — no key needed yet. When your free credits are used, you'll need an OpenRouter key."
-        : hasOpenRouter
-          ? "Your free Claude credits are used — tailoring runs on your OpenRouter key."
-          : "Your free Claude credits are used — add an OpenRouter key below to keep tailoring.";
+  // The daily cap, the free credits and which provider the next run takes,
+  // in the order the route decides them (lib/routingText).
+  const routing = describeRouting(usage ?? null, hasOpenRouter);
 
   return (
     <main className="page">
@@ -274,7 +264,9 @@ export default function SettingsPage() {
                     </li>
                   </>
                 )}
-                <li>{routing}</li>
+                <li data-routing={routing.next}>
+                  {routing.headline} {routing.detail}
+                </li>
               </ul>
             )}
           </Card>

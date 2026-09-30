@@ -232,7 +232,14 @@ export async function POST(req: NextRequest) {
         { status: 503 }
       );
     }
+    if (error instanceof ProviderRateLimitError) {
+      console.error("Provider rate limit:", error.provider, error.message);
+      return NextResponse.json(
+        { error: `The pre-check is busy right now (${error.provider === "anthropic" ? "Claude" : error.provider} is rate-limiting requests). Try again shortly.`, errorType: "provider_limit", retryAfter: error.retryAfterSeconds ?? null },
+        { status: 429 }
+      );
+    }
     console.error("Analyze API error:", error instanceof Error ? error.message : "Unknown error");
-    return NextResponse.json({ error: "Failed to analyze JD" }, { status: 500 });
+    return NextResponse.json({ error: "The pre-check failed on our side, not yours. Try again; if it keeps failing, tailor without it." }, { status: 500 });
   }
 }

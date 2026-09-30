@@ -258,6 +258,8 @@ const FIX_HOW_LABEL: Record<RepairChange["how"], string> = {
   reordered: "reordered",
 };
 const clip = (t: string, n = 160) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
+// Settings says the same: Gemini is optional and not used for tailoring yet.
+const GEMINI_UNAVAILABLE = "not used for tailoring yet";
 // The JD box no longer holds this run's posting: both downloads and Applied
 // are held shut with this reason.
 const STALE_REASON = "The job description changed since this CV was tailored — restore it or clear the result.";
@@ -369,6 +371,8 @@ export default function Home() {
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [errorType, setErrorType] = useState<string | null>(null); // "user_limit" | "provider_limit" | null
+  // Which step raised the provider notice, so its title tells the truth.
+  const [errorStep, setErrorStep] = useState<"pre-check" | "tailoring">("tailoring");
 
   // Master CV — read-only here. Uploading/editing/replacing it lives on
   // /customize; this page only needs to know whether one exists.
@@ -826,16 +830,30 @@ export default function Home() {
           ...(isUnlimited ? { provider } : {}),
         }),
       });
-      const data = await res.json();
+      // A body that is not JSON (a platform 504 page, an HTML error) is a
+      // server failure, not "couldn't reach the server".
+      const raw = await res.text();
+      // JSON.parse keeps the loose type the old res.json() had.
+      let data = {} as ReturnType<typeof JSON.parse>;
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = {};
+      }
       if (!res.ok) {
-        // An exhausted shared account fails the pre-check too, and "you can
-        // still tailor without it" would be a lie — the tailor would fail the
-        // same way. Raise the dedicated notice instead.
-        if (data.errorType === "provider_credit") {
-          setErrorType("provider_credit");
-          setError(data.error);
+        const type = typeof data.errorType === "string" ? data.errorType : "";
+        const message = typeof data.error === "string" ? data.error : "";
+        // The provider's own conditions get their dedicated notices, and
+        // "you can still tailor without it" is never said when the tailor
+        // would fail the same way.
+        if (type === "provider_credit" || type === "provider_limit" || type === "user_key_limit" || type === "needs_openrouter_key" || type === "needs_keys" || type === "user_limit") {
+          setErrorStep("pre-check");
+          setErrorType(type);
+          setError(message);
+        } else if (res.status >= 500) {
+          setGateError(message || `The pre-check failed on the server (HTTP ${res.status}). Try again; you can also tailor without it.`);
         } else {
-          setGateError(data.error || "Couldn't check keyword match. You can still tailor without it.");
+          setGateError(message || "Couldn't check keyword match. You can still tailor without it.");
         }
       } else {
         const company = realValue(typeof data.result?.company_name === "string" ? data.result.company_name : "");
@@ -1976,7 +1994,7 @@ export default function Home() {
                       disabled={gateLoading || loading}
                     >
                       <option value="anthropic">Claude</option>
-                      <option value="gemini">Gemini</option>
+                      <option value="gemini" disabled title={GEMINI_UNAVAILABLE}>Gemini — {GEMINI_UNAVAILABLE}</option>
                       <option value="openrouter">OpenRouter</option>
                     </select>
                   </span>
@@ -2206,7 +2224,7 @@ export default function Home() {
                         disabled={loading}
                       >
                         <option value="anthropic">Claude</option>
-                        <option value="gemini">Gemini</option>
+                        <option value="gemini" disabled title={GEMINI_UNAVAILABLE}>Gemini — {GEMINI_UNAVAILABLE}</option>
                         <option value="openrouter">OpenRouter</option>
                       </select>
                       {ranProvider && ranProvider in PROVIDER_LABELS && (
@@ -2229,10 +2247,10 @@ export default function Home() {
                 every tailor returned a bare "Tailoring failed". */}
             {errorType === "provider_credit" && (
               <div className="limitNotice" role="alert" data-provider-credit>
-                <div className="limitNotice__title">Tailoring is temporarily unavailable.</div>
+                <div className="limitNotice__title">{errorStep === "pre-check" ? "The pre-check" : "Tailoring"} is temporarily unavailable.</div>
                 <div className="limitNotice__body">
                   The shared Claude account has run out of credit — this isn&apos;t your account, and you
-                  haven&apos;t been charged a tailor. Add your own free OpenRouter key and tailoring runs on
+                  haven&apos;t been charged a tailor. Add your own free OpenRouter key and {errorStep === "pre-check" ? "the pre-check and tailoring run" : "tailoring runs"} on
                   it instead, starting immediately.
                 </div>
                 <Button href="/settings" className="limitNotice__cta">
