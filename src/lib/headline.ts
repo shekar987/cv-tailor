@@ -1,7 +1,7 @@
 // The header line under the candidate's name, built deterministically per run
 // in the UKJI shape a recruiter scans in two seconds:
 //
-//   MSc Computer Science (in progress, expected 2026) · React · 2 years' experience · Software Engineer
+//   MSc Computer Science (in progress, expected 2026) · React · 2 years' experience · Backend engineer (Java, Spring Boot)
 //
 // Every piece comes from something the user stated, or is omitted:
 // - qualification: the profile's first education entry, with its status read
@@ -10,7 +10,12 @@
 //   that the claims registry holds at PRODUCTION level — a project-level or
 //   learning skill never headlines
 // - years: the user's own eligibility answer, never inferred from dates
-// - title: the posting's title, literally, as the search term it is
+// - positioning: the headline of the positioning variant picked for this
+//   run (lib/variants) — the user's own words. Until 30 Sep 2026 the last
+//   slot was the posting's title, literally, which put "Python Developer -
+//   Data & Analytics Team - Options Market Making" under a candidate's name
+//   as if it were their identity; the summary carries the title for search,
+//   the header never does
 //
 // Imports only ./atsMatch.ts (the same matcher that scores the CV), so it
 // runs under node:test.
@@ -25,13 +30,13 @@ export type HeadlineInput = {
   requiredSkills: unknown;
   keywords: unknown;
   yearsExperience: number | null | undefined;
-  roleTitle: unknown;
+  positioning: string | null | undefined;
 };
 
-export type HeadlineParts = { qualification: string; skill: string; years: string; title: string };
+export type HeadlineParts = { qualification: string; skill: string; years: string; positioning: string };
 
 export const HEADLINE_SEP = " · ";
-const MAX_TITLE = 70;
+const MAX_POSITIONING = 70;
 const MAX_DEGREE = 60;
 
 const IN_PROGRESS_RE = /\b(?:present|current(?:ly)?|expected|ongoing|in progress|anticipated|due)\b/i;
@@ -117,8 +122,8 @@ export function buildHeadline(input: HeadlineInput): { headline: string; parts: 
     qualification: qualificationLabel(input.education?.[0]),
     skill: topProductionSkill(input.claims, input.requiredSkills, input.keywords) ?? "",
     years: yearsLabel(input.yearsExperience),
-    title: typeof input.roleTitle === "string" ? input.roleTitle.trim().replace(/\s+/g, " ").slice(0, MAX_TITLE) : "",
+    positioning: typeof input.positioning === "string" ? input.positioning.trim().replace(/s+/g, " ").slice(0, MAX_POSITIONING) : "",
   };
-  const headline = [parts.qualification, parts.skill, parts.years, parts.title].filter(Boolean).join(HEADLINE_SEP);
+  const headline = [parts.qualification, parts.skill, parts.years, parts.positioning].filter(Boolean).join(HEADLINE_SEP);
   return { headline, parts };
 }

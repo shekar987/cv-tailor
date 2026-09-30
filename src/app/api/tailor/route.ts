@@ -815,16 +815,17 @@ async function runPipeline(opts: {
     },
     // The header line under the name (lib/headline): qualification with its
     // stated status · the top production-level skill this posting asks for ·
-    // the stated years · the posting's title. Replaces the extracted tagline
-    // for this run; the preview, both downloads and the Applied snapshot all
-    // read it through the display profile.
+    // the stated years · the positioning variant's own headline — never the
+    // posting's title. Replaces the extracted tagline for this run; the
+    // preview, both downloads and the Applied snapshot all read it through
+    // the display profile.
     headline: buildHeadline({
       education: (profile as { education?: { degree?: string; dates?: string; note?: string }[] } | null)?.education,
       claims,
       requiredSkills: terms.required_skills,
       keywords: terms.top_15_ats_keywords,
       yearsExperience,
-      roleTitle: terms.role_title,
+      positioning: variant?.headline ?? null,
     }).headline,
     ...(projectsPool ? { selectedProjects: selectedFinal } : {}),
   };

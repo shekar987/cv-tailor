@@ -35,18 +35,25 @@ test("yearsLabel uses only the stated figure", () => {
   assert.equal(yearsLabel(0), "");
 });
 
-test("buildHeadline joins only the parts that exist, in UKJI order", () => {
+test("buildHeadline joins only the parts that exist, in UKJI order — the positioning variant, never the posting's title", () => {
   const full = buildHeadline({
     education: [{ degree: "MSc Computer Science", dates: "2024 – 2026, expected 2026" }],
     claims,
     requiredSkills: ["React", "TypeScript"],
     keywords: [],
     yearsExperience: 2,
-    roleTitle: "Software Engineer (Graduate)",
+    positioning: "Backend engineer (Java, Spring Boot)",
   });
-  assert.equal(full.headline, "MSc Computer Science (in progress, expected 2026) · React · 2 years' experience · Software Engineer (Graduate)");
-  const sparse = buildHeadline({ education: [], claims: null, requiredSkills: ["React"], keywords: [], yearsExperience: null, roleTitle: "Platform Engineer" });
+  assert.equal(full.headline, "MSc Computer Science (in progress, expected 2026) · React · 2 years' experience · Backend engineer (Java, Spring Boot)");
+  const sparse = buildHeadline({ education: [], claims: null, requiredSkills: ["React"], keywords: [], yearsExperience: null, positioning: "Platform Engineer" });
   assert.equal(sparse.headline, "Platform Engineer");
-  assert.deepEqual(sparse.parts, { qualification: "", skill: "", years: "", title: "Platform Engineer" });
-  assert.equal(buildHeadline({ education: [], claims: null, requiredSkills: [], keywords: [], yearsExperience: null, roleTitle: 42 }).headline, "");
+  assert.deepEqual(sparse.parts, { qualification: "", skill: "", years: "", positioning: "Platform Engineer" });
+  // No variant picked: the three stated parts, no role word at all.
+  const none = buildHeadline({ education: [{ degree: "BSc Computing", dates: "2020 – 2023" }], claims, requiredSkills: ["React"], keywords: [], yearsExperience: 2, positioning: null });
+  assert.equal(none.headline, "BSc Computing (2023) · React · 2 years' experience");
+  // A picked variant with an empty headline is the same as none.
+  assert.equal(buildHeadline({ education: [], claims: null, requiredSkills: [], keywords: [], yearsExperience: null, positioning: "   " }).headline, "");
+  // The posting's title is not an input the type accepts — a stray one is ignored.
+  const stray = { education: [], claims: null, requiredSkills: [], keywords: [], yearsExperience: null, positioning: null, roleTitle: "Python Developer - Options Market Making" };
+  assert.equal(buildHeadline(stray).headline, "");
 });
