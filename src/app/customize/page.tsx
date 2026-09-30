@@ -21,6 +21,7 @@ import {
 } from "@/lib/cvStore";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { MAX_CV_CHARS, MAX_POOL_CHARS } from "@/lib/limits";
+import { rightToWorkDisagrees, stripRightToWorkLines, type RtwStatus } from "@/lib/rightToWorkText";
 import {
   EMPTY_ELIGIBILITY,
   normalizeEligibility,
@@ -93,7 +94,13 @@ import {
 // The ten questions the Eligibility card asks. Counted for the section's
 // summary line so an unanswered profile is visible without opening it —
 // collapsing a section must never hide that something still needs doing.
-const ELIGIBILITY_QUESTIONS = 10;
+const ELIGIBILITY_QUESTIONS = 12;
+// How Customize names each right-to-work reading in the disagreement warning.
+const RTW_LABELS: Record<RtwStatus, string> = {
+  full: "a permanent right to work",
+  time_limited: "a time-limited visa",
+  needs_sponsorship: "needing sponsorship",
+};
 const rtwBannerKey = (userId: string) => `jobhuntz:rtw-full-banner:${userId}`;
 
 function eligibilityAnswered(e: Eligibility): number {
@@ -108,6 +115,8 @@ function eligibilityAnswered(e: Eligibility): number {
   if (e.graduation.completed !== null || e.graduation.expected !== null) n++;
   if (e.licences.length > 0) n++;
   if (e.employmentTypes.length > 0) n++;
+  if (e.availability.status !== "unknown") n++;
+  if (e.canWorkFullTime !== "unknown") n++;
   return n;
 }
 
@@ -568,6 +577,73 @@ export default function CustomizePage() {
   const splitList = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
   const tri = (v: boolean | null) => (v === null ? "unknown" : v ? "yes" : "no");
   const fromTri = (s: string): boolean | null => (s === "yes" ? true : s === "no" ? false : null);
+
+  // The CV's own right-to-work wording against the Eligibility answer
+  // (lib/rightToWorkText): forms, the letter and the document are answered
+  // from Eligibility, so a CV that reads differently is warned about, with
+  // one click to take the lines out of the saved master CV.
+  const rtwDisagreement = profile ? rightToWorkDisagrees(profile.rightToWork, eligibility.rightToWork.status) : null;
+  const permissionEndsMissing = eligibility.rightToWork.status === "time_limited" && !eligibility.rightToWork.permissionEnds;
+  const [confirmRtwRemove, setConfirmRtwRemove] = useState(false);
+  const [rtwRemoving, setRtwRemoving] = useState(false);
+  const [rtwRemoveMsg, setRtwRemoveMsg] = useState("");
+  const [rtwRemoveError, setRtwRemoveError] = useState("");
+  async function handleRemoveRtwFromCv() {
+    if (!profile) return;
+    setRtwRemoving(true);
+    setRtwRemoveMsg("");
+    setRtwRemoveError("");
+    try {
+      const r = stripRightToWorkLines(masterCvText);
+      if (r.removed.length > 0) {
+        const rec = await saveMasterCV(r.text);
+        if (!rec) {
+          setRtwRemoveError("Couldn't save the CV. Check your connection and try again.");
+          return;
+        }
+        setMasterCvText(rec.text);
+        setCvSavedAt(rec.updatedAt);
+        if (editingCv) setCvDraft(rec.text);
+        invalidateWorkspaceResult();
+      }
+      const updated: Profile = { ...profile, rightToWork: [] };
+      setProfile(updated);
+      const ok = await saveProfile(updated);
+      if (!ok) {
+        setRtwRemoveError("The CV was updated, but your details couldn't be stored. Reload and try again.");
+        return;
+      }
+      setConfirmRtwRemove(false);
+      setRtwRemoveMsg(
+        `Removed ${r.removed.length === 1 ? "one line" : `${r.removed.length} lines`} from your master CV. Forms, the letter and the document now use your Eligibility answer.`
+      );
+    } finally {
+      setRtwRemoving(false);
+    }
+  }
+  const rtwWarning = rtwDisagreement ? (
+    <div className="limitNotice" role="status" data-rtw-disagree>
+      <div className="limitNotice__title">Your CV and your Eligibility answer disagree</div>
+      <div className="limitNotice__body">
+        Your CV&apos;s right-to-work text reads as {RTW_LABELS[rtwDisagreement.cv]}, but Eligibility says {RTW_LABELS[rtwDisagreement.eligibility]}. Forms, the cover
+        letter and the CV document are answered from Eligibility — fix whichever is wrong.
+      </div>
+      <div className="limitNotice__cta">
+        {confirmRtwRemove ? (
+          <>
+            <StatusText as="span">Remove every right-to-work line from your saved master CV?</StatusText>
+            <Button variant="ghost" className="keyRemove" onClick={handleRemoveRtwFromCv} disabled={rtwRemoving} data-rtw-remove-confirm>
+              {rtwRemoving ? "Removing…" : "Yes, remove"}
+            </Button>
+            <Button variant="ghost" onClick={() => setConfirmRtwRemove(false)} disabled={rtwRemoving}>Keep it</Button>
+          </>
+        ) : (
+          <Button variant="secondary" onClick={() => setConfirmRtwRemove(true)} data-rtw-remove>Remove from master CV</Button>
+        )}
+      </div>
+      {rtwRemoveError && <StatusText as="span" role="alert">{rtwRemoveError}</StatusText>}
+    </div>
+  ) : null;
 
   async function handleSaveEligibility() {
     setEligMsg("");
@@ -1136,6 +1212,14 @@ export default function CustomizePage() {
               {profile && profile.rightToWork.length > 0 && (
                 <p className="fitEvidence">Your CV says: {profile.rightToWork.join(" · ")}</p>
               )}
+              {rtwWarning}
+              {rtwRemoveMsg && <StatusText as="span" tone="success" role="status" data-rtw-removed>{rtwRemoveMsg}</StatusText>}
+              {permissionEndsMissing && (
+                <p className="fitEvidence" data-warn data-rtw-ends-missing>
+                  A time-limited visa needs its end month: without it the pre-check cannot tell whether a posting&apos;s start date falls inside your permission, and the
+                  statement for forms cannot say when sponsorship would be needed.
+                </p>
+              )}
               {eligibility.rightToWork.status === "full" && !rtwBannerDismissed && (
                 <div className="limitNotice" role="status" data-rtw-full-banner>
                   <div className="limitNotice__title">Is your right to work permanent?</div>
@@ -1197,6 +1281,52 @@ export default function CustomizePage() {
                     />
                   </label>
                 )}
+                <label>
+                  Available to start
+                  <select
+                    className="appsSelect"
+                    value={eligibility.availability.status}
+                    onChange={(e) => {
+                      const status = e.target.value as Eligibility["availability"]["status"];
+                      updateElig((x) => ({ ...x, availability: { ...x.availability, status } }));
+                    }}
+                    data-elig-availability
+                  >
+                    <option value="unknown">Not set</option>
+                    <option value="now">Immediately</option>
+                    <option value="from">From a month</option>
+                  </select>
+                </label>
+                {eligibility.availability.status === "from" && (
+                  <label>
+                    Available from (month/year)
+                    <Input
+                      type="month"
+                      value={eligibility.availability.from ?? ""}
+                      onChange={(e) => {
+                        const from = e.target.value || null;
+                        updateElig((x) => ({ ...x, availability: { ...x.availability, from } }));
+                      }}
+                      data-elig-availability-from
+                    />
+                  </label>
+                )}
+                <label>
+                  Can you work full time now?
+                  <select
+                    className="appsSelect"
+                    value={eligibility.canWorkFullTime}
+                    onChange={(e) => {
+                      const canWorkFullTime = e.target.value as Eligibility["canWorkFullTime"];
+                      updateElig((x) => ({ ...x, canWorkFullTime }));
+                    }}
+                    data-elig-fulltime
+                  >
+                    <option value="unknown">Not set</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </label>
                 <label>
                   Security clearance held
                   <select
@@ -1719,13 +1849,15 @@ export default function CustomizePage() {
         >
           <p className="cvHelp">
             Off by default. A reviewer who sees your immigration status before reading a line of your experience
-            screens on it, and the application form asks the same question in a better place. Your CV&apos;s wording
-            stays saved: it is offered as a copy block beside the download buttons for pasting into forms, and the
-            cover letter is unchanged. Turn it on only for a posting that asks for it on the document itself.
+            screens on it, and the application form asks the same question in a better place. The wording comes
+            from your Eligibility answers above, never from the CV text: it is offered as a copy block beside the
+            download buttons for pasting into forms, and it closes the cover letter only when this is on. Turn it
+            on only for a posting that asks for it on the document itself.
           </p>
           {profile && profile.rightToWork.length > 0 && (
             <p className="fitEvidence">Your CV says: {profile.rightToWork.join(" · ")}</p>
           )}
+          {rtwWarning}
           {prefsColumnMissing && (
             <p className="fitEvidence">
               This setting&apos;s database column isn&apos;t set up yet (migration 20260918120000_user_settings_preferences.sql).

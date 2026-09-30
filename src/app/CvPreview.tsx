@@ -13,6 +13,7 @@ type CvData = {
 
 
 import type { Profile } from "@/lib/cvStore";
+import Link from "next/link";
 import DownloadButton from "./DownloadButton";
 import Button from "@/components/ui/Button";
 import StatusText from "@/components/ui/StatusText";
@@ -76,6 +77,9 @@ type CvPreviewProps = {
   // carries the section only when the Customize switch is on (the page
   // passes a profile without it otherwise). Empty = no block.
   rightToWorkForForms?: string;
+  // Eligibility is loaded but the right-to-work answer is not given: the
+  // block asks for it instead of showing nothing.
+  rightToWorkUnset?: boolean;
   // "Fix it" beside the blocked Download (the claims repair, /api/fix-claims).
   // Plain flags only: the button carries data-fix-claims and the PAGE handles
   // its click on the wrapper it already listens on, so no callback prop
@@ -104,7 +108,7 @@ export type CvPreviewHandle = {
 };
 
 const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvPreview(
-  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "", targetPages = 2, fixClaimsAvailable = false, fixingClaims = false },
+  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "", rightToWorkUnset = false, targetPages = 2, fixClaimsAvailable = false, fixingClaims = false },
   fwdRef
 ) {
   const order = resolveSectionOrder(sectionOrder);
@@ -687,6 +691,17 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
           </StatusText>
         )}
       </div>
+      {!rightToWorkForForms && rightToWorkUnset && (
+        <div className="rtwForms" data-rtw-forms-unset>
+          <div className="rtwFormsBody">
+            <span className="rtwFormsLabel">Right to work — for application forms (not on the CV)</span>
+            <p className="fitEvidence">
+              Answer your right to work and availability under Eligibility on <Link href="/customize">Customize</Link> to get a statement in your
+              own words to paste into forms.
+            </p>
+          </div>
+        </div>
+      )}
       {rightToWorkForForms && (
         <div className="rtwForms" data-rtw-forms>
           <div className="rtwFormsBody">

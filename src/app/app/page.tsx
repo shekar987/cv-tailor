@@ -1005,7 +1005,7 @@ export default function Home() {
           // The eligibility answers (years → the header line) and the document
           // profile (education, certifications… for the server's page fit).
           ...(eligibility ? { eligibility } : {}),
-          ...(profile ? { profile: withProjectLinks(profileForDocument(profile, preferences), preferences, [masterCvText, projectsPool]) } : {}),
+          ...(profile ? { profile: withProjectLinks(profileForDocument(profile, preferences, eligibility), preferences, [masterCvText, projectsPool]) } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1480,10 +1480,10 @@ export default function Home() {
     // Each project's GitHub / live links (lib/projectLinks): what the user
     // saved on Customize, else the addresses the master CV or pool give.
     const linkSources = [masterCvText, projectsPool];
-    if (sel.length === 0) return withHeadline(withProjectLinks(profileForDocument(profile, preferences), preferences, linkSources));
+    if (sel.length === 0) return withHeadline(withProjectLinks(profileForDocument(profile, preferences, eligibility), preferences, linkSources));
     // A pool can exist without an extracted profile; render the selection on
     // an empty-but-well-formed base rather than dropping it.
-    const base = withHeadline(profileForDocument(profile ?? normalizeProfile({}), preferences));
+    const base = withHeadline(profileForDocument(profile ?? normalizeProfile({}), preferences, eligibility));
     const selectedNames = sel.map((s) => s.name!.trim());
     return {
       ...base,
@@ -1502,11 +1502,12 @@ export default function Home() {
         originalBullets: [],
       })),
     };
-  }, [profile, result, preferences, masterCvText, projectsPool]);
+  }, [profile, result, preferences, eligibility, masterCvText, projectsPool]);
 
   // The CV's Right to Work wording for the copy block beside the downloads —
-  // read from the stored profile, so it is offered even when off the document.
-  const rtwForForms = useMemo(() => rightToWorkForForms(profile), [profile]);
+  // the Eligibility statement (lib/rightToWorkText), never the CV's wording,
+  // offered even when off the document; empty until the answer is given.
+  const rtwForForms = useMemo(() => rightToWorkForForms(eligibility), [eligibility]);
 
   // Deterministic quality read (lib/quality) of what is on screen: the page
   // estimate the download layout implies, content repeated across sections,
@@ -2964,6 +2965,7 @@ export default function Home() {
                 data={cvData}
                 profile={displayProfile}
                 rightToWorkForForms={rtwForForms}
+                rightToWorkUnset={!!eligibility && !rtwForForms}
                 targetPages={onePageTarget}
                 downloadsDisabledReason={downloadReason ?? (staleRun ? STALE_REASON : undefined)}
                 sectionOrder={runSectionOrder}

@@ -23,10 +23,15 @@
 // pages attach them to every project the document renders, pool selections
 // included; a project with no entry shows what its CV text gives.
 //
-// Imports only ./projectLinks.ts (itself import-free), so it runs in the
-// browser and under node:test.
+// Since 30 Sep the Right to Work section, when on the document, and the
+// copy block for forms are the Eligibility statement (lib/rightToWorkText),
+// never the CV's own lines: Eligibility is the one source of that wording.
+//
+// Imports only ./projectLinks.ts and ./rightToWorkText.ts (both
+// import-free), so it runs in the browser and under node:test.
 
 import { normalizeProjectLinks, type SavedProjectLinks } from "./projectLinks.ts";
+import { rightToWorkStatement, type RtwFacts } from "./rightToWorkText.ts";
 
 export type Preferences = {
   version: 1;
@@ -53,17 +58,23 @@ export function pageTarget(prefs: Preferences): 1 | 2 {
 }
 
 // The profile the CV document renders with: identical to the stored profile
-// except that Right to Work is dropped unless the switch is on. Every renderer
-// (preview, .docx, PDF, the Applied snapshot) reads this one derivation, so
-// the section can never appear in one output and not another.
-export function profileForDocument<T extends { rightToWork?: string[] } | null | undefined>(profile: T, prefs: Preferences): T {
-  if (!profile || prefs.includeRightToWorkOnCv) return profile;
-  if (!Array.isArray(profile.rightToWork) || profile.rightToWork.length === 0) return profile;
-  return { ...profile, rightToWork: [] };
+// except for Right to Work — dropped unless the switch is on, and when it is
+// on, the Eligibility statement's lines (never the CV's own wording; nothing
+// when the answer is not set). Every renderer (preview, .docx, PDF, the
+// Applied snapshot) reads this one derivation, so the section can never
+// appear in one output and not another.
+export function profileForDocument<T extends { rightToWork?: string[] } | null | undefined>(profile: T, prefs: Preferences, eligibility?: RtwFacts | null): T {
+  if (!profile) return profile;
+  const own = Array.isArray(profile.rightToWork) ? profile.rightToWork : [];
+  if (prefs.includeRightToWorkOnCv) {
+    const lines = rightToWorkForForms(eligibility).split("\n").filter(Boolean);
+    if (lines.length > 0) return { ...profile, rightToWork: lines };
+  }
+  return own.length === 0 ? profile : { ...profile, rightToWork: [] };
 }
 
-// The wording offered for application forms: the profile's own lines, one
-// per line, as the CV states them.
-export function rightToWorkForForms(profile: { rightToWork?: string[] } | null | undefined): string {
-  return (profile?.rightToWork ?? []).map((s) => s.trim()).filter(Boolean).join("\n");
+// The wording offered for application forms: the Eligibility statement, one
+// sentence per line; empty until the user has answered.
+export function rightToWorkForForms(eligibility: RtwFacts | null | undefined): string {
+  return eligibility ? rightToWorkStatement(eligibility).formBlock : "";
 }
