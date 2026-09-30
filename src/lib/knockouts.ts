@@ -87,6 +87,13 @@ export type Eligibility = {
   graduation: { completed: string | null; expected: string | null };
   licences: string[];
   employmentTypes: EmploymentType[];
+  // Availability, typed by the user and never read off the CV: when they can
+  // start ("now", or "from" a month, "2027-02") and whether they can work
+  // full time. With rightToWork these are the one source of every
+  // right-to-work and availability sentence the app writes
+  // (lib/rightToWorkText rightToWorkStatement).
+  availability: { status: "now" | "from" | "unknown"; from: string | null };
+  canWorkFullTime: "yes" | "no" | "unknown";
   updatedAt: string | null;
 };
 
@@ -158,6 +165,8 @@ export const EMPTY_ELIGIBILITY: Eligibility = {
   graduation: { completed: null, expected: null },
   licences: [],
   employmentTypes: [],
+  availability: { status: "unknown", from: null },
+  canWorkFullTime: "unknown",
   updatedAt: null,
 };
 
@@ -191,6 +200,7 @@ export function normalizeEligibility(v: unknown): Eligibility {
   const loc = obj(e.location);
   const deg = obj(e.degree);
   const grad = obj(e.graduation);
+  const av = obj(e.availability);
   const ym = (x: unknown) => (typeof x === "string" && /^\d{4}-(?:0[1-9]|1[0-2])$/.test(x) ? x : null);
   const years =
     typeof e.yearsExperience === "number" && Number.isFinite(e.yearsExperience)
@@ -225,6 +235,8 @@ export function normalizeEligibility(v: unknown): Eligibility {
     graduation: { completed: ym(grad.completed), expected: ym(grad.expected) },
     licences: strList(e.licences, 15, 80),
     employmentTypes,
+    availability: { status: oneOf(av.status, ["now", "from", "unknown"] as const, "unknown"), from: ym(av.from) },
+    canWorkFullTime: oneOf(e.canWorkFullTime, ["yes", "no", "unknown"] as const, "unknown"),
     updatedAt: typeof e.updatedAt === "string" ? e.updatedAt : null,
   };
 }
@@ -243,7 +255,9 @@ export function isEligibilitySet(e: Eligibility): boolean {
     e.graduation.completed !== null ||
     e.graduation.expected !== null ||
     e.licences.length > 0 ||
-    e.employmentTypes.length > 0
+    e.employmentTypes.length > 0 ||
+    e.availability.status !== "unknown" ||
+    e.canWorkFullTime !== "unknown"
   );
 }
 

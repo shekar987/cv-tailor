@@ -303,6 +303,15 @@ test("normalizeEligibility clamps, defaults and drops junk", () => {
   assert.equal(e.updatedAt, null);
   assert.equal(isEligibilitySet(e), true);
   assert.deepEqual(normalizeEligibility(null), EMPTY_ELIGIBILITY);
+  // Availability and full-time answers (30 Sep): junk → unknown / null, a month kept.
+  assert.deepEqual(e.availability, { status: "unknown", from: null });
+  assert.equal(e.canWorkFullTime, "unknown");
+  const av = normalizeEligibility({ availability: { status: "from", from: "2027-02" }, canWorkFullTime: "yes" });
+  assert.deepEqual(av.availability, { status: "from", from: "2027-02" });
+  assert.equal(av.canWorkFullTime, "yes");
+  assert.equal(isEligibilitySet(av), true, "an availability answer alone counts as set");
+  assert.deepEqual(normalizeEligibility({ availability: { status: "soon", from: "Feb 2027" }, canWorkFullTime: true }).availability, { status: "unknown", from: null });
+  assert.equal(normalizeEligibility({ canWorkFullTime: true }).canWorkFullTime, "unknown");
 });
 
 // ── the read ─────────────────────────────────────────────────────────────────
