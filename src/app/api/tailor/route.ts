@@ -51,15 +51,16 @@ import {
   supportSentences,
   normalizeSupportVerdicts,
   decideSupport,
-  trimNarration,
   fixHeldDegrees,
   statesDegreeAsHeld,
   dropRepeatedSentences,
   mergedProjects,
-  isMergeProblem,
-  isPlaceholderProblem,
+  MAX_SUPPORT_SENTENCES_FAST,
   type SupportReport,
+  type SupportVerdict,
+  type SupportFacts,
 } from "@/lib/supportCheck";
+import { jdCopyTerms, jdCopyProblems, jdCopyHits } from "@/lib/jdCopyGuard";
 import { normalizeLetter, capEmDashes } from "@/lib/letterFormat";
 import { reconcileAtsScore, renderBandBlock } from "@/lib/visibilityVerdict";
 import { applyFormatRules } from "@/lib/formatRules";
@@ -91,6 +92,16 @@ function swallowStep<T>(fallback: T) {
     return fallback;
   };
 }
+
+// The run's time limit (maxDuration below), and the fact check's share of
+// it: the call is skipped with reason "time" when less than
+// SUPPORT_CHECK_MIN_BUDGET_MS is left, and in fast mode it gets a deadline
+// of what is left minus the tail the remaining deterministic passes need.
+const RUN_BUDGET_MS = 300_000;
+const SUPPORT_CHECK_MIN_BUDGET_MS = 45_000;
+const SUPPORT_CHECK_MIN_CALL_MS = 30_000;
+const SUPPORT_CHECK_MAX_CALL_MS = 150_000;
+const SUPPORT_CHECK_TAIL_MS = 20_000;
 
 // Runs the complete tailoring pipeline — JD analysis, then wave 1 (five calls
 // in parallel), then wave 2 (two calls) — for one provider + optional key
@@ -144,11 +155,16 @@ async function runPipeline(opts: {
   // Fast mode on OpenRouter: free models take 30–50 s per call, so the four
   // optional polish retries (title, bullet lint, claims rewrite, letter
   // proper-noun rewrite) are skipped — the run stays inside the platform's
-  // time limit. Every deterministic guard still runs: format rules, id
+  // time limit. Every honesty check still runs: format rules, id
   // reconciliation, claims check (a violation blocks the download instead of
   // being rewritten), proper-noun sentences are dropped instead of rewritten,
-  // one-page trim, right-to-work strip.
+  // one-page trim, right-to-work strip, and the sentence-by-sentence fact
+  // check of the summary and letter (one call, within the time left — until
+  // 30 Sep 2026 it was skipped here, and the Maven letter's invented trading
+  // work went out unchecked).
   const fast = provider === "openrouter";
+  const startedAt = Date.now();
+  const budgetLeft = () => RUN_BUDGET_MS - (Date.now() - startedAt);
   const claimsBlock = renderClaimsBlock(claims);
   // Only production-level registry skills may lead (lib/variants); the
   // skipped ones are reported so the user can fix the variant or the level.
@@ -194,6 +210,10 @@ async function runPipeline(opts: {
   const evidenceBlock = renderEvidenceBlock(evidence);
   const grafts = graftRules(evidence);
   const coverageBlock = projectsPool ? poolCoverageBlock(projectsPool, evidence) : "";
+  // The posting's requirements the CV never shows (lib/jdCopyGuard): a
+  // summary or letter sentence that claims one as the candidate's own work
+  // is a must-go problem for the fact check, whatever the provider.
+  const copyTerms = jdCopyTerms(analysis, evidence, [cv, projectsPool]);
 
   // Adaptive content budget: only ask the model to trim what two pages truly
   // can't hold (lib/contentBudget.ts). When the CV can't be parsed, the
@@ -562,7 +582,11 @@ async function runPipeline(opts: {
   // claim about the candidate's past, or a corrected sentence. Quotes are
   // verified here; an unsupported sentence is replaced by its fix when the
   // fix passes the claims check and the proper-noun check (and keeps the
-  // role title), and removed otherwise. Skipped in fast mode.
+  // role title), and removed otherwise. On every provider: when the call
+  // fails or there is no time for it, the deterministic decision still runs
+  // (JD-copy and merged-project sentences go, narration is trimmed) and the
+  // report says the check did not run, so /app holds the letter's download
+  // until the user has read it.
   let supportReport: SupportReport | null = null;
   // A degree the profile dates to the future is never stated as held ("I
   // hold an MSc …, graduating January 2027" reached both outputs measured on
@@ -584,82 +608,95 @@ async function runPipeline(opts: {
   const safeOpening = roleTitle ? `I am applying for the ${roleTitle} role${company ? ` at ${company}` : ""}.` : "";
   // Each project's own facts: one project's work told as another's is a
   // problem the fact check must fix, and no rewrite may do it (rule 7).
-  const facts = projectFacts(cv, projectsPool);
-  if (fast) {
-    // No model call: the narrating clause is cut where that is clean, and a
-    // sentence that merges two projects' facts, or holds template text, goes.
-    const changed: SupportReport["changed"] = [];
-    let cur: RepairSections = { summary: typeof summary === "string" ? summary : "", skills: "", experience: "", projects: {}, coverLetter: typeof coverLetter === "string" ? coverLetter : "" };
-    for (const s of supportSentences(cur.summary, cur.coverLetter, facts)) {
-      if (s.problems.length === 0) continue;
-      const merged = isMergeProblem(s) || isPlaceholderProblem(s);
-      const t = merged ? (s.section === "coverLetter" && s.sentence === letterOpening && safeOpening ? safeOpening : "") : trimNarration(s.sentence);
-      const next = t !== null ? applyToSection(cur, s.section, s.sentence, t) : null;
-      if (!next) continue;
-      cur = next;
-      changed.push(t ? { section: s.section, sentence: s.sentence, action: "rewritten", replacement: t } : { section: s.section, sentence: s.sentence, action: "removed" });
-    }
-    if (typeof summary === "string") summary = cur.summary;
-    if (typeof coverLetter === "string") coverLetter = cur.coverLetter;
-    supportReport = { checked: 0, changed, unverified: [], skipped: "fast" };
-  } else {
+  const facts: SupportFacts = { ...projectFacts(cv, projectsPool), extraLint: (s, section) => jdCopyProblems(s, section, copyTerms) };
+  {
     const sentences = supportSentences(typeof summary === "string" ? summary : "", typeof coverLetter === "string" ? coverLetter : "", facts);
     if (sentences.length > 0) {
-      const raw = await callLLM({
-        provider,
-        apiKeyOverride,
-        system: supportCheckPrompt(cv, projectsPool ?? ""),
-        userInput: JSON.stringify({ sentences: sentences.map(({ id, section, sentence, problems }) => ({ id, section, sentence, ...(problems.length ? { problems } : {}) })) }),
-        expectJson: true,
-        maxTokens: 4000,
-        // The honesty gate reads subtle misattribution better on the larger
-        // model; only on Claude (callLLM forwards a model name to the others).
-        ...(provider === "anthropic" ? { model: MODELS.quality } : {}),
-      }).catch(swallowStep(null));
-      if (raw && typeof raw === "object") {
-        const verdicts = normalizeSupportVerdicts(raw, sentences);
-        const nameSources = (section: string) => (section === "coverLetter" ? letterSources : [cv, projectsPool, jd, JSON.stringify(analysis ?? {})]);
-        const decisions = decideSupport(sentences, verdicts, [cv, projectsPool], (s, fix) => {
-          if (statesDegreeAsHeld(fix, inProgress)) return false;
-          if (mergedProjects(fix, facts.projects, facts.paidWork).length > 0) return false;
-          if (!replacementPasses(fix, s.section, claims ?? null, [cv, projectsPool], jd, grafts)) return false;
-          const had = unsupportedProperNouns(s.sentence, nameSources(s.section));
-          if (unsupportedProperNouns(fix, nameSources(s.section)).some((n) => !had.includes(n))) return false;
-          return s.section !== "summary" || !roleTitle || !titleInText(s.sentence, roleTitle) || titleInText(fix, roleTitle);
-        });
-        let cur: RepairSections = {
-          summary: typeof summary === "string" ? summary : "",
-          skills: "",
-          experience: "",
-          projects: {},
-          coverLetter: typeof coverLetter === "string" ? coverLetter : "",
-        };
-        const changed: SupportReport["changed"] = [];
-        for (const d of decisions) {
-          if (d.action !== "rewrite" && d.action !== "remove") continue;
-          // The summary's role-title sentence is never removed: it is a hard
-          // requirement, and a rejected fix leaves it for the claims check.
-          if (d.action === "remove" && d.section === "summary" && roleTitle && titleInText(d.sentence, roleTitle)) continue;
-          // Nor is the letter's opening: a plain true opening replaces it.
-          if (d.action === "remove" && d.section === "coverLetter" && d.sentence === letterOpening && safeOpening) {
-            d.action = "rewrite";
-            d.replacement = safeOpening;
-          }
-          const next = applyToSection(cur, d.section, d.sentence, d.action === "rewrite" && d.replacement ? d.replacement : "");
-          if (!next) continue;
-          cur = next;
-          changed.push(
-            d.action === "rewrite" && d.replacement
-              ? { section: d.section, sentence: d.sentence, action: "rewritten", replacement: d.replacement }
-              : { section: d.section, sentence: d.sentence, action: "removed" }
-          );
-        }
-        if (typeof summary === "string") summary = cur.summary;
-        if (typeof coverLetter === "string") coverLetter = cur.coverLetter;
-        supportReport = { checked: verdicts.size, changed, unverified: decisions.filter((d) => d.action === "unverified").map((d) => d.sentence) };
+      // Fast mode: the free models are slow, so the model reads at most
+      // MAX_SUPPORT_SENTENCES_FAST of them (every summary sentence, then the
+      // letter's first ones) within the time the run has left. The decision
+      // below still covers every sentence: one the model never saw keeps the
+      // deterministic rules, and is reported as unverified.
+      const toCheck =
+        fast && sentences.length > MAX_SUPPORT_SENTENCES_FAST
+          ? [...sentences.filter((s) => s.section === "summary"), ...sentences.filter((s) => s.section === "coverLetter")].slice(0, MAX_SUPPORT_SENTENCES_FAST)
+          : sentences;
+      const sentIds = new Set(toCheck.map((s) => s.id));
+      let raw: unknown = null;
+      let reason: NonNullable<SupportReport["reason"]> = "model";
+      if (budgetLeft() < SUPPORT_CHECK_MIN_BUDGET_MS) {
+        reason = "time";
       } else {
-        supportReport = { checked: 0, changed: [], unverified: [], skipped: "failed" };
+        raw = await callLLM({
+          provider,
+          apiKeyOverride,
+          system: supportCheckPrompt(cv, projectsPool ?? ""),
+          userInput: JSON.stringify({ sentences: toCheck.map(({ id, section, sentence, problems }) => ({ id, section, sentence, ...(problems.length ? { problems } : {}) })) }),
+          expectJson: true,
+          // OpenRouter floors every call at 6,000 tokens (lib/claude), so the
+          // input size and the deadline are what keep a free model inside
+          // the run's time limit, not this budget.
+          maxTokens: 4000,
+          // The honesty gate reads subtle misattribution better on the larger
+          // model; only on Claude (callLLM forwards a model name to the others).
+          ...(provider === "anthropic" ? { model: MODELS.quality } : {}),
+          ...(fast ? { timeoutMs: Math.max(SUPPORT_CHECK_MIN_CALL_MS, Math.min(SUPPORT_CHECK_MAX_CALL_MS, budgetLeft() - SUPPORT_CHECK_TAIL_MS)) } : {}),
+        }).catch(swallowStep(null));
       }
+      // A reply with no usable check (no `checks` array, or none for a
+      // sentence we sent) is no check: it used to count as "checked: 0" with
+      // nothing to say about it.
+      const verdicts = raw && typeof raw === "object" ? normalizeSupportVerdicts(raw, toCheck) : new Map<string, SupportVerdict>();
+      const ran = verdicts.size > 0;
+      const nameSources = (section: string) => (section === "coverLetter" ? letterSources : [cv, projectsPool, jd, JSON.stringify(analysis ?? {})]);
+      const decisions = decideSupport(sentences, verdicts, [cv, projectsPool], (s, fix) => {
+        if (statesDegreeAsHeld(fix, inProgress)) return false;
+        if (mergedProjects(fix, facts.projects, facts.paidWork).length > 0) return false;
+        // A fix that still claims the posting's absent requirement is no fix.
+        if (jdCopyHits(fix, s.section, copyTerms).length > 0) return false;
+        if (!replacementPasses(fix, s.section, claims ?? null, [cv, projectsPool], jd, grafts)) return false;
+        const had = unsupportedProperNouns(s.sentence, nameSources(s.section));
+        if (unsupportedProperNouns(fix, nameSources(s.section)).some((n) => !had.includes(n))) return false;
+        return s.section !== "summary" || !roleTitle || !titleInText(s.sentence, roleTitle) || titleInText(fix, roleTitle);
+      });
+      let cur: RepairSections = {
+        summary: typeof summary === "string" ? summary : "",
+        skills: "",
+        experience: "",
+        projects: {},
+        coverLetter: typeof coverLetter === "string" ? coverLetter : "",
+      };
+      const changed: SupportReport["changed"] = [];
+      for (const d of decisions) {
+        if (d.action !== "rewrite" && d.action !== "remove") continue;
+        // The summary's role-title sentence is never removed: it is a hard
+        // requirement, and a rejected fix leaves it for the claims check.
+        if (d.action === "remove" && d.section === "summary" && roleTitle && titleInText(d.sentence, roleTitle)) continue;
+        // Nor is the letter's opening: a plain true opening replaces it.
+        if (d.action === "remove" && d.section === "coverLetter" && d.sentence === letterOpening && safeOpening) {
+          d.action = "rewrite";
+          d.replacement = safeOpening;
+        }
+        const next = applyToSection(cur, d.section, d.sentence, d.action === "rewrite" && d.replacement ? d.replacement : "");
+        if (!next) continue;
+        cur = next;
+        changed.push(
+          d.action === "rewrite" && d.replacement
+            ? { section: d.section, sentence: d.sentence, action: "rewritten", replacement: d.replacement }
+            : { section: d.section, sentence: d.sentence, action: "removed" }
+        );
+      }
+      if (typeof summary === "string") summary = cur.summary;
+      if (typeof coverLetter === "string") coverLetter = cur.coverLetter;
+      // What still stands in the text with no verified quote behind it:
+      // the model's own "unverified" verdicts, every kept sentence it never
+      // saw, and — when the check did not run — every kept sentence.
+      const standing = (d: (typeof decisions)[number]) => (d.action === "rewrite" && d.replacement ? d.replacement : d.action === "remove" ? null : d.sentence);
+      const unverified = decisions
+        .filter((d) => d.action === "unverified" || (d.action !== "remove" && (!ran || !sentIds.has(d.id))))
+        .map(standing)
+        .filter((x): x is string => !!x);
+      supportReport = ran ? { checked: verdicts.size, changed, unverified } : { checked: 0, changed, unverified, skipped: "failed", reason };
     }
   }
   // The same fact twice reads as generated: the later telling goes (the

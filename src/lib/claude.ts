@@ -154,6 +154,10 @@ type BaseCallOptions = {
   model?: string;       // defaults to fast
   maxTokens?: number;   // defaults to 2000
   expectJson?: boolean; // if true, strip fences + validate JSON
+  // OpenRouter only: this call's own deadline (the default is the adapter's
+  // 150 s), and no double-budget retry — for a call that must fit what is
+  // left of the run's time limit.
+  timeoutMs?: number;
 };
 
 // Raw Anthropic call — returns cleaned text plus whether the response was
@@ -247,7 +251,7 @@ async function openRouterRaw(options: BaseCallOptions, apiKeyOverride?: string):
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
-    signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
+    signal: AbortSignal.timeout(options.timeoutMs ?? OPENROUTER_TIMEOUT_MS),
     body: JSON.stringify({
       model,
       // The fallback chain applies only to the default model; a caller that
@@ -305,7 +309,7 @@ async function callOpenRouter(options: BaseCallOptions, apiKeyOverride?: string)
   let result = await openRouterRaw(options, apiKeyOverride);
   // Cut off by the budget, or nothing usable came back: once more with double
   // the budget before the repair path (same reasoning as callClaude).
-  if (result.truncated || !result.text) {
+  if ((result.truncated || !result.text) && !options.timeoutMs) {
     result = await openRouterRaw({ ...options, maxTokens: Math.max(options.maxTokens ?? 2000, OPENROUTER_MIN_TOKENS) * 2 }, apiKeyOverride);
   }
   if (!options.expectJson) return result.text;

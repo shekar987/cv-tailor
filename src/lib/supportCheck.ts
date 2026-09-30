@@ -68,9 +68,20 @@ export function trimNarration(sentence: string): string | null {
 export type SupportReport = {
   checked: number;
   changed: { section: SupportSection; sentence: string; action: "rewritten" | "removed"; replacement?: string }[];
+  // Every sentence still in the text that no verified quote supports: the
+  // model's "unverified" verdicts, and — when the check never ran — all of
+  // them, for the user to read before the letter may be downloaded.
   unverified: string[];
+  // "fast": a result saved before 30 Sep 2026, when OpenRouter runs skipped
+  // the check; "failed": the call failed, timed out, or answered nothing
+  // usable ("model"), or the run had no time left for it ("time").
   skipped?: "fast" | "failed";
+  reason?: "model" | "time";
 };
+// In fast mode the model reads this many sentences (every summary sentence,
+// then the letter's first ones); the deterministic decision still runs over
+// all of them.
+export const MAX_SUPPORT_SENTENCES_FAST = 24;
 
 export const MAX_SUPPORT_SENTENCES = 40;
 const MAX_FIX_CHARS = 600;
