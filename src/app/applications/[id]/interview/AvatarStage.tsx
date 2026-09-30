@@ -4,12 +4,15 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import type { TalkingHead } from "@/vendor/talkinghead/talkinghead.mjs";
 
 // The interviewer: a TalkingHead 1.7 avatar (MIT) — a real-time 3D figure with
-// eye contact, blinking, idle motion and lip-sync. Loaded in the browser only.
+// eye contact, blinking, idle motion and lip-sync — wearing a Microsoft
+// Rocketbox character (MIT, public/interview/avatars). Loaded in the browser only.
 // TalkingHead normally imports its lip-sync modules by a computed path the
 // bundler can't follow, so the English one is imported here and registered
 // by hand. When 3D can't run, the page shows the portrait card instead.
 
 export type AvatarHandle = { head: TalkingHead | null };
+
+const NEUTRAL_TONE_MAPPING = 7; // THREE.NeutralToneMapping (three has no types installed here)
 
 type Props = {
   url: string;
@@ -58,9 +61,25 @@ const AvatarStage = forwardRef<AvatarHandle, Props>(function AvatarStage({ url, 
           modelMovementFactor: reducedMotion ? 0 : 1,
           avatarIdleEyeContact: 0.6,
           avatarSpeakingEyeContact: 0.85,
-          lightAmbientIntensity: 2.2,
-          lightDirectIntensity: 18,
+          // A portrait key light: warm, from the front-left and above, so the
+          // face has shape; a soft ambient fill; a cool rim from behind to lift
+          // the head off the backdrop. TalkingHead's default lights her from
+          // the side and behind, which left the face flat and washed out.
+          lightAmbientIntensity: 0.9,
+          lightDirectColor: "#fff1e0",
+          lightDirectIntensity: 10,
+          lightDirectPhi: 0.95,
+          lightDirectTheta: 0.6,
+          lightSpotIntensity: 4,
+          lightSpotColor: "#e6eeff",
+          lightSpotPhi: 1.2,
+          lightSpotTheta: 3.7,
         });
+        // Neutral tone mapping keeps skin its own colour (TalkingHead's ACES
+        // curve desaturates it towards grey-white), and a softer environment
+        // reflection stops skin reading as plastic.
+        head.renderer.toneMapping = NEUTRAL_TONE_MAPPING;
+        head.scene.environmentIntensity = 0.8;
         head.lipsync.en = new LipsyncEn();
         await head.showAvatar({ url, body: gender === "female" ? "F" : "M", avatarMood: "neutral", lipsyncLang: "en" }, (ev) => {
           if (ev.lengthComputable && ev.total > 0) setProgress(Math.round((ev.loaded / ev.total) * 100));

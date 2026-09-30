@@ -1,30 +1,40 @@
 # Building the mock-interview avatars
 
-The two interviewers (`public/interview/avatars/*-v1.glb`) are generated, not
-hand-made, so they can be rebuilt or new ones added the same way. All free,
-all CC0/MIT assets, no Blender UI needed.
+The two interviewers (`public/interview/avatars/*-v2.glb`) are Microsoft
+Rocketbox characters (MIT) converted for TalkingHead with no Blender UI and no
+Mixamo upload, so they can be rebuilt, or another Rocketbox face added, the
+same way: Emma is `Business_Female_04`, Daniel `Business_Male_05`.
 
-1. Portable Blender 4.5 LTS in a SHORT path (Windows' 260-character limit
-   breaks MPFB's install from a long path), with a `portable/` folder next to
-   `blender.exe` so settings stay local.
-2. Install MPFB 2.0.17 (extensions.blender.org) and TalkingHead's
-   `blender/MPFB/talkinghead-addon.py`:
-   `bpy.ops.extensions.package_install_files(filepath=..., repo="user_default", enable_on_install=True)`,
-   `bpy.ops.preferences.addon_install(...)` + `addon_enable` + `wm.save_userpref`.
-3. Unzip the CC0 packs into MPFB's user data
-   (`portable/extensions/.user/user_default/mpfb/data`): makehuman_system_assets,
-   skins01, skins02, suits01, shirts01, visemes02, faceunits01
-   (files2.makehumancommunity.org; the server is slow per connection — ranged
-   parallel downloads help).
-4. Install TalkingHead's rig as a library rig: `talkinghead.mpfbskel` →
-   `data/rigs/talkinghead.json` with `"identifying_bones": ["LeftToe_End"]`,
-   `talkinghead.mhw` → `data/rigs/weights.talkinghead.json`.
-5. `blender.exe -b --python build_avatar.py -- emma emma-raw.glb` (and `daniel`).
-   The script builds the character (phenotype, skin, GAMEENGINE materials,
-   `custom.talkinghead` rig, no subdivision), makes MPFB's export copy with
-   Meta visemes + ARKit face units, bakes masks, fixes bone rolls with the
-   TalkingHead add-on, sets realistic roughness (MakeHuman's glossy hair turns
-   white in glTF otherwise), cuts out hair, brows, lashes and the eye's cornea
-   (MASK), and exports GLB.
-6. `npx @gltf-transform/cli optimize in.glb out.glb --compress meshopt --texture-compress webp --texture-size 1024 --simplify false`
-   (~17 MB → ~1.6 MB; keep `--simplify false` or the morph targets break).
+1. Portable Blender 4.5 LTS in a SHORT path (e.g. `C:\Users\<you>\jhbl`), with
+   a `portable/` folder next to `blender.exe` so settings stay local.
+2. Install TalkingHead's add-on (`blender/MPFB/talkinghead-addon.py` in
+   github.com/met4citizen/TalkingHead): `bpy.ops.preferences.addon_install(...)`
+   + `addon_enable` + `wm.save_userpref`. The script uses its `fix_bone_axes`.
+3. Put TalkingHead's `blender/rename-rocketbox-shapekeys.py` next to
+   `build_rocketbox.py` (the script reads its shape-key map).
+4. From github.com/microsoft/Microsoft-Rocketbox, `Assets/Avatars/Professions/<Name>/`:
+   `Export/<Name>_facial.fbx` and every `Textures/*.tga`, keeping the
+   `Export/` + `Textures/` layout (raw.githubusercontent.com serves them; the
+   `media.githubusercontent.com` LFS URL answers with empty files).
+5. `blender.exe -b --python build_rocketbox.py -- <Name>_facial.fbx <name>-raw.glb a none`
+   - bones renamed to Mixamo's names; clavicles moved under Spine2, thighs
+     under Hips;
+   - bone frames set to the ones TalkingHead's poses were made on: the torso
+     copies the reference rig's (Biped's head bone points at the face — the
+     head pose then tipped the face to the ceiling — and its Spine2 leans back,
+     which hunched the chest), limbs point at their child joint, eyes up with
+     Z forward, rolls from the add-on;
+   - shape keys renamed to TalkingHead's ARKit + Oculus names, the rest
+     dropped (68 kept, 15 visemes);
+   - the specular maps become roughness maps: glTF reads a specular texture's
+     ALPHA channel and these maps have none, so everything rendered at full
+     specular — pale, plastic skin;
+   - `none` keeps the character's real size (the camera stands a fixed number
+     of metres away, so a scaled-up figure fills more of the frame).
+6. `sh pack.sh <name>-raw.glb <name>-v2.glb` (~27 MB → ~0.8 MB): the face's
+   colour map stays 2048 px, the others drop to 1024 px, meshopt + WebP.
+   `--simplify false` (simplifying breaks the morph targets) and
+   `--flatten false --join false` (flattening removes the "Armature" node
+   TalkingHead looks for; it then warns and falls back) are both required.
+7. Check it before shipping: load it in TalkingHead and look at it idle, while
+   speaking (the visemes move the mouth) and at the "upper" and "head" views.

@@ -75,8 +75,8 @@ export type RoundTemplate = {
 // engineering ones. Each keeps one name across rounds — six names on two
 // faces would look fake.
 export const PERSONAS: Record<string, Persona> = {
-  emma: { id: "emma", name: "Emma Clarke", firstName: "Emma", gender: "female", kokoroVoice: "bf_emma", avatar: "/interview/avatars/emma-v1.glb" },
-  daniel: { id: "daniel", name: "Daniel Okafor", firstName: "Daniel", gender: "male", kokoroVoice: "bm_george", avatar: "/interview/avatars/daniel-v1.glb" },
+  emma: { id: "emma", name: "Emma Clarke", firstName: "Emma", gender: "female", kokoroVoice: "bf_emma", avatar: "/interview/avatars/emma-v2.glb" },
+  daniel: { id: "daniel", name: "Daniel Okafor", firstName: "Daniel", gender: "male", kokoroVoice: "bm_george", avatar: "/interview/avatars/daniel-v2.glb" },
 };
 
 // Asked in every round, by code, exactly like this.
