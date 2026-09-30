@@ -452,3 +452,56 @@ export function lockRoleHeaders(output: string, roles: MasterRole[]): { experien
   });
   return { experience: kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/^\n+/, ""), report };
 }
+
+// ── Reverse-chronological roles ──────────────────────────────────────────────
+// Nothing ordered the roles: the model wrote them as it liked, and a Jun
+// 2026 – Present role printed last on 30 Sep. The page-fit code already
+// assumes text order is recency ("oldest roles give way first"), so the
+// text is sorted once, right after the headers are locked: a current role
+// first, then by end month, then by start month; a role whose header has no
+// readable dates keeps its place after the dated ones. Any lines before the
+// first header stay at the top.
+const MONTH_IDX: Record<string, number> = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+const DATE_TOKEN = /\b(?:(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+|(\d{1,2})\/)?((?:19|20)\d{2})\b|\b(present|current|now|ongoing)\b/gi;
+// [start, end] as month indexes; a current role ends at +Infinity; null when
+// the header carries no year.
+export function headerSpan(header: string): [number, number] | null {
+  const d = ROLE_HEADER.exec(header);
+  if (!d) return null;
+  const tail = header.slice(Math.max(0, d.index - 12));
+  const points: number[] = [];
+  for (const m of tail.matchAll(DATE_TOKEN)) {
+    if (m[4]) points.push(Number.POSITIVE_INFINITY);
+    else if (m[3]) points.push(Number(m[3]) * 12 + (m[1] ? MONTH_IDX[m[1].toLowerCase()] : m[2] ? Math.min(11, Math.max(0, Number(m[2]) - 1)) : 0));
+  }
+  if (points.length === 0) return null;
+  const finite = points.filter((p) => Number.isFinite(p));
+  const start = finite.length ? Math.min(...finite) : points[0];
+  const end = points.includes(Number.POSITIVE_INFINITY) ? Number.POSITIVE_INFINITY : Math.max(...finite);
+  return [start, end];
+}
+
+export type ChronologyReport = { moved: boolean; order: string[] };
+export function sortRolesByDate(experience: string): { experience: string; report: ChronologyReport } {
+  const lines = experience.split("\n");
+  const headerIdx = lines.map((l, i) => (OUTPUT_HEADER.test(l.trim()) ? i : -1)).filter((i) => i >= 0);
+  if (headerIdx.length < 2) return { experience, report: { moved: false, order: headerIdx.map((i) => lines[i].trim()) } };
+  const preamble = lines.slice(0, headerIdx[0]);
+  const blocks = headerIdx.map((idx, k) => {
+    const end = k + 1 < headerIdx.length ? headerIdx[k + 1] : lines.length;
+    const block = lines.slice(idx, end);
+    while (block.length > 1 && !block[block.length - 1].trim()) block.pop();
+    return { header: lines[idx].trim(), block, span: headerSpan(lines[idx]), k };
+  });
+  const sorted = [...blocks].sort((a, b) => {
+    if (!a.span && !b.span) return a.k - b.k;
+    if (!a.span) return 1;
+    if (!b.span) return -1;
+    if (a.span[1] !== b.span[1]) return b.span[1] - a.span[1];
+    if (a.span[0] !== b.span[0]) return b.span[0] - a.span[0];
+    return a.k - b.k;
+  });
+  const moved = sorted.some((b, i) => b.k !== i);
+  const out = [...preamble, ...sorted.flatMap((b, i) => (i === 0 ? b.block : ["", ...b.block]))];
+  return { experience: moved ? out.join("\n") : experience, report: { moved, order: sorted.map((b) => b.header) } };
+}

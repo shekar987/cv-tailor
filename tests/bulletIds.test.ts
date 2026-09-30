@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseMasterExperience, renderIdBlock, substitutions, reconcileExperience, lockRoleHeaders, canonicalHeader, diffAgainstMaster, diffProjects, MAX_SUBSTITUTIONS } from "../src/lib/bulletIds.ts";
+import { parseMasterExperience, renderIdBlock, substitutions, reconcileExperience, lockRoleHeaders, canonicalHeader, sortRolesByDate, headerSpan, diffAgainstMaster, diffProjects, MAX_SUBSTITUTIONS } from "../src/lib/bulletIds.ts";
 
 const master = `SOMA SHEKAR
 Full Stack Engineer
@@ -235,4 +235,29 @@ test("lockRoleHeaders: by position only when the counts agree and nothing else m
   assert.deepEqual(r.report.locked.map((l) => l.master), ["Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024", "Research Assistant | University of East London | Jan 2026 – Present"]);
   assert.deepEqual(lockRoleHeaders("", roles).report, { locked: [], unmatched: [], droppedEmpty: [] });
   assert.equal(lockRoleHeaders("• A bullet with no header.", roles).experience, "• A bullet with no header.");
+});
+
+// ── sortRolesByDate (30 Sep audit, Phase 2) ──────────────────────────────────
+
+test("headerSpan reads start and end months; a current role ends at infinity; no year is null", () => {
+  assert.deepEqual(headerSpan("Full Stack Engineer | Brane Group | Jul 2022 – Sep 2024"), [2022 * 12 + 6, 2024 * 12 + 8]);
+  assert.deepEqual(headerSpan("Research Assistant | UEL | Jun 2026 – Present"), [2026 * 12 + 5, Number.POSITIVE_INFINITY]);
+  assert.deepEqual(headerSpan("Analyst | Acme | 2019 – 2021"), [2019 * 12, 2021 * 12]);
+  assert.deepEqual(headerSpan("Intern | Acme | 07/2019 – 09/2019"), [2019 * 12 + 6, 2019 * 12 + 8]);
+  assert.equal(headerSpan("Volunteer | Shelter | ongoing"), null);
+});
+
+test("sortRolesByDate: a current role first, then by end month; undated roles keep their place last; the text is untouched when already ordered", () => {
+  const out = "Analyst | Acme | Jan 2019 – Dec 2021\n• A.\n\nFull Stack Engineer | Brane Group | Jul 2022 – Sep 2024\n• B.\n• C.\n\nVolunteer | Shelter | weekends\n• V.\n\nResearch Assistant | UEL | Jun 2026 – Present\n• D.";
+  const r = sortRolesByDate(out);
+  assert.equal(r.experience, "Research Assistant | UEL | Jun 2026 – Present\n• D.\n\nFull Stack Engineer | Brane Group | Jul 2022 – Sep 2024\n• B.\n• C.\n\nAnalyst | Acme | Jan 2019 – Dec 2021\n• A.\n\nVolunteer | Shelter | weekends\n• V.");
+  assert.equal(r.report.moved, true);
+  assert.deepEqual(r.report.order.map((h) => h.split(" | ")[0]), ["Research Assistant", "Full Stack Engineer", "Analyst", "Volunteer"]);
+  const same = sortRolesByDate(r.experience);
+  assert.equal(same.experience, r.experience);
+  assert.equal(same.report.moved, false);
+  assert.equal(sortRolesByDate("• A bullet with no header.").experience, "• A bullet with no header.");
+  // Two roles ending the same month: the later start first.
+  const tie = sortRolesByDate("A | X | Jan 2020 – Jun 2021\n• a.\n\nB | Y | Mar 2021 – Jun 2021\n• b.");
+  assert.match(tie.experience, /^B \| Y/);
 });

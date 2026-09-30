@@ -40,7 +40,7 @@ import { normalizeProfile } from "@/lib/profile";
 import { coreTitle, titleInText, titleAsIdentity } from "@/lib/roleTitle";
 import { unsupportedProperNouns, sentencesNaming, dropSentences } from "@/lib/properNouns";
 import { experienceBudget, onePageExperienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
-import { parseMasterExperience, renderIdBlock, reconcileExperience, lockRoleHeaders, diffAgainstMaster, diffProjects, type HeaderLock } from "@/lib/bulletIds";
+import { parseMasterExperience, renderIdBlock, reconcileExperience, lockRoleHeaders, sortRolesByDate, diffAgainstMaster, diffProjects, type HeaderLock, type ChronologyReport } from "@/lib/bulletIds";
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
@@ -311,14 +311,19 @@ async function runPipeline(opts: {
   // every role header is restored to the master's own (rule 8 in code —
   // lib/bulletIds lockRoleHeaders); the lint retry below goes through the
   // same two steps.
+  // Then the roles are put in reverse-chronological order (a current role
+  // first): the model orders them as it likes, and the page-fit code reads
+  // text order as recency.
   const reconcileAndLock = (text: string) => {
     const r = reconcileExperience(text, masterRoles);
     const l = lockRoleHeaders(r.experience, masterRoles);
-    return { experience: l.experience, changes: r.changes, headers: l.report };
+    const c = sortRolesByDate(l.experience);
+    return { experience: c.experience, changes: r.changes, headers: l.report, chronology: c.report };
   };
-  const reconciled = typeof experience === "string" ? reconcileAndLock(experience) : { experience, changes: null, headers: null };
+  const reconciled = typeof experience === "string" ? reconcileAndLock(experience) : { experience, changes: null, headers: null, chronology: null };
   const idProtocol = reconciled.changes !== null;
   let headerLock: HeaderLock | null = reconciled.headers;
+  let chronology: ChronologyReport | null = reconciled.chronology;
   const experienceOut = typeof reconciled.experience === "string" ? normalizeExperienceOutput(reconciled.experience) : reconciled.experience;
 
   // Bullet lint, then ONE retry per flagged section. The same deterministic
@@ -356,6 +361,7 @@ async function runPipeline(opts: {
       if (candidateOut && lintBullets({ experience: candidateOut }, company).experience.length < draftLint.experience.length) {
         experienceFinal = candidateOut;
         headerLock = candidateLock?.headers ?? headerLock;
+        chronology = candidateLock?.chronology ?? chronology;
         retried.experience = true;
       }
     }
@@ -822,6 +828,7 @@ async function runPipeline(opts: {
     bulletChanges: {
       protocol: idProtocol,
       headers: headerLock,
+      chronology,
       experience: typeof sections.experience === "string" ? diffAgainstMaster(sections.experience, masterRoles) : null,
       projects: projectsPool ? [] : diffProjects(sections.projects, (profile as { projects?: { name?: string; originalBullets?: string[] }[] } | null)?.projects),
     },
