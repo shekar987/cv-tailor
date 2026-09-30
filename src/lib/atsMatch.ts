@@ -143,8 +143,28 @@ function dedouble(w: string): string {
   if (n >= 2 && w[n - 1] === w[n - 2] && !"lsz".includes(w[n - 1])) return w.slice(0, -1);
   return w;
 }
+// British and American spellings fold to one token (30 Sep): "optimise" /
+// "optimize", "behaviour" / "behavior", "analyse" / "analyze", "programme" /
+// "program", "centre" / "center", "licence" / "license", "catalogue" /
+// "catalog", "modelled" / "modeled". Every generated text is written in
+// British English (lib/britishSpelling) whatever the posting's spelling, and
+// a search term must match either way. Applied to both sides, so a
+// collision ("rise" and "rize" both fold to "riz") costs nothing.
+function spelling(w: string): string {
+  return w
+    .replace(/^programme/, "program")
+    .replace(/(cent|lit|fib|theat|calib|met)re(s|d)?$/, "$1er$2")
+    .replace(/(defen|licen|offen|preten)ce/, "$1se")
+    .replace(/(catal|dial|anal|monol)ogue(s)?$/, "$1og$2")
+    .replace(/(catal|dial|anal|monol)ogued$/, "$1oged")
+    .replace(/(catal|dial|anal|monol)oguing$/, "$1oging")
+    .replace(/ys(e|es|ed|ing|is|er|ers)$/, "yz$1")
+    .replace(/(.{3,})is(e|es|ed|ing|ation|ations|er|ers|able)$/, "$1iz$2")
+    .replace(/our(?=(?:s|ed|ing|ite|able|ism|ist|ful|less|ably|al)?$)/, "or")
+    .replace(/(travel|cancel|model|label|signal|total|fuel|level|channel|counsel|marvel|rival|tunnel|panel|enrol|fulfil|instal)l(ed|ing|er|ers|ment|ments)$/, "$1$2");
+}
 function fold(token: string): string {
-  let w = token;
+  let w = spelling(token);
   if (w.length >= 5 && w.endsWith("ies")) w = `${w.slice(0, -3)}y`;
   else if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) w = w.slice(0, -1);
   if (w.length >= 6 && w.endsWith("ing")) w = dedouble(w.slice(0, -3));

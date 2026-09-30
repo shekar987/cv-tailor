@@ -45,6 +45,7 @@ import { parseMasterExperience, renderIdBlock, reconcileExperience, lockRoleHead
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { stripLinkText } from "@/lib/projectLinks";
+import { toBritish, toBritishDeep, type SpellingChange } from "@/lib/britishSpelling";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 import {
   surgicalUntilStable,
@@ -790,6 +791,21 @@ async function runPipeline(opts: {
   // may have changed the summary. No terms to score against (analysis
   // failed) → no score; otherwise the deterministic score stands even when
   // the annotation call failed.
+  // British English throughout (lib/britishSpelling), last, so the score
+  // and the claims check read the finished spelling; the matcher folds both
+  // spellings, so no search term is lost. Reported under Formatting rules.
+  const spellingChanges: SpellingChange[] = [];
+  if (typeof summary === "string") summary = toBritishDeep(summary, spellingChanges);
+  if (typeof skillsFinal === "string") skillsFinal = toBritishDeep(skillsFinal, spellingChanges);
+  if (typeof experienceFinal === "string") experienceFinal = toBritishDeep(experienceFinal, spellingChanges);
+  projectsFinal = toBritishDeep(projectsFinal, spellingChanges);
+  if (projectsPool) selectedFinal = toBritishDeep(selectedFinal, spellingChanges);
+  if (typeof coverLetter === "string") coverLetter = toBritish(coverLetter).text;
+  if (spellingChanges.length) {
+    const seen = new Map<string, string>();
+    for (const c of spellingChanges) if (!seen.has(c.from.toLowerCase())) seen.set(c.from.toLowerCase(), `${c.from} → ${c.to}`);
+    formatFixes.spelling = { count: spellingChanges.length, examples: [...seen.values()].slice(0, 6) };
+  }
   const finalSections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
   const finalText = tailoredSectionsText(finalSections);
   const finalCoverage = matchAtsKeywords(finalText, terms.top_15_ats_keywords);

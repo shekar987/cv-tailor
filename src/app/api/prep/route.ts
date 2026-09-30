@@ -42,6 +42,7 @@ import {
   type PrepSources,
 } from "@/lib/prepPack";
 import { checkPrepPack, prepCopyTerms, flaggedForTarget, normalizePrepRewrites, applyPrepRewrites, type PrepRewriteTarget, type PrepCheckContext } from "@/lib/prepCheck";
+import { toBritishDeep } from "@/lib/britishSpelling";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -321,7 +322,8 @@ export async function POST(req: NextRequest) {
         sources,
       });
       if (!normalized) throw new PrepPackError("pack did not normalize");
-      pack = checkPrepPack(verifyEvidence(normalized, cv), checkCtx);
+      // British English before the check, so the flags quote the text as shown.
+      pack = checkPrepPack(verifyEvidence(toBritishDeep(normalized), cv), checkCtx);
       if (JSON.stringify(pack).length > MAX_PREP_PACK_JSON) throw new PrepPackError("pack too large");
     } catch (err) {
       await route.refund();

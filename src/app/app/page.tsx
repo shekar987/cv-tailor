@@ -138,6 +138,8 @@ type Result = {
     skillLines?: SkillLinesFix | null;
     // A skills line written twice; the later copy dropped.
     duplicateLines?: string[] | null;
+    // The British-English pass: how many words, and examples.
+    spelling?: { count: number; examples: string[] } | null;
   };
   // Requirement → evidence for this posting, and what the sentence-by-
   // sentence check of the summary and letter against the master CV changed.
@@ -2530,7 +2532,7 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines) && (
+            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines || result.formatFixes?.spelling) && (
               <div className="limitNotice" role="status" data-format-fixes>
                 <div className="limitNotice__title">Formatting rules applied</div>
                 <div className="limitNotice__body">
@@ -2584,6 +2586,15 @@ export default function Home() {
                       <li data-format-fix="skill-lines">
                         <Badge variant="dot" tone="rec">→</Badge>
                         <span>{skillLinesNotice(result.formatFixes.skillLines)}</span>
+                      </li>
+                    )}
+                    {result.formatFixes.spelling && result.formatFixes.spelling.count > 0 && (
+                      <li data-format-fix="spelling">
+                        <Badge variant="dot" tone="rec">→</Badge>
+                        <span>
+                          British spelling throughout: {result.formatFixes.spelling.count === 1 ? "one word" : `${result.formatFixes.spelling.count} words`} changed
+                          {result.formatFixes.spelling.examples.length > 0 ? ` (${result.formatFixes.spelling.examples.join(", ")})` : ""}. Recruiter searches match either spelling.
+                        </span>
                       </li>
                     )}
                     {result.formatFixes.duplicateLines && result.formatFixes.duplicateLines.length > 0 && (

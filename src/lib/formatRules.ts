@@ -53,6 +53,9 @@ export type FormatFixes = {
   // carries ("Technical Tools:" written twice — the Marshall Wace CV, 30 Sep),
   // or an exact repeat of an earlier line.
   duplicateLines?: string[] | null;
+  // The British-English pass (lib/britishSpelling): how many words changed,
+  // and the first few as "from → to".
+  spelling?: { count: number; examples: string[] } | null;
 };
 export type SkillLinesFix = { moved: string[]; removedFromTools: string[]; removedFromCompetencies: string[] };
 
