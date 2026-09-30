@@ -69,6 +69,7 @@ import {
   type LinkPair,
   type ProjectLinkLike,
   type SavedProjectLinks,
+  isLabelOnlyProjectName,
 } from "@/lib/projectLinks";
 import { projectFacts } from "@/lib/evidenceMap";
 import CvUpload from "../CvUpload";
@@ -290,7 +291,8 @@ export default function CustomizePage() {
     const seen = new Set<string>();
     const add = (name: string, own?: readonly ProjectLinkLike[]) => {
       const key = projectKey(name);
-      if (!key || seen.has(key)) return;
+      // "Tech Stack" is a label the extraction once took for a project.
+      if (!key || seen.has(key) || isLabelOnlyProjectName(name)) return;
       seen.add(key);
       rows.push({ key, name: projectCoreName(name), own });
     };

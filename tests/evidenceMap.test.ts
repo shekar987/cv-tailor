@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  projectFacts,
   buildEvidenceMap,
   renderEvidenceBlock,
   graftRules,
@@ -234,4 +235,9 @@ test("a skill named only on the CV's 'Currently learning' line is learning, with
   assert.equal(by["Flink"], "learning");
   assert.equal(by["Docker"], "listed");
   assert.match(renderEvidenceBlock(map), /STILL BEING LEARNT[^\n]*Kubernetes/);
+});
+
+test("projectFacts: a 'Tech Stack' line is never a project (30 Sep audit)", () => {
+  const facts = projectFacts("PROJECTS\nJobhuntz — AI App\n- Built it.\n\nTech Stack — Next.js, TypeScript, Supabase\nLive: https://www.jobhuntz.app", "Ledgerly — Billing\n- Built a pipeline.\n\nTech Stack\nAWS Lambda, SQS");
+  assert.deepEqual(facts.projects.map((p) => p.name), ["Jobhuntz", "Ledgerly"]);
 });

@@ -103,6 +103,16 @@ export function projectCoreName(name: unknown): string {
 }
 
 // The key a saved entry is stored under: the core name, letters and digits.
+// "Tech Stack", "Technologies", "Tools", "Links": a line that only labels
+// what follows, which extraction and the project-line reader both took for a
+// project's title (30 Sep: "Tech Stack" appeared under Project links with
+// the Jobhuntz address). Never a project name.
+const LABEL_ONLY_RE = /^(?:tech(?:nology|nologies)?(?:\s*stack)?|tech\s*stack|technology\s*stack|stack|tools?|tooling|toolkit|links?|skills?|key\s+skills|built\s+with|languages?|frameworks?|libraries|highlights?|overview|summary|details?)$/i;
+export function isLabelOnlyProjectName(name: unknown): boolean {
+  const core = projectCoreName(name).replace(/[:\s]+$/, "").trim();
+  return !!core && LABEL_ONLY_RE.test(core);
+}
+
 export function projectKey(name: unknown): string {
   return projectCoreName(name).toLowerCase().replace(/[^a-z0-9]+/g, "");
 }

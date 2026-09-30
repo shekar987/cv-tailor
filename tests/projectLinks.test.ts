@@ -14,6 +14,7 @@ import {
   linksForProject,
   attachProjectLinks,
   stripLinkText,
+  isLabelOnlyProjectName,
   normalizeProjectLinks,
   repoLabel,
   MAX_SAVED_PROJECTS,
@@ -213,4 +214,9 @@ test("attachProjectLinks: the tech line and original bullets lose their link tex
   assert.equal(p.tech, "React, Firebase");
   assert.deepEqual(p.originalBullets, ["Ride hailing."]);
   assert.deepEqual((p.links as { label: string; text: string }[]).map((l) => `${l.label}: ${l.text}`), ["Live: uber-demo-omega.vercel.app", "GitHub: github.com/shekar987/RideX-app"]);
+});
+
+test("isLabelOnlyProjectName: a label that only introduces what follows is never a project", () => {
+  for (const n of ["Tech Stack", "Tech Stack:", "Technologies", "Stack", "Tools", "Links", "Skills", "Built with", "Tech Stack — Next.js, Supabase"]) assert.equal(isLabelOnlyProjectName(n), true, n);
+  for (const n of ["Jobhuntz", "RideX (personal project)", "Stack Overflow Clone", "Toolshed", "AssetGuard+ | 2025", ""]) assert.equal(isLabelOnlyProjectName(n), false, n);
 });

@@ -22,6 +22,7 @@
 import { matchAtsKeywords } from "./atsMatch.ts";
 import { sectionsOf, distinctiveTokens, namesRequirement, learningText, type ClaimsRegistry, type ClaimLevel, type GraftRule } from "./claims.ts";
 import { parseMasterExperience } from "./bulletIds.ts";
+import { isLabelOnlyProjectName } from "./projectLinks.ts";
 
 export type EvidenceStatus = "experience" | "project" | "listed" | "learning" | "gap";
 export type RequirementKind = "technical" | "domain" | "soft" | "qualification";
@@ -147,6 +148,7 @@ function isProjectHeader(t: string, prevWasHeader: boolean, inBullet: boolean): 
   if (prevWasHeader) return false;
   if (BULLET_RE.test(t) || LINK_RE.test(t) || YEAR_ONLY_RE.test(t) || /[.!?:,;]$/.test(t) || t.length > 140) return false;
   if (/^[a-z(—–-]/.test(t)) return false;
+  if (isLabelOnlyProjectName(t)) return false;
   if (NAME_MARKER_RE.test(t)) return true;
   return !inBullet && t.length <= 40 && !isTechLine(t);
 }
