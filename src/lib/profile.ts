@@ -59,6 +59,47 @@ function strList(value: unknown, maxItems: number, maxEach: number): string[] {
   return value.map((v) => str(v, maxEach)).filter(Boolean).slice(0, maxItems);
 }
 
+// A certification's vendor names and titles as the vendors write them —
+// extraction returned "Aws Certified Ai practitioner" and "Cloud Computing-
+// NPTEL" (30 Sep audit). A small allow-list, never a guess: only the names
+// listed change case, "Practitioner"/"Associate"/"Professional" only after a
+// vendor's own qualifier, and a trailing "- Provider" becomes "(Provider)".
+const CERT_NAMES: [RegExp, string][] = [
+  [/\baws\b/gi, "AWS"],
+  [/\bgcp\b/gi, "GCP"],
+  [/\bnptel\b/gi, "NPTEL"],
+  [/\bibm\b/gi, "IBM"],
+  [/\bcomptia\b/gi, "CompTIA"],
+  [/\bazure\b/gi, "Azure"],
+  [/\bmicrosoft\b/gi, "Microsoft"],
+  [/\bgoogle\b/gi, "Google"],
+  [/\bcisco\b/gi, "Cisco"],
+  [/\bcoursera\b/gi, "Coursera"],
+  [/\budemy\b/gi, "Udemy"],
+  [/\bedx\b/gi, "edX"],
+  [/\bhackerrank\b/gi, "HackerRank"],
+  [/\bleetcode\b/gi, "LeetCode"],
+];
+const CERT_TITLES: [RegExp, string][] = [
+  [/\b(ai|cloud|machine learning|data engineer|developer|solutions architect|sysops administrator|devops engineer)\s+(practitioner|associate|professional|specialty)\b/gi, "$1 $2"],
+];
+const CERT_PROVIDER_TAIL = /\s*[-–—|]\s*\(?(nptel|coursera|udemy|edx|ibm|google|microsoft|aws|linkedin learning)\)?\s*$/i;
+const TITLE_WORDS: Record<string, string> = { ai: "AI", cloud: "Cloud", "machine learning": "Machine Learning", "data engineer": "Data Engineer", developer: "Developer", "solutions architect": "Solutions Architect", "sysops administrator": "SysOps Administrator", "devops engineer": "DevOps Engineer", practitioner: "Practitioner", associate: "Associate", professional: "Professional", specialty: "Specialty" };
+export function normalizeCertification(raw: string): string {
+  let s = raw.trim();
+  if (!s) return s;
+  for (const [re, to] of CERT_NAMES) s = s.replace(re, to);
+  for (const [re] of CERT_TITLES) s = s.replace(re, (_m, a: string, b: string) => `${TITLE_WORDS[a.toLowerCase()] ?? a} ${TITLE_WORDS[b.toLowerCase()] ?? b}`);
+  s = s.replace(/\bcertified\b/gi, "Certified");
+  s = s.replace(CERT_PROVIDER_TAIL, (_m, provider: string) => {
+    let p = provider;
+    for (const [re, to] of CERT_NAMES) p = p.replace(re, to);
+    if (/^linkedin learning$/i.test(p)) p = "LinkedIn Learning";
+    return ` (${p})`;
+  });
+  return s.replace(/\s+/g, " ").trim();
+}
+
 export function normalizeProfile(input: unknown): Profile {
   const p = obj(input);
 
@@ -108,7 +149,7 @@ export function normalizeProfile(input: unknown): Profile {
     github: str(p.github, 300),
     website: str(p.website, 300),
     education,
-    certifications: strList(p.certifications, 30, 300),
+    certifications: strList(p.certifications, 30, 300).map(normalizeCertification),
     projects,
     rightToWork: strList(p.rightToWork, 10, 300),
     extraSections,
