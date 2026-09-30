@@ -84,6 +84,16 @@ export default function FeedbackView({ feedback, questions, roundLabel, onAgain 
           {a.tryInstead && (
             <p className="interviewTry"><strong>Try this instead:</strong> {a.tryInstead}</p>
           )}
+          {(a.tryInsteadFlags ?? []).length > 0 && (
+            <p className="interviewTry" data-try-flags>
+              <span className="prepTrace warn">Not from your CV: rephrase before you say this</span>{" "}
+              {(a.tryInsteadFlags ?? []).map((s, i) => (
+                <span key={i}>
+                  &ldquo;{s}&rdquo;{i < (a.tryInsteadFlags ?? []).length - 1 ? " · " : ""}
+                </span>
+              ))}
+            </p>
+          )}
           {a.cvLine && (
             <p className="interviewCvLine"><strong>From your CV:</strong> {a.cvLine}</p>
           )}

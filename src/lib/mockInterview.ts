@@ -29,6 +29,7 @@ import {
   type StockQuestion,
 } from "./interviewTypes.ts";
 import { makeLineTracer, normalizeEvidenceText } from "./prepPack.ts";
+import { contentOverlap } from "./supportCheck.ts";
 import { wordCount, countFillers, isNoQuestions, isRepeatRequest } from "./speechText.ts";
 
 export type PlannedQuestion = {
@@ -479,6 +480,10 @@ export type AnswerFeedback = {
   checks: Check[];
   metrics: AnswerMetrics;
   tryInstead: string;
+  // The sentences of tryInstead that neither trace to a CV line nor are made
+  // of the CV's words (30 Sep; the same rule as the prep pack's check) — the
+  // view marks them "Not from your CV". Absent on feedback stored before.
+  tryInsteadFlags?: string[];
   cvLine: string;
 };
 export type InterviewFeedback = {
@@ -520,8 +525,15 @@ export function answersByQuestion(plan: InterviewPlan, transcript: TranscriptEnt
   return out;
 }
 
+// The prep pack's rule (lib/prepCheck NOT_IN_CV_OVERLAP): a suggested
+// sentence is not from the CV when no CV line traces it and under half its
+// content words are the CV's.
+const TRY_OVERLAP = 0.5;
+const TRY_MIN_WORDS = 6;
+
 // Model feedback, reconciled: a pass needs a quote found in the answer; the
-// suggested wording keeps only figures the CV has; the CV line must be in it.
+// suggested wording keeps only figures the CV has, and each of its sentences
+// is marked when the CV does not support it; the CV line must be in it.
 export function reconcileFeedback(raw: unknown, plan: InterviewPlan, transcript: TranscriptEntry[], cvText: string, partial = false): InterviewFeedback {
   const byQ = answersByQuestion(plan, transcript);
   const rawList = raw && typeof raw === "object" && Array.isArray((raw as { answers?: unknown }).answers) ? ((raw as { answers: unknown[] }).answers) : [];
@@ -547,10 +559,12 @@ export function reconcileFeedback(raw: unknown, plan: InterviewPlan, transcript:
         return { key, pass, quote: pass ? quote : "" };
       });
     }
-    const tryInstead = str(m.tryInstead, 400)
+    const trySentences = str(m.tryInstead, 400)
       .split(/(?<=[.!?])\s+/)
-      .filter((s) => s && numbersSupported(s, [cvText]))
-      .join(" ");
+      .filter((s) => s && numbersSupported(s, [cvText]));
+    const tryInstead = trySentences.join(" ");
+    const cvLines = cvText.split("\n").filter((l) => l.trim());
+    const tryInsteadFlags = trySentences.filter((s) => s.split(/\s+/).length >= TRY_MIN_WORDS && !inCv(s) && contentOverlap(s, cvLines) < TRY_OVERLAP);
     const cvLine = str(m.cvLine, 300);
     answers.push({
       questionId: q.id,
@@ -560,6 +574,7 @@ export function reconcileFeedback(raw: unknown, plan: InterviewPlan, transcript:
       checks,
       metrics: answerMetrics(given.text, given.seconds, cvText),
       tryInstead,
+      tryInsteadFlags,
       cvLine: cvLine && inCv(cvLine) ? cvLine : "",
     });
   }

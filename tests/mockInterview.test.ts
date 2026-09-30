@@ -237,7 +237,17 @@ test("feedback: a pass needs its quote in the answer; figures the CV lacks are f
   assert.deepEqual(q1.checks.map((c) => [c.key, c.pass]), [["answered", true], ["example", false]]);
   assert.deepEqual(q1.metrics.figuresNotInCv, ["45%"]);
   assert.equal(q1.tryInstead, "Say you cut load time by 20%.");
+  assert.deepEqual(q1.tryInsteadFlags, [], "a suggestion made of the CV's own words is not marked");
   assert.equal(q1.cvLine, "Built REST APIs in FastAPI serving 3,000 users.");
+  // A suggestion the CV does not support is kept but marked (30 Sep).
+  const invented = reconcileFeedback(
+    { answers: [{ id: "q1", tryInstead: "Mention the Kubernetes migration you led for the platform team at Brane. Say you cut load time by 20%." }] },
+    plan,
+    transcript,
+    CV
+  ).answers.find((a) => a.questionId === "q1")!;
+  assert.equal(invented.tryInstead, "Mention the Kubernetes migration you led for the platform team at Brane. Say you cut load time by 20%.");
+  assert.deepEqual(invented.tryInsteadFlags, ["Mention the Kubernetes migration you led for the platform team at Brane."]);
   const rtw = fb.answers.find((a) => a.rubric === "logistics_rtw")!;
   assert.equal(rtw.checks[0].pass, true);
   const salary = fb.answers.find((a) => a.rubric === "logistics_salary")!;
