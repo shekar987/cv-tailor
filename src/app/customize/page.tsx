@@ -1812,7 +1812,7 @@ export default function CustomizePage() {
           summary={prefs.cvLength === "one" ? "One page" : prefs.cvLength === "two" ? "Two pages" : "Automatic — one page early in a career"}
         >
           <p className="cvHelp">
-            Automatic is the default: one page while your stated experience (Eligibility) is {EARLY_CAREER_YEARS} years or
+            Automatic is the default: one page while your stated experience (Eligibility) is {EARLY_CAREER_YEARS}{" "}years or
             under, or the posting is a graduate scheme — an early-career CV on one page is what those reviewers expect —
             and two pages otherwise. On two pages the tailored CV keeps your master CV&apos;s content, and when the
             tailoring leaves a bullet out and there is room, the most relevant ones are put back. On one page the least
