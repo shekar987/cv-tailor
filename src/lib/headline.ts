@@ -122,7 +122,7 @@ export function buildHeadline(input: HeadlineInput): { headline: string; parts: 
     qualification: qualificationLabel(input.education?.[0]),
     skill: topProductionSkill(input.claims, input.requiredSkills, input.keywords) ?? "",
     years: yearsLabel(input.yearsExperience),
-    positioning: typeof input.positioning === "string" ? input.positioning.trim().replace(/s+/g, " ").slice(0, MAX_POSITIONING) : "",
+    positioning: typeof input.positioning === "string" ? input.positioning.trim().replace(/\s+/g, " ").slice(0, MAX_POSITIONING) : "",
   };
   const headline = [parts.qualification, parts.skill, parts.years, parts.positioning].filter(Boolean).join(HEADLINE_SEP);
   return { headline, parts };

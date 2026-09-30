@@ -51,6 +51,8 @@ test("buildHeadline joins only the parts that exist, in UKJI order — the posit
   // No variant picked: the three stated parts, no role word at all.
   const none = buildHeadline({ education: [{ degree: "BSc Computing", dates: "2020 – 2023" }], claims, requiredSkills: ["React"], keywords: [], yearsExperience: 2, positioning: null });
   assert.equal(none.headline, "BSc Computing (2023) · React · 2 years' experience");
+  // Every letter of the variant's headline survives — "Data Scientist" once lost its lowercase s.
+  assert.equal(buildHeadline({ education: [], claims: null, requiredSkills: [], keywords: [], yearsExperience: null, positioning: "Data Scientist   (Python,  statistics)" }).headline, "Data Scientist (Python, statistics)");
   // A picked variant with an empty headline is the same as none.
   assert.equal(buildHeadline({ education: [], claims: null, requiredSkills: [], keywords: [], yearsExperience: null, positioning: "   " }).headline, "");
   // The posting's title is not an input the type accepts — a stray one is ignored.
