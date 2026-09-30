@@ -72,6 +72,8 @@ import {
   isLabelOnlyProjectName,
 } from "@/lib/projectLinks";
 import { projectFacts } from "@/lib/evidenceMap";
+import { taglineRoles } from "@/lib/roleTitle";
+import { classificationDisagrees, CLASS_LABEL } from "@/lib/knockouts";
 import CvUpload from "../CvUpload";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -1082,7 +1084,16 @@ export default function CustomizePage() {
               <p className="cvHelp">Pulled from your CV. Check these are right — they appear in your tailored CV&apos;s header and sections.</p>
               <div className="profileGrid">
                 <label>Name<Input value={profile.name} onChange={(e) => updateProfileField("name", e.target.value)} /></label>
-                <label>Tagline<Input value={profile.tagline} onChange={(e) => updateProfileField("tagline", e.target.value)} /></label>
+                <label>
+                  Tagline
+                  <Input value={profile.tagline} onChange={(e) => updateProfileField("tagline", e.target.value)} />
+                  {taglineRoles(profile.tagline).length >= 2 && (
+                    <span className="fitEvidence" data-warn data-tagline-roles>
+                      This names {taglineRoles(profile.tagline).length} roles ({taglineRoles(profile.tagline).join(" / ")}). A headline naming two roles halves the impact of both —
+                      keep one here, and put the other on a positioning variant below; the tailored CV&apos;s header is built from the variant, never from this line.
+                    </span>
+                  )}
+                </label>
                 <label>Location<Input value={profile.location} onChange={(e) => updateProfileField("location", e.target.value)} /></label>
                 <label>Phone<Input value={profile.phone} onChange={(e) => updateProfileField("phone", e.target.value)} /></label>
                 <label>Email<Input value={profile.email} onChange={(e) => updateProfileField("email", e.target.value)} /></label>
@@ -1427,6 +1438,14 @@ export default function CustomizePage() {
                     <option value="2:2">2:2</option>
                     <option value="other">Other / not on the UK scale</option>
                   </select>
+                  {(() => {
+                    const d = classificationDisagrees(masterCvText, eligibility.degree.classification);
+                    return d ? (
+                      <span className="fitEvidence" data-warn data-class-disagree>
+                        Your CV mentions {d.cv.map((c) => CLASS_LABEL[c]).join(" and ")} but this says {CLASS_LABEL[d.answer]}. Check whichever is wrong — nothing is changed for you.
+                      </span>
+                    ) : null;
+                  })()}
                 </label>
                 <label>
                   Last degree completed (month and year)
