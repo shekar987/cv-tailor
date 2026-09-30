@@ -1,10 +1,10 @@
 // Unit tests for document preferences (Right to Work off the CV by default). node:test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTarget, DEFAULT_PREFERENCES } from "../src/lib/preferences.ts";
+import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTarget, pageTargetFor, EARLY_CAREER_YEARS, DEFAULT_PREFERENCES } from "../src/lib/preferences.ts";
 
 const profile = { name: "Jane", rightToWork: ["Full right to work in the UK", "No sponsorship required"], certifications: ["AWS"] };
-const ON = { version: 1 as const, includeRightToWorkOnCv: true, onePageCv: false, projectLinks: {} };
+const ON = { version: 1 as const, includeRightToWorkOnCv: true, onePageCv: false, cvLength: "auto" as const, projectLinks: {} };
 const ELIG = { rightToWork: { status: "full" as const, countries: ["UK"], permissionEnds: null }, availability: { status: "now" as const, from: null }, canWorkFullTime: "yes" as const };
 const UNSET = { rightToWork: { status: "unknown" as const, countries: [], permissionEnds: null }, availability: { status: "unknown" as const, from: null }, canWorkFullTime: "unknown" as const };
 
@@ -38,12 +38,27 @@ test("profileForDocument: Right to Work is dropped by default and kept only when
 
 test("CV length: two pages unless one page is explicitly chosen", () => {
   assert.equal(DEFAULT_PREFERENCES.onePageCv, false);
-  assert.equal(pageTarget(DEFAULT_PREFERENCES), 2);
+  assert.equal(DEFAULT_PREFERENCES.cvLength, "auto");
+  assert.equal(pageTarget(DEFAULT_PREFERENCES), 2, "nothing known about the candidate: two");
   assert.equal(normalizePreferences({ onePageCv: "yes" }).onePageCv, false);
   assert.equal(normalizePreferences({ onePageCv: true }).onePageCv, true);
+  assert.equal(normalizePreferences({ onePageCv: true }).cvLength, "one", "the old boolean reads as the one-page choice");
+  assert.equal(normalizePreferences({ onePageCv: false }).cvLength, "auto", "a stored false was never a choice");
+  assert.equal(normalizePreferences({ cvLength: "two", onePageCv: true }).cvLength, "two", "the new field wins");
+  assert.equal(normalizePreferences({ cvLength: "two" }).onePageCv, false);
+  assert.equal(normalizePreferences({ cvLength: "big" }).cvLength, "auto");
   assert.equal(pageTarget(normalizePreferences({ onePageCv: true })), 1);
+  // Automatic: one page early in a career, two otherwise; a choice overrides.
+  const auto = normalizePreferences({});
+  assert.equal(pageTargetFor(auto, { yearsExperience: 2 }), 1);
+  assert.equal(pageTargetFor(auto, { yearsExperience: EARLY_CAREER_YEARS }), 1);
+  assert.equal(pageTargetFor(auto, { yearsExperience: EARLY_CAREER_YEARS + 1 }), 2);
+  assert.equal(pageTargetFor(auto, { yearsExperience: null }), 2, "unknown years never forces one page");
+  assert.equal(pageTargetFor(auto, { yearsExperience: 8, graduate: true }), 1, "a graduate scheme is one page whatever the years");
+  assert.equal(pageTargetFor(normalizePreferences({ cvLength: "two" }), { yearsExperience: 1, graduate: true }), 2);
+  assert.equal(pageTargetFor(normalizePreferences({ cvLength: "one" }), { yearsExperience: 10 }), 1);
   // The two switches are independent.
-  assert.deepEqual(normalizePreferences({ includeRightToWorkOnCv: true, onePageCv: true }), { version: 1, includeRightToWorkOnCv: true, onePageCv: true, projectLinks: {} });
+  assert.deepEqual(normalizePreferences({ includeRightToWorkOnCv: true, onePageCv: true }), { version: 1, includeRightToWorkOnCv: true, onePageCv: true, cvLength: "one", projectLinks: {} });
 });
 
 test("rightToWorkForForms is the Eligibility statement, one sentence per line, empty until answered", () => {

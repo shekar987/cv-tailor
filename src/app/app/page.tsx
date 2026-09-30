@@ -28,7 +28,7 @@ import type { SupportReport } from "@/lib/supportCheck";
 import type { RightToWorkReport } from "@/lib/rightToWorkText";
 import type { HeaderLock, ChronologyReport } from "@/lib/bulletIds";
 import { normalizeVariants, pickVariant, leadSkillsNotice, type VariantsConfig, type LeadSkillDrop } from "@/lib/variants";
-import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTarget, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
+import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTargetFor, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import { attachProjectLinks, linksForProject, projectKey } from "@/lib/projectLinks";
 import type { SkillLinesFix } from "@/lib/formatRules";
 import type { SeniorityFit } from "@/lib/seniority";
@@ -1517,7 +1517,9 @@ export default function Home() {
   // bullets with no evidence, filler words. Never blocks; it says what to fix.
   // 2 by default, 1 when the user chose a one-page CV (Customize) — the page
   // target the estimate, the preview and the downloads all use.
-  const onePageTarget: 1 | 2 = pageTarget(preferences);
+  // The user's choice, else one page early in a career (the stated years,
+  // or a graduate scheme) — the same resolution the tailor route made.
+  const onePageTarget: 1 | 2 = pageTargetFor(preferences, { yearsExperience: eligibility?.yearsExperience ?? null, graduate: graduateRun });
   const quality: QualityReport | null = useMemo(() => {
     if (liveQuality) return liveQuality;
     if (!result) return null;

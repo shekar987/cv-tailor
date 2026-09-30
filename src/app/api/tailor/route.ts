@@ -7,7 +7,8 @@ import { chooseFallback, openRouterLimitMessage, fallbackExhaustedMessage, type 
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
 import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
-import { normalizePreferences } from "@/lib/preferences";
+import { normalizePreferences, pageTargetFor, type CvLength } from "@/lib/preferences";
+import { isGraduateScheme } from "@/lib/graduateMode";
 import {
   stripRightToWorkSentences,
   stripRightToWorkLines,
@@ -127,11 +128,12 @@ async function runPipeline(opts: {
   // the bullets or the letter — the models write from the master CV text,
   // which states it, so the finished text is filtered deterministically.
   omitRightToWork: boolean;
-  // The user's one-page choice (Preferences.onePageCv): the prompts get a
-  // one-page budget and lib/onePage trims the finished text to one page.
-  // Otherwise (the default) the text is fitted to two pages. Both measure
+  // The user's CV-length choice (Preferences.cvLength): one page → the
+  // prompts get a one-page budget and lib/onePage trims the finished text to
+  // one page; two pages → fitted to two; "auto" → decided below from the
+  // stated years and whether the posting is a graduate scheme. Both measure
   // with the document profile below.
-  onePage: boolean;
+  cvLength: CvLength;
   profile: unknown;
   // The user's Eligibility answers (lib/knockouts): the stated years for the
   // header line, and the one source of every right-to-work and availability
@@ -162,7 +164,7 @@ async function runPipeline(opts: {
   // CV's own positioning.
   variant?: Variant | null;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, onePage, profile, eligibility } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, cvLength, profile, eligibility } = opts;
   const yearsExperience = eligibility.yearsExperience;
   // Fast mode on OpenRouter: free models take 30–50 s per call, so the four
   // optional polish retries (title, bullet lint, claims rewrite, letter
@@ -212,6 +214,9 @@ async function runPipeline(opts: {
 
   // The posting's title, as the summary must state it (lib/roleTitle).
   const roleTitle = coreTitle(analysis && typeof analysis === "object" ? (analysis as Record<string, unknown>).role_title : "");
+  // The CV's length (lib/preferences pageTargetFor): the user's choice, else
+  // one page early in a career — the stated years, or a graduate scheme.
+  const onePage = pageTargetFor({ cvLength }, { yearsExperience, graduate: isGraduateScheme((analysis as Record<string, unknown> | null)?.role_title, jd) }) === 1;
 
   // Requirement → evidence (lib/evidenceMap): for every requirement the
   // posting names, where the master CV shows it — paid work, a personal
@@ -924,8 +929,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Eligibility profile is too large." }, { status: 400 });
     }
     const eligibility = normalizeEligibility(body.eligibility);
-    // The CV's length: two pages unless the user chose one (Customize).
-    const onePage = preferences.onePageCv;
     if (body.profile !== undefined && JSON.stringify(body.profile).length > MAX_CV_CHARS) {
       return NextResponse.json({ error: "Profile is too large." }, { status: 400 });
     }
@@ -974,7 +977,7 @@ export async function POST(req: NextRequest) {
         claims: bodyClaims,
         variant: bodyVariant,
         omitRightToWork: !preferences.includeRightToWorkOnCv,
-        onePage,
+        cvLength: preferences.cvLength,
         profile: bodyProfile,
         eligibility,
     };

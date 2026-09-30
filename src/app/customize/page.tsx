@@ -58,7 +58,7 @@ import {
   productionLeadSkills,
   leadSkillsNotice,
 } from "@/lib/variants";
-import { normalizePreferences, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
+import { normalizePreferences, DEFAULT_PREFERENCES, type Preferences, EARLY_CAREER_YEARS, type CvLength } from "@/lib/preferences";
 import {
   autoProjectLinks,
   cleanUrl,
@@ -357,13 +357,15 @@ export default function CustomizePage() {
       next ? "Saved — Right to Work will appear on the CV document." : "Saved — Right to Work stays off the CV document."
     );
   }
-  function setCvLength(onePageCv: boolean) {
+  function setCvLength(cvLength: CvLength) {
     void updatePrefs(
-      { onePageCv },
+      { cvLength, onePageCv: cvLength === "one" },
       "length",
-      onePageCv
+      cvLength === "one"
         ? "Saved — every CV you tailor from now on is fitted to one page."
-        : "Saved — every CV you tailor from now on is fitted to two pages."
+        : cvLength === "two"
+          ? "Saved — every CV you tailor from now on is fitted to two pages."
+          : `Saved — one page while your stated experience is ${EARLY_CAREER_YEARS} years or under, or the posting is a graduate scheme; two pages otherwise.`
     );
   }
   function setLinkDraft(key: string, base: LinkPair, patch: Partial<LinkPair>) {
@@ -1807,13 +1809,14 @@ export default function CustomizePage() {
           title="CV length"
           open={openSections.has("cv-length")}
           onToggle={toggleSection}
-          summary={prefs.onePageCv ? "One page" : "Two pages"}
+          summary={prefs.cvLength === "one" ? "One page" : prefs.cvLength === "two" ? "Two pages" : "Automatic — one page early in a career"}
         >
           <p className="cvHelp">
-            Two pages is the default: the tailored CV keeps your master CV&apos;s content, and when the tailoring
-            leaves a bullet out and there is room, the most relevant ones are put back so both pages are used. Choose
-            one page only for a posting that asks for it — the least relevant bullets are then left out, and the
-            results page lists every one.
+            Automatic is the default: one page while your stated experience (Eligibility) is {EARLY_CAREER_YEARS} years or
+            under, or the posting is a graduate scheme — an early-career CV on one page is what those reviewers expect —
+            and two pages otherwise. On two pages the tailored CV keeps your master CV&apos;s content, and when the
+            tailoring leaves a bullet out and there is room, the most relevant ones are put back. On one page the least
+            relevant bullets are left out, and the results page lists every one. Choose a length yourself to override.
           </p>
           {prefsColumnMissing && (
             <p className="fitEvidence">
@@ -1823,12 +1826,16 @@ export default function CustomizePage() {
           )}
           <div className="eligChecks" role="radiogroup" aria-label="CV length">
             <label className="eligCheck">
-              <input type="radio" name="cvLength" checked={!prefs.onePageCv} onChange={() => setCvLength(false)} data-pref-length="2" />
-              Two pages — fill both with your strongest real content (recommended)
+              <input type="radio" name="cvLength" checked={prefs.cvLength === "auto"} onChange={() => setCvLength("auto")} data-pref-length="auto" />
+              Automatic — one page early in a career, two pages otherwise (recommended)
             </label>
             <label className="eligCheck">
-              <input type="radio" name="cvLength" checked={prefs.onePageCv} onChange={() => setCvLength(true)} data-pref-length="1" />
+              <input type="radio" name="cvLength" checked={prefs.cvLength === "one"} onChange={() => setCvLength("one")} data-pref-length="1" />
               One page — trim the least relevant bullets to fit
+            </label>
+            <label className="eligCheck">
+              <input type="radio" name="cvLength" checked={prefs.cvLength === "two"} onChange={() => setCvLength("two")} data-pref-length="2" />
+              Two pages — fill both with your strongest real content
             </label>
           </div>
           {prefsMsgAt === "length" && prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
