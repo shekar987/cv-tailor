@@ -31,6 +31,26 @@ export type PrepQuestion = {
 
 export type PrepSources = { jd: boolean; tailoredCv: boolean; research: boolean; talkingPoints: boolean };
 
+// The sentence-level check (lib/prepCheck, 30 Sep): a sentence about the
+// candidate the CV does not support is kept and flagged; a company claim the
+// job description and research do not state is removed and flagged. Stored
+// on the pack, normalised on every read like the rest of it.
+export const PREP_FLAG_FIELDS = ["situation", "task", "action", "result", "point", "whyYou", "headline", "opener", "questionToAsk", "whyTheyAsk"] as const;
+export type PrepFlagField = (typeof PREP_FLAG_FIELDS)[number];
+export const PREP_FLAG_REASONS = ["not_in_cv", "figure", "jd_copy", "narration", "company_fact"] as const;
+export type PrepFlagReason = (typeof PREP_FLAG_REASONS)[number];
+export type PrepFlag = {
+  questionId: string | null;
+  field: PrepFlagField;
+  index: number;
+  sentence: string;
+  reason: PrepFlagReason;
+  detail: string;
+  action: "kept" | "removed";
+};
+export type PrepCheckSummary = { version: 1; sentences: number; flagged: number; removed: number; companySources: ("jd" | "research")[]; terms: number };
+export const MAX_PREP_FLAGS = 80;
+
 export type PrepPack = {
   version: typeof PREP_PACK_VERSION;
   generatedAt: string;
@@ -45,6 +65,9 @@ export type PrepPack = {
   questionsToAsk: string[];
   opener: string;
   sources: PrepSources;
+  // Empty and null for a pack generated before the check existed.
+  flags: PrepFlag[];
+  check: PrepCheckSummary | null;
 };
 
 export type PrepMeta = { company: string; role: string; generatedAt: string; sources: PrepSources };
@@ -202,7 +225,36 @@ export function normalizePrepPack(raw: unknown, meta: PrepMeta): PrepPack | null
     questionsToAsk: strList(r.questionsToAsk, MAX_LIST, MAX_SHORT),
     opener: str(r.opener, MAX_OPENER),
     sources: meta.sources,
+    flags: normalizeFlags(r.flags, questions),
+    check: normalizeCheck(r.check),
   };
+}
+
+function normalizeFlags(v: unknown, questions: PrepQuestion[]): PrepFlag[] {
+  if (!Array.isArray(v)) return [];
+  const ids = new Set(questions.map((q) => q.id));
+  const out: PrepFlag[] = [];
+  for (const item of v) {
+    if (out.length >= MAX_PREP_FLAGS) break;
+    const o = obj(item);
+    const questionId = typeof o.questionId === "string" && ids.has(o.questionId) ? o.questionId : o.questionId === null || o.questionId === undefined ? null : undefined;
+    if (questionId === undefined) continue;
+    const field = (PREP_FLAG_FIELDS as readonly string[]).includes(String(o.field)) ? (o.field as PrepFlagField) : null;
+    const reason = (PREP_FLAG_REASONS as readonly string[]).includes(String(o.reason)) ? (o.reason as PrepFlagReason) : null;
+    const sentence = str(o.sentence, MAX_STAR_FIELD);
+    if (!field || !reason || !sentence) continue;
+    const index = typeof o.index === "number" && Number.isInteger(o.index) && o.index >= 0 ? Math.min(o.index, 50) : 0;
+    out.push({ questionId, field, index, sentence, reason, detail: str(o.detail, MAX_SHORT), action: o.action === "removed" ? "removed" : "kept" });
+  }
+  return out;
+}
+
+function normalizeCheck(v: unknown): PrepCheckSummary | null {
+  const o = obj(v);
+  if (o.version !== 1) return null;
+  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) && x >= 0 ? Math.min(Math.round(x), 10_000) : 0);
+  const companySources = Array.isArray(o.companySources) ? o.companySources.filter((x): x is "jd" | "research" => x === "jd" || x === "research") : [];
+  return { version: 1, sentences: n(o.sentences), flagged: n(o.flagged), removed: n(o.removed), companySources, terms: n(o.terms) };
 }
 
 // Deterministic honesty check. An evidence line is "verified" when it is found
