@@ -62,3 +62,18 @@ export function titleAsIdentity(title: unknown, heldTitles: string[]): boolean {
   const key = titleKey(core);
   return heldTitles.some((h) => titleKey(coreTitle(h)) === key);
 }
+
+// The roles a saved tagline names ("Full Stack Engineer | AI Engineer" is
+// two): the segments split on a pipe, slash or dot separator that carry a
+// role noun. Customize warns on two or more — one positioning per CV (the
+// positioning variants exist for the rest); the tailored header is built
+// from the variant's headline, never the tagline (lib/headline).
+const ROLE_NOUN_RE =
+  /\b(?:engineer|developer|programmer|scientist|analyst|architect|designer|manager|consultant|specialist|administrator|researcher|lead|intern|technician|tester|devops|sre|founder|director|officer|coordinator|strategist|writer|marketer)\b/i;
+export function taglineRoles(tagline: unknown): string[] {
+  if (typeof tagline !== "string") return [];
+  return tagline
+    .split(/\s*(?:\||\/|·|•|—|–|;)\s*/)
+    .map((s) => s.trim())
+    .filter((s) => s && ROLE_NOUN_RE.test(s) && s.split(/\s+/).length <= 6);
+}

@@ -1,7 +1,7 @@
 // Unit tests: the exact role title must appear in the professional summary. node:test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { coreTitle, titleInText, titleAsIdentity } from "../src/lib/roleTitle.ts";
+import { coreTitle, titleInText, titleAsIdentity, taglineRoles } from "../src/lib/roleTitle.ts";
 
 test("coreTitle strips qualifiers and keeps the title itself", () => {
   assert.equal(coreTitle("Software Engineer (AI/Backend)"), "Software Engineer");
@@ -41,4 +41,13 @@ test("titleAsIdentity: a plain software title or one the candidate held opens th
   assert.equal(titleAsIdentity("Senior Software Engineer", held), false, "never claims seniority");
   assert.equal(titleAsIdentity("Lead Full Stack Engineer", held), false);
   assert.equal(titleAsIdentity("", held), false);
+});
+
+test("taglineRoles: the roles a tagline names, so Customize can warn on two", () => {
+  assert.deepEqual(taglineRoles("Full Stack Engineer | AI Engineer"), ["Full Stack Engineer", "AI Engineer"]);
+  assert.deepEqual(taglineRoles("Backend Developer / Data Scientist"), ["Backend Developer", "Data Scientist"]);
+  assert.deepEqual(taglineRoles("Backend Engineer"), ["Backend Engineer"]);
+  assert.deepEqual(taglineRoles("MSc Computer Science (in progress) · Python · 2 years' experience · Backend engineer"), ["Backend engineer"], "a headline's other parts are not roles");
+  assert.deepEqual(taglineRoles(""), []);
+  assert.deepEqual(taglineRoles(42), []);
 });
