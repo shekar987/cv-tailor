@@ -517,6 +517,23 @@ Output ONLY a JSON object (no fences), exactly this shape:
   "opener": "..."
 }`;
 
+// "Use only CV facts" on a prep pack (lib/prepCheck): the flagged sentences
+// of one question, the angle or the opener, each rewritten from the master
+// CV alone. Every replacement is checked again on its own; one that still
+// fails, or an empty one, removes the sentence.
+export const prepRewritePrompt = (cv: string) => `You rewrite sentences from a candidate's interview prep so that each says only what the candidate's own master CV states.
+
+${ABSOLUTE_RULES}
+
+MASTER CV (the only source of truth about the candidate):
+${cv}
+
+You will receive JSON: { "items": [{ "id", "field", "sentence", "problem" }] }. Each sentence was flagged by a deterministic check for the reason in "problem": a figure the CV does not state, a technology the posting asks for that the CV never shows, wording that grades the candidate or narrates relevance, or a claim no line of the CV supports.
+
+For each item return "text": the sentence rewritten to say only what the master CV states about the same work — same employer or project, same figures, first person where the original was first person, at most 40 words — or "" when nothing true is left. Never add a figure, a technology or an outcome the CV lacks; never move a fact between employers or projects; no template text; British English.
+
+Output ONLY JSON: {"rewrites":[{"id":"f1","text":"…"},{"id":"f2","text":""}]}`;
+
 // ── Mock interview (lib/mockInterview decides everything these don't) ──────
 
 // Rule 3's "no follow-up questions" is about asking the operator for
