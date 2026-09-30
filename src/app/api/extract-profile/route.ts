@@ -6,6 +6,7 @@ import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { PROFILE_EXTRACTION_PROMPT } from "@/prompts/steps";
 import { MAX_CV_CHARS, CV_TOO_LONG } from "@/lib/limits";
 import { normalizeProfile } from "@/lib/profile";
+import { restoreProjectQualifiers } from "@/lib/extractionCheck";
 import { normalizeSkillGuesses } from "@/lib/claims";
 
 export const maxDuration = 300;
@@ -67,11 +68,16 @@ export async function POST(req: NextRequest) {
     // Valid JSON is not the same as the right shape: coerce every field to
     // what the preview and download routes assume before it is stored.
     const profile = normalizeProfile(raw);
+    // A project title's bracketed qualifier the model dropped ("(personal
+    // portfolio project modelled on a real-world brief)") comes back from
+    // the CV's own line (lib/extractionCheck); reported for the page.
+    const qualifiers = restoreProjectQualifiers(cvText, profile.projects.map((p) => p.name));
+    profile.projects = profile.projects.map((p, i) => ({ ...p, name: qualifiers.names[i] }));
     // The claims-registry seed: the model's read of each skill's level from
     // where the CV shows it used. The client seeds/merges the registry with
     // it; the CV's own "currently studying" framing still overrides there.
     const skills = normalizeSkillGuesses((raw as { skills?: unknown } | null)?.skills);
-    return NextResponse.json({ profile, skills });
+    return NextResponse.json({ profile, skills, qualifiersRestored: qualifiers.restored });
   } catch (error) {
     if (error instanceof ProviderCreditError) {
       console.error("Provider credit exhausted:", error.provider);

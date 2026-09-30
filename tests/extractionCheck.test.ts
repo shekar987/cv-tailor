@@ -1,7 +1,7 @@
 // Unit tests for the extraction shortfall check (Brief 3, Bug C). node:test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { expectedCounts, extractionFlags, mergeProfileEdits } from "../src/lib/extractionCheck.ts";
+import { expectedCounts, extractionFlags, mergeProfileEdits, restoreProjectQualifiers } from "../src/lib/extractionCheck.ts";
 
 const CV = `JANE DOE
 Backend Engineer
@@ -60,4 +60,39 @@ test("mergeProfileEdits keeps the user's current contact fields over a fresh ext
   const fresh = { name: "JANE DOE", tagline: "Backend Engineer", email: "", projects: [{ name: "new" }] };
   assert.deepEqual(mergeProfileEdits(current, fresh), { name: "Jane Doe (edited)", tagline: "Backend Engineer", email: "jane@example.com", projects: [{ name: "new" }] });
   assert.equal(mergeProfileEdits(null, fresh), fresh);
+});
+
+// ── restoreProjectQualifiers (30 Sep audit) ──────────────────────────────────
+
+const QCV = `JANE DOE
+
+EXPERIENCE
+Backend Engineer | Acme | 2022 – Present
+- Built things.
+
+PROJECTS
+AssetGuard+ (personal portfolio project modelled on a real-world brief) — Next.js, Supabase
+- Built a gap-analysis dashboard.
+Widget Tracker (React, Node.js) | 2024
+- Tracks widgets.
+RideX (a ride-hailing demo built for a university module)
+- Ride hailing.
+`;
+
+test("restoreProjectQualifiers: the CV line's bracketed qualifier comes back; a stack list or a bracket already there does not", () => {
+  const r = restoreProjectQualifiers(QCV, ["AssetGuard+", "Widget Tracker", "RideX | 2025", "AssetGuard+ (personal portfolio project modelled on a real-world brief)", "Unknown Project"]);
+  assert.deepEqual(r.names, [
+    "AssetGuard+ (personal portfolio project modelled on a real-world brief)",
+    "Widget Tracker",
+    "RideX (a ride-hailing demo built for a university module) | 2025",
+    "AssetGuard+ (personal portfolio project modelled on a real-world brief)",
+    "Unknown Project",
+  ]);
+  assert.deepEqual(r.restored, [
+    { from: "AssetGuard+", to: "AssetGuard+ (personal portfolio project modelled on a real-world brief)" },
+    { from: "RideX | 2025", to: "RideX (a ride-hailing demo built for a university module) | 2025" },
+  ]);
+  // No Projects heading (a project pool): every line is read.
+  assert.equal(restoreProjectQualifiers("Ledgerly (a billing side project for freelancers)\n- Built a billing pipeline.", ["Ledgerly"]).names[0], "Ledgerly (a billing side project for freelancers)");
+  assert.deepEqual(restoreProjectQualifiers("", ["RideX"]).names, ["RideX"]);
 });

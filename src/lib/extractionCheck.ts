@@ -146,3 +146,43 @@ export function mergeProfileEdits<T extends Record<string, unknown>>(current: T 
   }
   return out as T;
 }
+
+// ── Project title qualifiers ─────────────────────────────────────────────────
+// A project title's bracketed qualifier is part of the title, as the CV
+// writes it: "AssetGuard+ (personal portfolio project modelled on a
+// real-world brief)". Extraction returned the bare name on some runs (30 Sep
+// audit), and so did a pool selection. For each name, the first line under
+// the Projects heading (else anywhere in the text) that starts with the
+// name and continues with a bracketed phrase of three or more words that is
+// not a stack list gives the name that phrase back. A trailing " | date"
+// (the stored shape) is kept; a name that already carries a bracket is
+// left alone; nothing is invented.
+const QUALIFIER_RE = /^\s*\(([^()]{3,160})\)/;
+const foldTitle = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+
+export function restoreProjectQualifiers(text: string, names: string[]): { names: string[]; restored: { from: string; to: string }[] } {
+  const section = sectionLines(text).projects;
+  const lines = (section && section.length > 0 ? section : (text || "").split(/\r?\n/)).map((l) => l.trim()).filter(Boolean);
+  const restored: { from: string; to: string }[] = [];
+  const out = names.map((name) => {
+    const m = /^(.*?)\s*\|\s*([^|]*)$/.exec(name);
+    const core = (m ? m[1] : name).trim();
+    const date = m ? m[2].trim() : "";
+    if (!core || core.includes("(")) return name;
+    const key = foldTitle(core);
+    for (const line of lines) {
+      const folded = foldTitle(line);
+      if (!folded.startsWith(key)) continue;
+      const rest = line.slice(line.length - (folded.length - key.length));
+      const q = QUALIFIER_RE.exec(rest);
+      if (!q) continue;
+      const qualifier = q[1].replace(/\s+/g, " ").trim();
+      if (qualifier.split(" ").length < 3 || TECH_LIST_RE.test(qualifier)) continue;
+      const next = date ? `${core} (${qualifier}) | ${date}` : `${core} (${qualifier})`;
+      restored.push({ from: name, to: next });
+      return next;
+    }
+    return name;
+  });
+  return { names: out, restored };
+}

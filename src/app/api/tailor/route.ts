@@ -299,7 +299,7 @@ async function runPipeline(opts: {
   // index so every downstream consumer (ATS scoring, renderers, downloads) sees
   // the exact same shape as the normal path. A failed/empty selection degrades
   // to {} — the client then falls back to the master-CV projects.
-  const selectedProjects = projectsPool ? normalizeSelectedProjects(projects) : [];
+  const selectedProjects = projectsPool ? normalizeSelectedProjects(projects, projectsPool) : [];
   const projectsOut = projectsPool ? projectsFromSelected(selectedProjects) : projects;
 
   // The model mirrors a bullet-less master CV with plain achievement lines —
@@ -360,7 +360,7 @@ async function runPipeline(opts: {
       }
     }
     if (draftLint.projects.length > 0) {
-      const candidateSelected = projectsPool ? normalizeSelectedProjects(projectsRetry) : [];
+      const candidateSelected = projectsPool ? normalizeSelectedProjects(projectsRetry, projectsPool) : [];
       const candidateProjects: unknown = projectsPool ? projectsFromSelected(candidateSelected) : projectsRetry;
       const nonEmpty = !!candidateProjects && typeof candidateProjects === "object" && Object.keys(candidateProjects as object).length > 0;
       if (nonEmpty && lintBullets({ projects: candidateProjects }, company).projects.length < draftLint.projects.length) {
