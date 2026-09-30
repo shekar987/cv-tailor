@@ -140,7 +140,8 @@ export function normalizePlan(raw: unknown, type: InterviewType, ctx: PlanContex
     const o = item as Record<string, unknown>;
     const text = cleanQuestion(o.text);
     if (!text || LOGISTICS_TOPIC_RE.test(text) || taken(text)) continue;
-    const rubric = typeof o.rubric === "string" && (RUBRICS as readonly string[]).includes(o.rubric) && !isLogistics(o.rubric as Rubric) ? (o.rubric as Rubric) : round.modelRubric;
+    const rubric = typeof o.rubric === "string" && (RUBRICS as readonly string[]).includes(o.rubric) ? (o.rubric as Rubric) : round.modelRubric;
+    if (!round.modelRubrics.includes(rubric)) continue;
     const anchor = str(o.cvAnchor, 300);
     chosen.push({
       text,
@@ -298,7 +299,7 @@ export function normalizeTurnOutput(raw: unknown): TurnModelOut | null {
 }
 
 // A real UK interviewer doesn't grade an answer out loud.
-const PRAISE_RE = /\b(?:great|excellent|impressive|fantastic|brilliant|perfect|amazing|wonderful|awesome|outstanding|superb|terrific|love (?:that|this|it)|well done|nice one|spot on|good answer|strong answer)\b/i;
+const PRAISE_RE = /\b(?:great|excellent|impressive|fantastic|brilliant|perfect|amazing|wonderful|awesome|outstanding|superb|terrific|solid|love (?:that|this|it)|well done|nice one|spot on|good answer|strong (?:answer|experience|background|example))\b/i;
 export function scrubPraise(text: string): string {
   const kept = str(text, 400)
     .split(/(?<=[.!?])\s+/)
@@ -309,12 +310,20 @@ export function scrubPraise(text: string): string {
 // The reaction only acknowledges: a question inside it would be a second,
 // unchecked probe on top of the next question (the live run on 30 Sep said
 // "And how did the front-end work feed back…? Are you currently eligible…?").
+// And only its first sentence: the live competency run recapped every answer
+// ("So you've got solid full-stack experience…"), which reads as grading.
 export function neutralReaction(text: string): string {
-  return scrubPraise(text)
+  const first = scrubPraise(text)
     .split(/(?<=[.!?])\s+/)
-    .filter((s) => s && !s.includes("?"))
-    .join(" ")
-    .trim();
+    .find((s) => s && !s.includes("?"));
+  return first && wordCount(first) <= 12 ? first.trim() : "";
+}
+
+// One question per follow-up: the live run asked "What trade-offs did you
+// make…? And how did you know it was safe to ship?".
+export function firstQuestion(text: string): string {
+  const i = text.indexOf("?");
+  return i === -1 ? text.trim() : text.slice(0, i + 1).trim();
 }
 
 function digitsIn(text: string): string[] {
@@ -406,8 +415,9 @@ export function decideTurn(
   }
 
   const nearCap = state.answers + 1 >= MAX_ANSWERS - MAX_CANDIDATE_QUESTIONS;
-  if (model?.move === "probe" && !state.probed && !isLogistics(q.rubric) && !nearCap && usableLine(model.probe, sources, true)) {
-    const line = join(reaction, model.probe);
+  const probe = model ? firstQuestion(model.probe) : "";
+  if (model?.move === "probe" && !state.probed && !isLogistics(q.rubric) && !nearCap && usableLine(probe, sources, true)) {
+    const line = join(reaction, probe);
     return { entries: [candidate("answer"), say("probe", line, q.id)], reply: { kind: "probe", say: line, question: q, upcoming: null, done: false } };
   }
 

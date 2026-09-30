@@ -59,6 +59,9 @@ export type RoundTemplate = {
   // Questions the model writes for this round (the fixed ones are added).
   modelQuestions: number;
   modelRubric: Rubric;
+  // The kinds of question this round asks; a model question of another kind
+  // is dropped (a live competency plan came back with technical questions).
+  modelRubrics: Rubric[];
   // Tells the plan prompt what to ask in this round.
   guidance: string;
   // How a real interviewer in this round probes an answer.
@@ -96,6 +99,7 @@ export const ROUNDS: Record<InterviewType, RoundTemplate> = {
     minutes: 15,
     modelQuestions: 2,
     modelRubric: "motivation",
+    modelRubrics: ["motivation", "background"],
     guidance:
       "Write 2 questions a recruiter asks on a first call: one on why this role and this company appeal to the candidate, and one asking them to connect a specific part of the CV they sent to the job's main requirement. Friendly, brisk, practical.",
     probeStyle: "Light and clarifying: ask for one specific detail when an answer stays general.",
@@ -122,6 +126,7 @@ export const ROUNDS: Record<InterviewType, RoundTemplate> = {
     minutes: 30,
     modelQuestions: 4,
     modelRubric: "star",
+    modelRubrics: ["star"],
     guidance:
       "Pick the 4 behaviours this job needs most (from its requirements and responsibilities: e.g. delivering to deadlines, problem solving, working with others, communicating technical work, adapting to change, taking ownership) and write one competency question for each, opening \"Tell me about a time when…\" or \"Can you give me an example of…\". Formal and structured, as in a UK HR panel.",
     probeStyle: "Structured STAR probing: what did you do yourself, what was the result, what would you do differently.",
@@ -146,6 +151,7 @@ export const ROUNDS: Record<InterviewType, RoundTemplate> = {
     minutes: 20,
     modelQuestions: 6,
     modelRubric: "strength",
+    modelRubrics: ["strength"],
     guidance:
       "Write 6 short strengths-based questions as UK graduate schemes ask them (\"What kind of tasks give you the most energy?\", \"Do you prefer starting things or finishing them?\"), tuned to this role's day-to-day work. Quick, upbeat, one idea each. No \"Tell me about a time\" questions.",
     probeStyle: "Quick and curious: ask why they enjoy it, or for one moment they felt that way.",
@@ -171,6 +177,7 @@ export const ROUNDS: Record<InterviewType, RoundTemplate> = {
     minutes: 35,
     modelQuestions: 4,
     modelRubric: "technical",
+    modelRubrics: ["technical"],
     guidance:
       "Write 4 technical discussion questions an engineer asks out loud: one on a technology the job needs that the CV they sent shows, one design or trade-off question grounded in the job's product, one debugging or incident scenario, and one on testing or code quality. Answerable in speech, no coding on a whiteboard.",
     probeStyle: "Collegial and curious: how would that scale, what alternatives did you consider, what would you change.",
@@ -194,6 +201,7 @@ export const ROUNDS: Record<InterviewType, RoundTemplate> = {
     minutes: 30,
     modelQuestions: 4,
     modelRubric: "star",
+    modelRubrics: ["star", "motivation"],
     guidance:
       "Write 4 questions a hiring manager asks about ways of working, each tied to this job's responsibilities: prioritising competing work, taking ownership of a problem, working with product/design/stakeholders, and handling feedback or a mistake. Direct and practical.",
     probeStyle: "Direct: ask for an example, what they learned, or how they'd handle it here.",
@@ -217,6 +225,7 @@ export const ROUNDS: Record<InterviewType, RoundTemplate> = {
     minutes: 25,
     modelQuestions: 3,
     modelRubric: "motivation",
+    modelRubrics: ["motivation", "star"],
     guidance:
       "Write 3 questions a senior leader asks in a final round: one on how the candidate's values fit the company's (use the company research when present), one on long-term goals and how this role fits them, and one on how they'd approach their first ninety days in this job. Calm, big-picture.",
     probeStyle: "Calm and probing on motivation: why that matters to you, what it would look like here.",

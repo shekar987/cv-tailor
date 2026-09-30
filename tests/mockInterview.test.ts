@@ -14,6 +14,7 @@ import {
   normalizeTurnOutput,
   scrubPraise,
   neutralReaction,
+  firstQuestion,
   reconcileFeedback,
   readout,
   answerMetrics,
@@ -137,6 +138,26 @@ test("turn: a question inside the reaction is dropped, so each turn asks one que
   const r = decideTurn(plan, transcript, "At Brane Group I built the APIs myself.", model({ reaction: "Right, thanks. And how did that go?", move: "next" }), turnCtx);
   assert.equal(r.reply.say, `Right, thanks. ${plan.questions[1].text}`);
   assert.ok(!/how did that go/.test(r.reply.say), "the smuggled question is gone");
+});
+
+test("live competency run (30 Sep): wrong-kind questions dropped, one-question probes, reactions that don't recap", () => {
+  const raw = {
+    questions: [
+      { text: "Tell me about a time when you had to balance shipping quickly with quality. How did you manage that?", rubric: "star" },
+      { text: "Can you walk me through how you'd build a frontend that streams an LLM response?", rubric: "technical" },
+      { text: "How would you approach owning the CI/CD for a service you'd built?", rubric: "technical" },
+    ],
+  };
+  const { plan, fromModel } = normalizePlan(raw, "competency", ctx);
+  assert.equal(fromModel, 1);
+  assert.ok(plan.questions.every((q) => q.rubric === "star" || q.fixed), "a competency round asks only STAR questions");
+  assert.ok(!plan.questions.some((q) => /streams an LLM|CI\/CD/.test(q.text)));
+  assert.equal(firstQuestion("What trade-offs did you make to hit that deadline? And how did you know it was safe to ship?"), "What trade-offs did you make to hit that deadline?");
+  assert.equal(neutralReaction("Thanks, that's helpful. So you've got solid full-stack experience and you're currently on placement."), "Thanks, that's helpful.");
+  assert.equal(neutralReaction("That's solid experience."), "");
+  const transcript = openingEntries(plan);
+  const r = decideTurn(plan, transcript, "I built the API at Brane Group.", model({ reaction: "Right, thanks. So you built the back-end API yourself.", move: "probe", probe: "What trade-offs did you make? And how did you know it was safe to ship?" }), turnCtx);
+  assert.equal(r.reply.say, "Right, thanks. What trade-offs did you make?");
 });
 
 test("turn: a follow-up with an invented figure or an unlawful topic is refused; a failed model still advances", () => {
