@@ -5,6 +5,7 @@ import DownloadButton from "./DownloadButton";
 import { saveBlob } from "@/lib/saveBlob";
 import { pastePlainText } from "@/lib/pastePlainText";
 import StatusText from "@/components/ui/StatusText";
+import Badge from "@/components/ui/Badge";
 
 // What a parent can read back through the ref: the letter as it stands in
 // the editable DOM (the Applied button snapshots it into the tracker).
@@ -14,6 +15,17 @@ export type CoverLetterPreviewHandle = {
   getRoot: () => HTMLDivElement | null;
 };
 
+// The fact check of the summary and letter did not run (lib/supportCheck
+// `skipped`): the page holds the download until the user confirms they have
+// read every sentence, and this is what the letter shows them — why, and
+// every sentence that stands with no verified line of the CV behind it.
+export type LetterAttestation = {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  unverified: string[];
+  note: string;
+};
+
 type Props = {
   coverLetter: string;
   fileBaseName?: string;
@@ -21,12 +33,16 @@ type Props = {
   // stored letter already carries the date it was sent as its first line, so
   // the tracker renders it without a second one.
   withDateLine?: boolean;
-  // Downloads held shut by the page while the claims check is blocking.
+  // Downloads held shut by the page while the claims check is blocking, the
+  // JD box no longer holds this run's posting, or the letter is unattested.
   downloadsDisabled?: boolean;
+  // Why, as a sentence beside the button (CvPreview shows its own the same way).
+  downloadsDisabledReason?: string;
+  attestation?: LetterAttestation | null;
 };
 
 const CoverLetterPreview = forwardRef<CoverLetterPreviewHandle, Props>(function CoverLetterPreview(
-  { coverLetter, fileBaseName = "CoverLetter", withDateLine = true, downloadsDisabled = false },
+  { coverLetter, fileBaseName = "CoverLetter", withDateLine = true, downloadsDisabled = false, downloadsDisabledReason, attestation = null },
   handleRef
 ) {
   const ref = useRef<HTMLDivElement>(null);
@@ -128,9 +144,36 @@ const CoverLetterPreview = forwardRef<CoverLetterPreviewHandle, Props>(function 
   return (
     <div className="clWrap">
       <div className="cvActions">
-        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason="Fix the flagged claims first" />
+        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason={downloadsDisabledReason || "Fix the flagged claims first"} />
+        {downloadsDisabled && downloadsDisabledReason && (
+          <StatusText as="span" role="alert" data-download-blocked-reason>
+            {downloadsDisabledReason}
+          </StatusText>
+        )}
       </div>
       {docErr && <StatusText role="alert">{docErr}</StatusText>}
+      {attestation && (
+        <div className="limitNotice" role="alert" data-letter-attest>
+          <div className="limitNotice__title">This letter was not fact-checked</div>
+          <div className="limitNotice__body">
+            <p className="fitEvidence">{attestation.note} Read every sentence against what your CV really says before you send it.</p>
+            {attestation.unverified.length > 0 && (
+              <ul className="atsList" data-letter-unverified>
+                {attestation.unverified.map((s, i) => (
+                  <li key={i}>
+                    <Badge variant="dot" tone="miss">?</Badge>
+                    <span>&ldquo;{s}&rdquo;</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <label className="eligCheck">
+              <input type="checkbox" checked={attestation.checked} onChange={(e) => attestation.onChange(e.target.checked)} data-letter-attest-check />
+              I&apos;ve read every sentence of this letter and it&apos;s true
+            </label>
+          </div>
+        </div>
+      )}
       <p className="editHint">Click any text to edit your cover letter. Changes are included when you download.</p>
       <div className="clDoc" ref={ref} contentEditable suppressContentEditableWarning spellCheck={false} onPaste={pastePlainText}>
         {withDateLine && <p className="clLine">{todayLine}</p>}

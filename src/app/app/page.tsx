@@ -243,6 +243,21 @@ const FIX_HOW_LABEL: Record<RepairChange["how"], string> = {
   reordered: "reordered",
 };
 const clip = (t: string, n = 160) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
+// The JD box no longer holds this run's posting: both downloads and Applied
+// are held shut with this reason.
+const STALE_REASON = "The job description changed since this CV was tailored — restore it or clear the result.";
+// Why the summary/letter fact check did not run (lib/supportCheck `skipped`).
+function supportSkippedText(r: SupportReport): string {
+  if (r.skipped === "fast") return "This result was tailored before the fact check ran on free models, so the summary and letter were never checked against your master CV.";
+  if (r.reason === "time") return "The run had no time left for the fact check (free models are slow), so the summary and letter were not checked against your master CV.";
+  return "The fact check of the summary and letter gave no usable answer, so they were not checked against your master CV.";
+}
+// What the fact check did on this run, for the fast-mode notice.
+function fastCheckText(r: SupportReport | null | undefined): string {
+  if (!r) return "";
+  if (r.skipped) return "The fact check of the summary and letter did not run — the cover letter's download is held until you confirm you have read it.";
+  return `The fact check read ${r.checked} sentence${r.checked === 1 ? "" : "s"} of the summary and letter against your master CV.`;
+}
 
 // ── Stage 3: company research (the /api/research payload, typed loosely — the
 // server owns the shape; the UI renders what's present and skips what isn't).
@@ -437,6 +452,9 @@ export default function Home() {
   // persisted with the workspace. The tracker keys "Applied" saves on it, so
   // clicking twice (even across a reload) can't create two rows.
   const [tailorSessionId, setTailorSessionId] = useState<string | null>(null);
+  // The run whose unchecked letter the user has confirmed reading (its
+  // session id): a new run, or a loaded result, starts unattested.
+  const [attestedFor, setAttestedFor] = useState<string | null>(null);
   const [appliedState, setAppliedState] = useState<AppliedState>("idle");
   const [appliedError, setAppliedError] = useState("");
   // Saved, but the API had something to tell us (e.g. no CV snapshot column yet).
@@ -875,6 +893,17 @@ export default function Home() {
     if (n) return `${n.figure} isn't on your master CV: "${n.sentence.length > 100 ? `${n.sentence.slice(0, 99)}…` : n.sentence}". ${FREE_FIX}`;
     return undefined;
   })();
+
+  // The letter's fact check did not run (the call failed or ran out of time,
+  // or this result predates the check running on free models): its download
+  // is held until the user confirms they have read every sentence, once per
+  // run. The CV's downloads are not held for this — the CV's own text is
+  // selected from the master bullets and checked by the claims check.
+  const letterUnchecked = !!result?.coverLetter && !!result.supportCheck?.skipped;
+  const letterAttested = attestedFor === (tailorSessionId ?? "run");
+  const letterBlocked = blocked || staleRun || (letterUnchecked && !letterAttested);
+  const letterReason: string | undefined =
+    downloadReason ?? (staleRun ? STALE_REASON : undefined) ?? (letterUnchecked && !letterAttested ? "The fact check did not run on this letter — read every sentence and tick the box to confirm it is true." : undefined);
 
   // Something "Fix it" can act on: a skill claimed above its level, or a
   // figure absent from the master CV (context warnings never block).
@@ -2444,15 +2473,35 @@ export default function Home() {
                 )}
               </div>
             )}
-            {result.supportCheck && result.supportCheck.changed.length > 0 && (
-              <div className="limitNotice" role="status" data-support-check>
-                <div className="limitNotice__title">Checked against your master CV</div>
+            {result.supportCheck && (result.supportCheck.changed.length > 0 || result.supportCheck.skipped || result.supportCheck.unverified.length > 0) && (
+              <div className="limitNotice" role="status" data-support-check data-support-skipped={result.supportCheck.skipped || undefined}>
+                <div className="limitNotice__title">{result.supportCheck.skipped ? "The fact check did not run" : "Checked against your master CV"}</div>
                 <div className="limitNotice__body">
-                  <p className="fitEvidence">
-                    Every sentence about your past in the summary and the letter was checked against your master CV.{" "}
-                    {result.supportCheck.changed.length === 1 ? "One said" : `${result.supportCheck.changed.length} said`}{" "}
-                    something it doesn&apos;t show:
-                  </p>
+                  {result.supportCheck.skipped ? (
+                    <p className="fitEvidence">
+                      {supportSkippedText(result.supportCheck)} The deterministic checks still ran
+                      {result.supportCheck.changed.length > 0 ? " and changed the sentences below" : ""}. The cover letter&apos;s download is held until you confirm you have read it; the
+                      unchecked sentences are listed beside the letter.
+                    </p>
+                  ) : (
+                    <p className="fitEvidence">
+                      Every sentence about your past in the summary and the letter was checked against your master CV.{" "}
+                      {result.supportCheck.changed.length === 0 ? "" : result.supportCheck.changed.length === 1 ? "One said" : `${result.supportCheck.changed.length} said`}
+                      {result.supportCheck.changed.length > 0 ? " something it doesn't show:" : ""}
+                    </p>
+                  )}
+                  {!result.supportCheck.skipped && result.supportCheck.unverified.length > 0 && (
+                    <p className="fitEvidence" data-support-unverified>
+                      {result.supportCheck.unverified.length === 1 ? "One sentence" : `${result.supportCheck.unverified.length} sentences`}
+                      {" "}the check could not trace to a line of your CV — read {result.supportCheck.unverified.length === 1 ? "it" : "them"} yourself before sending:{" "}
+                      {result.supportCheck.unverified.map((s, i) => (
+                        <span key={i} className="changesView__diff">
+                          &ldquo;{clip(s)}&rdquo;{i < result.supportCheck!.unverified.length - 1 ? " · " : ""}
+                        </span>
+                      ))}
+                    </p>
+                  )}
+                  {result.supportCheck.changed.length > 0 && (
                   <ul className="atsList">
                     {result.supportCheck.changed.map((c, i) => (
                       <li key={i} data-support-change={c.action}>
@@ -2464,6 +2513,7 @@ export default function Home() {
                       </li>
                     ))}
                   </ul>
+                  )}
                 </div>
               </div>
             )}
@@ -2538,9 +2588,16 @@ export default function Home() {
             {result.fallback && (
               <div className="limitNotice" role="status" data-fallback-notice>
                 <div className="limitNotice__title">Ran on OpenRouter</div>
+                <div className="limitNotice__body">{fallbackNotice(result.fallback)}</div>
+              </div>
+            )}
+            {result.fastMode && (
+              <div className="limitNotice" role="status" data-fast-mode-notice>
+                <div className="limitNotice__title">What ran on the free model</div>
                 <div className="limitNotice__body">
-                  {fallbackNotice(result.fallback)}
-                  {result.fastMode && " Free models are slow, so the automatic polish retries were skipped; every honesty check still ran — fix anything flagged in the preview."}
+                  Free models are slow, so the four polish retries were skipped: the role-title retry, the bullet-lint retry, the claims rewrite and the letter&apos;s name rewrite (a
+                  sentence naming a place or product your sources don&apos;t was removed instead). Every deterministic check ran.{" "}
+                  {fastCheckText(result.supportCheck)}
                 </div>
               </div>
             )}
@@ -2868,7 +2925,7 @@ export default function Home() {
                 profile={displayProfile}
                 rightToWorkForForms={rtwForForms}
                 targetPages={onePageTarget}
-                downloadsDisabledReason={downloadReason ?? (staleRun ? "The job description changed since this CV was tailored — restore it or clear the result." : undefined)}
+                downloadsDisabledReason={downloadReason ?? (staleRun ? STALE_REASON : undefined)}
                 sectionOrder={runSectionOrder}
                 fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}
                 downloadsDisabled={blocked || staleRun}
@@ -2930,7 +2987,18 @@ export default function Home() {
                     ref={coverRef}
                     coverLetter={result.coverLetter}
                     fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CoverLetter")}
-                    downloadsDisabled={blocked || staleRun}
+                    downloadsDisabled={letterBlocked}
+                    downloadsDisabledReason={letterReason}
+                    attestation={
+                      letterUnchecked && result.supportCheck
+                        ? {
+                            checked: letterAttested,
+                            onChange: (v) => setAttestedFor(v ? (tailorSessionId ?? "run") : null),
+                            unverified: result.supportCheck.unverified,
+                            note: supportSkippedText(result.supportCheck),
+                          }
+                        : null
+                    }
                   />
                 </>
               )}
