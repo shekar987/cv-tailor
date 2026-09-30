@@ -1543,7 +1543,9 @@ export default function Home() {
       (quality.weakBullets.length > 0 ? 1 : 0) +
       (quality.inflation.length > 0 ? 1 : 0) +
       (quality.boltOns.length > 0 ? 1 : 0) +
-      (quality.placeholders.length > 0 ? 1 : 0)
+      (quality.placeholders.length > 0 ? 1 : 0) +
+      (quality.longBullets.length > 0 ? 1 : 0) +
+      (quality.repeats.length > 0 ? 1 : 0)
     : 0;
 
   // Focus leaving a preview re-reads both notices when either has something
@@ -2760,6 +2762,26 @@ export default function Home() {
                         <span>
                           About <strong>{quality.pages.pages} pages</strong> — over the one page you chose on Customize.{" "}
                           Cut the least relevant bullets and projects in the preview below, or switch the CV length back to two pages.
+                        </span>
+                      </li>
+                    )}
+                    {quality.longBullets.length > 0 && (
+                      <li data-quality-long={quality.longBullets.length}>
+                        <Badge variant="dot" tone="rec">?</Badge>
+                        <span>
+                          {quality.longBullets.length === 1 ? "One bullet runs" : `${quality.longBullets.length} bullets run`} past two printed lines:{" "}
+                          <strong>{clip(quality.longBullets[0], 90)}</strong>
+                          {quality.longBullets.length > 1 ? " and more" : ""}. Cut words, never facts.
+                        </span>
+                      </li>
+                    )}
+                    {quality.repeats.length > 0 && (
+                      <li data-quality-repeats={quality.repeats.length}>
+                        <Badge variant="dot" tone="rec">?</Badge>
+                        <span>
+                          {quality.repeats.length === 1 ? "One bullet repeats" : `${quality.repeats.length} bullets repeat`} a word:{" "}
+                          <strong>{quality.repeats[0].word}</strong> in &ldquo;{clip(quality.repeats[0].bullet, 80)}&rdquo;
+                          {quality.repeats.length > 1 ? " and more" : ""}. Say it once.
                         </span>
                       </li>
                     )}

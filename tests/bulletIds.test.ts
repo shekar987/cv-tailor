@@ -261,3 +261,18 @@ test("sortRolesByDate: a current role first, then by end month; undated roles ke
   const tie = sortRolesByDate("A | X | Jan 2020 – Jun 2021\n• a.\n\nB | Y | Mar 2021 – Jun 2021\n• b.");
   assert.match(tie.experience, /^B \| Y/);
 });
+
+test("reconcileExperience: an edit that adds a repeated word or a third printed line reverts to the master bullet", () => {
+  const roles = parseMasterExperience(master);
+  // "Cut frontend load time by 20% with code splitting." edited to repeat "splitting".
+  const repeat = reconcileExperience("Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• [R1.3] Cut frontend load time by 20% with splitting splitting.", roles);
+  assert.equal(repeat.changes!.roles[0].bullets[0].status, "reverted");
+  assert.match(repeat.experience, /Cut frontend load time by 20% with code splitting\./);
+  // A two-word edit that pushes the bullet past two printed lines.
+  const pad = "x".repeat(150);
+  const long = reconcileExperience(`Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• [R1.3] Cut frontend load time by 20% with code ${pad}.`, roles);
+  assert.equal(long.changes!.roles[0].bullets[0].status, "reverted");
+  // A clean two-word edit still stands.
+  const fine = reconcileExperience("Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• [R1.3] Cut front-end load time by 20% with code splitting.", roles);
+  assert.equal(fine.changes!.roles[0].bullets[0].status, "edited");
+});

@@ -35,7 +35,7 @@ export const DENSITIES: Density[] = [
 export const PAGE_HEIGHT = 16838; // A4 height in twips
 const BODY_LINE = 250;            // rendered height of one 10.5pt line
 const HEADING_LINE = 290;         // section headings are 12pt + a rule
-const CHARS_PER_LINE = 95;        // ~10.5pt Calibri across the usable measure
+import { CHARS_PER_LINE } from "./bulletShape.ts"; // ~10.5pt Calibri across the usable measure — one figure for the estimate and the bullet rules
 // The default target. A user who chose a one-page CV (Preferences.onePageCv)
 // gets a ONE-page target instead (lib/onePage trims the content, and the
 // downloads lay it out to one page).

@@ -16,6 +16,7 @@ import {
   countFlags,
   trimBoltOn,
 } from "../src/lib/quality.ts";
+import { bulletLines, isTooLong, repeatedStem, fillerTwice, stemWord, CHARS_PER_LINE, MAX_BULLET_LINES } from "../src/lib/bulletShape.ts";
 
 const profile = {
   tagline: "Backend Engineer",
@@ -190,4 +191,44 @@ test("a placeholder is a bullet flag and a report item", () => {
   const r = qualityReport({ summary: "Backend engineer with [N] years of Python.", skills: "Python", experience: role("Engineer", ["Cut p95 latency by 40%."]), projects: {} }, profile, "Dear [Hiring Manager],");
   assert.deepEqual(r.placeholders, ["[N]", "[Hiring Manager]"]);
   assert.deepEqual(qualityReport({ experience: role("Engineer", ["Cut p95 latency by 40%."]) }, profile).placeholders, []);
+});
+
+// ── Bullet shape rules (30 Sep audit, Phase 2) ───────────────────────────────
+
+test("bulletLines and isTooLong: the estimate's line width, bold markers and the bullet glyph ignored", () => {
+  assert.equal(CHARS_PER_LINE, 95);
+  assert.equal(MAX_BULLET_LINES, 2);
+  assert.equal(bulletLines("• **Built** a thing."), 1);
+  assert.equal(bulletLines("x".repeat(95)), 1);
+  assert.equal(bulletLines("x".repeat(96)), 2);
+  assert.equal(isTooLong("x".repeat(190)), false);
+  assert.equal(isTooLong("x".repeat(191)), true);
+  assert.equal(bulletLines(""), 0);
+});
+
+test("repeatedStem: a word or its stem used twice in one bullet; short technical nouns never", () => {
+  assert.equal(repeatedStem("Architected and layered the service using a layered architecture."), "layered");
+  assert.equal(repeatedStem("Architected the service with a clean architecture."), "Architected / architecture".toLowerCase());
+  assert.equal(repeatedStem("Optimised the pipeline through query optimisation."), "optimised / optimisation");
+  assert.equal(repeatedStem("Built REST APIs in FastAPI and documented the APIs."), null, "'apis' is too short to count");
+  assert.equal(repeatedStem("Wrote 90+ Jest tests covering the checkout flow."), null);
+  assert.equal(repeatedStem("Cut page load time by 20% with code splitting."), null);
+  assert.equal(stemWord("layered"), "layer");
+  assert.equal(stemWord("architecture"), "architect");
+  assert.equal(stemWord("tests"), "tests", "a stem shorter than five letters is left whole");
+});
+
+test("fillerTwice and the lint: a filler word twice is its own reason; a generated bullet is held to length and repetition, a master-selected one is not", () => {
+  assert.equal(fillerTwice("Built a robust, robust service."), "robust");
+  assert.equal(fillerTwice("Built a robust service."), null);
+  const long = `Built ${Array.from({ length: 30 }, (_, i) => `piece${i + 10}`).join(" ")} for 3,000 users.`;
+  const lint = lintBullets({ experience: `Engineer | Acme | 2020 – 2021\n• ${long}\n• Architected and layered the service using a layered architecture.`, projects: { "0": [long, "Architected and layered the service using a layered architecture.", "Built a robust, robust service."] } }, "Acme");
+  assert.deepEqual(lint.experience, [], "a master bullet's length or repetition is the user's own text");
+  assert.equal(lint.projects.length, 3);
+  assert.match(lint.projects[0].reasons[0], /printed lines/);
+  assert.match(lint.projects[1].reasons[0], /repeats a word \(layered\)/);
+  assert.match(lint.projects[2].reasons[0], /filler: robust \(twice in one bullet\)/);
+  const report = qualityReport({ summary: "", skills: "", experience: `Engineer | Acme | 2020 – 2021\n• ${long}`, projects: { "0": ["Architected and layered the service using a layered architecture."] } }, profile);
+  assert.equal(report.longBullets.length, 1);
+  assert.deepEqual(report.repeats, [{ bullet: "Architected and layered the service using a layered architecture.", word: "layered" }]);
 });

@@ -15,6 +15,7 @@ import { DENSITIES, PAGE_HEIGHT, TARGET_PAGES, wrappedLines, chooseDensity, esti
 import { extractFigures } from "./claims.ts";
 import { linksText } from "./projectLinks.ts";
 import { placeholderHits } from "./placeholders.ts";
+import { inflationHits, isTooLong, bulletLines, repeatedStem, MAX_BULLET_LINES } from "./bulletShape.ts";
 
 export type ProfileLike = {
   tagline?: string;
@@ -254,19 +255,28 @@ export function relevanceBoltOns(experience: unknown, projects?: unknown, compan
 export type BulletFlag = { bullet: string; reasons: string[] };
 export type BulletLint = { experience: BulletFlag[]; projects: BulletFlag[] };
 
-function flagBullet(bullet: string, company?: string): BulletFlag | null {
+// `generated`: a project bullet the model wrote (the shape rules of
+// lib/bulletShape apply in full); an experience bullet is one of the master
+// CV's own, so only what the edit could have added is flagged — a bolt-on,
+// filler, template text — and the length and repetition rules are enforced
+// where the edit is judged (lib/bulletIds reconcileExperience).
+function flagBullet(bullet: string, company?: string, generated = false): BulletFlag | null {
   const reasons: string[] = [];
   if (isRelevanceBoltOn(bullet, company)) reasons.push("ends with a clause narrating its relevance to the employer — state what was built, how, and the result, then stop");
-  for (const h of inflationHits(bullet)) reasons.push(`filler: ${h.word}`);
+  for (const h of inflationHits(bullet)) reasons.push(h.count >= 2 ? `filler: ${h.word} (twice in one bullet)` : `filler: ${h.word}`);
   for (const p of placeholderHits(bullet)) reasons.push(`placeholder "${p}" — never template text; state the result without a figure when the master CV gives none`);
+  if (generated) {
+    if (isTooLong(bullet)) reasons.push(`runs to ${bulletLines(bullet)} printed lines — at most ${MAX_BULLET_LINES}; cut words, never facts`);
+    const rep = repeatedStem(bullet);
+    if (rep) reasons.push(`repeats a word (${rep}) — say it once`);
+  }
   return reasons.length ? { bullet, reasons } : null;
 }
 
 export function lintBullets(sections: { experience?: unknown; projects?: unknown }, company?: string): BulletLint {
-  const flag = (b: string) => flagBullet(b, company);
   return {
-    experience: bulletsOf(str(sections.experience)).map(flag).filter((f): f is BulletFlag => f !== null),
-    projects: projectBullets(sections.projects).map(flag).filter((f): f is BulletFlag => f !== null),
+    experience: bulletsOf(str(sections.experience)).map((b) => flagBullet(b, company)).filter((f): f is BulletFlag => f !== null),
+    projects: projectBullets(sections.projects).map((b) => flagBullet(b, company, true)).filter((f): f is BulletFlag => f !== null),
   };
 }
 
@@ -276,28 +286,9 @@ export function countFlags(lint: BulletLint): number {
 
 // ── Inflation ────────────────────────────────────────────────────────────────
 
-export const INFLATION_WORDS = [
-  "expert", "cutting-edge", "world-class", "best-in-class", "state-of-the-art", "innovative", "dynamic", "passionate",
-  "results-driven", "seamless", "seamlessly", "robust", "leveraging", "leverage", "leveraged", "synergy", "synergies",
-  "guru", "ninja", "rockstar", "highly skilled", "proven track record", "go-getter", "self-starter", "thought leader",
-  "production-grade", "mission-critical", "at scale", "end-to-end", "hands-on", "game-changing", "disruptive",
-  // The words recruiters now read as machine-written (the owner's ATS brief,
-  // 29 Sep). "driven" alone is left out: "event-driven" and "data-driven"
-  // are real engineering terms.
-  "spearheaded", "spearheading", "pioneered", "pioneering", "revolutionised", "revolutionized", "transformative",
-  "synergised", "synergized", "fostered", "fostering", "delved", "delve", "testament", "highly motivated",
-  "strategic thinker", "excellent communication skills",
-];
-const INFLATION_RE = new RegExp(`\\b(?:${INFLATION_WORDS.map((w) => w.replace(/[-/]/g, "[-\\s]?")).join("|")})\\b`, "gi");
-
-export function inflationHits(text: unknown): { word: string; count: number }[] {
-  const counts = new Map<string, number>();
-  for (const m of str(text).matchAll(INFLATION_RE)) {
-    const w = m[0].toLowerCase().replace(/\s+/g, "-");
-    counts.set(w, (counts.get(w) ?? 0) + 1);
-  }
-  return [...counts.entries()].map(([word, count]) => ({ word, count })).sort((a, b) => b.count - a.count || a.word.localeCompare(b.word));
-}
+// The list and the counter live in lib/bulletShape (import-free) since
+// 30 Sep, shared with lib/bulletIds; re-exported here for every caller.
+export { INFLATION_WORDS, inflationHits } from "./bulletShape.ts";
 
 // ── Ordering signature (for the evaluation harness) ──────────────────────────
 
@@ -337,6 +328,10 @@ export type QualityReport = {
   boltOns: string[];
   // Template text left in any section ("by X%", "[NUMBER]", "TBC").
   placeholders: string[];
+  // Bullets over MAX_BULLET_LINES printed lines, and bullets that repeat a
+  // word stem (lib/bulletShape) — the shape rules the prompts state.
+  longBullets: string[];
+  repeats: { bullet: string; word: string }[];
 };
 
 export function qualityReport(sections: Sections, profile: ProfileLike, coverLetter?: unknown, company?: string, targetPages: number = TARGET_PAGES): QualityReport {
@@ -348,5 +343,10 @@ export function qualityReport(sections: Sections, profile: ProfileLike, coverLet
     inflation: inflationHits(prose),
     boltOns: relevanceBoltOns(sections.experience, sections.projects, company),
     placeholders: placeholderHits([prose, str(sections.skills)].join("\n")),
+    longBullets: [...bulletsOf(str(sections.experience)), ...projectBullets(sections.projects)].filter(isTooLong),
+    repeats: [...bulletsOf(str(sections.experience)), ...projectBullets(sections.projects)].flatMap((b) => {
+      const word = repeatedStem(b);
+      return word ? [{ bullet: b, word }] : [];
+    }),
   };
 }

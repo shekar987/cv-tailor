@@ -10,7 +10,8 @@
 // show "Changes vs master CV": kept, edited (from → to), reverted, dropped,
 // and anything that matches no master bullet at all.
 //
-// Import-free, so it runs under node:test.
+// Imports only ./bulletShape.ts (import-free), so it runs under node:test.
+import { isTooLong, repeatedStem } from "./bulletShape.ts";
 
 export const MAX_SUBSTITUTIONS = 2;
 
@@ -244,7 +245,10 @@ export function reconcileExperience(output: string, roles: MasterRole[]): { expe
     const r = roleOf(master.role);
     const sub = substitutions(master.text, text);
     let status: BulletStatus = sub.changed === 0 ? "kept" : "edited";
-    if (sub.changed > MAX_SUBSTITUTIONS) {
+    // Over the substitution limit, or an edit that breaks a shape rule the
+    // master bullet kept — a third printed line, a repeated word ("layered …
+    // layered architecture", 30 Sep) — reverts to the master wording.
+    if (sub.changed > MAX_SUBSTITUTIONS || (sub.changed > 0 && ((isTooLong(text) && !isTooLong(master.text)) || (repeatedStem(text) !== null && repeatedStem(master.text) === null)))) {
       text = master.text;
       status = "reverted";
     }

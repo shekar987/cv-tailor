@@ -86,7 +86,7 @@ export function parseExperienceShape(cvText: string): ExperienceShape | null {
   return { roleCount: counts.length, bulletsPerRole: counts, totalBullets };
 }
 
-const SHARED_RULES = `- Keep every bullet to a maximum of two printed lines (roughly 200 characters).
+const SHARED_RULES = `- Keep every bullet to a maximum of two printed lines (190 characters).
 - Trim ONLY by deleting whole bullets. Never merge two achievements into one sentence, never combine metrics, and never drop a qualifier that a claim depends on — that would state something the master CV does not support.
 - Never drop a whole role, and never change any employer, title, or date.`;
 
