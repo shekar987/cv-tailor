@@ -50,6 +50,24 @@ export const NOT_IN_CV_OVERLAP = 0.5;
 const MIN_WORDS = 6;
 const MAX_SENTENCE = 400;
 
+// A claim about the candidate's past, as opposed to advice ("For PostgreSQL:
+// add indexes on WHERE clauses"), an approach ("On your systems, I'd start
+// by…") or intent ("I'm excited about applying…"): a STAR field always is;
+// a point, the angle or the opener only when it speaks in the first person,
+// not conditionally and not as intent. Measured over the owner's stored
+// packs before this rule, 39 of 110 sentences were flagged and most were
+// technical approach points — the prompt asks for exactly those.
+// The angle speaks to the candidate ("You were selected for…"), so the
+// second person is the candidate's voice there too.
+const FIRST_PERSON_CLAIM_RE = /\b(?:I|I've|I’ve|I have|I'm|I’m|I am|I was|I led|my|we|we've|we’ve|our|you|you've|you’ve|you have|you were|you are|you're|you’re|your)\b/i;
+const CONDITIONAL_RE = /\b(?:I'd|I’d|I would|I will|I'll|I’ll|I could|I might|I can|we'd|we’d|we would|we could|you'd|you’d|you could)\b/i;
+const INTENT_RE = /\b(?:excited|keen|eager|looking forward|interested in|would love|hope to|hoping|want to|aim to|plan to)\b/i;
+export type PrepSentenceKind = "star" | "prose";
+export function claimLike(sentence: string, kind: PrepSentenceKind): boolean {
+  if (kind === "star") return true;
+  return FIRST_PERSON_CLAIM_RE.test(sentence) && !CONDITIONAL_RE.test(sentence) && !INTENT_RE.test(sentence);
+}
+
 const STRATEGY_RE =
   /^(?:I would|I'd|I’d|I will|I'll|I’ll|You could|You can|You might|You should|Ask (?:about|for|them|how|what|whether)|Acknowledge|Approach|Be (?:ready|honest|clear)|Say|Explain|Frame|Mention|Emphasi[sz]e|Lead with|Show|Offer|Prepare|Expect|Point (?:out|to)|Tie|Keep|Avoid|Don't|Do not|If |When )\b/i;
 
@@ -62,8 +80,16 @@ export function prepSentences(text: string): string[] {
 
 const sourceText = (ctx: PrepCheckContext) => [ctx.cv, ctx.pool ?? ""].filter(Boolean).join("\n");
 
-// Why a sentence about the candidate is not from the CV — or null.
-export function candidateSentenceFlag(sentence: string, ctx: PrepCheckContext): { reason: PrepFlagReason; detail: string } | null {
+// Why a sentence about the candidate is not from the CV — or null. `kind`
+// says whether it is a STAR field (always a claim about the past) or prose
+// (a point, the angle, the opener — a claim only when it reads as one);
+// `narration` is off for the angle, whose job is to say why the match holds.
+export function candidateSentenceFlag(
+  sentence: string,
+  ctx: PrepCheckContext,
+  opts: { kind?: PrepSentenceKind; narration?: boolean } = {}
+): { reason: PrepFlagReason; detail: string } | null {
+  const kind = opts.kind ?? "star";
   const s = sentence.trim();
   if (!s || STRATEGY_RE.test(s)) return null;
   const sources = [ctx.cv, ctx.pool];
@@ -72,10 +98,13 @@ export function candidateSentenceFlag(sentence: string, ctx: PrepCheckContext): 
   if (absent) return { reason: "figure", detail: `${absent.figure} is not a figure your CV states` };
   const moved = figures.find((f) => f.kind === "context_mismatch");
   if (moved) return { reason: "figure", detail: `${moved.figure} is on your CV for different work` };
-  const copied = jdCopyHits(s, "summary", ctx.copyTerms);
+  // A STAR field is about the past whatever its grammar; prose claims the
+  // requirement only when the candidate says they did or know it.
+  const copied = jdCopyHits(s, kind === "star" ? "summary" : "coverLetter", ctx.copyTerms);
   if (copied.length > 0) return { reason: "jd_copy", detail: `claims ${copied.join(", ")} — the posting asks for it, your CV never shows it` };
-  const narration = narrationProblem(s);
+  const narration = opts.narration === false ? null : narrationProblem(s);
   if (narration) return { reason: "narration", detail: "grades you or narrates relevance instead of stating a fact" };
+  if (!claimLike(s, kind)) return null;
   if (s.split(/\s+/).length < MIN_WORDS) return null;
   const tracer = makeLineTracer(sourceText(ctx));
   if (tracer(s)) return null;
@@ -118,22 +147,22 @@ export function prepCopyTerms(ats: unknown, knownGaps: string[], stack: string[]
 
 // ── The pack ─────────────────────────────────────────────────────────────────
 
-type Field = { questionId: string | null; field: PrepFlagField; index: number; text: string; candidate: boolean; company: boolean };
+type Field = { questionId: string | null; field: PrepFlagField; index: number; text: string; candidate: boolean; company: boolean; kind: PrepSentenceKind; narration: boolean };
 
 function fieldsOf(pack: PrepPack): Field[] {
   const out: Field[] = [];
-  out.push({ questionId: null, field: "headline", index: 0, text: pack.angle.headline, candidate: true, company: true });
-  pack.angle.whyYou.forEach((t, i) => out.push({ questionId: null, field: "whyYou", index: i, text: t, candidate: true, company: true }));
-  out.push({ questionId: null, field: "opener", index: 0, text: pack.opener, candidate: true, company: true });
-  pack.questionsToAsk.forEach((t, i) => out.push({ questionId: null, field: "questionToAsk", index: i, text: t, candidate: false, company: true }));
+  out.push({ questionId: null, field: "headline", index: 0, text: pack.angle.headline, candidate: true, company: true, kind: "prose", narration: false });
+  pack.angle.whyYou.forEach((t, i) => out.push({ questionId: null, field: "whyYou", index: i, text: t, candidate: true, company: true, kind: "prose", narration: false }));
+  out.push({ questionId: null, field: "opener", index: 0, text: pack.opener, candidate: true, company: true, kind: "prose", narration: true });
+  pack.questionsToAsk.forEach((t, i) => out.push({ questionId: null, field: "questionToAsk", index: i, text: t, candidate: false, company: true, kind: "prose", narration: false }));
   for (const q of pack.questions) {
     if (q.category === "gap") continue;
     const company = q.category === "company";
     if (q.star) {
-      for (const field of ["situation", "task", "action", "result"] as const) out.push({ questionId: q.id, field, index: 0, text: q.star[field], candidate: true, company: false });
+      for (const field of ["situation", "task", "action", "result"] as const) out.push({ questionId: q.id, field, index: 0, text: q.star[field], candidate: true, company: false, kind: "star", narration: true });
     }
-    q.points.forEach((t, i) => out.push({ questionId: q.id, field: "point", index: i, text: t, candidate: true, company }));
-    if (company) out.push({ questionId: q.id, field: "whyTheyAsk", index: 0, text: q.whyTheyAsk, candidate: false, company: true });
+    q.points.forEach((t, i) => out.push({ questionId: q.id, field: "point", index: i, text: t, candidate: true, company, kind: "prose", narration: true }));
+    if (company) out.push({ questionId: q.id, field: "whyTheyAsk", index: 0, text: q.whyTheyAsk, candidate: false, company: true, kind: "prose", narration: false });
   }
   return out;
 }
@@ -188,7 +217,7 @@ export function checkPrepPack(input: PrepPack, ctx: PrepCheckContext): PrepPack 
         }
       }
       if (f.candidate) {
-        const flag = candidateSentenceFlag(s, ctx);
+        const flag = candidateSentenceFlag(s, ctx, { kind: f.kind, narration: f.narration });
         if (flag) flags.push({ questionId: f.questionId, field: f.field, index: f.index, sentence: s.slice(0, MAX_SENTENCE), reason: flag.reason, detail: flag.detail, action: "kept" });
       }
     }
@@ -254,7 +283,11 @@ export function applyPrepRewrites(input: PrepPack, target: PrepRewriteTarget, re
     const current = readField(pack, f);
     if (!current.includes(flag.sentence)) continue;
     const proposed = replacements.get(id) ?? "";
-    const ok = proposed && proposed !== flag.sentence && candidateSentenceFlag(proposed, ctx) === null && companyFactProblems(proposed, [ctx.jd, ctx.research ? JSON.stringify(ctx.research) : "", ctx.cv]).length === 0;
+    const ok =
+      proposed &&
+      proposed !== flag.sentence &&
+      candidateSentenceFlag(proposed, ctx, { kind: f.kind, narration: f.narration }) === null &&
+      companyFactProblems(proposed, [ctx.jd, ctx.research ? JSON.stringify(ctx.research) : "", ctx.cv]).length === 0;
     const next = ok ? current.replace(flag.sentence, proposed) : withoutSentence(current, flag.sentence);
     writeField(pack, f, next);
     if (ok) rewritten++;

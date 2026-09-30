@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizePrepPack, packFromRow, verifyEvidence, type PrepPack, type PrepMeta } from "../src/lib/prepPack.ts";
-import { candidateSentenceFlag, companyFactProblems, prepCopyTerms, checkPrepPack, flaggedForTarget, normalizePrepRewrites, applyPrepRewrites, type PrepCheckContext } from "../src/lib/prepCheck.ts";
+import { candidateSentenceFlag, companyFactProblems, prepCopyTerms, checkPrepPack, flaggedForTarget, normalizePrepRewrites, applyPrepRewrites, claimLike, type PrepCheckContext } from "../src/lib/prepCheck.ts";
 
 const CV = `ALEX EXAMPLE
 Software Engineer
@@ -71,23 +71,35 @@ const RAW = {
   opener: "I'm a software engineer at Northwind Labs. I'm AWS Certified in AI Practitioner. I built REST services in Python and FastAPI for a billing product used by 3,000 staff.",
 };
 
-test("candidateSentenceFlag: the PwC sentences, each for its own reason; true CV facts and strategy lines pass", () => {
+test("candidateSentenceFlag: the PwC sentences, each for its own reason; true CV facts, advice and intent pass", () => {
   const ctx = ctxFor();
-  assert.equal(candidateSentenceFlag("Diagnosed slow queries using database query logs, optimised join strategies and measured response times before and after.", ctx)?.reason, "not_in_cv");
-  const moved = candidateSentenceFlag("Optimised PostgreSQL and MongoDB queries by 30%.", ctx);
+  const star = { kind: "star" as const };
+  const prose = { kind: "prose" as const };
+  assert.equal(candidateSentenceFlag("Diagnosed slow queries using database query logs, optimised join strategies and measured response times before and after.", ctx, star)?.reason, "not_in_cv");
+  const moved = candidateSentenceFlag("Optimised PostgreSQL and MongoDB queries by 30%.", ctx, star);
   assert.ok(moved && ["figure", "not_in_cv", "jd_copy"].includes(moved.reason), JSON.stringify(moved));
-  assert.equal(candidateSentenceFlag("You were selected for AssetGuard+ because of a track record of shipping cutting-edge dashboards.", ctx)?.reason, "narration");
-  assert.equal(candidateSentenceFlag("I have built Kubernetes clusters for three clients.", ctx)?.reason, "jd_copy");
-  assert.equal(candidateSentenceFlag("I'm AWS Certified in AI Practitioner.", ctx)?.reason, "not_in_cv");
-  assert.equal(candidateSentenceFlag("Cut invoicing time by 45% across the team last quarter.", ctx)?.reason, "figure");
-  for (const ok of [
-    "Built REST services in Python and FastAPI for an internal billing product used by 3,000 staff.",
-    "The internal billing product at Northwind Labs, used by 3,000 staff, had slow pages.",
-    "I would start by asking what the platform must answer and for whom.",
-    "Ask about the team's on-call rota.",
-    "I wrote 90+ pytest tests.",
-  ]) assert.equal(candidateSentenceFlag(ok, ctx), null, ok);
-  assert.equal(candidateSentenceFlag("I'm AWS Certified in AI Practitioner.", ctxFor({ cv: `${CV}\nCertifications\nAWS Certified AI Practitioner (2025)` })), null, "the certificate on the CV makes it a fact");
+  assert.equal(candidateSentenceFlag("You were selected for AssetGuard+ because of a track record of shipping cutting-edge dashboards.", ctx, prose)?.reason, "narration");
+  assert.equal(candidateSentenceFlag("You were selected for AssetGuard+ because of a track record of shipping cutting-edge dashboards.", ctx, { ...prose, narration: false })?.reason, "not_in_cv", "the angle may narrate; it may not invent");
+  assert.equal(candidateSentenceFlag("I have built Kubernetes clusters for three clients.", ctx, prose)?.reason, "jd_copy");
+  assert.equal(candidateSentenceFlag("I'm AWS Certified in AI Practitioner.", ctx, prose)?.reason, "not_in_cv");
+  assert.equal(candidateSentenceFlag("Cut invoicing time by 45% across the team last quarter.", ctx, star)?.reason, "figure");
+  assert.equal(candidateSentenceFlag("Cut invoicing time by 45% across the team last quarter.", ctx, prose)?.reason, "figure", "a figure the CV lacks is never advice");
+  for (const [ok, o] of [
+    ["Built REST services in Python and FastAPI for an internal billing product used by 3,000 staff.", star],
+    ["The internal billing product at Northwind Labs, used by 3,000 staff, had slow pages.", star],
+    ["I would start by asking what the platform must answer and for whom.", prose],
+    ["Ask about the team's on-call rota.", prose],
+    ["I wrote 90+ pytest tests.", prose],
+    // Technical advice, an approach and intent are not claims about the past (the owner's stored packs, 30 Sep).
+    ["For PostgreSQL: add indexes on WHERE and JOIN clauses, refactor N+1 queries, consider query rewrites.", prose],
+    ["On your systems, I'd start by instrumenting the slowest endpoints in production.", prose],
+    ["For MongoDB: index on query fields and use aggregation pipelines instead of client-side filtering.", prose],
+    ["I'm excited about applying those skills to PwC's client-facing transformation work.", prose],
+  ] as const) assert.equal(candidateSentenceFlag(ok, ctx, o), null, ok);
+  assert.equal(candidateSentenceFlag("I'm AWS Certified in AI Practitioner.", ctxFor({ cv: `${CV}\nCertifications\nAWS Certified AI Practitioner (2025)` }), prose), null, "the certificate on the CV makes it a fact");
+  assert.equal(claimLike("Measured response times before and after each change.", "star"), true);
+  assert.equal(claimLike("Measured response times before and after each change.", "prose"), false);
+  assert.equal(claimLike("I measured response times before and after each change.", "prose"), true);
 });
 
 test("companyFactProblems: names and figures the job description and research never state", () => {
@@ -111,7 +123,7 @@ test("checkPrepPack: candidate claims flagged and kept, company claims removed, 
   assert.ok(kept.some((f) => f.questionId === "q1" && f.field === "action" && f.reason === "not_in_cv"), JSON.stringify(kept));
   assert.ok(kept.some((f) => f.questionId === "q1" && f.field === "result"));
   assert.ok(kept.some((f) => f.questionId === "q2" && f.field === "point" && f.index === 0 && f.reason === "jd_copy"));
-  assert.ok(kept.some((f) => f.questionId === null && f.field === "headline" && f.reason === "narration"));
+  assert.ok(kept.some((f) => f.questionId === null && f.field === "headline" && f.reason === "not_in_cv"), "the angle may narrate the match; an invented selection story is still not from the CV");
   assert.ok(kept.some((f) => f.questionId === null && f.field === "opener" && /AWS Certified/.test(f.sentence)));
   assert.ok(!kept.some((f) => f.questionId === "q4"), "a gap question's strategy is never flagged");
   assert.ok(!kept.some((f) => f.questionId === "q5"), "a forward-looking line is advice");
