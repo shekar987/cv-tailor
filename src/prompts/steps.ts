@@ -674,10 +674,10 @@ ${cv}
 You will receive JSON: { analysis (the job — role, company, required skills, key responsibilities, seniority, tone), research (the company) }.
 
 STRUCTURE — four short paragraphs, no headings:
-1. The role by name, and one specific, true reason it fits: connect something concrete from the posting or the research (the product, a responsibility, the stack) to the candidate's real work. No invented history with the company, no flattery.
-2. The strongest evidence for the job's most important requirement: one example from the master CV — what was built, how, and the result with its exact figure — named with the right employer or project.
-3. A second example for another requirement or key responsibility, from a different employer or project where possible. If an essential requirement has NO evidence in the master CV (see the evidence map), you may add ONE plain sentence naming the nearest real experience: no apology, no promise to learn fast, and never implying the missing experience exists.
-4. A short close: the facts the posting screens on that the master CV states (for a graduate role, the degree and its completion date as written there), then thanks.
+1. The role by name, then — in the same paragraph — the STRONGEST evidence for the job's most important requirement: one example from the master CV, what was built, how, and the result with its exact figure, named with the right employer or project. Lead with the best, never the weakest, and never with a general statement.
+2. A second example for another requirement or key responsibility, from a different employer or project where possible.
+3. When the evidence map marks an essential requirement as absent from the master CV, ONE plain sentence that says so and names the nearest real experience, for example: "I have not yet worked with exchange market data or options pricing, and I would expect to learn that domain from your team." No apology, no promise to learn fast, never softened into a strength, never implying the experience exists. Omit this paragraph only when nothing essential is absent.
+4. A short close: the facts the posting screens on that the master CV states (for a graduate role, the degree and its completion date as written there), then ONE clear ask — a conversation, an interview, a call — in one sentence, then thanks.
 
 TRUTH:
 - Every statement about the candidate's past is a fact the master CV states, told with the same employer or project. No anecdotes, conversations, feelings or lessons the master CV does not state ("I spent time with the teams…", "that taught me…").
@@ -696,6 +696,9 @@ STYLE:
 - No sentence strings more than two achievements together.
 - BAN: "at scale", "production-grade", "end-to-end", "leveraging", "robust", "seamless", "operational chaos", "cuts through", "passionate", "expert", "cutting-edge", "world-class", "innovative", "dynamic", "results-driven", "I am excited", "thrilled", "fast learner", "hit the ground running", "perfect fit", "dream job", "not glamorous", "fast-paced", "from day one", "solid foundation", "track record", "taught me", "demonstrated the ability", "showing a", "directly transferable", "that exact", "exactly what", "spearheaded", "pioneered", "revolutionised", "transformative", "synergy", "fostered", "delve", "landscape", "testament", "highly motivated", "strategic thinker", "excellent communication skills", "I am a passionate".
 - Never tell the reader what the role needs or emphasises, and never say the candidate's work matches it ("the foundation this role needs", "the craftsmanship your role emphasises", "under that exact constraint"): state the fact and let the reader connect it. A personal project is described at its real scale — never as production traffic it did not have.
+- Never the second person about the reader's needs or benefit ("that prepares you for", "gives you an engineer who", "your team needs someone who") — the only "you" is the salutation, the ask and "your team" in a plain fact. A deterministic check removes any such sentence.
+- Never restate the posting back to the reader ("Your job builds …", "The role involves …", "You are looking for …"): they wrote it. State the candidate's fact and let them connect it. The same check removes these.
+- British English spelling throughout (optimise, organisation, analyse, colour, programme for a scheme).
 - Do not open with a dramatic scene or a general statement about engineering. Match the analysis tone_signals.
 - No date line, no address block, no placeholders of any kind ("[Company]", "X%", "TBC") — the app adds today's date itself.
 - Do NOT mention visa, sponsorship, right to work, immigration status, a start date or availability anywhere in the letter, even though the master CV may state them${omitRightToWork ? ": the application form asks that question" : ": the app adds the candidate's own statement of it to the close"}.

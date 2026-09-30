@@ -148,6 +148,9 @@ type Result = {
   // Visa / sponsorship sentences the server removed from the CV text and the
   // letter because Right to Work is off the document (lib/rightToWorkText).
   rtwStripped?: { cv: string[]; letter: string[] };
+  // The letter's shape (lib/letterLint): what was removed, and whether an
+  // essential gap the CV has is stated in the letter.
+  letterCheck?: { unsupported: string[]; rewritten: boolean; dropped: number; lint?: { secondPerson: string[]; restatedJd: string[] }; honestGap?: { expected: boolean; stated: boolean; gaps: string[] } } | null;
   // What the route did with the letter's right-to-work and availability
   // sentences: the Eligibility statement placed, a model sentence replaced
   // by the Eligibility answer or removed, and the answers still to give.
@@ -2707,6 +2710,40 @@ export default function Home() {
                 </div>
               </div>
             )}
+            {result.letterCheck &&
+              ((result.letterCheck.lint?.secondPerson.length ?? 0) > 0 ||
+                (result.letterCheck.lint?.restatedJd.length ?? 0) > 0 ||
+                (result.letterCheck.honestGap?.expected && !result.letterCheck.honestGap.stated)) && (
+                <div className="limitNotice" role="status" data-letter-lint>
+                  <div className="limitNotice__title">Cover letter shape</div>
+                  <div className="limitNotice__body">
+                    <ul className="atsList">
+                      {(result.letterCheck.lint?.restatedJd ?? []).map((s, i) => (
+                        <li key={`r${i}`} data-letter-restated>
+                          <Badge variant="dot" tone="miss">−</Badge>
+                          <span>Removed — it told the reader their own posting back: &ldquo;{clip(s)}&rdquo;</span>
+                        </li>
+                      ))}
+                      {(result.letterCheck.lint?.secondPerson ?? []).map((s, i) => (
+                        <li key={`s${i}`} data-letter-second-person>
+                          <Badge variant="dot" tone="miss">−</Badge>
+                          <span>Removed — it narrated what the reader gets instead of stating a fact: &ldquo;{clip(s)}&rdquo;</span>
+                        </li>
+                      ))}
+                      {result.letterCheck.honestGap?.expected && !result.letterCheck.honestGap.stated && (
+                        <li data-letter-gap>
+                          <Badge variant="dot" tone="rec">?</Badge>
+                          <span>
+                            The posting asks for {result.letterCheck.honestGap.gaps.slice(0, 3).join(", ")}
+                            {result.letterCheck.honestGap.gaps.length > 3 ? " and more" : ""}, which your master CV never shows, and the letter does not say so. One plain sentence
+                            naming the gap and your nearest real experience reads better than silence — add it in the preview if you agree.
+                          </span>
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              )}
             {result.rightToWork &&
               (result.rightToWork.asked.length > 0 || result.rightToWork.inserted || result.rightToWork.availability.replaced.length > 0 || result.rightToWork.availability.removed.length > 0) && (
                 <div className="limitNotice" role="status" data-rtw-reconciled>

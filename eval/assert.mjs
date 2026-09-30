@@ -19,6 +19,7 @@ const { checkClaims } = await import(pathToFileURL(join(PROJ, "src/lib/claims.ts
 const { matchAtsKeywords, tailoredSectionsText } = await import(pathToFileURL(join(PROJ, "src/lib/atsMatch.ts")));
 const { estimatePages, weakBullets, inflationHits, orderingDiffers, findDuplicateContent, relevanceBoltOns } = await import(pathToFileURL(join(PROJ, "src/lib/quality.ts")));
 const { coreTitle, titleInText } = await import(pathToFileURL(join(PROJ, "src/lib/roleTitle.ts")));
+const { applyLetterLint, hasHonestGap } = await import(pathToFileURL(join(PROJ, "src/lib/letterLint.ts")));
 
 const pairs = JSON.parse(readFileSync(join(HERE, "pairs.json"), "utf8"));
 const labels = process.argv.slice(2).filter((l) => /^[\w-]+$/.test(l));
@@ -72,6 +73,12 @@ function evaluate(label) {
       const titleMissing = !!title && !titleInText(d.summary, title);
       const dup = findDuplicateContent(sections, { projects: [], education: [] });
       const letterWords = String(d.coverLetter || "").trim().split(/\s+/).filter(Boolean).length;
+      // The letter's shape (30 Sep audit, Phase 2): sentences about the
+      // reader's needs, the posting told back, and — when the evidence map
+      // marks an essential requirement absent — whether the letter says so.
+      const letterLint = applyLetterLint(String(d.coverLetter || "")).lint;
+      const essentialGaps = Array.isArray(d.evidence?.items) ? d.evidence.items.filter((i) => i.status === "gap" && i.importance === "required" && i.kind !== "soft").length : 0;
+      const honestGapMissing = essentialGaps > 0 && !hasHonestGap(String(d.coverLetter || "")) ? 1 : 0;
       rows.push({
         cv: cv.id, jd: jd.id, ms: run.ms,
         absentFigures: absentFigures.map((n) => n.figure),
@@ -79,6 +86,7 @@ function evaluate(label) {
         pages: pages.pages, overBudget: pages.overBudget,
         learningPresent, weak: weak.length, bullets, inflation: inflation.reduce((n, h) => n + h.count, 0),
         duplicates: dup.length, letterWords, boltOns: boltOns.length, retried, title, titleMissing,
+        secondPerson: letterLint.secondPerson.length, restatedJd: letterLint.restatedJd.length, honestGapMissing,
         refused: !d.experience || !d.summary,
       });
     }
@@ -123,6 +131,9 @@ function summarize(label, rows) {
     duplicates: sum("duplicates"),
     avgPages: present.length ? Math.round((sum("pages") / present.length) * 100) / 100 : 0,
     avgLetterWords: present.length ? Math.round(sum("letterWords") / present.length) : 0,
+    letterSecondPerson: sum("secondPerson"),
+    letterRestatedJd: sum("restatedJd"),
+    letterHonestGapMissing: sum("honestGapMissing"),
     avgMs: present.length ? Math.round(sum("ms") / present.length) : 0,
   };
   return { hardFails, metrics };
@@ -136,7 +147,7 @@ for (const r of results) {
     console.log(
       `  ${row.cv} × ${row.jd}: figures✗${row.absentFigures.length} tools✗${row.absentTools.length} pages ${row.pages}${row.overBudget ? " OVER" : ""} ` +
         `order ${row.orderingDiffers === undefined ? "?" : row.orderingDiffers ? "differs" : "SAME"} learning ${row.learningPresent.length ? row.learningPresent.join("/") : "-"} ` +
-        `weak ${row.weak}/${row.bullets} filler ${row.inflation} boltons ${row.boltOns} retried ${row.retried} dup ${row.duplicates} letter ${row.letterWords}w ${row.ms}ms`
+        `weak ${row.weak}/${row.bullets} filler ${row.inflation} boltons ${row.boltOns} retried ${row.retried} dup ${row.duplicates} letter ${row.letterWords}w 2p${row.secondPerson} jd${row.restatedJd}${row.honestGapMissing ? " GAP-UNSAID" : ""} ${row.ms}ms`
     );
   }
   console.log("  metrics:", JSON.stringify(r.metrics));

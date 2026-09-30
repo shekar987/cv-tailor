@@ -46,6 +46,7 @@ import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProje
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { stripLinkText } from "@/lib/projectLinks";
 import { toBritish, toBritishDeep, type SpellingChange } from "@/lib/britishSpelling";
+import { applyLetterLint, hasHonestGap, type LetterLint } from "@/lib/letterLint";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 import {
   surgicalUntilStable,
@@ -598,9 +599,22 @@ async function runPipeline(opts: {
     company: company || null,
     name: (profile as { name?: string } | null)?.name ?? null,
   });
-  const letterDraft = letterNormalized.letter;
+  // The letter's shape (lib/letterLint): a sentence about the reader's needs
+  // or benefit, or the posting told back to them, goes; the opening stays.
+  const letterLinted = typeof letterNormalized.letter === "string" ? applyLetterLint(letterNormalized.letter) : null;
+  const letterDraft: unknown = letterLinted ? letterLinted.text : letterNormalized.letter;
   const letterSources = [jd, cv, projectsPool, JSON.stringify(research ?? {}), JSON.stringify(analysis ?? {})];
-  const letterCheck = { unsupported: [] as string[], rewritten: false, dropped: 0 };
+  // The essential requirements the master CV never shows (a named
+  // technology, domain or qualification): the letter should say so in one
+  // plain sentence; whether it does is reported, never invented.
+  const essentialGaps = evidence.items.filter((i) => i.status === "gap" && i.importance === "required" && i.kind !== "soft").map((i) => i.term);
+  const letterCheck: { unsupported: string[]; rewritten: boolean; dropped: number; lint: LetterLint; honestGap: { expected: boolean; stated: boolean; gaps: string[] } } = {
+    unsupported: [],
+    rewritten: false,
+    dropped: 0,
+    lint: letterLinted?.lint ?? { secondPerson: [], restatedJd: [] },
+    honestGap: { expected: essentialGaps.length > 0, stated: false, gaps: essentialGaps },
+  };
   let coverLetter: unknown = letterDraft;
   if (typeof letterDraft === "string" && letterDraft.trim()) {
     const unsupported = unsupportedProperNouns(letterDraft, letterSources);
@@ -806,6 +820,7 @@ async function runPipeline(opts: {
     for (const c of spellingChanges) if (!seen.has(c.from.toLowerCase())) seen.set(c.from.toLowerCase(), `${c.from} → ${c.to}`);
     formatFixes.spelling = { count: spellingChanges.length, examples: [...seen.values()].slice(0, 6) };
   }
+  letterCheck.honestGap.stated = typeof coverLetter === "string" && hasHonestGap(coverLetter);
   const finalSections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
   const finalText = tailoredSectionsText(finalSections);
   const finalCoverage = matchAtsKeywords(finalText, terms.top_15_ats_keywords);
