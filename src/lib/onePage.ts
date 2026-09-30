@@ -246,6 +246,83 @@ function trimToFit(
   return current;
 }
 
+// ── The real page count ──────────────────────────────────────────────────────
+// The estimate above is line arithmetic; the download lays the text out for
+// real. A CV set to two pages came out as three with two lines on the third
+// (30 Sep). The route builds the PDF, counts its pages and, while the count
+// is over the target, drops the least relevant bullet (the same order as
+// trimToFit: projects first on a tie, then the oldest role, never below a
+// role's or project's floor) and rebuilds — at most `maxDrops` times.
+// `countPages` is the builder; a test passes a fake one.
+export type RealFitReport = { target: 1 | 2; pagesBefore: number; pagesAfter: number; dropped: { where: "experience" | "projects"; owner: string; bullet: string }[]; fits: boolean };
+
+export function dropLeastRelevant(base: Sections, profile: ProfileLike, terms: OnePageTerms): { sections: Sections; dropped: RealFitReport["dropped"][number] | null } {
+  const leftOut = emptyLeftOut();
+  const expText = typeof base.experience === "string" ? base.experience : "";
+  const expLines = expText.split("\n");
+  const roles = parseRoles(expLines, terms);
+  const projectsIn = base.projects && typeof base.projects === "object" && !Array.isArray(base.projects) ? (base.projects as Record<string, unknown>) : null;
+  const projectNames = Array.isArray(profile?.projects) ? profile.projects.map((p) => (p && typeof p.name === "string" ? p.name : "")) : [];
+  const projects = projectsIn
+    ? Object.entries(projectsIn).map(([key, list]) => ({
+        key,
+        name: projectNames[Number(key)] || `Project ${Number(key) + 1}`,
+        bullets: (Array.isArray(list) ? list : []).filter((b): b is string => typeof b === "string").map((text, order) => ({ line: order, text, score: bulletRelevance(text, terms), order })),
+      }))
+    : [];
+  let best: { score: number; order: number; drop: () => void } | null = null;
+  const consider = (score: number, order: number, drop: () => void) => {
+    if (!best || score < best.score || (score === best.score && order < best.order)) best = { score, order, drop };
+  };
+  const none = new Set<number>();
+  for (const p of projects) {
+    if (p.bullets.length <= PROJECT_MIN_BULLETS) continue;
+    const w = weakest(p.bullets, none);
+    if (w) consider(w.score, 0, () => leftOut.projects.push({ project: p.name, bullet: w.text }));
+  }
+  roles.forEach((role, i) => {
+    if (role.bullets.length <= ROLE_MIN_BULLETS) return;
+    const w = weakest(role.bullets, none);
+    if (w) consider(w.score, roles.length - i, () => leftOut.experience.push({ role: role.title, bullet: w.text }));
+  });
+  if (!best) return { sections: base, dropped: null };
+  (best as { drop: () => void }).drop();
+  const exp = leftOut.experience[0];
+  const proj = leftOut.projects[0];
+  if (exp) {
+    const role = roles.find((r) => r.title === exp.role)!;
+    const line = role.bullets.find((b) => b.text === exp.bullet)!.line;
+    return { sections: { ...base, experience: expLines.filter((_, i) => i !== line).join("\n") }, dropped: { where: "experience", owner: exp.role, bullet: exp.bullet } };
+  }
+  const p = projects.find((x) => x.name === proj!.project)!;
+  return {
+    sections: { ...base, projects: { ...(projectsIn as Record<string, unknown>), [p.key]: p.bullets.filter((b) => b.text !== proj!.bullet).map((b) => b.text) } },
+    dropped: { where: "projects", owner: proj!.project, bullet: proj!.bullet },
+  };
+}
+
+export function fitToRealPages(
+  base: Sections,
+  profile: ProfileLike,
+  terms: OnePageTerms,
+  target: 1 | 2,
+  countPages: (sections: Sections) => number,
+  maxDrops = 12
+): { sections: Sections; report: RealFitReport } {
+  let current = base;
+  const pagesBefore = countPages(current);
+  let pages = pagesBefore;
+  const dropped: RealFitReport["dropped"] = [];
+  while (pages > target && dropped.length < maxDrops) {
+    const next = dropLeastRelevant(current, profile, terms);
+    if (!next.dropped) break;
+    dropped.push(next.dropped);
+    current = next.sections;
+    pages = countPages(current);
+  }
+  return { sections: current, report: { target, pagesBefore, pagesAfter: pages, dropped, fits: pages <= target } };
+}
+
 // ── One page (opt-in) ────────────────────────────────────────────────────────
 
 export function fitOnePage(

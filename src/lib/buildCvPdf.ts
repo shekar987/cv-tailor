@@ -210,6 +210,13 @@ export type CvPdfPayload = {
 };
 
 export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
+  return buildCvPdfWithPages(payload).bytes;
+}
+
+// The bytes and the real page count — what the tailor route measures the
+// finished CV with (lib/onePage fitToRealPages): the download's own layout,
+// not the estimate.
+export function buildCvPdfWithPages(payload: CvPdfPayload): { bytes: Uint8Array; pages: number } {
   const { summary = "", skills = "", experience = "", projects = {}, projectsMeta = [], profile, sectionOrder, targetPages = 2 } = payload;
 
   // One pass shared with the docx route (lib/cvDocument): the contact pieces,
@@ -290,5 +297,5 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
     drawBulletList(doc, cursor, sec.title, sec.bullets, density);
   }
 
-  return new Uint8Array(doc.output("arraybuffer"));
+  return { bytes: new Uint8Array(doc.output("arraybuffer")), pages: doc.getNumberOfPages() };
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fitOnePage, fitTwoPages, experienceRefillCandidates, projectRefillCandidates, capSummaryWords, bulletRelevance, leftOutCount, REFILL_DENSITIES, ONE_PAGE_ROLE_CAP_FIRST, ONE_PAGE_ROLE_CAP_REST, type RefillCandidate } from "../src/lib/onePage.ts";
+import { fitOnePage, fitTwoPages, fitToRealPages, dropLeastRelevant, experienceRefillCandidates, projectRefillCandidates, capSummaryWords, bulletRelevance, leftOutCount, REFILL_DENSITIES, ONE_PAGE_ROLE_CAP_FIRST, ONE_PAGE_ROLE_CAP_REST, type RefillCandidate } from "../src/lib/onePage.ts";
 import { parseMasterExperience } from "../src/lib/bulletIds.ts";
 import { estimatePages } from "../src/lib/quality.ts";
 
@@ -218,4 +218,42 @@ test("fitTwoPages: a CV that runs past two pages is trimmed by relevance, floors
   assert.deepEqual(report.restored, []);
   assert.equal(estimatePages(out, profile, 2).overBudget, false);
   for (const block of String(out.experience).split(/\n(?=[A-Z][^\n|]* \| )/)) assert.ok((block.match(/^• /gm) ?? []).length >= 2, block);
+});
+
+// ── The real page count (30 Sep audit, Phase 2) ──────────────────────────────
+
+test("fitToRealPages: drops the least relevant bullet until the counted pages fit, projects first on a tie then the oldest role, never below the floors, capped", () => {
+  const sections = {
+    summary: "S.",
+    skills: "Technical Tools: React",
+    experience: "Engineer | New Co | Jan 2024 – Present\n• Built React dashboards for 3,000 users.\n• Filed the weekly timesheets.\n• Ran the standups.\n• Kept the plants watered.\n\nAnalyst | Old Co | Jan 2019 – Dec 2021\n• Built Node.js services with PostgreSQL.\n• Ordered the stationery.\n• Booked the meeting rooms.",
+    projects: { "0": ["Built a React app with TypeScript.", "Tidied the folder.", "Chose a name."] },
+  };
+  const prof = { projects: [{ name: "Widget" }] };
+  // A fake count: one page per five bullets (the floors keep two per role and one per project: five).
+  const bulletsOf = (s: typeof sections) => (String(s.experience).match(/^• /gm)?.length ?? 0) + Object.values(s.projects as Record<string, string[]>).flat().length;
+  const count = (s: typeof sections) => Math.ceil(bulletsOf(s) / 5);
+  const r = fitToRealPages(sections, prof, terms, 1, count as never);
+  assert.equal(r.report.pagesBefore, 2);
+  assert.equal(r.report.fits, true);
+  assert.equal(r.report.pagesAfter, 1);
+  assert.equal(bulletsOf(r.sections as typeof sections), 5);
+  assert.deepEqual(r.report.dropped.map((d) => d.where), ["projects", "projects", "experience", "experience", "experience"]);
+  assert.equal(r.report.dropped[2].owner.startsWith("Analyst"), true, "the oldest role gives way before the current one");
+  // The first to go are the evidence-free project bullets (projects first on a tie), then the oldest role's filler.
+  assert.deepEqual(r.report.dropped.slice(0, 2).map((d) => d.where), ["projects", "projects"]);
+  assert.ok(r.report.dropped.some((d) => d.where === "experience" && d.owner.startsWith("Analyst")));
+  assert.ok(!r.report.dropped.some((d) => /React dashboards|Node\.js services/.test(d.bullet)), "the relevant bullets stay");
+  // Floors: a project keeps one bullet, a role keeps two.
+  assert.equal((r.sections.projects as Record<string, string[]>)["0"].length, 1);
+  // Already fitting: nothing dropped, nothing rebuilt beyond the first count.
+  const fine = fitToRealPages(sections, prof, terms, 2, () => 2);
+  assert.deepEqual(fine.report, { target: 2, pagesBefore: 2, pagesAfter: 2, dropped: [], fits: true });
+  assert.equal(fine.sections, sections);
+  // Capped: with a count that never falls, at most maxDrops bullets go and fits is false.
+  const stuck = fitToRealPages(sections, prof, terms, 1, () => 3, 2);
+  assert.equal(stuck.report.dropped.length, 2);
+  assert.equal(stuck.report.fits, false);
+  const one = dropLeastRelevant(sections, prof, terms);
+  assert.equal(one.dropped?.where, "projects");
 });

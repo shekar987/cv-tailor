@@ -56,6 +56,9 @@ export type FormatFixes = {
   // The British-English pass (lib/britishSpelling): how many words changed,
   // and the first few as "from → to".
   spelling?: { count: number; examples: string[] } | null;
+  // The real-page-count fit (lib/onePage fitToRealPages): the built PDF ran
+  // past the target and these bullets went, or it still does not fit.
+  pageOverflow?: { target: 1 | 2; pagesBefore: number; pagesAfter: number; dropped: { where: "experience" | "projects"; owner: string; bullet: string }[]; fits: boolean } | null;
 };
 export type SkillLinesFix = { moved: string[]; removedFromTools: string[]; removedFromCompetencies: string[] };
 

@@ -140,6 +140,8 @@ type Result = {
     duplicateLines?: string[] | null;
     // The British-English pass: how many words, and examples.
     spelling?: { count: number; examples: string[] } | null;
+    // The real page count: bullets dropped to bring the built PDF inside the target.
+    pageOverflow?: { target: 1 | 2; pagesBefore: number; pagesAfter: number; dropped: { where: "experience" | "projects"; owner: string; bullet: string }[]; fits: boolean } | null;
   };
   // Requirement → evidence for this posting, and what the sentence-by-
   // sentence check of the summary and letter against the master CV changed.
@@ -2535,7 +2537,7 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines || result.formatFixes?.spelling) && (
+            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines || result.formatFixes?.spelling || result.formatFixes?.pageOverflow) && (
               <div className="limitNotice" role="status" data-format-fixes>
                 <div className="limitNotice__title">Formatting rules applied</div>
                 <div className="limitNotice__body">
@@ -2589,6 +2591,21 @@ export default function Home() {
                       <li data-format-fix="skill-lines">
                         <Badge variant="dot" tone="rec">→</Badge>
                         <span>{skillLinesNotice(result.formatFixes.skillLines)}</span>
+                      </li>
+                    )}
+                    {result.formatFixes.pageOverflow && (
+                      <li data-format-fix="page-overflow" data-page-fits={result.formatFixes.pageOverflow.fits ? "yes" : "no"}>
+                        <Badge variant="dot" tone={result.formatFixes.pageOverflow.fits ? "rec" : "miss"}>{result.formatFixes.pageOverflow.fits ? "→" : "✕"}</Badge>
+                        <span>
+                          The PDF ran to {result.formatFixes.pageOverflow.pagesBefore} pages against the {result.formatFixes.pageOverflow.target}-page limit
+                          {result.formatFixes.pageOverflow.dropped.length > 0
+                            ? `, so the ${result.formatFixes.pageOverflow.dropped.length === 1 ? "least relevant bullet was" : `${result.formatFixes.pageOverflow.dropped.length} least relevant bullets were`} left out: ${result.formatFixes.pageOverflow.dropped
+                                .slice(0, 3)
+                                .map((d) => `“${clip(d.bullet, 70)}” (${d.owner})`)
+                                .join("; ")}${result.formatFixes.pageOverflow.dropped.length > 3 ? " and more" : ""}`
+                            : ""}
+                          {result.formatFixes.pageOverflow.fits ? `. It now fits on ${result.formatFixes.pageOverflow.pagesAfter}.` : `. It still runs to ${result.formatFixes.pageOverflow.pagesAfter} — cut more in the preview.`}
+                        </span>
                       </li>
                     )}
                     {result.formatFixes.spelling && result.formatFixes.spelling.count > 0 && (

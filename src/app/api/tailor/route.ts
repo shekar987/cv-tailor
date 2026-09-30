@@ -34,7 +34,8 @@ import {
   rejectedBulletsBlock,
 } from "@/prompts/steps";
 import { lintBullets, countFlags, trimBoltOn } from "@/lib/quality";
-import { fitOnePage, fitTwoPages, experienceRefillCandidates, projectRefillCandidates, type PageFitReport, type RefillCandidate } from "@/lib/onePage";
+import { fitOnePage, fitTwoPages, fitToRealPages, experienceRefillCandidates, projectRefillCandidates, type PageFitReport, type RefillCandidate } from "@/lib/onePage";
+import { buildCvPdfWithPages } from "@/lib/buildCvPdf";
 import { buildHeadline, degreesInProgress } from "@/lib/headline";
 import { normalizeEligibility, type Eligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
@@ -110,6 +111,9 @@ function swallowStep<T>(fallback: T) {
 // SUPPORT_CHECK_MIN_BUDGET_MS is left, and in fast mode it gets a deadline
 // of what is left minus the tail the remaining deterministic passes need.
 const RUN_BUDGET_MS = 300_000;
+// The real-page-count fit (lib/onePage fitToRealPages): how many bullets may
+// go to bring the built PDF inside the target.
+const PAGE_LIMIT_MAX_DROPS = 12;
 const SUPPORT_CHECK_MIN_BUDGET_MS = 45_000;
 const SUPPORT_CHECK_MIN_CALL_MS = 30_000;
 const SUPPORT_CHECK_MAX_CALL_MS = 150_000;
@@ -557,6 +561,42 @@ async function runPipeline(opts: {
     experienceFinal = fitted.sections.experience as typeof experienceFinal;
     projectsFinal = fitted.sections.projects;
     pageFitReport = fitted.report;
+
+    // Then the REAL page count (lib/buildCvPdf, the download's own layout;
+    // the estimate above is line arithmetic and a two-page CV came out as
+    // three with two lines on the third, 30 Sep): while the built PDF runs
+    // past the target, the least relevant bullet goes and it is rebuilt, at
+    // most PAGE_LIMIT_MAX_DROPS times. The project titles and tech lines are
+    // the ones the client renders; a saved section order is not known here,
+    // and moves no lines.
+    const target: 1 | 2 = onePage ? 1 : 2;
+    const metas = projectsPool
+      ? selectedFinal.map((s) => ({ name: s.date?.trim() ? `${s.name} | ${s.date}` : s.name, tech: s.tech, links: [] }))
+      : ((profile as { projects?: unknown[] } | null)?.projects ?? []);
+    const countPages = (s: { summary?: unknown; skills?: unknown; experience?: unknown; projects?: unknown }) =>
+      buildCvPdfWithPages({
+        summary: typeof s.summary === "string" ? s.summary : "",
+        skills: typeof s.skills === "string" ? s.skills : "",
+        experience: typeof s.experience === "string" ? s.experience : "",
+        projects: (s.projects ?? {}) as Record<string, string[]>,
+        projectsMeta: metas as unknown[],
+        profile,
+        targetPages: target,
+      }).pages;
+    try {
+      const real = fitToRealPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal }, fitProfile, fitTerms, target, countPages, PAGE_LIMIT_MAX_DROPS);
+      if (real.report.dropped.length > 0 || !real.report.fits) {
+        summary = real.sections.summary;
+        skillsFinal = real.sections.skills;
+        experienceFinal = real.sections.experience as typeof experienceFinal;
+        projectsFinal = real.sections.projects;
+        if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: ((projectsFinal as Record<string, string[]>)[String(i)] ?? p.bullets) }));
+        formatFixes.pageOverflow = real.report;
+      }
+    } catch (e) {
+      // The PDF build is a measurement, never a reason to fail the run.
+      console.error("Real page count failed:", e instanceof Error ? e.message : String(e));
+    }
   }
 
   const sections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
