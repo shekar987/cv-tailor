@@ -25,6 +25,7 @@ import { qualityReport, type QualityReport } from "@/lib/quality";
 import { REPAIR_SECTION_LABEL, type RepairChange } from "@/lib/claimRepair";
 import { buildEvidenceMap, graftRules, type EvidenceMap, type EvidenceItem } from "@/lib/evidenceMap";
 import type { SupportReport } from "@/lib/supportCheck";
+import type { RightToWorkReport } from "@/lib/rightToWorkText";
 import { normalizeVariants, pickVariant, leadSkillsNotice, type VariantsConfig, type LeadSkillDrop } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTarget, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import { attachProjectLinks, linksForProject, projectKey } from "@/lib/projectLinks";
@@ -142,6 +143,10 @@ type Result = {
   // Visa / sponsorship sentences the server removed from the CV text and the
   // letter because Right to Work is off the document (lib/rightToWorkText).
   rtwStripped?: { cv: string[]; letter: string[] };
+  // What the route did with the letter's right-to-work and availability
+  // sentences: the Eligibility statement placed, a model sentence replaced
+  // by the Eligibility answer or removed, and the answers still to give.
+  rightToWork?: RightToWorkReport | null;
   // The header line under the name for this run (lib/headline); replaces the
   // extracted tagline in the display profile when present.
   headline?: string;
@@ -2674,6 +2679,41 @@ export default function Home() {
                 </div>
               </div>
             )}
+            {result.rightToWork &&
+              (result.rightToWork.asked.length > 0 || result.rightToWork.inserted || result.rightToWork.availability.replaced.length > 0 || result.rightToWork.availability.removed.length > 0) && (
+                <div className="limitNotice" role="status" data-rtw-reconciled>
+                  <div className="limitNotice__title">Right to work and availability come from your Eligibility answers</div>
+                  <div className="limitNotice__body">
+                    {result.rightToWork.inserted && (
+                      <p className="fitEvidence" data-rtw-inserted>
+                        The letter closes with your right-to-work statement: &ldquo;{result.rightToWork.statement}&rdquo;
+                      </p>
+                    )}
+                    {result.rightToWork.availability.replaced.map((r, i) => (
+                      <p key={i} className="fitEvidence" data-rtw-availability-replaced>
+                        &ldquo;{clip(r.from)}&rdquo; became your own answer: &ldquo;{r.to}&rdquo;
+                      </p>
+                    ))}
+                    {result.rightToWork.availability.removed.length > 0 && (
+                      <p className="fitEvidence" data-rtw-availability-removed>
+                        Removed, because it is not an answer you gave on Customize:{" "}
+                        {result.rightToWork.availability.removed.map((s) => `“${clip(s)}”`).join(" · ")}
+                      </p>
+                    )}
+                    {result.rightToWork.asked.length > 0 && (
+                      <p className="fitEvidence" data-rtw-asked>
+                        Answer{" "}
+                        {result.rightToWork.asked.includes("status") && result.rightToWork.asked.includes("availability")
+                          ? "your right to work and your availability"
+                          : result.rightToWork.asked.includes("status")
+                            ? "your right to work"
+                            : "your availability"}{" "}
+                        under Eligibility on <Link href="/customize">Customize</Link>, so the letter can state it in your words.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
             {quality && qualityIssues > 0 && (
               <div className="limitNotice" role="status" data-quality-check>
                 <div className="limitNotice__title">Before you send</div>

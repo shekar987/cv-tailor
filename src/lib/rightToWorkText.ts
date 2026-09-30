@@ -235,3 +235,15 @@ export function reconcileRightToWorkSentences(text: string, e: RtwFacts, mode: "
   const statement = mode === "template" ? rightToWorkStatement(e).rtwSentence : null;
   return { text: r.text, replaced: [], removed: r.removed, asked: mode === "template" && !statement && r.removed.length > 0, statement };
 }
+
+// What /api/tailor did with the letter's right-to-work and availability
+// sentences, for the /app notice.
+export type RightToWorkReport = {
+  // The Eligibility statement placed before the letter's sign-off (only when
+  // Right to Work is on the document).
+  statement: string | null;
+  inserted: boolean;
+  availability: { replaced: { from: string; to: string }[]; removed: string[] };
+  // A sentence went with no Eligibility answer to put in its place.
+  asked: ("status" | "availability")[];
+};

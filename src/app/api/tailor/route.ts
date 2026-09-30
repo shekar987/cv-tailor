@@ -8,7 +8,15 @@ import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIB
 import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
 import { normalizePreferences } from "@/lib/preferences";
-import { stripRightToWorkSentences, stripRightToWorkLines, stripRightToWorkBullets, mentionsRightToWork } from "@/lib/rightToWorkText";
+import {
+  stripRightToWorkSentences,
+  stripRightToWorkLines,
+  stripRightToWorkBullets,
+  mentionsRightToWork,
+  reconcileRightToWorkSentences,
+  reconcileAvailabilitySentences,
+  type RightToWorkReport,
+} from "@/lib/rightToWorkText";
 import {
   summaryPrompt,
   skillsPrompt,
@@ -27,7 +35,7 @@ import {
 import { lintBullets, countFlags, trimBoltOn } from "@/lib/quality";
 import { fitOnePage, fitTwoPages, experienceRefillCandidates, projectRefillCandidates, type PageFitReport, type RefillCandidate } from "@/lib/onePage";
 import { buildHeadline, degreesInProgress } from "@/lib/headline";
-import { normalizeEligibility } from "@/lib/knockouts";
+import { normalizeEligibility, type Eligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
 import { coreTitle, titleInText, titleAsIdentity } from "@/lib/roleTitle";
 import { unsupportedProperNouns, sentencesNaming, dropSentences } from "@/lib/properNouns";
@@ -61,7 +69,7 @@ import {
   type SupportFacts,
 } from "@/lib/supportCheck";
 import { jdCopyTerms, jdCopyProblems, jdCopyHits } from "@/lib/jdCopyGuard";
-import { normalizeLetter, capEmDashes } from "@/lib/letterFormat";
+import { normalizeLetter, capEmDashes, insertBeforeSignoff } from "@/lib/letterFormat";
 import { reconcileAtsScore, renderBandBlock } from "@/lib/visibilityVerdict";
 import { applyFormatRules } from "@/lib/formatRules";
 
@@ -124,8 +132,10 @@ async function runPipeline(opts: {
   // with the document profile below.
   onePage: boolean;
   profile: unknown;
-  // The user's stated years (eligibility), for the header line — never inferred.
-  yearsExperience: number | null;
+  // The user's Eligibility answers (lib/knockouts): the stated years for the
+  // header line, and the one source of every right-to-work and availability
+  // sentence in the letter (lib/rightToWorkText) — never inferred.
+  eligibility: Eligibility;
   // Result of the pre-tailoring ATS gate's Step 1 call (/api/analyze with
   // cvText). When present and well-formed, Step 0 below is SKIPPED — this is
   // the whole point of the gate: the user already paid for this exact call
@@ -151,7 +161,8 @@ async function runPipeline(opts: {
   // CV's own positioning.
   variant?: Variant | null;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, onePage, profile, yearsExperience } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, onePage, profile, eligibility } = opts;
+  const yearsExperience = eligibility.yearsExperience;
   // Fast mode on OpenRouter: free models take 30–50 s per call, so the four
   // optional polish retries (title, bullet lint, claims rewrite, letter
   // proper-noun rewrite) are skipped — the run stays inside the platform's
@@ -445,14 +456,21 @@ async function runPipeline(opts: {
 
   // Right to Work off the document (lib/rightToWorkText): any sentence or
   // bullet that states the visa / sponsorship position is removed from the
-  // finished CV text before it is scored, and reported as rtwStripped.
+  // finished CV text before it is scored, and reported as rtwStripped. The
+  // summary never states it, nor a start date, whatever the switch: the
+  // Right to Work section (when on the document) and the letter's close
+  // carry the Eligibility statement instead — the model's wording and the
+  // master CV's free text are never the source.
   const rtwStripped = { cv: [] as string[], letter: [] as string[] };
+  const rightToWork: RightToWorkReport = { statement: null, inserted: false, availability: { replaced: [], removed: [] }, asked: [] };
+  if (typeof summary === "string") {
+    const r = stripRightToWorkSentences(summary);
+    rtwStripped.cv.push(...r.removed);
+    const a = reconcileAvailabilitySentences(r.text, { ...eligibility, availability: { status: "unknown", from: null }, canWorkFullTime: "unknown" });
+    summary = a.text;
+    rightToWork.availability.removed.push(...a.removed);
+  }
   if (omitRightToWork) {
-    if (typeof summary === "string") {
-      const r = stripRightToWorkSentences(summary);
-      summary = r.text;
-      rtwStripped.cv.push(...r.removed);
-    }
     if (typeof skillsFinal === "string") {
       const r = stripRightToWorkLines(skillsFinal);
       skillsFinal = r.text;
@@ -572,10 +590,27 @@ async function runPipeline(opts: {
       }
     }
   }
-  if (omitRightToWork && typeof coverLetter === "string") {
-    const r = stripRightToWorkSentences(coverLetter);
-    coverLetter = r.text;
+  // The letter's right-to-work and availability sentences come from the
+  // Eligibility answers (lib/rightToWorkText): the model's visa sentence
+  // always goes; when Right to Work is on the document the statement closes
+  // the letter; an availability sentence becomes the template, or goes with
+  // a question when the answer is not set. Before the fact check, which
+  // skips availability sentences and never judges the template.
+  if (typeof coverLetter === "string") {
+    const r = reconcileRightToWorkSentences(coverLetter, eligibility, omitRightToWork ? "strip" : "template");
+    let letter = r.text;
     rtwStripped.letter = r.removed;
+    if (r.asked) rightToWork.asked.push("status");
+    if (r.statement) {
+      letter = insertBeforeSignoff(letter, r.statement);
+      rightToWork.statement = r.statement;
+      rightToWork.inserted = true;
+    }
+    const a = reconcileAvailabilitySentences(letter, eligibility);
+    coverLetter = a.text;
+    rightToWork.availability.replaced.push(...a.replaced);
+    rightToWork.availability.removed.push(...a.removed);
+    if (a.asked) rightToWork.asked.push("availability");
   }
   // The summary and the letter, sentence by sentence against the master CV
   // (lib/supportCheck): one call names the master-CV lines behind every
@@ -766,6 +801,7 @@ async function runPipeline(opts: {
     formatFixes,
     letterCheck,
     rtwStripped,
+    rightToWork,
     pageFit: pageFitReport,
     // True when the polish retries were skipped to fit the time limit (OpenRouter).
     fastMode: fast,
@@ -912,7 +948,7 @@ export async function POST(req: NextRequest) {
         omitRightToWork: !preferences.includeRightToWorkOnCv,
         onePage,
         profile: bodyProfile,
-        yearsExperience: eligibility.yearsExperience,
+        eligibility,
     };
     try {
       const result = await runOrRefund(pipelineOpts);

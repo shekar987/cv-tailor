@@ -19,7 +19,7 @@ import {
   isPlaceholderProblem,
 } from "../src/lib/supportCheck.ts";
 import { degreesInProgress } from "../src/lib/headline.ts";
-import { normalizeLetter, capEmDashes } from "../src/lib/letterFormat.ts";
+import { normalizeLetter, capEmDashes, insertBeforeSignoff } from "../src/lib/letterFormat.ts";
 
 const CV = `Backend Engineer — Northwind Labs · Jul 2023 – Present
 - Built REST services in Python and FastAPI, cutting response times by 25%
@@ -249,4 +249,14 @@ test("template text in the summary or letter is fixed without it, or the sentenc
   // No verdict at all (fast mode, or the model skipped it): it still goes.
   const none = decideSupport(sentences, new Map(), [CV]);
   assert.equal(none.find((d) => d.id === "s1")!.action, "remove");
+});
+
+test("insertBeforeSignoff: the statement is its own paragraph above the sign-off, or the last one", () => {
+  const letter = "Dear Acme team,\nI am applying for the Engineer role.\n\nAt Northwind Labs I cut response times by 25%.\n\nKind regards,\nAlex Example";
+  assert.equal(
+    insertBeforeSignoff(letter, "I have the permanent right to work in the UK and will not require visa sponsorship."),
+    "Dear Acme team,\nI am applying for the Engineer role.\n\nAt Northwind Labs I cut response times by 25%.\n\nI have the permanent right to work in the UK and will not require visa sponsorship.\n\nKind regards,\nAlex Example"
+  );
+  assert.equal(insertBeforeSignoff("Body.\nKind regards,\nAlex", "Statement."), "Body.\n\nStatement.\n\nKind regards,\nAlex");
+  assert.equal(insertBeforeSignoff("Body.\n", "Statement."), "Body.\n\nStatement.");
 });

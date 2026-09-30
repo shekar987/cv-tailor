@@ -96,3 +96,16 @@ export function normalizeLetter(letter: unknown, opts: { company?: string | null
   if (dashes.replaced) fixes.emDashes = dashes.replaced;
   return { letter: dashes.text.replace(/\n{3,}/g, "\n\n").trim(), fixes };
 }
+
+// A sentence the app writes itself (the right-to-work statement from
+// Eligibility) goes in as its own paragraph before the sign-off, or at the
+// end when the letter has none.
+export function insertBeforeSignoff(letter: string, sentence: string): string {
+  const lines = letter.replace(/\r/g, "").split("\n");
+  const idx = lines.findIndex((l) => SIGNOFF_RE.test(l.trim()));
+  if (idx === -1) return `${letter.replace(/\s+$/, "")}\n\n${sentence}`;
+  let at = idx;
+  while (at > 0 && lines[at - 1].trim() === "") at--;
+  lines.splice(at, 0, "", sentence, "");
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n");
+}

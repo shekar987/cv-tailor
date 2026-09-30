@@ -681,7 +681,7 @@ STYLE:
 - Never tell the reader what the role needs or emphasises, and never say the candidate's work matches it ("the foundation this role needs", "the craftsmanship your role emphasises", "under that exact constraint"): state the fact and let the reader connect it. A personal project is described at its real scale — never as production traffic it did not have.
 - Do not open with a dramatic scene or a general statement about engineering. Match the analysis tone_signals.
 - No date line, no address block, no placeholders of any kind ("[Company]", "X%", "TBC") — the app adds today's date itself.
-${omitRightToWork ? "- Do NOT mention visa, sponsorship, right to work or immigration status anywhere in the letter, even though the master CV states it. The application form asks that question.\n" : ""}
+- Do NOT mention visa, sponsorship, right to work, immigration status, a start date or availability anywhere in the letter, even though the master CV may state them${omitRightToWork ? ": the application form asks that question" : ": the app adds the candidate's own statement of it to the close"}.
 Before you answer, reread the letter: delete every sentence that is not a fact from the master CV, a fact from the posting or the research, or part of the close.
 
 Output ONLY the cover letter as plain text. No word count, no notes, no preamble.`;
