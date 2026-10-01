@@ -12,6 +12,7 @@ import {
 } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
 import { companyNamesMatch } from "@/lib/companyMatch";
+import { findDuplicateApplication, sendConfirmReasons } from "@/lib/tracker";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
@@ -475,6 +476,12 @@ export default function Home() {
   // session id): a new run, or a loaded result, starts unattested.
   const [attestedFor, setAttestedFor] = useState<string | null>(null);
   const [appliedState, setAppliedState] = useState<AppliedState>("idle");
+  // "Send anyway?": the reasons the first Applied click found (a weak score,
+  // a long-shot / skip eligibility read, a row the tracker already holds for
+  // this company and role — lib/tracker sendConfirmReasons). The second click
+  // saves regardless. Null = nothing to confirm or already confirmed.
+  const [appliedConfirm, setAppliedConfirm] = useState<string[] | null>(null);
+  const [appliedChecking, setAppliedChecking] = useState(false);
   const [appliedError, setAppliedError] = useState("");
   // Saved, but the API had something to tell us (e.g. no CV snapshot column yet).
   const [appliedNotice, setAppliedNotice] = useState("");
@@ -1080,6 +1087,7 @@ export default function Home() {
       setAppliedState("idle");
       setAppliedError("");
       setAppliedNotice("");
+      setAppliedConfirm(null);
       // The gate applied to this specific run; clear it so a re-tailor of the
       // same JD starts a fresh pre-check rather than silently reusing a stale
       // one. Only on success: a failed run keeps the paid-for analysis for the
@@ -1329,9 +1337,35 @@ export default function Home() {
     return () => registry.delete("claimViolation");
   }, [activeCheck, result]);
 
-  async function handleApplied() {
+  async function handleApplied(force = false) {
     if (blocked) return;
     if (!result) return;
+    // First click: anything worth a second look stops here with the reasons;
+    // "Save anyway" calls back with force. Nothing blocks, a duplicate lookup
+    // is one free GET, and a lookup failure never stops the save.
+    if (!force) {
+      setAppliedChecking(true);
+      let duplicate = null;
+      try {
+        const company = realValue(result.analysis?.company_name);
+        const role = realValue(result.analysis?.role_title);
+        if (company && role) {
+          const listRes = await fetch("/api/applications");
+          const list = listRes.ok ? await listRes.json().catch(() => ({})) : {};
+          const rows = Array.isArray(list.applications) ? (list.applications as { id: string; company_name: string; role: string; date_applied?: string; status?: string }[]) : [];
+          duplicate = findDuplicateApplication(rows, { company_name: company, role });
+        }
+      } catch {
+        /* the save goes ahead without the duplicate check */
+      }
+      setAppliedChecking(false);
+      const reasons = sendConfirmReasons({ band: result.atsScore?.band ?? null, read: result.gatesSummary?.read ?? null, duplicate });
+      if (reasons.length) {
+        setAppliedConfirm(reasons);
+        return;
+      }
+    }
+    setAppliedConfirm(null);
     // Workspaces saved before session ids existed restore without one; mint
     // it now so the save effect persists it and a second click still dedupes.
     const sid = tailorSessionId ?? crypto.randomUUID();
@@ -1457,6 +1491,7 @@ export default function Home() {
     setPreFixResult(null);
     setAppliedError("");
     setAppliedNotice("");
+    setAppliedConfirm(null);
     setPreCheck(null);
     setGateAnalysis(null);
     setGateExtras(null);
@@ -3038,11 +3073,13 @@ export default function Home() {
             <div className="actions appliedRow">
               <Button
                 variant="secondary"
-                onClick={handleApplied}
-                disabled={blocked || appliedState === "saving" || appliedState === "saved" || appliedState === "already"}
+                onClick={() => void handleApplied()}
+                disabled={blocked || appliedChecking || appliedState === "saving" || appliedState === "saved" || appliedState === "already"}
                 title={blocked ? "Fix the flagged claims first" : undefined}
               >
-                {appliedState === "saving"
+                {appliedChecking
+                  ? "Checking…"
+                  : appliedState === "saving"
                   ? "Saving…"
                   : appliedState === "saved"
                     ? "Saved to tracker ✓"
@@ -3060,6 +3097,24 @@ export default function Home() {
                 <StatusText as="span" role="status">Fix the flagged claims above first — press Fix it, or edit the preview. No credit is used.</StatusText>
               )}
             </div>
+            {appliedConfirm && appliedState !== "saving" && appliedState !== "saved" && appliedState !== "cleared" && (
+              <div className="limitNotice" role="status" data-send-confirm>
+                <p><strong>Send anyway?</strong> Before this goes in the tracker as applied:</p>
+                <ul className="atsList">
+                  {appliedConfirm.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+                <div className="actions">
+                  <Button variant="secondary" onClick={() => void handleApplied(true)} data-send-anyway>
+                    Save anyway
+                  </Button>
+                  <button type="button" className="inlineLink" onClick={() => setAppliedConfirm(null)}>
+                    Not yet
+                  </button>
+                </div>
+              </div>
+            )}
             {appliedNotice && (
               <div className="limitNotice" role="status">{appliedNotice}</div>
             )}
