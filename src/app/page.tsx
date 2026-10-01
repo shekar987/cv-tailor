@@ -2,14 +2,27 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import Button from "@/components/ui/Button";
+// Real screenshots of the product from a test account (Alex Tester, Northwind
+// Labs and every company in them are made up), captured by the smoke
+// harness (scratchpad/smoke/shots-landing.mjs). Re-capture after a redesign.
+import shotInterviewer from "../../public/landing/interviewer.jpg";
+import shotCustomize from "../../public/landing/customize.jpg";
+import shotPrecheck from "../../public/landing/precheck.jpg";
+import shotTailored from "../../public/landing/tailored.jpg";
+import shotScore from "../../public/landing/score.jpg";
+import shotTracker from "../../public/landing/tracker.jpg";
+import shotPrep from "../../public/landing/prep.jpg";
+import shotInterview from "../../public/landing/interview.jpg";
 import { createClient } from "@/lib/supabase/client";
 
 // ─── Scroll-reveal: progressive enhancement ─────────────────────────────────
 // Fires once per element via IntersectionObserver, then disconnects. The
-// <noscript> block in the page body forces full visibility if JS never runs,
-// so nothing is ever permanently invisible — this only ever adds polish, it
-// never gates content.
+// hidden state is scoped under `.js-ready` (added on mount, globals.css), so
+// without JavaScript — or before hydration — everything is visible, and
+// prefers-reduced-motion shows everything at once. This only adds polish,
+// it never gates content.
 function useInView<T extends HTMLElement>(threshold = 0.15) {
   const ref = useRef<T>(null);
   const [inView, setInView] = useState(false);
@@ -139,18 +152,34 @@ export default function Landing() {
 
       {/* ── Hero — no scroll-reveal here, it's above the fold on load ────── */}
       <section className="lpHero">
-        <h1 className="lpTitle">
-          Every AI CV tool lies for you. This one <span className="lpAmber">won&apos;t</span>.
-        </h1>
-        <p className="lpSub">
-          Paste your CV and a job description. Every claim in what comes back is checked
-          against your CV — figures, skills, and each sentence of the summary and letter —
-          before you see it.
-        </p>
-        <div className="lpHeroCta">
-          <Button href="/app">Tailor my CV →</Button>
-          <a href="#example" className="cta secondary">See an example ↓</a>
+        <div className="lpHeroText">
+          <h1 className="lpTitle">
+            Honest CVs. <span className="lpAmber">Real</span> interview practice.
+          </h1>
+          <p className="lpSub">
+            Paste your CV and a job description. Every claim in what comes back is checked
+            against your CV — figures, skills, and each sentence of the summary and letter —
+            before you see it. Then an interviewer built from the same job asks you the
+            questions out loud, UK round by UK round.
+          </p>
+          <div className="lpHeroCta">
+            <Button href="/app">Tailor my CV →</Button>
+            <a href="#journey" className="cta secondary">See the whole journey ↓</a>
+          </div>
         </div>
+        <figure className="lpHeroFigure">
+          <Image
+            src={shotInterviewer}
+            alt="Emma Clarke, one of the two AI interviewers, rendered in the browser: a woman in a pinstriped jacket against a dark backdrop, with her name and role on a nameplate."
+            className="lpShot lpShotPortrait"
+            priority
+            sizes="(max-width: 860px) 100vw, 420px"
+          />
+          <figcaption>
+            Emma Clarke runs the screening, competency and strengths rounds; Daniel Okafor the technical ones.
+            Rendered live in your browser — no video, no upload.
+          </figcaption>
+        </figure>
       </section>
 
       {/* ── The problem ───────────────────────────────────────────────────── */}
@@ -162,7 +191,7 @@ export default function Landing() {
             <div className="lpProblemIcon"><IconWarning /></div>
             <h3 className="lpProblemTitle">The AI tools embellish</h3>
             <p className="lpProblemBody">
-              Ask one to tailor your CV and it&apos;ll add &quot;Kubernetes&quot; because the job
+              Ask one to tailor your CV and it&apos;ll add &quot;Terraform&quot; because the job
               wants it — never mind that you&apos;ve never touched it. Fine, until an interviewer
               asks you a real question about it.
             </p>
@@ -172,7 +201,7 @@ export default function Landing() {
             <h3 className="lpProblemTitle">Doing it by hand works, but it&apos;s slow</h3>
             <p className="lpProblemBody">
               Rewriting your CV properly for one role — rereading the posting, hunting the right
-              phrasing, reformatting — takes about an hour. Most people stop customizing after the
+              phrasing, reformatting — takes about an hour. Most people stop customising after the
               third application and start mass-applying with one generic version instead.
             </p>
           </Reveal>
@@ -213,7 +242,7 @@ export default function Landing() {
             <div className="lpShowTag">Tailored CV</div>
             <div className="lpShowCv">
               <div className="lpCvName">JORDAN REYES</div>
-              <div className="lpCvContact">San Francisco, CA · jordan@email.com · linkedin.com/in/jordanreyes</div>
+              <div className="lpCvContact">London · jordan@email.com · linkedin.com/in/jordanreyes</div>
               <div className="lpCvHead">Experience</div>
               <div className="lpCvJob">
                 <span>Senior Backend Engineer, Northwind Systems</span>
@@ -252,6 +281,91 @@ export default function Landing() {
             </div>
           </Reveal>
         </div>
+      </Reveal>
+
+      {/* ── The whole journey — real screenshots, a test account ──────────── */}
+      <Reveal as="section" className="lpSection lpJourney" id="journey">
+        <span className="lpKicker">The whole journey</span>
+        <h2 className="lpH2">From one saved CV to the interview, in one place.</h2>
+        <p className="lpShowNote">
+          Screenshots of the real screens, from a test account: Alex Tester, Northwind Labs and every company in the
+          tracker are made up. The checks, the numbers and the wording are exactly what the tool shows.
+        </p>
+        <ol className="lpJourneySteps">
+          {[
+            {
+              n: 1,
+              title: "Save your CV once.",
+              body: "Paste or upload it on Customize. The details, projects and education are pulled out for you to check, and every skill gets a level — production, project or learning — that the tailoring must respect.",
+              img: shotCustomize,
+              alt: "The Customize page: a saved master CV, and the extracted details — name, tagline, location, email, LinkedIn, GitHub — in editable fields.",
+            },
+            {
+              n: 2,
+              title: "A free pre-check before a credit is spent.",
+              body: "The posting's eligibility conditions are read against your own answers, your keyword match is counted, and the tracker says whether you have applied to this company before.",
+              img: shotPrecheck,
+              alt: "The pre-check card: the role and company read off the posting, a note that you already applied to this company once, and the read \"Apply\".",
+            },
+            {
+              n: 3,
+              title: "A tailored CV built only from what is true.",
+              body: "Summary, skills, experience and projects, selected and reordered from your own bullets. Job titles, employers and dates are never touched; every figure is checked against the master CV.",
+              img: shotTailored,
+              alt: "The tailored CV preview: name and contact line, a professional summary, two skills lines and the first role's bullets with the figures in bold.",
+            },
+            {
+              n: 4,
+              title: "A score that is a count, not a compliment.",
+              body: "How many of the role's terms the tailored text carries, with the matched and missing lists. 6 of 10 reads \"Borderline. Fix these before sending.\" — never \"strong\".",
+              img: shotScore,
+              alt: "The recruiter search visibility card: 6/10, Borderline, with six matched terms and four missing ones listed.",
+            },
+            {
+              n: 5,
+              title: "Applied, and it lands in the tracker.",
+              body: "The exact CV and letter you sent, the posting, a follow-up date, and a \"What's working\" read that says plainly what it cannot measure.",
+              img: shotTracker,
+              alt: "The application tracker: status chips, the What's working card, and a sheet of applications with company, role, status, dates and notes.",
+            },
+            {
+              n: 6,
+              title: "A prep pack traced line by line.",
+              body: "The questions this job will ask, with STAR answers built only from your CV — each line marked \"Traced to your CV\" or flagged for you to rephrase.",
+              img: shotPrep,
+              alt: "An interview prep question with a STAR answer and two lines marked Traced to your CV.",
+            },
+            {
+              n: 7,
+              title: "Then say it out loud.",
+              body: "Pick the UK round — screening call, competency, strengths-based, technical, hiring manager, final — and an interviewer built from the same job asks the questions and checks each answer against your CV.",
+              img: shotInterview,
+              alt: "The mock interview setup: the 3D interviewer on the left, and the six UK rounds to choose from on the right.",
+            },
+          ].map((step) => (
+            <li key={step.n} className="lpJourneyStep">
+              <div className="lpJourneyText">
+                <span className="lpStepNum">{step.n}</span>
+                <h3 className="lpJourneyTitle">{step.title}</h3>
+                <p className="lpJourneyBody">{step.body}</p>
+              </div>
+              <Image src={step.img} alt={step.alt} className="lpShot" sizes="(max-width: 860px) 100vw, 620px" />
+            </li>
+          ))}
+        </ol>
+      </Reveal>
+
+      {/* ── Trust — an honest empty slot, never an invented quote ─────────── */}
+      <Reveal as="section" className="lpSection lpTrust" id="trust">
+        <span className="lpKicker">What people say</span>
+        <h2 className="lpH2">Nothing yet — and nothing made up.</h2>
+        <blockquote className="lpQuoteSlot" data-quotes-empty>
+          <p>
+            This is where real users&apos; words will go: unedited, with their permission, and only once someone has
+            written to say what it did for them. Until then this space stays empty rather than filled with quotes we
+            wrote ourselves.
+          </p>
+        </blockquote>
       </Reveal>
 
       {/* ── What makes it different ───────────────────────────────────────── */}

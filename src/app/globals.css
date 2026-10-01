@@ -1610,11 +1610,60 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .reveal { transition: opacity 600ms var(--ease), transform 600ms var(--ease); }
 .js-ready .reveal { opacity: 0; transform: translateY(18px); }
 .js-ready .reveal--visible { opacity: 1; transform: translateY(0); }
+/* Reduced motion: nothing starts hidden, nothing slides — the global rule
+   above only shortens the transition, which still left content at opacity 0
+   until it scrolled into view. */
+@media (prefers-reduced-motion: reduce) {
+  .js-ready .reveal { opacity: 1; transform: none; transition: none; transition-delay: 0ms !important; }
+}
 
 .lpHero {
   position: relative;
   padding: var(--space-20) 0 var(--space-16);
-  max-width: 720px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: var(--space-10);
+  align-items: center;
+}
+.lpHeroText { max-width: 720px; min-width: 0; }
+.lpHeroFigure { margin: 0; min-width: 0; }
+.lpHeroFigure figcaption { font-size: var(--text-sm); color: var(--muted); line-height: var(--leading-snug); margin-top: var(--space-3); max-width: 42ch; }
+
+/* A product screenshot: a framed, raised image at its natural ratio. */
+.lpShot {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-card);
+  box-shadow: var(--shadow-lg);
+  background: var(--surface);
+}
+.lpShotPortrait { max-width: 420px; }
+
+/* ── The whole journey ───────────────────────────────────────────────────── */
+.lpJourneySteps { list-style: none; margin: var(--space-8) 0 0; padding: 0; display: grid; gap: var(--space-12); }
+.lpJourneyStep {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: var(--space-8);
+  align-items: center;
+}
+.lpJourneyStep:nth-child(even) .lpJourneyText { order: 2; }
+.lpJourneyText { display: flex; flex-direction: column; gap: var(--space-3); align-items: flex-start; }
+.lpJourneyTitle { font-size: var(--text-lg); font-weight: 700; letter-spacing: var(--tracking-tight); }
+.lpJourneyBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); }
+
+/* ── Trust: an honest empty slot ─────────────────────────────────────────── */
+.lpQuoteSlot {
+  margin: var(--space-6) 0 0;
+  padding: var(--space-6);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--text-subtle);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  max-width: 62ch;
 }
 /* A soft amber bloom behind the headline — the same radial technique as the
    page background, one notch warmer, so the hero has a light source. */
@@ -1788,6 +1837,10 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 }
 @media (max-width: 860px) {
   .lpShowStage { grid-template-columns: 1fr; }
+  .lpHero { grid-template-columns: 1fr; gap: var(--space-8); }
+  .lpShotPortrait { max-width: 100%; }
+  .lpJourneyStep { grid-template-columns: 1fr; gap: var(--space-4); }
+  .lpJourneyStep:nth-child(even) .lpJourneyText { order: 0; }
 }
 @media (max-width: 640px) {
   .lpProblemGrid { grid-template-columns: 1fr; }
