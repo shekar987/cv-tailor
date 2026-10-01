@@ -38,7 +38,7 @@ export default function OpenGraphImage() {
           Jobhuntz
         </div>
         <div style={{ display: "flex", fontSize: 74, fontWeight: 700, lineHeight: 1.1, maxWidth: 1020 }}>
-          Every AI CV tool lies for you. This one won't.
+          Honest CVs. Real interview practice.
         </div>
         <div style={{ display: "flex", fontSize: 30, color: "#9B9BA2", marginTop: 36, maxWidth: 900 }}>
           Honest tailoring — every claim traces back to your real CV.
