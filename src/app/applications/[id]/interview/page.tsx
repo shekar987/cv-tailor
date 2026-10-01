@@ -54,6 +54,9 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
   const [kokoroVoice, setKokoroVoice] = useState<InterviewVoice | null>(null);
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[] | null>(null);
   const [headReady, setHeadReady] = useState(false);
+  // What the 3D interviewer is doing, shown in the setup cards so the round
+  // and voice can be chosen while it loads (the stage alone showed it).
+  const [avatar, setAvatar] = useState<{ state: "loading" | "ready" | "failed"; pct: number }>({ state: "loading", pct: 0 });
   const [answerMode, setAnswerMode] = useState<"voice" | "typed">("voice");
   const [silenceMs, setSilenceMs] = useState(3000);
   const [phase, setPhase] = useState<"setup" | "room" | "feedback">("setup");
@@ -72,12 +75,17 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
   const getHead = useCallback((): TalkingHead | null => avatarRef.current?.head ?? null, []);
   // The interviewer's voice: the natural one once loaded, else the browser's
   // best British voice for this interviewer, else captions.
+  // The natural voice is a 160–330 MB download the user starts by hand; until
+  // it is loaded the browser's voice stands in, so Start is never held behind
+  // the download (it was, on every capable desktop, where Kokoro is the
+  // suggested choice).
   const voice = useMemo<InterviewVoice | null>(() => {
     if (voiceChoice === "silent") return silentVoice;
-    if (voiceChoice === "kokoro") return kokoroVoice;
+    if (voiceChoice === "kokoro" && kokoroVoice) return kokoroVoice;
     if (typeof window !== "undefined" && !window.speechSynthesis) return silentVoice;
     return browserVoices ? browserVoice(pickBrowserVoice(browserVoices, persona.gender)) : null;
   }, [voiceChoice, kokoroVoice, browserVoices, persona.gender]);
+  const kokoroPending = voiceChoice === "kokoro" && !kokoroVoice;
 
   // ── Load the application, past interviews, usage, device capabilities ─────
   useEffect(() => {
@@ -330,8 +338,19 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                   role={round.interviewerRole}
                   reducedMotion={!!caps?.reducedMotion}
                   speaking={speaking}
-                  onReady={() => setHeadReady(true)}
-                  onFailed={() => setHeadReady(false)}
+                  onLoading={() => {
+                    setHeadReady(false);
+                    setAvatar({ state: "loading", pct: 0 });
+                  }}
+                  onProgress={(pct) => setAvatar((a) => (a.state === "loading" ? { state: "loading", pct } : a))}
+                  onReady={() => {
+                    setHeadReady(true);
+                    setAvatar({ state: "ready", pct: 100 });
+                  }}
+                  onFailed={() => {
+                    setHeadReady(false);
+                    setAvatar({ state: "failed", pct: 0 });
+                  }}
                 />
               </div>
 
@@ -353,6 +372,13 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                 {phase === "setup" && (
                   <>
                     <Card>
+                      <p className="fitEvidence" role="status" data-avatar-progress={avatar.state}>
+                        {avatar.state === "loading"
+                          ? `Loading the 3D interviewer${avatar.pct ? ` · ${avatar.pct}%` : "…"} — choose the round and voice meanwhile; nothing waits for it.`
+                          : avatar.state === "ready"
+                            ? `${persona.name} is ready.`
+                            : "The 3D interviewer couldn't load on this device — the interview runs the same with the voice and captions."}
+                      </p>
                       <fieldset className="interviewRounds">
                         <legend className="label">Choose the round</legend>
                         {INTERVIEW_TYPES.map((t) => {
@@ -387,7 +413,10 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                               <span role="status">Downloading the voice once (about 160–330 MB, then cached) · {kokoro.pct}%</span>
                             ) : (
                               <>
-                                <span>Downloads about 160–330 MB once, then it&apos;s cached. A quick speed test decides whether this device can keep up.</span>
+                                <span>
+                                  Downloads about 160–330 MB once, then it&apos;s cached. A quick speed test decides whether this device can keep up.
+                                  {kokoroPending && ` Until it is loaded, ${persona.firstName} uses your browser's British voice — you can start now.`}
+                                </span>
                                 <Button variant="secondary" onClick={loadNatural} disabled={!headReady}>Load the natural voice</Button>
                               </>
                             )}
@@ -438,7 +467,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                         {round.label} with {persona.name} · about {round.minutes} minutes. Interviews stay private to you and are deleted with the application.
                       </p>
                       <div className="actions">
-                        <Button onClick={start} disabled={starting || quotaExhausted || errorType === "needs_migration" || (voiceChoice === "kokoro" && !voice)} data-interview-start>
+                        <Button onClick={start} disabled={starting || quotaExhausted || errorType === "needs_migration" || !voice} data-interview-start>
                           {starting ? "Preparing your interviewer…" : "Start interview · uses 1 credit"}
                         </Button>
                         {remaining !== null && !usage?.unlimited && <span className="cvHelp">{remaining} left today</span>}

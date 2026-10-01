@@ -274,6 +274,8 @@ html, body {
   gap: var(--space-2);
   flex-wrap: wrap;
 }
+/* The menu button exists only at phone width (see the 640px block). */
+.appBarMenuBtn { display: none; }
 .appBarEmail {
   font-size: var(--text-sm);
   color: var(--muted);
@@ -2212,7 +2214,20 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   .page { padding-left: var(--space-4); padding-right: var(--space-4); }
   .appBarSticky { margin: 0 calc(-1 * var(--space-4)); padding: var(--space-2) var(--space-4); }
   .appBarEmail { display: none; }
-  .customizeLink { min-height: 32px; font-size: var(--text-xs); padding: 0 var(--space-3); }
+  /* Five pills wrapped onto three rows of a sticky bar; now one Menu button
+     opens them as a column of 44px rows (a thumb's target), closed by a tap,
+     Escape or Sign out. The pills elsewhere in the app keep their size. */
+  .appBarMenuBtn { display: inline-flex; min-height: 40px; }
+  .appBarActions { display: none; }
+  .appBarActions.open {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    gap: var(--space-1);
+    padding-top: var(--space-2);
+  }
+  .appBarActions.open .customizeLink { min-height: 44px; justify-content: flex-start; border-radius: var(--radius-md); }
   .pageTitle { font-size: var(--text-xl); margin-top: var(--space-6); }
   .inputCard, .scoreCard, .gateCard { padding: var(--space-5); }
   .feedbackWidget { width: min(var(--container), 100% - 2 * var(--space-4)); }
@@ -2259,7 +2274,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .resultsContext strong { color: var(--text); font-weight: 600; }
 
 /* ── Stage 3: company research + Fit Score ─────────────────────────────────
-   Lives above the JD card. The dashed inner card matches the gate's
+   Lives under the JD card (the job comes first; research is optional). The dashed inner card matches the gate's
    "provisional" read; the Fit number reuses the score typography so the two
    kinds of number feel related but the bars make this one unmistakably a
    breakdown, not an ATS score. */
@@ -3094,6 +3109,9 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 @media (max-width: 900px) {
   .interviewLayout, .interviewLayout--room { grid-template-columns: minmax(0, 1fr); }
   .interviewLayout__stage { position: static; }
+  /* One column: during setup the round picker comes first and the (possibly
+     still loading) 3D stage after it; in the room the interviewer leads. */
+  .interviewLayout:not(.interviewLayout--room) .interviewLayout__stage { order: 2; }
 }
 @media (max-width: 640px) {
   .interviewStage { aspect-ratio: 4 / 5; }

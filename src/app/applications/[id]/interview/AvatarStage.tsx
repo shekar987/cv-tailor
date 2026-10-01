@@ -23,18 +23,26 @@ type Props = {
   speaking: boolean;
   onReady?: (head: TalkingHead) => void;
   onFailed?: (reason: string) => void;
+  /** A (re)load started: the previous head is gone until onReady fires again. */
+  onLoading?: () => void;
+  /** Avatar download progress, 0–100. */
+  onProgress?: (pct: number) => void;
 };
 
-const AvatarStage = forwardRef<AvatarHandle, Props>(function AvatarStage({ url, gender, name, role, reducedMotion, speaking, onReady, onFailed }, ref) {
+const AvatarStage = forwardRef<AvatarHandle, Props>(function AvatarStage({ url, gender, name, role, reducedMotion, speaking, onReady, onFailed, onLoading, onProgress }, ref) {
   const nodeRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<TalkingHead | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [progress, setProgress] = useState(0);
   const onReadyRef = useRef(onReady);
   const onFailedRef = useRef(onFailed);
+  const onLoadingRef = useRef(onLoading);
+  const onProgressRef = useRef(onProgress);
   useEffect(() => {
     onReadyRef.current = onReady;
     onFailedRef.current = onFailed;
+    onLoadingRef.current = onLoading;
+    onProgressRef.current = onProgress;
   });
 
   useImperativeHandle(ref, () => ({ get head() { return headRef.current; } }), []);
@@ -82,7 +90,11 @@ const AvatarStage = forwardRef<AvatarHandle, Props>(function AvatarStage({ url, 
         head.scene.environmentIntensity = 0.8;
         head.lipsync.en = new LipsyncEn();
         await head.showAvatar({ url, body: gender === "female" ? "F" : "M", avatarMood: "neutral", lipsyncLang: "en" }, (ev) => {
-          if (ev.lengthComputable && ev.total > 0) setProgress(Math.round((ev.loaded / ev.total) * 100));
+          if (ev.lengthComputable && ev.total > 0) {
+            const pct = Math.round((ev.loaded / ev.total) * 100);
+            setProgress(pct);
+            onProgressRef.current?.(pct);
+          }
         });
         if (cancelled) {
           head.dispose();
@@ -99,6 +111,7 @@ const AvatarStage = forwardRef<AvatarHandle, Props>(function AvatarStage({ url, 
     }
     setState("loading");
     setProgress(0);
+    onLoadingRef.current?.();
     void load();
     const pause = () => {
       if (!headRef.current) return;
