@@ -52,14 +52,20 @@ export async function POST(req: NextRequest) {
 
     const { error: rpcError } = await supabase.rpc("delete_own_account");
     if (rpcError) {
+      // The files are already gone (they had to go first: after the RPC the
+      // user no longer exists to remove them). Say so — "unchanged" would be
+      // a lie once a file was removed.
+      const filesNote = paths.length
+        ? ` Your ${paths.length} uploaded CV file${paths.length === 1 ? " was" : "s were"} removed; the account and everything else remain.`
+        : " Nothing was deleted.";
       if (rpcError.code === "PGRST202") {
         return NextResponse.json(
-          { error: `Account deletion is not set up on this database yet (missing ${MIGRATION}).`, errorType: "needs_migration" },
+          { error: `Account deletion is not set up on this database yet (missing ${MIGRATION}).${filesNote}`, errorType: "needs_migration", filesRemoved: paths.length },
           { status: 503 }
         );
       }
       console.error("account delete: rpc error:", rpcError.message);
-      return NextResponse.json({ error: "Could not delete your account. Your data is unchanged; try again." }, { status: 500 });
+      return NextResponse.json({ error: `Could not delete your account; try again.${filesNote}`, filesRemoved: paths.length }, { status: 500 });
     }
 
     // The session cookie now names a user that no longer exists; clear it.

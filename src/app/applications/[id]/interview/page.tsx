@@ -61,6 +61,11 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
   const [silenceMs, setSilenceMs] = useState(3000);
   const [phase, setPhase] = useState<"setup" | "room" | "feedback">("setup");
   const [started, setStarted] = useState<StartedInterview | null>(null);
+  // The voice the room started with. The natural voice can finish its
+  // download mid-interview; swapping it in then made two voices read the
+  // same line (the browser's kept going while Kokoro restarted it). It is
+  // used from the next interview on.
+  const [roomVoice, setRoomVoice] = useState<InterviewVoice | null>(null);
   const [feedback, setFeedback] = useState<InterviewFeedback | null>(null);
   const [questions, setQuestions] = useState<{ id: string; text: string; intent?: string }[]>([]);
   const [feedbackRound, setFeedbackRound] = useState<InterviewType>("screening");
@@ -224,6 +229,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
         return;
       }
       setStarted(data.interview as StartedInterview);
+      setRoomVoice(voice);
       setPhase("room");
       getUsage().then(setUsage);
     } catch {
@@ -359,7 +365,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                   <InterviewRoom
                     key={started.id}
                     interview={started}
-                    voice={voice ?? silentVoice}
+                    voice={roomVoice ?? voice ?? silentVoice}
                     getHead={getHead}
                     typedOnly={answerMode === "typed"}
                     silenceWindowMs={silenceMs}

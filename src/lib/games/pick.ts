@@ -30,6 +30,24 @@ export function nextTailorCount(userId: string | null, storage?: Pick<Storage, "
   }
 }
 
+// Removes every user's tailor count from this browser (sign-out, account
+// deletion) — the same sweep the workspaces and practice ratings get.
+export function clearAllGameCounts(storage?: Pick<Storage, "key" | "length" | "removeItem"> | null): void {
+  try {
+    const store = storage === undefined ? window.localStorage : storage;
+    if (!store) return;
+    const keys: string[] = [];
+    for (let i = 0; i < store.length; i++) {
+      const k = store.key(i);
+      if (k && k.startsWith(KEY_PREFIX)) keys.push(k);
+    }
+    for (const k of keys) store.removeItem(k);
+  } catch {
+    /* no storage */
+  }
+  memoryCount = 0;
+}
+
 // 0 … 0.99 while the run is going: 90% at the expected time, then creeping
 // towards 99%. Only the real result fills the bar (the popup shows 100% then).
 export function progressAt(elapsedMs: number, expectedMs: number = EXPECTED_TAILOR_MS): number {

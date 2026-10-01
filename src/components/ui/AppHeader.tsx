@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { clearAllWorkspaces } from "@/lib/workspace";
 import { clearAllPrepProgress } from "@/lib/prepProgress";
+import { clearAllGameCounts } from "@/lib/games/pick";
 
 // The one header for every signed-in page. Previously each page hand-wrote
 // its own bar and they drifted: Sign out existed only on /app, Applications
@@ -59,6 +60,7 @@ export default function AppHeader({
     // this account's or a previous one's.
     clearAllWorkspaces();
     clearAllPrepProgress();
+    clearAllGameCounts();
     const supabase = createClient();
     await supabase.auth.signOut({ scope: "local" });
     setOpen(false);
@@ -71,7 +73,15 @@ export default function AppHeader({
   return (
     <header className="appHeader">
       <div className="appBarSticky">
-        <div className="appBar">
+        <div
+          className="appBar"
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && open) {
+              e.preventDefault();
+              closeMenu(true);
+            }
+          }}
+        >
           <Link href="/app" className="wordmark">Jobhuntz</Link>
           <button
             ref={menuBtnRef}
@@ -84,17 +94,7 @@ export default function AppHeader({
           >
             {open ? "Close" : "Menu"}
           </button>
-          <nav
-            id="appBarNav"
-            className={"appBarActions" + (open ? " open" : "")}
-            aria-label="Main"
-            onKeyDown={(e) => {
-              if (e.key === "Escape" && open) {
-                e.preventDefault();
-                closeMenu(true);
-              }
-            }}
-          >
+          <nav id="appBarNav" className={"appBarActions" + (open ? " open" : "")} aria-label="Main">
             {email && <span className="appBarEmail" title={email}>{email}</span>}
             {NAV.map((item) => (
               <Link

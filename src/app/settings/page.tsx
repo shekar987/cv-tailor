@@ -9,6 +9,7 @@ import { DELETE_CONFIRM_PHRASE } from "@/lib/account";
 import { saveBlob } from "@/lib/saveBlob";
 import { clearAllWorkspaces } from "@/lib/workspace";
 import { clearAllPrepProgress } from "@/lib/prepProgress";
+import { clearAllGameCounts } from "@/lib/games/pick";
 import Link from "next/link";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -165,6 +166,7 @@ export default function SettingsPage() {
       // Gone on the server; leave nothing of it in this browser either.
       clearAllWorkspaces();
       clearAllPrepProgress();
+      clearAllGameCounts();
       const supabase = createClient();
       await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
       router.replace("/?deleted=1");

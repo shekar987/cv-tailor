@@ -18,7 +18,8 @@ const nextConfig: NextConfig = {
   },
   // Security headers on every page (lib/securityHeaders, tested): nosniff,
   // frame denial, referrer policy, HSTS, a report-only CSP, and a
-  // permissions policy that allows the microphone on the interview route only.
+  // permissions policy (microphone allowed — it is per document, so it cannot
+  // be scoped to the interview route; camera and the rest off).
   async headers() {
     return securityHeaders({ supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL, dev: process.env.NODE_ENV !== "production" });
   },

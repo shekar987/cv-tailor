@@ -20,9 +20,6 @@ export const metadata: Metadata = {
     template: "%s · Jobhuntz",
   },
   description: DESCRIPTION,
-  // The landing page is the canonical home; the public pages set their own
-  // and the signed-in layouts replace it with theirs plus noindex.
-  alternates: { canonical: "/" },
   openGraph: {
     title: "Jobhuntz",
     description: DESCRIPTION,

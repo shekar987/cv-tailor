@@ -49,7 +49,7 @@ export default function PrivacyPage() {
         </li>
         <li>
           <strong>Usage counters</strong> (how many tailors you have run today and on the free credits) and any feedback you send
-          through the feedback button.
+          through the feedback button. Feedback is write-only: it is not shown back to you and is not in the export.
         </li>
       </ul>
 
@@ -87,8 +87,8 @@ export default function PrivacyPage() {
 
       <h2>Cookies and local storage</h2>
       <p>
-        One cookie keeps you signed in. Your browser&apos;s local storage holds the run you are working on, your practice ratings and
-        a game counter so a reload loses nothing; signing out clears them.
+        One or more session cookies keep you signed in. Your browser&apos;s local storage holds the run you are working on, your
+        practice ratings and a game counter so a reload loses nothing; signing out or deleting your account clears them.
       </p>
 
       <h2>How long we keep it</h2>
@@ -98,7 +98,8 @@ export default function PrivacyPage() {
       <h2>Your rights and your controls</h2>
       <ul>
         <li>
-          <strong>Export.</strong> Settings → Your data → Download everything gives you a JSON file of every table above.
+          <strong>Export.</strong> Settings → Your data → Download everything gives you a JSON file of every table above except
+          the write-only feedback.
         </li>
         <li>
           <strong>Delete.</strong> Settings → Your data → Delete my account removes your account, every row and every uploaded file,

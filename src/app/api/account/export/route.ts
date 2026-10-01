@@ -41,6 +41,14 @@ export async function GET() {
       read("user_api_keys", "provider, key_hint, updated_at"),
     ]);
 
+    // An unfinished interview's plan holds the questions not yet asked; the
+    // room reveals them one at a time, so the export does the same.
+    if (interviews.rows) {
+      interviews.rows = interviews.rows.map((r) => {
+        const row = r as Record<string, unknown>;
+        return row.status === "finished" ? row : { ...row, plan: null, planNote: "withheld until the interview is finished" };
+      });
+    }
     // The uploaded CV's record without its storage path.
     if (applications.rows) {
       applications.rows = applications.rows.map((r) => {

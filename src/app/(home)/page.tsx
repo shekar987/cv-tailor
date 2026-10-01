@@ -7,14 +7,14 @@ import Button from "@/components/ui/Button";
 // Real screenshots of the product from a test account (Alex Tester, Northwind
 // Labs and every company in them are made up), captured by the smoke
 // harness (scratchpad/smoke/shots-landing.mjs). Re-capture after a redesign.
-import shotInterviewer from "../../public/landing/interviewer.jpg";
-import shotCustomize from "../../public/landing/customize.jpg";
-import shotPrecheck from "../../public/landing/precheck.jpg";
-import shotTailored from "../../public/landing/tailored.jpg";
-import shotScore from "../../public/landing/score.jpg";
-import shotTracker from "../../public/landing/tracker.jpg";
-import shotPrep from "../../public/landing/prep.jpg";
-import shotInterview from "../../public/landing/interview.jpg";
+import shotInterviewer from "../../../public/landing/interviewer.jpg";
+import shotCustomize from "../../../public/landing/customize.jpg";
+import shotPrecheck from "../../../public/landing/precheck.jpg";
+import shotTailored from "../../../public/landing/tailored.jpg";
+import shotScore from "../../../public/landing/score.jpg";
+import shotTracker from "../../../public/landing/tracker.jpg";
+import shotPrep from "../../../public/landing/prep.jpg";
+import shotInterview from "../../../public/landing/interview.jpg";
 import { createClient } from "@/lib/supabase/client";
 
 // ─── Scroll-reveal: progressive enhancement ─────────────────────────────────
@@ -119,19 +119,35 @@ export default function Landing() {
   // Adaptive nav: someone already signed in doesn't need "Sign in" — they need
   // the app. Fail-soft: any error keeps the signed-out pair.
   const [signedIn, setSignedIn] = useState(false);
+  // Settings sends the user here with ?deleted=1 after an account deletion.
+  const [deleted, setDeleted] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.add("js-ready");
+    // After paint, never during the effect: the server rendered no notice
+    // (it cannot see the query), so the state flips in a frame callback.
+    const frame = requestAnimationFrame(() => {
+      if (new URLSearchParams(window.location.search).get("deleted") === "1") {
+        setDeleted(true);
+        window.history.replaceState(null, "", "/");
+      }
+    });
     createClient()
       .auth.getSession()
       .then(({ data }) => {
         if (data.session) setSignedIn(true);
       })
       .catch(() => {});
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   return (
     <main className="lp">
+      {deleted && (
+        <div className="limitNotice" role="status" data-account-deleted>
+          Your account and everything in it have been deleted. Thank you for trying Jobhuntz.
+        </div>
+      )}
 
       <nav className="lpNav">
         <div>

@@ -1,7 +1,7 @@
 // Unit tests for the response security headers (lib/securityHeaders). node:test, zero deps.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { securityHeaders, contentSecurityPolicy, INTERVIEW_ROUTE } from "../src/lib/securityHeaders.ts";
+import { securityHeaders, contentSecurityPolicy } from "../src/lib/securityHeaders.ts";
 
 const OPTS = { supabaseUrl: "https://abcdefgh.supabase.co", dev: false };
 
@@ -19,12 +19,13 @@ test("every page gets nosniff, frame denial, a referrer policy, HSTS and a repor
   assert.equal(headerFor(rules, "/:path*", "Content-Security-Policy"), undefined, "nothing is enforced yet");
 });
 
-test("the microphone is allowed on the interview route only, and that rule comes last", () => {
+test("the microphone is allowed on every document (a soft navigation keeps the first page's policy); camera and the rest are off", () => {
   const rules = securityHeaders(OPTS);
-  assert.match(headerFor(rules, "/:path*", "Permissions-Policy") ?? "", /microphone=\(\)/);
-  assert.match(headerFor(rules, INTERVIEW_ROUTE, "Permissions-Policy") ?? "", /microphone=\(self\)/);
-  assert.match(headerFor(rules, INTERVIEW_ROUTE, "Permissions-Policy") ?? "", /camera=\(\)/, "the camera stays off everywhere");
-  assert.equal(rules[rules.length - 1].source, INTERVIEW_ROUTE, "Next keeps the last matching value for a repeated key");
+  const policy = headerFor(rules, "/:path*", "Permissions-Policy") ?? "";
+  assert.match(policy, /microphone=\(self\)/);
+  assert.match(policy, /camera=\(\)/);
+  assert.match(policy, /geolocation=\(\)/);
+  assert.equal(rules.length, 1, "one rule: a per-route override never reaches a page reached by <Link>");
 });
 
 test("the CSP names what the app actually loads: Supabase, jsDelivr, Hugging Face, wasm, workers, no frames", () => {

@@ -391,3 +391,16 @@ test("jetpack: a gap is always taller than he is, with room to spare", () => {
   assert.ok(GAP_MIN - BODY_H > m(1.2), `${((GAP_MIN - BODY_H) / PX_PER_M).toFixed(2)} m to spare`);
   assert.ok(TUCK < STEP_UP + m(0.01));
 });
+
+test("clearAllGameCounts removes every user's tailor count and nothing else", async () => {
+  const { clearAllGameCounts } = await import("../src/lib/games/pick.ts");
+  const data = new Map<string, string>([["cvtailor:games:u1", "3"], ["cvtailor:games:u2", "1"], ["cvtailor:workspace:u1", "{}"]]);
+  const store = {
+    get length() { return data.size; },
+    key: (i: number) => [...data.keys()][i] ?? null,
+    removeItem: (k: string) => { data.delete(k); },
+  };
+  clearAllGameCounts(store);
+  assert.deepEqual([...data.keys()], ["cvtailor:workspace:u1"]);
+  clearAllGameCounts(null);
+});

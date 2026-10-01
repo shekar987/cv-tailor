@@ -11,8 +11,12 @@
 // X-Frame-Options is enforced (no page of this app belongs in a frame), as
 // are nosniff, the referrer policy and the permissions policy.
 //
-// The microphone is allowed on the mock-interview route only: the rest of the
-// app never asks for it, so nothing else may.
+// The microphone is allowed on every route. It is used by the mock interview
+// only, but a Permissions-Policy is fixed when the DOCUMENT is created and a
+// Next.js <Link> navigation never creates one: with a per-route allowance the
+// user arrived at the interview from the tracker carrying /applications'
+// "microphone=()" and getUserMedia was refused until a hard reload (found by
+// review on 1 Oct). Nothing else in the app ever calls getUserMedia.
 
 export type HeaderRule = { source: string; headers: { key: string; value: string }[] };
 
@@ -33,8 +37,6 @@ export const THIRD_PARTY = {
   // The Kokoro voice model: the Hub API, then the file CDN it redirects to.
   huggingface: ["https://huggingface.co", "https://*.hf.co", "https://*.huggingface.co"],
 } as const;
-
-export const INTERVIEW_ROUTE = "/applications/:id/interview";
 
 export function contentSecurityPolicy(opts: SecurityHeaderOptions): string {
   const supabase = originOf(opts.supabaseUrl);
@@ -68,8 +70,9 @@ function originOf(url: string | undefined): string {
   }
 }
 
-// camera and geolocation are never used; microphone only on the interview.
-const PERMISSIONS_BASE = "camera=(), geolocation=(), payment=(), usb=()";
+// camera, geolocation and payment are never used; the microphone is (the
+// interview — see above for why it cannot be scoped to that route).
+const PERMISSIONS_POLICY = "camera=(), geolocation=(), payment=(), usb=(), microphone=(self)";
 
 export function securityHeaders(opts: SecurityHeaderOptions): HeaderRule[] {
   const common = [
@@ -79,10 +82,5 @@ export function securityHeaders(opts: SecurityHeaderOptions): HeaderRule[] {
     { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
     { key: "Content-Security-Policy-Report-Only", value: contentSecurityPolicy(opts) },
   ];
-  return [
-    { source: "/:path*", headers: [...common, { key: "Permissions-Policy", value: `${PERMISSIONS_BASE}, microphone=()` }] },
-    // Next applies the LAST matching rule's value for a repeated key, so the
-    // interview route's microphone allowance must come after the general one.
-    { source: INTERVIEW_ROUTE, headers: [{ key: "Permissions-Policy", value: `${PERMISSIONS_BASE}, microphone=(self)` }] },
-  ];
+  return [{ source: "/:path*", headers: [...common, { key: "Permissions-Policy", value: PERMISSIONS_POLICY }] }];
 }
