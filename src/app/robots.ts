@@ -8,7 +8,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: "*",
       allow: ["/", "/privacy", "/terms", "/auth/login"],
-      disallow: ["/app", "/applications", "/customize", "/settings", "/api/", "/auth/callback", "/auth/update-password", "/auth/error"],
+      disallow: ["/app", "/applications", "/interviews", "/customize", "/settings", "/api/", "/auth/callback", "/auth/update-password", "/auth/error"],
     },
     sitemap: "https://www.jobhuntz.app/sitemap.xml",
   };

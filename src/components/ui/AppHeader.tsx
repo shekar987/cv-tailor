@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -19,6 +19,7 @@ import { clearAllPrepProgress } from "@/lib/prepProgress";
 const NAV = [
   { href: "/app", label: "Tailor" },
   { href: "/applications", label: "Applications" },
+  { href: "/interviews", label: "Interview" },
   { href: "/customize", label: "Customize" },
   { href: "/settings", label: "Settings" },
 ];
@@ -34,6 +35,15 @@ export default function AppHeader({
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  // At phone width the five pills become a menu behind one button (CSS hides
+  // the list until `open`); a link click, Escape or Sign out closes it, and
+  // Escape puts focus back on the button so a keyboard user is not stranded.
+  const [open, setOpen] = useState(false);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+  function closeMenu(refocus = false) {
+    setOpen(false);
+    if (refocus) menuBtnRef.current?.focus();
+  }
 
   useEffect(() => {
     const supabase = createClient();
@@ -51,6 +61,7 @@ export default function AppHeader({
     clearAllPrepProgress();
     const supabase = createClient();
     await supabase.auth.signOut({ scope: "local" });
+    setOpen(false);
     router.refresh();
     router.push("/auth/login");
   }
@@ -62,7 +73,28 @@ export default function AppHeader({
       <div className="appBarSticky">
         <div className="appBar">
           <Link href="/app" className="wordmark">Jobhuntz</Link>
-          <nav className="appBarActions" aria-label="Account">
+          <button
+            ref={menuBtnRef}
+            type="button"
+            className="customizeLink appBarMenuBtn"
+            aria-expanded={open}
+            aria-controls="appBarNav"
+            onClick={() => setOpen((v) => !v)}
+            data-app-menu
+          >
+            {open ? "Close" : "Menu"}
+          </button>
+          <nav
+            id="appBarNav"
+            className={"appBarActions" + (open ? " open" : "")}
+            aria-label="Main"
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && open) {
+                e.preventDefault();
+                closeMenu(true);
+              }
+            }}
+          >
             {email && <span className="appBarEmail" title={email}>{email}</span>}
             {NAV.map((item) => (
               <Link
@@ -70,6 +102,7 @@ export default function AppHeader({
                 href={item.href}
                 className="customizeLink"
                 aria-current={isCurrent(item.href) ? "page" : undefined}
+                onClick={() => closeMenu()}
               >
                 {item.label}
               </Link>

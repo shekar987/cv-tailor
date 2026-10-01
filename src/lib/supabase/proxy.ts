@@ -8,7 +8,7 @@ import { supabaseUrl, supabasePublishableKey } from './env'
 // Matched per path segment, so '/app' guards /app and /app/… but not a future
 // /apply or /appearance. /auth/update-password needs the session the recovery
 // link's code exchange creates, so it is guarded too.
-const PROTECTED_PREFIXES = ['/app', '/settings', '/customize', '/applications', '/auth/update-password']
+const PROTECTED_PREFIXES = ['/app', '/settings', '/customize', '/applications', '/interviews', '/auth/update-password']
 
 function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))

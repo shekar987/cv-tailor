@@ -224,6 +224,22 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // No application named: every interview of the caller's, newest first,
+    // with the company and role of its application — the /interviews index.
+    if (!applicationId) {
+      const { data, error } = await supabase
+        .from("mock_interviews")
+        .select("id, application_id, type, persona, status, created_at, finished_at, readout:feedback->readout, application:applications(company_name, role)")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) {
+        if (isMissingTable(error)) return NextResponse.json({ interviews: [], warning: NOT_SET_UP, errorType: "needs_migration" });
+        console.error("interview: list error:", error.message);
+        return NextResponse.json({ error: "Could not load your interviews" }, { status: 500 });
+      }
+      return NextResponse.json({ interviews: data ?? [] });
+    }
     if (!UUID_RE.test(applicationId)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
     const { data, error } = await supabase
       .from("mock_interviews")
