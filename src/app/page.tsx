@@ -331,6 +331,8 @@ export default function Landing() {
           <Link href="/auth/login">Sign in</Link>
           <Link href="/app">Tailor my CV</Link>
           <a href="#example">See an example</a>
+          <Link href="/privacy">Privacy</Link>
+          <Link href="/terms">Terms</Link>
         </nav>
       </footer>
     </main>

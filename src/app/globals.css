@@ -363,6 +363,21 @@ html, body {
   box-shadow: none;
 }
 
+/* Danger: the one irreversible action (delete the account). Outlined in the
+   danger colour, filled on hover, so it is never mistaken for the amber CTA. */
+.cta.danger {
+  background: var(--danger-dim);
+  color: var(--danger);
+  border-color: var(--danger-border);
+  box-shadow: none;
+}
+.cta.danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: var(--bg);
+  border-color: var(--danger);
+  box-shadow: none;
+}
+
 /* Ghost: lowest weight — destructive or rarely-wanted actions. */
 .cta.ghost {
   background: transparent;
@@ -1780,6 +1795,39 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   .lpSection, .lpClose { padding: var(--space-12) 0; }
   .lpFooter { flex-direction: column; align-items: flex-start; }
 }
+
+/* ── Legal pages (/privacy, /terms) ─────────────────────────────────────────
+   Long-form reading: a measure of ~70ch, generous leading, headings that
+   step down from the page title, and the owner's open decisions marked. */
+.legalPage .container { max-width: 760px; }
+.legalHead { padding-top: var(--space-6); }
+.legalHead .pageTitle { margin-top: var(--space-2); }
+.legalBody { line-height: var(--leading-relaxed); }
+.legalBody h2 {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+  margin: var(--space-8) 0 var(--space-3);
+}
+.legalBody h2:first-child { margin-top: 0; }
+.legalBody p, .legalBody li { color: var(--text-subtle); font-size: var(--text-sm); }
+.legalBody p { margin-bottom: var(--space-3); }
+.legalBody ul { padding-left: var(--space-5); margin-bottom: var(--space-3); }
+.legalBody li { margin-bottom: var(--space-2); }
+.legalBody li strong, .legalBody p strong { color: var(--text); }
+.legalBody a { color: var(--amber); }
+.legalBody a:hover { color: var(--amber-bright); }
+.legalTodo {
+  border-left: 3px solid var(--amber-border);
+  background: var(--amber-dim);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  margin: var(--space-2) 0 var(--space-3);
+}
+.legalTodo strong { color: var(--amber); }
+.legalFoot { margin-top: var(--space-10); }
+.authLegal a { color: var(--amber); }
+.authLegal a:hover { color: var(--amber-bright); }
 
 /* ── Application tracker (/applications) ────────────────────────────────────
    A spreadsheet, not a report: grid lines, a sticky header row, and every

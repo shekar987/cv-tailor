@@ -320,6 +320,10 @@ export default function LoginPage() {
           </button>
         </div>
 
+        <p className="authFootnote authMuted authLegal" data-auth-legal>
+          By continuing you agree to the <Link href="/terms">terms of use</Link> and the{' '}
+          <Link href="/privacy">privacy notice</Link>.
+        </p>
       </div>
     </main>
   )
