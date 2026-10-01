@@ -8,7 +8,7 @@ import { forwardRef } from "react";
 // The ref (when rendering a <button>) is forwarded so callers can restore
 // focus to it — the download disclosure does this on Escape.
 
-type Variant = "primary" | "secondary" | "ghost";
+type Variant = "primary" | "secondary" | "ghost" | "danger";
 
 type ButtonOwnProps = {
   variant?: Variant;

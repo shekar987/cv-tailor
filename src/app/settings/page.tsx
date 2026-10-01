@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { getUsage, type Usage } from "@/lib/usage";
 import { describeRouting } from "@/lib/routingText";
+import { DELETE_CONFIRM_PHRASE } from "@/lib/account";
+import { saveBlob } from "@/lib/saveBlob";
+import { clearAllWorkspaces } from "@/lib/workspace";
+import { clearAllPrepProgress } from "@/lib/prepProgress";
+import Link from "next/link";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -113,6 +118,61 @@ export default function SettingsPage() {
   // user to overwrite a key they already have.
   const [pageError, setPageError] = useState("");
   const [confirmRemove, setConfirmRemove] = useState<Provider | null>(null);
+  // Your data: the JSON export and account deletion (typed confirmation,
+  // /api/account/*). One flag per action so an export never relabels Delete.
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTyped, setDeleteTyped] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  async function exportData() {
+    setExporting(true);
+    setExportError("");
+    try {
+      const res = await fetch("/api/account/export");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setExportError(res.status === 401 ? "Your session has expired — sign in again." : data.error || "Could not export your data.");
+        return;
+      }
+      const name = res.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1] || "jobhuntz-data.json";
+      saveBlob(await res.blob(), name);
+    } catch {
+      setExportError("Connection error. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function deleteAccount() {
+    if (deleteTyped.trim().toLowerCase() !== DELETE_CONFIRM_PHRASE || deleting) return;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      const res = await fetch("/api/account/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: deleteTyped.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeleteError(data.error || "Could not delete your account.");
+        setDeleting(false);
+        return;
+      }
+      // Gone on the server; leave nothing of it in this browser either.
+      clearAllWorkspaces();
+      clearAllPrepProgress();
+      const supabase = createClient();
+      await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
+      router.replace("/?deleted=1");
+    } catch {
+      setDeleteError("Connection error. Your account is unchanged.");
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     async function init() {
@@ -401,6 +461,59 @@ export default function SettingsPage() {
               </Card>
             );
           })}
+
+          <Card data-your-data>
+            <div className="keyCardHeader">
+              <span className="keyLabel"><Icon name="shield" />Your data</span>
+            </div>
+            <p className="keyCaveat">
+              Everything in your account — CV, answers, applications, prep packs, interview transcripts — as one JSON file, or gone
+              for good. What is stored and who processes it is in the <Link href="/privacy" className="inlineLink">privacy notice</Link>;
+              the <Link href="/terms" className="inlineLink">terms of use</Link> say what you agree to.
+            </p>
+            <div className="actions">
+              <Button variant="secondary" onClick={exportData} disabled={exporting} data-export-data>
+                {exporting ? "Preparing…" : "Download everything (JSON)"}
+              </Button>
+              {!deleteOpen && (
+                <button type="button" className="customizeLink" onClick={() => setDeleteOpen(true)} data-delete-open>
+                  Delete my account
+                </button>
+              )}
+            </div>
+            {exportError && <StatusText role="alert">{exportError}</StatusText>}
+            {deleteOpen && (
+              <div className="limitNotice" role="region" aria-label="Delete account" data-delete-account>
+                <p>
+                  <strong>This cannot be undone.</strong> Your account, your CV, every application, every uploaded file, every prep pack
+                  and interview transcript are deleted immediately. Download your data first if you want to keep it.
+                </p>
+                <label className="label" htmlFor="deleteConfirm">Type <em>{DELETE_CONFIRM_PHRASE}</em> to confirm</label>
+                <Input
+                  id="deleteConfirm"
+                  value={deleteTyped}
+                  onChange={(e) => setDeleteTyped(e.target.value)}
+                  placeholder={DELETE_CONFIRM_PHRASE}
+                  autoComplete="off"
+                  disabled={deleting}
+                />
+                <div className="actions">
+                  <Button
+                    variant="danger"
+                    onClick={deleteAccount}
+                    disabled={deleting || deleteTyped.trim().toLowerCase() !== DELETE_CONFIRM_PHRASE}
+                    data-delete-confirm
+                  >
+                    {deleting ? "Deleting…" : "Delete my account permanently"}
+                  </Button>
+                  <button type="button" className="inlineLink" onClick={() => { setDeleteOpen(false); setDeleteTyped(""); setDeleteError(""); }} disabled={deleting}>
+                    Keep my account
+                  </button>
+                </div>
+                {deleteError && <StatusText role="alert">{deleteError}</StatusText>}
+              </div>
+            )}
+          </Card>
         </div>
       </div>
     </main>
