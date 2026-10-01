@@ -260,3 +260,13 @@ test("insertBeforeSignoff: the statement is its own paragraph above the sign-off
   assert.equal(insertBeforeSignoff("Body.\nKind regards,\nAlex", "Statement."), "Body.\n\nStatement.\n\nKind regards,\nAlex");
   assert.equal(insertBeforeSignoff("Body.\n", "Statement."), "Body.\n\nStatement.");
 });
+
+test("a held degree of the same family but another subject is not the one in progress; 'recently' is not narration (review, 1 Oct)", async () => {
+  const { fixHeldDegrees, statesDegreeAsHeld, narrationProblem } = await import("../src/lib/supportCheck.ts");
+  const inProgress = ["MSc Computer Science"];
+  assert.equal(fixHeldDegrees("I hold an MA in History from 2015.", inProgress).text, "I hold an MA in History from 2015.");
+  assert.ok(!statesDegreeAsHeld("I hold an MA in History from 2015.", inProgress));
+  assert.equal(fixHeldDegrees("I hold an MSc in Computer Science, graduating January 2027.", inProgress).text, "I am completing an MSc in Computer Science, graduating January 2027.");
+  assert.ok(statesDegreeAsHeld("I have a Master's in Computer Science.", inProgress));
+  assert.equal(narrationProblem("Software Developer with two years' production experience, recently building React apps at Acme."), null);
+});

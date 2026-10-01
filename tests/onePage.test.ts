@@ -257,3 +257,17 @@ test("fitToRealPages: drops the least relevant bullet until the counted pages fi
   const one = dropLeastRelevant(sections, prof, terms);
   assert.equal(one.dropped?.where, "projects");
 });
+
+test("dropLeastRelevant with two roles of the same title drops the right line and never throws (review, 1 Oct)", () => {
+  const sections = {
+    summary: "s",
+    skills: "Technical Tools: Python",
+    experience: ["Software Engineer | Beta Ltd | Mar 2023 – Present", "• Built the Python billing API serving 2m requests", "• Wrote the README", "• Added Python tracing", "Software Engineer | Acme Ltd | Jun 2021 – Feb 2023", "• Maintained a Django monolith in Python", "• Tidied the office", "• Ran Python deploys"].join("\n"),
+    projects: {},
+  };
+  const r = dropLeastRelevant(sections, { projects: [] }, { keywords: ["Python"], required: ["Python"] });
+  assert.ok(r.dropped, "something is dropped");
+  assert.ok(["Wrote the README", "Tidied the office"].includes(r.dropped!.bullet), r.dropped!.bullet);
+  assert.ok(!(r.sections.experience as string).includes(r.dropped!.bullet));
+  assert.equal((r.sections.experience as string).split("\n").length, 7);
+});

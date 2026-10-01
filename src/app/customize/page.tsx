@@ -627,6 +627,9 @@ export default function CustomizePage() {
       setRtwRemoving(false);
     }
   }
+  // The lines the removal would take, shown in the confirm: the status
+  // detector is deliberately broad, so the user sees exactly what goes.
+  const rtwLinesToRemove = rtwDisagreement ? stripRightToWorkLines(masterCvText).removed : [];
   const rtwWarning = rtwDisagreement ? (
     <div className="limitNotice" role="status" data-rtw-disagree>
       <div className="limitNotice__title">Your CV and your Eligibility answer disagree</div>
@@ -637,7 +640,18 @@ export default function CustomizePage() {
       <div className="limitNotice__cta">
         {confirmRtwRemove ? (
           <>
-            <StatusText as="span">Remove every right-to-work line from your saved master CV?</StatusText>
+            <StatusText as="span">
+              {rtwLinesToRemove.length === 0
+                ? "No line of your master CV reads as a right-to-work status; only the extracted details are cleared."
+                : `Remove ${rtwLinesToRemove.length === 1 ? "this line" : `these ${rtwLinesToRemove.length} lines`} from your saved master CV?`}
+            </StatusText>
+            {rtwLinesToRemove.length > 0 && (
+              <ul className="atsList" data-rtw-remove-lines>
+                {rtwLinesToRemove.map((l) => (
+                  <li key={l}>{l}</li>
+                ))}
+              </ul>
+            )}
             <Button variant="ghost" className="keyRemove" onClick={handleRemoveRtwFromCv} disabled={rtwRemoving} data-rtw-remove-confirm>
               {rtwRemoving ? "Removing…" : "Yes, remove"}
             </Button>

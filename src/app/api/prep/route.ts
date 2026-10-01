@@ -227,8 +227,12 @@ export async function POST(req: NextRequest) {
     // the CV never shows come from the Applied snapshot's term lists and the
     // research's stack — a hand-added row has only the research to go on.
     const ats = row.tailored_cv && typeof row.tailored_cv === "object" ? (row.tailored_cv as { ats?: unknown }).ats : undefined;
+    // The pack is written in British English, so it is traced against a
+    // British-spelled copy of the CV: "Optimised…" against an American
+    // "Optimized…" line read as untraced (review, 1 Oct).
+    const cvBritish = toBritishDeep(cv);
     const checkCtx: PrepCheckContext = {
-      cv,
+      cv: cvBritish,
       pool,
       jd,
       research,
@@ -323,7 +327,7 @@ export async function POST(req: NextRequest) {
       });
       if (!normalized) throw new PrepPackError("pack did not normalize");
       // British English before the check, so the flags quote the text as shown.
-      pack = checkPrepPack(verifyEvidence(toBritishDeep(normalized), cv), checkCtx);
+      pack = checkPrepPack(verifyEvidence(toBritishDeep(normalized), cvBritish), checkCtx);
       if (JSON.stringify(pack).length > MAX_PREP_PACK_JSON) throw new PrepPackError("pack too large");
     } catch (err) {
       await route.refund();

@@ -52,7 +52,16 @@ export function jdCopyTerms(analysis: unknown, evidence: EvidenceMap | null | un
     seen.add(k);
     out.push({ term: item.term, from: "requirement" });
   }
-  const lines = sources.filter((s): s is string => typeof s === "string" && s.trim() !== "").flatMap((s) => s.split("\n"));
+  // Windows of three lines: a responsibility's words can sit across a
+  // role's bullets ("Shipped features with the product team" + "Paired with
+  // designers…"), and reading one line at a time made a true summary
+  // sentence a copy (review, 1 Oct).
+  const lines = sources
+    .filter((s): s is string => typeof s === "string" && s.trim() !== "")
+    .flatMap((s) => {
+      const ls = s.split("\n").map((l) => l.trim()).filter(Boolean);
+      return ls.map((_, i) => ls.slice(i, i + 3).join(" "));
+    });
   const a = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
   for (const phrase of strList(a.key_responsibilities).slice(0, MAX_RESPONSIBILITIES)) {
     const words = [...new Set(contentWords(phrase))];

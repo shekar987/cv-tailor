@@ -204,3 +204,24 @@ test("normalizePrepPack: the flags field is bounded and the contract otherwise u
   assert.equal(pack.check, null);
   assert.equal(pack.questions.length, 5);
 });
+
+test("a kept flag on a list item is re-pointed after an earlier item is removed (review, 1 Oct)", () => {
+  const pack = normalizePrepPack(
+    {
+      angle: { headline: "h", whyYou: [], honestGaps: [] },
+      questions: [
+        ...[1, 2, 3].map((i) => ({ id: "q" + i, category: "role", question: "Q" + i + "?", whyTheyAsk: "w", points: ["I would start from the consumers."] })),
+        { id: "q4", category: "company", question: "Why PwC?", whyTheyAsk: "Fit.", points: ["PwC's client work spans FTSE 500 companies.", "I built a Kafka pipeline that moved 40TB a day at Northwind."] },
+      ],
+      questionsToAsk: [], opener: "I'm an engineer.", sources: { jd: true, tailoredCv: false, research: false, talkingPoints: false },
+    },
+    meta
+  )!;
+  const checked = checkPrepPack(pack, ctxFor({ research: null }));
+  const q4 = checked.questions.find((q) => q.id === "q4")!;
+  assert.equal(q4.points.length, 1, "the company claim went");
+  const kept = checked.flags.filter((f) => f.questionId === "q4" && f.action === "kept");
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].index, 0, "the flag points at the surviving point, not its old slot");
+  assert.ok(q4.points[0].includes(kept[0].sentence.slice(0, 20)));
+});

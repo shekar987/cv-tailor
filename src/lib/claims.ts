@@ -190,7 +190,9 @@ const NOT_A_SKILL_RE = /^(?:and|or|etc\.?|others?|more|various|including|e\.g\.?
 // A link written as an item — "Live: jobhuntz.app", "GitHub: github.com/x/y",
 // a bare address — is not a skill (30 Sep audit; the line-level link filter
 // never saw an item inside a tech line).
-const LINK_ITEM_RE = /^(?:live|github|gitlab|bitbucket|demo|url|link|links|repo|repository|website|site|code|source)\s*:|^(?:https?:\/\/|www\.)|^[\w-]+(?:\.[\w-]+)*\.(?:app|com|io|dev|ai|org|net|uk|co\.uk|me|xyz|tech|cloud)(?:\/\S*)?$/i;
+// A bare domain is a link only with a path ("github.com/x/y"); "Socket.io"
+// and "Fly.io" are products (review, 1 Oct).
+const LINK_ITEM_RE = /^(?:live|github|gitlab|bitbucket|demo|url|link|links|repo|repository|website|site|code|source)\s*:|^(?:https?:\/\/|www\.)|^[\w-]+(?:\.[\w-]+)*\.(?:app|com|io|dev|ai|org|net|uk|co\.uk|me|xyz|tech|cloud)\/\S*$/i;
 // A group label, not a skill: "Auth (JWT, OAuth 2.0, RBAC)" registers JWT,
 // OAuth 2.0 and RBAC — the items a recruiter searches for — never "Auth".
 // The same words alone ("RLS", "Security") are dropped for the same reason:

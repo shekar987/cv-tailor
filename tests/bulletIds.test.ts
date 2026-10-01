@@ -276,3 +276,26 @@ test("reconcileExperience: an edit that adds a repeated word or a third printed 
   const fine = reconcileExperience("Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• [R1.3] Cut front-end load time by 20% with code splitting.", roles);
   assert.equal(fine.changes!.roles[0].bullets[0].status, "edited");
 });
+
+test("the header lock scores employer and dates above a shared title: same-title roles keep their own bullets (review, 1 Oct)", async () => {
+  const { parseMasterExperience, lockRoleHeaders } = await import("../src/lib/bulletIds.ts");
+  const master = "EXPERIENCE\nSoftware Engineer | Beta Ltd | Mar 2023 – Present\n- Built the billing API in Go\nSoftware Engineer | Acme Ltd | Jun 2021 – Feb 2023\n- Maintained a Django monolith";
+  const roles = parseMasterExperience(master);
+  const output = "Software Engineer | Acme Ltd | Jun 2021 – Feb 2023\n• Maintained a Django monolith\nSoftware Engineer | Beta Ltd | Mar 2023 – Present\n• Built the billing API in Go";
+  const r = lockRoleHeaders(output, roles);
+  const lines = r.experience.split("\n");
+  assert.equal(lines[0], "Software Engineer | Acme Ltd | Jun 2021 – Feb 2023");
+  assert.equal(lines[1], "• Maintained a Django monolith");
+  assert.equal(lines[2], "Software Engineer | Beta Ltd | Mar 2023 – Present");
+  assert.equal(r.report.locked.length, 0, "nothing needed restoring");
+});
+
+test("canonicalHeader reads 'at' and comma headers and bracketed dates; an unsplittable master keeps the output's parts", async () => {
+  const { canonicalHeader, parseMasterExperience, lockRoleHeaders, isHeaderShaped } = await import("../src/lib/bulletIds.ts");
+  assert.equal(canonicalHeader("Software Engineer at Acme Ltd (Jan 2020 – Dec 2021)"), "Software Engineer | Acme Ltd | Jan 2020 – Dec 2021");
+  assert.equal(canonicalHeader("Software Engineer, Acme Ltd, Jan 2020 – Dec 2021"), "Software Engineer | Acme Ltd | Jan 2020 – Dec 2021");
+  assert.ok(!isHeaderShaped(canonicalHeader("Engineer, Data Platform, Growth, Jan 2020 – Dec 2021")), "three commas is not a title and an employer");
+  const roles = parseMasterExperience("EXPERIENCE\nEngineer, Data Platform, Growth, Jan 2020 – Dec 2021\n- Did the thing");
+  const r = lockRoleHeaders("Engineer | Growth Co | Jan 2020 – Dec 2020\n• Did the thing", roles);
+  assert.equal(r.experience.split("\n")[0], "Engineer | Growth Co | Jan 2020 – Dec 2021", "the output's own title and employer stay; only the dates are the master's");
+});

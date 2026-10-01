@@ -45,7 +45,7 @@ const INTENT_RE = /^(?:i am|i'm|i would be|i'd be)\s+(?:based in|available|ready
 // ended two years ago) and teamwork the CV does not state: the model must
 // restate either from the master CV's own dates and lines.
 const NARRATION_RE =
-  /\b(?:the|this)\s+(?:last|past)\s+(?:\d+\s+|few\s+|two\s+|three\s+|couple\s+of\s+)?(?:years?|months?)\b|\brecently\b|\bcollaborat\w*\s+(?:closely\s+)?(?:across|with)\s+(?:teams|stakeholders|colleagues|product|business|designers|cross[- ]functional)\b|\balign(?:s|ed|ing)?\s+(?:exactly|directly|closely|perfectly|well|neatly)?\s*with\s+(?:how|what|the|your|this|my)\b|\bmirror(?:s|ing)?\s+(?:the|your|this|how)\b|\bthe\s+same\s+(?:rigou?r|discipline|mindset|care|approach)\b|\b(?:the\s+)?(?:technical\s+)?foundation\s+(?:you|your|this|the\s+role)\b|\byour\s+team\s+relies\s+on\b|\bexactly\s+how\b|\bproblems?\s+I\s+have\s+tackled\s+directly\b|\b(?:this|the|your)\s+role\s+(?:needs|requires|demands|emphasi[sz]es|calls\s+for|asks\s+for)\b|\bexactly\s+what\b|\bthat\s+exact\b|\bthe\s+(?:same|exact)\s+(?:constraints?|challenges?|problems?|thinking|skills?)\b|\btaught\s+me\b|\bdemonstrat\w*\s+(?:the\s+|my\s+|a\s+|strong\s+)?(?:ability|capacity|commitment|skills?|craftsmanship|ownership)\b|\bshowing\s+(?:a|my)\b|\bsolid\s+foundation\b|\b(?:from|on)\s+day\s+one\b|\bfast[- ]paced\b|\bproven\s+(?:ability|track)\b|\btrack\s+record\b|\bi\s+have\s+consistently\b|\bthriv(?:e|ed)\b|\bpassion(?:ate)?\s+(?:for|about)\b|\bsustained\s+commitment\b|\bdirectly\s+transferable\b|\bperfect\s+fit\b|\bexactly\s+the\s+(?:skills?|skill\s*set|experience|kind|type|sort|mindset|approach|work)\b|\bskill\s*set\b[^.]{0,60}\b(?:demand|require|need)s?\b|\bdirectly\s+(?:applicable|relevant)\s+to\b|\b(?:a|an|the|this|my)\s+(?:[\w-]+\s+)?mindset\b|\bmaps?\s+(?:directly\s+|closely\s+|neatly\s+|well\s+)?(?:on)?to\s+(?:the\s+)?(?:work|what|my|experience)\b|\bthe\s+same\s+(?:[\w-]+\s+){1,6}(?:rigou?r|discipline|mindset|care|approach|thinking)\b|\bproficien(?:cy|t)\b|\bdirectly\s+match(?:es|ing)?\b|\bcore\s+requirements?\b|\b(?:my|our)\s+experience\s+(?:directly\s+|closely\s+)?(?:matches|meets|covers|fits)\b/i;
+  /\b(?:the|this)\s+(?:last|past)\s+(?:\d+\s+|few\s+|two\s+|three\s+|couple\s+of\s+)?(?:years?|months?)\b|\bcollaborat\w*\s+(?:closely\s+)?(?:across|with)\s+(?:teams|stakeholders|colleagues|product|business|designers|cross[- ]functional)\b|\balign(?:s|ed|ing)?\s+(?:exactly|directly|closely|perfectly|well|neatly)?\s*with\s+(?:how|what|the|your|this|my)\b|\bmirror(?:s|ing)?\s+(?:the|your|this|how)\b|\bthe\s+same\s+(?:rigou?r|discipline|mindset|care|approach)\b|\b(?:the\s+)?(?:technical\s+)?foundation\s+(?:you|your|this|the\s+role)\b|\byour\s+team\s+relies\s+on\b|\bexactly\s+how\b|\bproblems?\s+I\s+have\s+tackled\s+directly\b|\b(?:this|the|your)\s+role\s+(?:needs|requires|demands|emphasi[sz]es|calls\s+for|asks\s+for)\b|\bexactly\s+what\b|\bthat\s+exact\b|\bthe\s+(?:same|exact)\s+(?:constraints?|challenges?|problems?|thinking|skills?)\b|\btaught\s+me\b|\bdemonstrat\w*\s+(?:the\s+|my\s+|a\s+|strong\s+)?(?:ability|capacity|commitment|skills?|craftsmanship|ownership)\b|\bshowing\s+(?:a|my)\b|\bsolid\s+foundation\b|\b(?:from|on)\s+day\s+one\b|\bfast[- ]paced\b|\bproven\s+(?:ability|track)\b|\btrack\s+record\b|\bi\s+have\s+consistently\b|\bthriv(?:e|ed)\b|\bpassion(?:ate)?\s+(?:for|about)\b|\bsustained\s+commitment\b|\bdirectly\s+transferable\b|\bperfect\s+fit\b|\bexactly\s+the\s+(?:skills?|skill\s*set|experience|kind|type|sort|mindset|approach|work)\b|\bskill\s*set\b[^.]{0,60}\b(?:demand|require|need)s?\b|\bdirectly\s+(?:applicable|relevant)\s+to\b|\b(?:a|an|the|this|my)\s+(?:[\w-]+\s+)?mindset\b|\bmaps?\s+(?:directly\s+|closely\s+|neatly\s+|well\s+)?(?:on)?to\s+(?:the\s+)?(?:work|what|my|experience)\b|\bthe\s+same\s+(?:[\w-]+\s+){1,6}(?:rigou?r|discipline|mindset|care|approach|thinking)\b|\bproficien(?:cy|t)\b|\bdirectly\s+match(?:es|ing)?\b|\bcore\s+requirements?\b|\b(?:my|our)\s+experience\s+(?:directly\s+|closely\s+)?(?:matches|meets|covers|fits)\b/i;
 
 export function narrationProblem(sentence: string): string | null {
   return NARRATION_RE.test(sentence)
@@ -204,7 +204,16 @@ const STOP = new Set(
     " "
   )
 );
-const stem = (w: string) => w.replace(/(?:ing|ed|es|s)$/, "");
+// Suffix off, a doubled final consonant collapsed ("shipped" → "ship",
+// "planning" → "plan"), and an agent suffix off a long enough base
+// ("designers" → "design"); both sides fold the same way, so this only
+// makes a true match easier to find (review, 1 Oct).
+const stem = (w: string) => {
+  let s = w.replace(/(?:ing|ed|es|s)$/, "");
+  if (/([bcdfghklmnprstvz])\1$/.test(s)) s = s.slice(0, -1);
+  if (s.length >= 7 && /er$/.test(s)) s = s.slice(0, -2);
+  return s;
+};
 export function contentWords(t: string): string[] {
   return norm(t)
     .split(" ")
@@ -301,13 +310,29 @@ function heldDegreeRes(inProgress: string[]): RegExp[] {
     ([, words]) => new RegExp(String.raw`\b(I\s+)?${HELD_VERB}\s+((?:a|an|my|the)\s+)?(${words})(?![\w'’-])`, "gi")
   );
 }
+// The subject words of the in-progress degrees ("Computer Science" of
+// "MSc Computer Science"): a held degree of the same family with another
+// subject ("I hold an MA in History") is a different degree and stays
+// (review, 1 Oct). A degree listed with no subject matches any.
+const DEGREE_TOKEN = /\b(?:phd|ph\.d\.?|doctorate|msc|m\.sc\.?|meng|mres|mba|ma|master(?:'s|’s|s)?|bsc|b\.sc\.?|beng|ba|bachelor(?:'s|’s|s)?|of|in|degree)\b/gi;
+function subjectWords(degree: string): string[] {
+  return degree.replace(DEGREE_TOKEN, " ").toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 4);
+}
+function matchesSubject(context: string, inProgress: string[]): boolean {
+  const ctx = context.toLowerCase();
+  return inProgress.some((d) => {
+    const words = subjectWords(d);
+    return words.length === 0 || words.some((w) => ctx.includes(w));
+  });
+}
 export function fixHeldDegrees(text: string, inProgress: string[]): { text: string; changed: string[] } {
   const res = heldDegreeRes(inProgress);
   if (!text || res.length === 0) return { text, changed: [] };
   const changed: string[] = [];
   let out = text;
   for (const re of res) {
-    out = out.replace(re, (m: string, i: string | undefined, art: string | undefined, deg: string) => {
+    out = out.replace(re, (m: string, i: string | undefined, art: string | undefined, deg: string, offset: number) => {
+      if (!matchesSubject(out.slice(offset, offset + m.length + 80), inProgress)) return m;
       changed.push(m);
       return `${i ?? ""}am completing ${art ?? ""}${deg}`;
     });
@@ -315,7 +340,10 @@ export function fixHeldDegrees(text: string, inProgress: string[]): { text: stri
   return { text: out, changed };
 }
 export function statesDegreeAsHeld(text: string, inProgress: string[]): boolean {
-  return heldDegreeRes(inProgress).some((re) => new RegExp(re.source, "i").test(text));
+  return heldDegreeRes(inProgress).some((re) => {
+    const m = new RegExp(re.source, "i").exec(text);
+    return !!m && matchesSubject(text.slice(m.index, m.index + m[0].length + 80), inProgress);
+  });
 }
 
 // What to do with each sentence. `accept(fix)` is the caller's own gate for a

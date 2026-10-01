@@ -554,3 +554,12 @@ Engineer | Acme | 2022 – 2024
   const guessed = normalizeSkillGuesses([{ name: "REST APIsLlamaIndex", level: "project" }, { name: "Live: jobhuntz.app", level: "project" }, { name: "github.com/x/y", level: "project" }]).map((g) => g.name);
   assert.deepEqual(guessed, ["REST APIs", "LlamaIndex"]);
 });
+
+test("Socket.io and Fly.io are skills, a repository address is a link (review, 1 Oct)", async () => {
+  const { seedClaimsFromCv } = await import("../src/lib/claims.ts");
+  const reg = seedClaimsFromCv("SKILLS\nNode.js, Socket.io, Fly.io, github.com/me/repo\n\nEXPERIENCE\nEngineer | Acme | 2022 – Present\n- Built realtime features with Socket.io");
+  const names = reg.skills.map((s) => s.name);
+  assert.ok(names.includes("Socket.io"), names.join(","));
+  assert.ok(names.includes("Fly.io"), names.join(","));
+  assert.ok(!names.some((n) => /github\.com/.test(n)), names.join(","));
+});

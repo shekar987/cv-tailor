@@ -191,3 +191,18 @@ test("reconcileRightToWorkSentences: the model's visa sentence always goes; temp
   assert.equal(unset.statement, null);
   assert.equal(unset.asked, true);
 });
+
+test("career facts about full-time work are not availability; Visa the company, a sponsored hackathon and an immigration product are not status lines (review, 1 Oct)", async () => {
+  const { mentionsAvailability, mentionsRightToWork } = await import("../src/lib/rightToWorkText.ts");
+  assert.ok(!mentionsAvailability("I spent two years working full-time at Brane Group building the LLM platform."));
+  assert.ok(!mentionsAvailability("I was able to balance a full-time role with my MSc."));
+  assert.ok(mentionsAvailability("I am available for full-time work from January."));
+  assert.ok(mentionsAvailability("I can work full time and start immediately."));
+  assert.ok(!mentionsRightToWork("Integrated the Visa and Mastercard payment APIs with retries."));
+  assert.ok(!mentionsRightToWork("Won a hackathon sponsored by AWS."));
+  assert.ok(!mentionsRightToWork("Built an immigration case-management portal for a law firm."));
+  assert.ok(!mentionsRightToWork("Designed the sponsorship-tier billing model."), "no: 'sponsorship' alone is the status word");
+  assert.ok(mentionsRightToWork("Currently on a Student Visa; will require sponsorship after graduation."));
+  assert.ok(mentionsRightToWork("I hold a visa that allows me to work."));
+  assert.ok(mentionsRightToWork("British citizenship held since 2019."));
+});

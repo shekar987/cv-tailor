@@ -253,10 +253,7 @@ export function checkPrepPack(input: PrepPack, ctx: PrepCheckContext): PrepPack 
     }
     if (text !== f.text) writeField(pack, f, text);
   }
-  // Emptied list items go; the flags' indexes are re-pointed by field text.
-  pack.angle.whyYou = pack.angle.whyYou.filter(Boolean);
-  pack.questionsToAsk = pack.questionsToAsk.filter(Boolean);
-  for (const q of pack.questions) q.points = q.points.filter(Boolean);
+  compactLists(pack, flags);
   const check: PrepCheckSummary = {
     version: 1,
     sentences,
@@ -266,6 +263,28 @@ export function checkPrepPack(input: PrepPack, ctx: PrepCheckContext): PrepPack 
     terms: ctx.copyTerms.length,
   };
   return { ...pack, flags: flags.slice(0, MAX_PREP_FLAGS), check };
+}
+
+// Emptied list items go, and every kept flag on that list is re-pointed at
+// the item's new index (a flag on a removed item is dropped — its sentence
+// is gone). Flags used to keep their old indexes, so "Not from your CV"
+// landed on the wrong point after a company fact emptied an earlier one
+// (review, 1 Oct).
+function compactLists(pack: PrepPack, flags: PrepFlag[]): void {
+  const compact = (items: string[], questionId: string | null, field: PrepFlagField): string[] => {
+    const keep = items.map((t, i) => ({ t, i })).filter((x) => !!x.t);
+    for (let k = flags.length - 1; k >= 0; k--) {
+      const f = flags[k];
+      if (f.questionId !== questionId || f.field !== field || f.action !== "kept") continue;
+      const next = keep.findIndex((x) => x.i === f.index);
+      if (next === -1) flags.splice(k, 1);
+      else f.index = next;
+    }
+    return keep.map((x) => x.t);
+  };
+  pack.angle.whyYou = compact(pack.angle.whyYou, null, "whyYou");
+  pack.questionsToAsk = compact(pack.questionsToAsk, null, "questionToAsk");
+  for (const q of pack.questions) q.points = compact(q.points, q.id, "point");
 }
 
 // ── "Use only CV facts": the rewrite ─────────────────────────────────────────
@@ -323,9 +342,7 @@ export function applyPrepRewrites(input: PrepPack, target: PrepRewriteTarget, re
     if (ok) rewritten++;
     else removed++;
   }
-  pack.angle.whyYou = pack.angle.whyYou.filter(Boolean);
-  pack.questionsToAsk = pack.questionsToAsk.filter(Boolean);
-  for (const q of pack.questions) q.points = q.points.filter(Boolean);
+  compactLists(pack, pack.flags);
   return { pack: checkPrepPack(pack, ctx), rewritten, removed };
 }
 

@@ -369,14 +369,34 @@ export function canonicalHeader(header: string): string {
   // ("Jul 2022 – Sep 2024") belongs to the dates, not the employer.
   let start = d ? d.index : 0;
   if (d) {
-    const before = /(?:^|\s)((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?)\s+$/i.exec(h.slice(0, d.index));
+    const before = /(?:^|[\s(])((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?)\s+$/i.exec(h.slice(0, d.index));
     if (before) start = d.index - before[1].length - 1;
   }
   const dates = d ? h.slice(start, d.index + d[0].length).trim() : "";
-  const rest = (d ? `${h.slice(0, start)} ${h.slice(d.index + d[0].length)}` : h).replace(/\s+/g, " ").replace(/^[\s|·,—–-]+|[\s|·,—–-]+$/g, "").trim();
+  // Dates that sat in brackets leave an empty pair behind ("Acme Ltd ()").
+  const rest = (d ? `${h.slice(0, start)} ${h.slice(d.index + d[0].length)}` : h)
+    .replace(/\(\s*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s|·,—–-]+|[\s|·,—–-]+$/g, "")
+    .trim();
   let parts = rest.split(/\s*\|\s*/).map((p) => p.trim()).filter(Boolean);
   if (parts.length === 1) parts = rest.split(/\s+[—–]\s+|\s+-\s+/).map((p) => p.trim()).filter(Boolean);
+  // "Software Engineer at Acme Ltd" / "Software Engineer, Acme Ltd": only
+  // when the split gives exactly a title and an employer.
+  if (parts.length === 1) {
+    const at = rest.split(/\s+at\s+/i).map((p) => p.trim()).filter(Boolean);
+    if (at.length === 2) parts = at;
+  }
+  if (parts.length === 1) {
+    const comma = rest.split(/\s*,\s*/).map((p) => p.trim()).filter(Boolean);
+    if (comma.length === 2) parts = comma;
+  }
   return [...parts, dates].filter(Boolean).join(" | ");
+}
+
+// A header the renderers read as a job header: at least two pipes.
+export function isHeaderShaped(header: string): boolean {
+  return (header.match(/\|/g) ?? []).length >= 2;
 }
 const foldHeader = (h: string) => canonicalHeader(h).toLowerCase().replace(/[–—]/g, "-").replace(/\s+/g, " ");
 
@@ -399,19 +419,38 @@ export function lockRoleHeaders(output: string, roles: MasterRole[]): { experien
   };
   const used = new Set<number>();
   const free = () => roles.filter((r) => !used.has(r.index));
+  // Scored, not first-found: a shared employer counts 3, the same dates 2,
+  // a shared title 1 — two roles titled "Software Engineer" at different
+  // employers used to swap bullets because the first free master sharing
+  // ANY part (the title) was taken (review, 1 Oct). Ties go to the dates,
+  // then token overlap.
   const pick = (header: string): MasterRole | null => {
     const parts = headerParts(header);
-    const byPart = free().find((r) => headerParts(r.header).some((p) => parts.includes(p)));
-    if (byPart) return byPart;
     const dates = headerDates(header);
-    const byDates = dates ? free().find((r) => headerDates(r.header) === dates) : undefined;
-    if (byDates) return byDates;
-    let best: MasterRole | null = null, bestScore = 0;
+    let best: MasterRole | null = null;
+    let bestScore = 0;
+    let bestOverlap = 0;
+    for (const r of free()) {
+      const rp = headerParts(canonicalHeader(r.header));
+      const title = rp[0];
+      let score = 0;
+      for (const p of rp) if (parts.includes(p)) score += p === title ? 1 : 3;
+      if (dates && headerDates(r.header) === dates) score += 2;
+      const ov = overlap(header, r.header);
+      if (score > bestScore || (score === bestScore && score > 0 && ov > bestOverlap)) {
+        best = r;
+        bestScore = score;
+        bestOverlap = ov;
+      }
+    }
+    if (best && bestScore > 0) return best;
+    let byOverlap: MasterRole | null = null;
+    let ovScore = 0;
     for (const r of free()) {
       const s = overlap(header, r.header);
-      if (s > bestScore) { best = r; bestScore = s; }
+      if (s > ovScore) { byOverlap = r; ovScore = s; }
     }
-    return best && bestScore >= 0.5 ? best : null;
+    return byOverlap && ovScore >= 0.5 ? byOverlap : null;
   };
   // Two passes: every header that names its role is matched first, and only
   // then, when the counts agree, is a header that names nothing matched by
@@ -440,7 +479,17 @@ export function lockRoleHeaders(output: string, roles: MasterRole[]): { experien
       } else report.unmatched.push(header);
       return;
     }
-    const canonical = canonicalHeader(master.header);
+    let canonical = canonicalHeader(master.header);
+    if (!isHeaderShaped(canonical)) {
+      // The master wrote its header in a shape no splitter reads (a comma
+      // inside the title, no employer): keep the output's own title and
+      // employer parts and lock only the dates — a one-pipe line is not a
+      // job header to the preview, the sort or the diff.
+      const outParts = header.split(/\s*\|\s*/).map((p) => p.trim()).filter(Boolean);
+      const masterDates = headerDates(master.header) ? canonical.split(" | ").pop() ?? "" : "";
+      if (outParts.length >= 3 && masterDates) canonical = [...outParts.slice(0, -1), masterDates].join(" | ");
+      else canonical = header;
+    }
     if (foldHeader(header) !== foldHeader(canonical)) {
       report.locked.push({ output: header, master: canonical });
       lines[idx] = canonical;

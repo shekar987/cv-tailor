@@ -321,6 +321,8 @@ async function callOpenRouter(options: BaseCallOptions, apiKeyOverride?: string)
   }
   if (!options.expectJson) return result.text;
   return parseJsonWithRepair(result.text, async (repair) => {
+    // A deadline is a deadline: the repair call would double it.
+    if (options.timeoutMs) throw new Error("Model returned invalid JSON within the deadline (no repair retry)");
     const retry = await openRouterRaw({ ...options, userInput: `${options.userInput}\n\n${repair}` }, apiKeyOverride);
     return retry.text;
   });

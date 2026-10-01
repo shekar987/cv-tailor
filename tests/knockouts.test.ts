@@ -462,3 +462,9 @@ test("classificationsInText / classificationDisagrees: the CV's classes against 
   assert.equal(classificationDisagrees(cv, "other"), null);
   assert.equal(classificationDisagrees(cv, "unknown"), null);
 });
+
+test("'built a first prototype' is not a degree class (review, 1 Oct)", async () => {
+  const { classificationsInText } = await import("../src/lib/knockouts.ts");
+  assert.deepEqual(classificationsInText("Built a first prototype of the pricing engine."), []);
+  assert.deepEqual(classificationsInText("BSc Computer Science — graduated with a First."), ["first"]);
+});

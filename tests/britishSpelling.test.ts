@@ -38,3 +38,17 @@ test("atsMatch folds both spellings to one term, so a British CV matches an Amer
   assert.equal(matchAtsKeywords("query optimization and performance", ["query optimisation"]).matched, 1);
   assert.equal(matchAtsKeywords(cv, ["Kubernetes"]).matched, 0);
 });
+
+test("rule 8 through the spelling pass: headers, mid-sentence names and protected words are never respelt (review, 1 Oct)", () => {
+  const header = "Program Manager | Center Parcs | Jan 2020 – Present\n• Optimized the center's booking flow and centered the team on outcomes";
+  const r = toBritish(header);
+  assert.equal(r.text.split("\n")[0], "Program Manager | Center Parcs | Jan 2020 – Present", "a job header is verbatim");
+  assert.equal(r.text.split("\n")[1], "• Optimised the centre's booking flow and centred the team on outcomes");
+  assert.equal(toBritish("Dear Center Parcs team,").text, "Dear Center Parcs team,");
+  assert.equal(toBritish("I joined Honor Technology and Gray Matter Ltd in Belize.").text, "I joined Honor Technology and Gray Matter Ltd in Belize.");
+  assert.equal(toBritish("Colorize the chart.").text, "Colourise the chart.", "a sentence-initial common word still converts");
+  assert.equal(toBritish("Color Health hired me.", { protect: ["Color"] }).text, "Color Health hired me.", "a sentence-initial name needs the route's protection (the company's name is protected)");
+  assert.equal(toBritish("centering the layout; the theater's lens").text, "centring the layout; the theatre's lens");
+  assert.equal(toBritish("optimized at Centering Ltd", { protect: ["Centering"] }).text, "optimised at Centering Ltd");
+  assert.equal(toBritish("the Graduate Program at Acme").text, "the Graduate Programme at Acme", "the two-word scheme rule keeps its case");
+});

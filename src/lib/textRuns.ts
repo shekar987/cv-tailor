@@ -26,9 +26,11 @@ export function needsSpace(prev: string, next: string, gapEm: number): boolean {
 // ("APIsLlamaIndex" → "APIs", "LlamaIndex"). Only a plural-s seam counts —
 // "PostgreSQL", "JavaScript", "OpenTelemetry" have internal capitals with no
 // s before them and stay whole.
+// The left part must be four letters or more: "OpsGenie" and "AwsSdk" are
+// one name each (review, 1 Oct).
 const GLUED_RE = /^(.*?[A-Za-z]s)([A-Z][a-z].*)$/;
 export function unglue(token: string): string[] {
   const m = GLUED_RE.exec(token);
-  if (!m || m[1].length < 3 || m[2].length < 3) return [token];
+  if (!m || m[1].length < 4 || m[2].length < 3) return [token];
   return [m[1], ...unglue(m[2])];
 }

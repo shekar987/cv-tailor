@@ -126,6 +126,8 @@ const SUPPORT_CHECK_TAIL_MS = 20_000;
 async function runPipeline(opts: {
   provider: Provider;
   apiKeyOverride: string | undefined;
+  /** When the request began — a fallback run continues the first run's budget. */
+  startedAt?: number;
   jd: string;
   cv: string;
   projectNames: string[];
@@ -183,7 +185,10 @@ async function runPipeline(opts: {
   // 30 Sep 2026 it was skipped here, and the Maven letter's invented trading
   // work went out unchecked).
   const fast = provider === "openrouter";
-  const startedAt = Date.now();
+  // A fallback run (the second provider after a credit or rate-limit
+  // failure) inherits the request's clock: a fresh one could pass the
+  // function's maxDuration with no response and no refund (review, 1 Oct).
+  const startedAt = opts.startedAt ?? Date.now();
   const budgetLeft = () => RUN_BUDGET_MS - (Date.now() - startedAt);
   const claimsBlock = renderClaimsBlock(claims);
   // Only production-level registry skills may lead (lib/variants); the
@@ -683,14 +688,13 @@ async function runPipeline(opts: {
   // skips availability sentences and never judges the template.
   if (typeof coverLetter === "string") {
     const r = reconcileRightToWorkSentences(coverLetter, eligibility, omitRightToWork ? "strip" : "template");
-    let letter = r.text;
+    const letter = r.text;
     rtwStripped.letter = r.removed;
     if (r.asked) rightToWork.asked.push("status");
-    if (r.statement) {
-      letter = insertBeforeSignoff(letter, r.statement);
-      rightToWork.statement = r.statement;
-      rightToWork.inserted = true;
-    }
+    // The statement is placed AFTER the fact check (below): placed here it
+    // was sent to the model as a claim, which the CV never supports by
+    // design, and removed (review, 1 Oct).
+    if (r.statement) rightToWork.statement = r.statement;
     const a = reconcileAvailabilitySentences(letter, eligibility);
     coverLetter = a.text;
     rightToWork.availability.replaced.push(...a.replaced);
@@ -832,6 +836,12 @@ async function runPipeline(opts: {
     else coverLetter = r.text;
     for (const sentence of r.dropped) postChanged.push({ section, sentence, action: "removed" });
   }
+  // The Eligibility statement closes the letter now that the fact check has
+  // run (it is the user's own answer, never a claim to check).
+  if (typeof coverLetter === "string" && rightToWork.statement) {
+    coverLetter = insertBeforeSignoff(coverLetter, rightToWork.statement);
+    rightToWork.inserted = true;
+  }
   // The fact check's fixes may bring dashes back: the letter's one-dash rule
   // holds on the finished text.
   if (typeof coverLetter === "string") coverLetter = capEmDashes(coverLetter).text;
@@ -848,13 +858,21 @@ async function runPipeline(opts: {
   // British English throughout (lib/britishSpelling), last, so the score
   // and the claims check read the finished spelling; the matcher folds both
   // spellings, so no search term is lost. Reported under Formatting rules.
+  // Rule 8 holds through the spelling pass: role headers are skipped by the
+  // converter, and every word of the master's headers, the company's name
+  // and the candidate's name is protected wherever it appears.
   const spellingChanges: SpellingChange[] = [];
-  if (typeof summary === "string") summary = toBritishDeep(summary, spellingChanges);
-  if (typeof skillsFinal === "string") skillsFinal = toBritishDeep(skillsFinal, spellingChanges);
-  if (typeof experienceFinal === "string") experienceFinal = toBritishDeep(experienceFinal, spellingChanges);
-  projectsFinal = toBritishDeep(projectsFinal, spellingChanges);
-  if (projectsPool) selectedFinal = toBritishDeep(selectedFinal, spellingChanges);
-  if (typeof coverLetter === "string") coverLetter = toBritish(coverLetter).text;
+  const protect = new Set<string>();
+  for (const r of masterRoles) for (const w of r.header.split(/[\s|—–,()]+/)) if (w) protect.add(w);
+  for (const w of company.split(/\s+/)) if (w) protect.add(w);
+  for (const w of String((opts.profile as { name?: unknown } | null | undefined)?.name ?? "").split(/\s+/)) if (w) protect.add(w);
+  const spell = { protect };
+  if (typeof summary === "string") summary = toBritishDeep(summary, spellingChanges, spell);
+  if (typeof skillsFinal === "string") skillsFinal = toBritishDeep(skillsFinal, spellingChanges, spell);
+  if (typeof experienceFinal === "string") experienceFinal = toBritishDeep(experienceFinal, spellingChanges, spell);
+  projectsFinal = toBritishDeep(projectsFinal, spellingChanges, spell);
+  if (projectsPool) selectedFinal = toBritishDeep(selectedFinal, spellingChanges, spell);
+  if (typeof coverLetter === "string") coverLetter = toBritish(coverLetter, spell).text;
   if (spellingChanges.length) {
     const seen = new Map<string, string>();
     for (const c of spellingChanges) if (!seen.has(c.from.toLowerCase())) seen.set(c.from.toLowerCase(), `${c.from} → ${c.to}`);
@@ -1039,6 +1057,7 @@ export async function POST(req: NextRequest) {
     const pipelineOpts = {
         provider: route.provider,
         apiKeyOverride: routeKey,
+        startedAt: Date.now(),
         jd,
         cv,
         projectNames: safeProjectNames,

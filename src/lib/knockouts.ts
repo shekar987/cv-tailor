@@ -1071,7 +1071,7 @@ export const CATEGORY_LABEL: Record<GateCategory, string> = {
 export type CvDegreeClass = "first" | "2:1" | "2:2" | "distinction" | "merit";
 export const CLASS_LABEL: Record<CvDegreeClass | "other" | "unknown", string> = { first: "First", "2:1": "2:1", "2:2": "2:2", distinction: "Distinction", merit: "Merit", other: "Other", unknown: "Not set" };
 const CV_CLASS_RE =
-  /\b(?:(first[- ]class|1st[- ]class|first class honou?rs|a first|\(first\)|with a first)|(2[:.]1|upper[- ]second(?:[- ]class)?|second class \(upper\)|2\.i)|(2[:.]2|lower[- ]second(?:[- ]class)?|second class \(lower\)|2\.ii)|(with distinction|distinction)|(with merit|merit))\b/gi;
+  /\b(?:(first[- ]class|1st[- ]class|first class honou?rs|(?:with|achieved|awarded|obtained|graduated with|received)\s+a\s+first|\(first\)|with a first)|(2[:.]1|upper[- ]second(?:[- ]class)?|second class \(upper\)|2\.i)|(2[:.]2|lower[- ]second(?:[- ]class)?|second class \(lower\)|2\.ii)|(with distinction|distinction)|(with merit|merit))\b/gi;
 export function classificationsInText(text: string): CvDegreeClass[] {
   const out = new Set<CvDegreeClass>();
   for (const m of (text || "").matchAll(CV_CLASS_RE)) {

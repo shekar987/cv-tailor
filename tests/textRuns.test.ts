@@ -19,3 +19,9 @@ test("unglue: a plural glued to the next word splits; internal capitals in one n
   assert.deepEqual(unglue("servicesKubernetesHelm"), ["services", "Kubernetes", "Helm"], "every plural-s seam, first to last");
   for (const whole of ["PostgreSQL", "JavaScript", "TypeScript", "OpenTelemetry", "LlamaIndex", "GraphQL", "iOS", "AWS", "Kubernetes"]) assert.deepEqual(unglue(whole), [whole], whole);
 });
+
+test("unglue leaves a short product name whole (review, 1 Oct)", () => {
+  assert.deepEqual(unglue("OpsGenie"), ["OpsGenie"]);
+  assert.deepEqual(unglue("AwsSdk"), ["AwsSdk"]);
+  assert.deepEqual(unglue("APIsLlamaIndex"), ["APIs", "LlamaIndex"]);
+});

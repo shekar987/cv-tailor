@@ -132,3 +132,10 @@ test("all three Maven sentences go on the failed-call path; a narrating one is t
   assert.equal(d[3].action, "rewrite");
   assert.equal(d[3].replacement, "At Northwind Labs I cut response times by 25%.");
 });
+
+test("a responsibility carried across two adjacent CV lines is not a copy term (review, 1 Oct)", () => {
+  const cv = "EXPERIENCE\nEngineer | Acme | 2022 – Present\n- Shipped features with the product team for 10k users\n- Paired with designers on the checkout redesign";
+  const analysis = { required_skills: [], nice_to_have_skills: [], top_15_ats_keywords: [], key_responsibilities: ["Work closely with product and design teams to ship features"] };
+  const terms = jdCopyTerms(analysis, { items: [] } as never, [cv]);
+  assert.deepEqual(terms.filter((t) => t.from === "responsibility"), []);
+});

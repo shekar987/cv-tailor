@@ -57,19 +57,23 @@ export function applyLetterLint(letter: string): { text: string; lint: LetterLin
       return line;
     }
     if (SALUTATION_RE.test(t)) return line;
-    const kept = sentencesOf(t).filter((s) => {
+    const kept = sentencesOf(t).flatMap((s) => {
       const first = !bodySeen;
       bodySeen = true;
-      if (first) return true;
+      if (first) return [s];
       if (restatesJd(s)) {
+        // "The team is building X, and I built Y." — the posting's half goes,
+        // the candidate's own clause stays (review, 1 Oct).
+        const own = /,\s*(?:and\s+|but\s+|while\s+|so\s+)?((?:I|I've|I’ve|I'm|I’m|I'd|I’d|my|we|we've|we’ve)\b.*)$/.exec(s);
         lint.restatedJd.push(s);
-        return false;
+        if (own) return [own[1].charAt(0).toUpperCase() + own[1].slice(1)];
+        return [];
       }
       if (isSecondPerson(s)) {
         lint.secondPerson.push(s);
-        return false;
+        return [];
       }
-      return true;
+      return [s];
     });
     return kept.join(" ");
   });

@@ -24,10 +24,16 @@
 // The status vocabulary. "visa" is matched only in its immigration sense —
 // never a capitalised "Visa" alone, which is also a company.
 const RTW_RE =
-  /\bsponsor(?:ship|ed|ing|s)?\b|\bright(?:s)? to (?:live and )?work\b|\bwork (?:authori[sz]ation|permit)\b|\bgraduate route\b|\bgraduate visa\b|\b(?:student|graduate|skilled[- ]worker|work|tier \d|my|a|the|current|valid|this|his|her|their|require[sd]?|need(?:s|ed)?|without|no|on a)\s+visas?\b|\bvisas?\s+(?:sponsorship|status|holder|route|expir\w*|valid|until|requirements?|is|runs)\b|\bindefinite leave\b|\bILR\b|\bsettled status\b|\b(?:eligible|authori[sz]ed|entitled|permitted|legally able|legal right|legally entitled) to (?:live and )?work\b|\bimmigration\b|\bcitizenship\b|\bwork(?:ing)? rights\b|\bwork(?:ing)? authori[sz]ation\b|\bBRP\b|\bshare code\b/i;
+  /\b(?:visa|require[sd]?|requiring|need(?:s|ed|ing)?|without|no|offer(?:s|ed|ing)?|provide[sd]?|providing)\s+(?:a\s+|any\s+|visa\s+)?sponsorship\b|\bsponsorship\s+(?:to\s+work|required|needed|is|will|would|for\s+(?:a|the)\s+visa|under)\b|\bright(?:s)? to (?:live and )?work\b|\bwork (?:authori[sz]ation|permit)\b|\bgraduate route\b|\bgraduate visa\b|\b(?:student|graduate|skilled[- ]worker|tier \d)\s+visas?\b|\bvisas?\s+(?:sponsorship|status|holder|route|expir\w*|valid|until|requirements?|is|runs)\b|\bindefinite leave\b|\bILR\b|\bsettled status\b|\b(?:eligible|authori[sz]ed|entitled|permitted|legally able|legal right|legally entitled) to (?:live and )?work\b|\bimmigration\s+(?:status|permission|requirements?|rules|law|advice|position)\b|\b(?:british|uk|eu|irish|dual|us|indian)\s+citizenship\b|\bcitizenship\s+(?:status|application)\b|\bwork(?:ing)? rights\b|\bwork(?:ing)? authori[sz]ation\b|\bBRP\b|\bshare code\b/i;
+// A lowercase "visa" after an article or a need verb is the immigration
+// sense; a capitalised "Visa" there is the card network ("the Visa and
+// Mastercard APIs"), so this half is case-sensitive. "sponsored by AWS",
+// "immigration case-management portal" and "citizenship" as a subject are
+// not status lines either (review, 1 Oct).
+const VISA_LOWER_RE = /\b(?:my|a|the|current|valid|this|his|her|their|required?|needs?|needed|without|no|on a|work)\s+visas?\b/;
 
 export function mentionsRightToWork(s: string): boolean {
-  return RTW_RE.test(s) || /\bvisa\b/.test(s);
+  return RTW_RE.test(s) || VISA_LOWER_RE.test(s) || /\bvisa\b/.test(s);
 }
 
 export type StripResult = { text: string; removed: string[] };
@@ -193,8 +199,11 @@ export function rightToWorkDisagrees(lines: string[], status: RtwStatus | "unkno
 // A first-person availability claim: when the candidate can start, or full-
 // or part-time work — never "available for hybrid work" or a role described
 // as full-time.
+// The full/part-time half needs an availability verb: "I spent two years
+// working full-time at Brane" and "I was able to balance a full-time role"
+// are career facts, not availability (review, 1 Oct).
 const AVAILABILITY_RE =
-  /\b(?:available|ready|able|free)\s+to\s+(?:start|begin|join)\b|\bavailable\s+(?:immediately|now|from\s+\w+)\b|\b(?:can|could)\s+(?:start|begin)\b|\bstart(?:ing)?\s+(?:immediately|straight\s+away|from\s+(?:january|february|march|april|may|june|july|august|september|october|november|december|\d))\b|\bnotice period\b|\b(?:I|I'm|I’m|I am|we)\b[^.]{0,40}\b(?:available|able|free|ready|can\s+work|could\s+work|work(?:ing)?)\b[^.]{0,25}\b(?:full|part)[- ]time\b/i;
+  /\b(?:available|ready|able|free)\s+to\s+(?:start|begin|join)\b|\bavailable\s+(?:immediately|now|from\s+\w+)\b|\b(?:can|could)\s+(?:start|begin)\b|\bstart(?:ing)?\s+(?:immediately|straight\s+away|from\s+(?:january|february|march|april|may|june|july|august|september|october|november|december|\d))\b|\bnotice period\b|\b(?:I|I'm|I’m|I am|we)\b[^.]{0,40}\b(?:available|free|ready|able\s+to\s+(?:work|start)|(?:can|could|would)\s+work)\b[^.]{0,25}\b(?:full|part)[- ]time\b|\bavailable\s+(?:for\s+)?(?:full|part)[- ]time\b/i;
 export function mentionsAvailability(s: string): boolean {
   return AVAILABILITY_RE.test(s);
 }

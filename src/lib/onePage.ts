@@ -270,35 +270,39 @@ export function dropLeastRelevant(base: Sections, profile: ProfileLike, terms: O
         bullets: (Array.isArray(list) ? list : []).filter((b): b is string => typeof b === "string").map((text, order) => ({ line: order, text, score: bulletRelevance(text, terms), order })),
       }))
     : [];
-  let best: { score: number; order: number; drop: () => void } | null = null;
-  const consider = (score: number, order: number, drop: () => void) => {
-    if (!best || score < best.score || (score === best.score && order < best.order)) best = { score, order, drop };
+  // The choice closes over the role / project and the bullet LINE it picked:
+  // re-finding them by title and text crashed on two roles with the same
+  // title (both parse as "Software Engineer") and the fit was skipped
+  // (review, 1 Oct).
+  type Choice = { score: number; order: number; apply: () => { sections: Sections; dropped: RealFitReport["dropped"][number] } };
+  let best: Choice | null = null;
+  const consider = (score: number, order: number, apply: Choice["apply"]) => {
+    if (!best || score < best.score || (score === best.score && order < best.order)) best = { score, order, apply };
   };
   const none = new Set<number>();
   for (const p of projects) {
     if (p.bullets.length <= PROJECT_MIN_BULLETS) continue;
     const w = weakest(p.bullets, none);
-    if (w) consider(w.score, 0, () => leftOut.projects.push({ project: p.name, bullet: w.text }));
+    if (w) {
+      consider(w.score, 0, () => ({
+        sections: { ...base, projects: { ...(projectsIn as Record<string, unknown>), [p.key]: p.bullets.filter((b) => b.line !== w.line).map((b) => b.text) } },
+        dropped: { where: "projects", owner: p.name, bullet: w.text },
+      }));
+    }
   }
   roles.forEach((role, i) => {
     if (role.bullets.length <= ROLE_MIN_BULLETS) return;
     const w = weakest(role.bullets, none);
-    if (w) consider(w.score, roles.length - i, () => leftOut.experience.push({ role: role.title, bullet: w.text }));
+    if (w) {
+      consider(w.score, roles.length - i, () => ({
+        sections: { ...base, experience: expLines.filter((_, li) => li !== w.line).join("\n") },
+        dropped: { where: "experience", owner: role.title, bullet: w.text },
+      }));
+    }
   });
+  void leftOut;
   if (!best) return { sections: base, dropped: null };
-  (best as { drop: () => void }).drop();
-  const exp = leftOut.experience[0];
-  const proj = leftOut.projects[0];
-  if (exp) {
-    const role = roles.find((r) => r.title === exp.role)!;
-    const line = role.bullets.find((b) => b.text === exp.bullet)!.line;
-    return { sections: { ...base, experience: expLines.filter((_, i) => i !== line).join("\n") }, dropped: { where: "experience", owner: exp.role, bullet: exp.bullet } };
-  }
-  const p = projects.find((x) => x.name === proj!.project)!;
-  return {
-    sections: { ...base, projects: { ...(projectsIn as Record<string, unknown>), [p.key]: p.bullets.filter((b) => b.text !== proj!.bullet).map((b) => b.text) } },
-    dropped: { where: "projects", owner: proj!.project, bullet: proj!.bullet },
-  };
+  return (best as Choice).apply();
 }
 
 export function fitToRealPages(
