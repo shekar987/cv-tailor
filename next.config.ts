@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { securityHeaders } from "./src/lib/securityHeaders";
 
 // The app is reachable at several Vercel-issued hostnames (per-deployment,
 // per-branch, per-project) in addition to the real domain. Users should
@@ -14,6 +15,12 @@ const nextConfig: NextConfig = {
   // from the actual Vercel deployment.
   outputFileTracingIncludes: {
     "/*": ["./src/lib/fonts/**/*"],
+  },
+  // Security headers on every page (lib/securityHeaders, tested): nosniff,
+  // frame denial, referrer policy, HSTS, a report-only CSP, and a
+  // permissions policy that allows the microphone on the interview route only.
+  async headers() {
+    return securityHeaders({ supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL, dev: process.env.NODE_ENV !== "production" });
   },
   async redirects() {
     return [
