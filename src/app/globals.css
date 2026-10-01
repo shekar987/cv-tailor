@@ -1964,6 +1964,27 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   overflow-wrap: anywhere;
 }
 
+/* A note under a cell that is advice, not a failure (a duplicate row, a
+   long role): the error's shape in the muted colour. */
+.appsCellHint {
+  display: block;
+  padding: 0 var(--space-3) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-subtle);
+  overflow-wrap: anywhere;
+}
+.appsCellHint strong { color: var(--text); font-weight: 600; }
+
+/* The sheet's pager: 50 rows a page; search, filters and the export cover
+   every row. */
+.appsPager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0 var(--space-1);
+}
+
 /* View CV / View JD / notes — the cells that open a panel. */
 .appsLinkBtn { color: var(--amber); cursor: pointer; white-space: nowrap; }
 .appsLinkBtn:hover { color: var(--amber-bright); }

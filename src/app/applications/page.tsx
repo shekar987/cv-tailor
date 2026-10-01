@@ -13,6 +13,18 @@ import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
 import { MAX_JD_CHARS as JD_LIMIT, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
 import { MIN_DECIDED, MIN_FOR_VERDICT, type Insights, type Bucket, type ScoreOutcome } from "@/lib/insights";
 import { gateLine, type GatesSummary } from "@/lib/knockouts";
+import {
+  STATUSES,
+  READY_TO_SUBMIT,
+  isFollowupDue,
+  findDuplicateApplication,
+  roleTooLong,
+  ROLE_WARN_CHARS,
+  notesSayNotSubmitted,
+  pageSlice,
+  PAGE_SIZE,
+  type Status,
+} from "@/lib/tracker";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -23,9 +35,6 @@ import StatusText from "@/components/ui/StatusText";
 
 const PAGE_TAGLINE =
   "Every role you've applied to, in one sheet. Click any cell to edit it; click CV, JD or Notes to open that application's details — or add the CV you sent for an application made elsewhere.";
-
-const STATUSES = ["Applied", "Screening", "Interview", "Offer", "Rejected", "Withdrawn"] as const;
-type Status = (typeof STATUSES)[number];
 
 const MAX_JD_CHARS = JD_LIMIT;
 const MAX_NOTES = MAX_NOTES_CHARS;
@@ -304,15 +313,15 @@ function todayLocal(): string {
 }
 
 // A follow-up is "due" while the application is still moving — a date in the
-// past on a Rejected row is history, not a task.
-const LIVE_STATUSES: ReadonlySet<Status> = new Set(["Applied", "Screening", "Interview"]);
-
+// past on a Rejected row is history, not a task, and an unsent row has
+// nothing to follow up (lib/tracker).
 function isDue(row: Application): boolean {
-  return !!row.followup_date && row.followup_date <= todayLocal() && LIVE_STATUSES.has(row.status);
+  return isFollowupDue(row, todayLocal());
 }
 
 // Data colour only: outcomes get colour, in-flight statuses stay neutral.
 const STATUS_TONES: Record<Status, string> = {
+  "Ready to submit": "muted",
   Applied: "neutral",
   Screening: "neutral",
   Interview: "neutral",
@@ -437,7 +446,19 @@ export default function ApplicationsPage() {
   const [cvCache, setCvCache] = useState<Record<string, TailoredCv | null>>({});
   // The CV file uploaded for a row (lib/sentCv), read with the snapshot.
   const [sentCache, setSentCache] = useState<Record<string, SentCvInfo | null>>({});
-  const [cvError, setCvError] = useState("");
+  // Per row: a load in flight and the error it ended in, so the View CV
+  // button can say "Loading…", a failure never masks another row's panel,
+  // and closing + reopening during a load doesn't fire a second GET.
+  const [cvLoading, setCvLoading] = useState<Record<string, boolean>>({});
+  const cvLoadingRef = useRef<Record<string, boolean>>({});
+  const [cvErrors, setCvErrors] = useState<Record<string, string>>({});
+  // The page of the sheet being shown, keyed by the filter/sort state it was
+  // chosen under: a filter change silently returns to page 1 without an
+  // effect (lib/tracker pageSlice clamps anything out of range).
+  const [paging, setPaging] = useState<{ key: string; page: number }>({ key: "", page: 1 });
+  // The "move rows whose notes say they weren't submitted" offer: null =
+  // not shown, "offer" = the one-line notice, "review" = the list + confirm.
+  const [bulkReady, setBulkReady] = useState<"offer" | "review" | "dismissed" | "moving">("offer");
   const [jdDraft, setJdDraft] = useState("");
   const [jdEditing, setJdEditing] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
@@ -568,6 +589,30 @@ export default function ApplicationsPage() {
     });
   }, [rows, statusFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, searchTerm]);
 
+  // Only PAGE_SIZE rows are painted at a time; search, filters, counts and the
+  // export cover the whole set. A different filter/sort state starts at page 1.
+  const pageKey = [statusFilter, periodFilter, sortKey, sortDir, dueOnly ? "due" : "", searchTerm].join("\u0000");
+  const sheet = pageSlice(visible, paging.key === pageKey ? paging.page : 1);
+  const pageRows = sheet.items;
+  function goToPage(page: number) {
+    setPaging({ key: pageKey, page });
+    setPanel(null);
+  }
+
+  // Rows the insights cannot use: no job description, or (added by hand) no
+  // CV file. Shown beside the rate so the figures never look more complete
+  // than the data.
+  const withoutJd = useMemo(() => rows.filter((r) => isSubmittedRow(r) && !(r.job_description ?? "").trim()).length, [rows]);
+  const withoutCv = useMemo(() => rows.filter((r) => isSubmittedRow(r) && r.source === "manual" && !r.sent_cv_name).length, [rows]);
+
+  // Rows marked Applied whose notes say they were never sent (lib/tracker).
+  const notSubmitted = useMemo(() => rows.filter((r) => r.status === "Applied" && notesSayNotSubmitted(r.notes)), [rows]);
+
+  // Live warnings on the add-row form: a row this company + role already has,
+  // and a role long enough to be a title plus extras.
+  const newRowDuplicate = newRow ? findDuplicateApplication(rows, newRow) : null;
+  const newRowRoleLong = !!newRow && roleTooLong(newRow.role);
+
   // The export carries the same filters, so the file matches the screen.
   const exportHref = useMemo(() => {
     const params = new URLSearchParams();
@@ -640,8 +685,31 @@ export default function ApplicationsPage() {
       }
       return data.error || "Could not save that change.";
     }
+    // Closing a row (Rejected / Withdrawn) cleared its follow-up on the
+    // server and wrote the old date into the notes; mirror both.
+    const cleared = data.followupCleared as { followup_date: null; notes: string | null } | undefined;
+    if (cleared) {
+      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, followup_date: null, notes: cleared.notes } : r)));
+      showFlash("Follow-up cleared — the date is kept in the notes.");
+    }
     flashRow(id);
     return null;
+  }
+
+  // Moves every row the "not submitted" review listed to Ready to submit,
+  // one PUT each, then reloads the sheet. Each failure is reported once.
+  async function moveNotSubmitted() {
+    setBulkReady("moving");
+    const failures: string[] = [];
+    for (const row of notSubmitted) {
+      const message = await patchRow(row.id, { status: READY_TO_SUBMIT });
+      if (message) failures.push(`${row.company_name}: ${message}`);
+    }
+    const result = await fetchApplications();
+    if ("rows" in result) setRows(result.rows);
+    setBulkReady("dismissed");
+    if (failures.length) setActionError(failures.join(" · "));
+    else showFlash(`Moved ${notSubmitted.length} row${notSubmitted.length === 1 ? "" : "s"} to Ready to submit.`);
   }
 
   // ── Cell editing ──────────────────────────────────────────────────────────
@@ -731,20 +799,28 @@ export default function ApplicationsPage() {
     }
     setPanel({ id: row.id, kind });
     setPanelError("");
-    setCvError(""); // a failure on one row must not mask another row's cached CV
     if (kind === "jd") {
       setJdDraft(row.job_description ?? "");
       setJdEditing(!row.job_description);
     }
     if (kind === "notes") setNotesDraft(row.notes ?? "");
-    if (kind === "cv" && !(row.id in cvCache)) void loadCv(row.id);
+    if (kind === "cv" && !(row.id in cvCache) && !cvLoadingRef.current[row.id]) void loadCv(row.id);
   }
 
   async function loadCv(id: string) {
-    setCvError("");
-    const { ok, data } = await api("GET", undefined, `?id=${encodeURIComponent(id)}`);
+    cvLoadingRef.current = { ...cvLoadingRef.current, [id]: true };
+    setCvLoading(cvLoadingRef.current);
+    setCvErrors((e) => {
+      const { [id]: _gone, ...rest } = e;
+      void _gone;
+      return rest;
+    });
+    const { ok, status, data } = await api("GET", undefined, `?id=${encodeURIComponent(id)}`);
+    cvLoadingRef.current = { ...cvLoadingRef.current, [id]: false };
+    setCvLoading(cvLoadingRef.current);
     if (!ok) {
-      setCvError(data.error || "Could not load that CV.");
+      if (status === 401) setSessionExpired(true);
+      setCvErrors((e) => ({ ...e, [id]: status === 401 ? SESSION_EXPIRED : data.error || "Could not load that CV." }));
       return;
     }
     const app = data.application as { tailored_cv?: TailoredCv | null; sent_cv?: SentCvInfo | null } | undefined;
@@ -925,6 +1001,11 @@ export default function ApplicationsPage() {
             aria-label={CELL_LABELS[field]}
           />
           {cellError && <span className="appsCellError" role="alert">{cellError}</span>}
+          {!cellError && field === "role" && roleTooLong(cellDraft) && (
+            <span className="appsCellHint" data-role-long>
+              {cellDraft.trim().length} characters — the sheet and insights work best with the job title alone; put the rest in Notes.
+            </span>
+          )}
         </>
       );
     }
@@ -953,6 +1034,7 @@ export default function ApplicationsPage() {
       const kwTotal = storedAts ? storedAts.keywords.hits.length + storedAts.keywords.misses.length : 0;
       const reqTotal = storedAts ? storedAts.required.hits.length + storedAts.required.misses.length : 0;
       const hasSnapshot = !!snap && !!panelCvData;
+      const cvError = cvErrors[row.id] ?? "";
       return (
         <div className="appsPanel">
           <div className="appsPanelHead">
@@ -977,9 +1059,16 @@ export default function ApplicationsPage() {
             />
           )}
           {cvError ? (
-            <StatusText role="alert">{cvError}</StatusText>
+            <StatusText role="alert">
+              {cvError}{" "}
+              {!sessionExpired && (
+                <button type="button" className="inlineLink" onClick={() => void loadCv(row.id)} data-cv-retry>
+                  Try again
+                </button>
+              )}
+            </StatusText>
           ) : snap === undefined ? (
-            <p className="cvHelp">Loading the CV…</p>
+            <p className="cvHelp" role="status" aria-live="polite" data-cv-loading>Loading the CV…</p>
           ) : !hasSnapshot ? (
             row.source === "tailored" ? (
               <p className="appsMuted">
@@ -1170,6 +1259,39 @@ export default function ApplicationsPage() {
           </div>
         )}
 
+        {notSubmitted.length > 0 && bulkReady !== "dismissed" && (
+          <div className="limitNotice" role="status" data-bulk-ready={bulkReady}>
+            {bulkReady === "offer" ? (
+              <>
+                {notSubmitted.length === 1 ? "One application's notes say" : `${notSubmitted.length} applications' notes say`} it was not
+                submitted, but the status is Applied.{" "}
+                <button type="button" className="inlineLink" onClick={() => setBulkReady("review")}>Review</button>{" "}
+                <button type="button" className="inlineLink" onClick={() => setBulkReady("dismissed")}>Dismiss</button>
+              </>
+            ) : (
+              <>
+                <p>These rows would move to <strong>Ready to submit</strong> (not counted as applications until you move them back):</p>
+                <ul className="atsList">
+                  {notSubmitted.map((r) => (
+                    <li key={r.id}>
+                      <strong>{r.company_name}</strong> — {r.role} ({formatDate(r.date_applied)}): “{(r.notes ?? "").trim().slice(0, 90)}
+                      {(r.notes ?? "").trim().length > 90 ? "…" : ""}”
+                    </li>
+                  ))}
+                </ul>
+                <div className="actions">
+                  <Button variant="secondary" onClick={moveNotSubmitted} disabled={bulkReady === "moving"} data-bulk-ready-confirm>
+                    {bulkReady === "moving" ? "Moving…" : `Move ${notSubmitted.length} to Ready to submit`}
+                  </Button>
+                  <button type="button" className="inlineLink" onClick={() => setBulkReady("dismissed")} disabled={bulkReady === "moving"}>
+                    Leave them
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {hasRows && (
           <div className="appsFunnel riseIn" role="group" aria-label="Applications by status">
             {STATUSES.map((s) => (
@@ -1218,6 +1340,18 @@ export default function ApplicationsPage() {
                 ? `${insights.decided} application${insights.decided === 1 ? " has" : "s have"} an outcome so far — the progression rate shows from ${MIN_DECIDED}.`
                 : `${Math.round(insights.overallRate * 100)}% of decided applications progressed past the screen (${insights.progressed} of ${insights.decided}; ${insights.counted - insights.decided} still open).`}{" "}
               {insightsNote}
+              {withoutJd + withoutCv > 0 && (
+                <span data-insights-gaps>
+                  {" "}
+                  {[
+                    withoutJd > 0 && `${withoutJd} application${withoutJd === 1 ? " has" : "s have"} no job description`,
+                    withoutCv > 0 && `${withoutCv} added by hand ${withoutCv === 1 ? "has" : "have"} no CV file`,
+                  ]
+                    .filter(Boolean)
+                    .join("; ")}
+                  {" "}— they count in the totals above but nothing can be read from them.
+                </span>
+              )}
             </p>
             {showInsights && (
               <>
@@ -1307,8 +1441,8 @@ export default function ApplicationsPage() {
               ))}
             </div>
             {hasRows && (
-              <span className="appsCount">
-                {visible.length} of {rows.length}
+              <span className="appsCount" data-apps-count>
+                {sheet.pages > 1 ? `${sheet.from}–${sheet.to} of ${visible.length}` : `${visible.length} of ${rows.length}`}
               </span>
             )}
             {flash && <StatusText as="span" tone="success" role="status">{flash}</StatusText>}
@@ -1502,10 +1636,27 @@ export default function ApplicationsPage() {
                         </td>
                       </tr>
                     )}
+                    {(newRowDuplicate || newRowRoleLong) && (
+                      <tr className="appsNewRow">
+                        <td colSpan={COL_COUNT}>
+                          {newRowDuplicate && (
+                            <span className="appsCellHint" role="status" data-dup-warning>
+                              You already have <strong>{newRowDuplicate.company_name}</strong> — {newRowDuplicate.role} ({formatDate(newRowDuplicate.date_applied)}, {newRowDuplicate.status}).
+                              Save anyway only if this is a different posting.
+                            </span>
+                          )}
+                          {newRowRoleLong && (
+                            <span className="appsCellHint" role="status" data-role-long>
+                              {newRow.role.trim().length} characters is long for a role (over {ROLE_WARN_CHARS}) — the sheet and insights work best with the job title alone; put the rest in Notes.
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    )}
                   </>
                 )}
 
-                {visible.map((row) => {
+                {pageRows.map((row) => {
                   const open = panel?.id === row.id;
                   const confirming = confirmDeleteId === row.id;
                   const panelIs = (kind: PanelKind) => open && panel?.kind === kind;
@@ -1527,8 +1678,9 @@ export default function ApplicationsPage() {
                             onClick={() => togglePanel(row, "cv")}
                             title={row.sent_cv_name ?? row.cv_reference ?? undefined}
                             data-cv-cell={row.source === "tailored" || row.sent_cv_name ? "view" : "add"}
+                            aria-busy={cvLoading[row.id] ? true : undefined}
                           >
-                            {row.source === "tailored" || row.sent_cv_name ? "View CV" : "Add CV"}
+                            {cvLoading[row.id] ? "Loading…" : row.source === "tailored" || row.sent_cv_name ? "View CV" : "Add CV"}
                           </button>
                         </td>
                         <td data-label="JD">
@@ -1647,11 +1799,30 @@ export default function ApplicationsPage() {
                 })}
               </tbody>
             </table>
+            {sheet.pages > 1 && (
+              <nav className="appsPager" aria-label="Pages of applications" data-apps-pager>
+                <button type="button" className="appsActionBtn" onClick={() => goToPage(sheet.page - 1)} disabled={sheet.page === 1}>
+                  ← Previous
+                </button>
+                <span className="appsCount">
+                  Page {sheet.page} of {sheet.pages} · {PAGE_SIZE} rows a page
+                </span>
+                <button type="button" className="appsActionBtn" onClick={() => goToPage(sheet.page + 1)} disabled={sheet.page === sheet.pages}>
+                  Next →
+                </button>
+              </nav>
+            )}
           </div>
         )}
       </div>
     </main>
   );
+}
+
+// Submitted = an application the user actually sent; a "Ready to submit"
+// row is kept but not counted (lib/tracker isSubmitted).
+function isSubmittedRow(row: Application): boolean {
+  return row.status !== READY_TO_SUBMIT;
 }
 
 // A row and its optional detail row share one key without an extra wrapper
