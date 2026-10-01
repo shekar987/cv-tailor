@@ -1702,260 +1702,7 @@ export default function Home() {
           </Card>
         ) : null}
 
-        {/* Stage 3 — company research + Fit Score (optional, before the JD) */}
-        {masterCvText && (
-          <Card>
-            <FormField
-              label="Company research (optional)"
-              htmlFor="companyUrl"
-              help="Paste the company's website and we'll read their site and live job ads, then score how well your real CV fits before you spend a tailor. Uses one tailor credit — repeat lookups of the same company are free for 7 days."
-            >
-              <div className="researchRow">
-                <Input
-                  id="companyUrl"
-                  value={companyUrl}
-                  onChange={(e) => setCompanyUrl(e.target.value)}
-                  placeholder="e.g. deliveroo.co.uk"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <Button variant="secondary" onClick={() => handleResearch()} disabled={researchLoading || loading}>
-                  {researchLoading ? "Researching…" : "Research company"}
-                </Button>
-              </div>
-            </FormField>
-            {researchError && (
-              <StatusText style={{ marginTop: "var(--space-3)" }} role="alert">{researchError}</StatusText>
-            )}
-
-            {research && !researchLoading && (
-              <Card variant="dashed">
-                <div className="researchHead">
-                  <div>
-                    <div className="gateLabel">Company profile</div>
-                    <div className="researchName">{research.profile?.company_name || companyUrl}</div>
-                    {research.domain && <div className="fitEvidence">{research.domain}</div>}
-                  </div>
-                  <button type="button" className="inlineLink researchRefresh" onClick={() => handleResearch(true)}>
-                    {research.cached ? "Saved result — research again" : "Research again"}
-                  </button>
-                </div>
-                {research.profile?.what_they_build && (
-                  <p className="gateNote">
-                    {research.profile.what_they_build}
-                    {research.profile.target_audience && <> Audience: {research.profile.target_audience}.</>}
-                    {research.profile.ai_footprint && <> {research.profile.ai_footprint}</>}
-                  </p>
-                )}
-
-                {research.fitScore && typeof research.fitScore.total === "number" && (
-                  <div className="fitBlock">
-                    <div className="fitHeader">
-                      <span className={`fitTierBadge ${research.fitScore.tier ?? "low"}`}>
-                        {FIT_TIER_META[research.fitScore.tier ?? "low"].emoji}{" "}
-                        {FIT_TIER_META[research.fitScore.tier ?? "low"].label}
-                      </span>
-                      <span className="fitTotal">
-                        {research.fitScore.total}
-                        <span className="fitOutOf">/100</span>
-                      </span>
-                    </div>
-                    {research.fitScore.headline && <p className="gateNote">{research.fitScore.headline}</p>}
-                    <div className="fitBars">
-                      {FIT_COMPONENT_META.map(({ key, label, weight }) => {
-                        const c = research.fitScore?.components?.[key];
-                        if (!c || typeof c.score !== "number") return null;
-                        return (
-                          <div className="fitBar" key={key}>
-                            <div className="fitBarTop">
-                              <span>{label} · weighs {weight}%</span>
-                              <span>{c.score}</span>
-                            </div>
-                            <div className="fitBarTrack" role="img" aria-label={`${label}: ${c.score} out of 100`}>
-                              <div className="fitBarFill" style={{ width: `${c.score}%` }} />
-                            </div>
-                            {c.evidence && <p className="fitEvidence">{c.evidence}</p>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {research.fitScore.honest_gaps && (
-                      <p className="fitGaps">
-                        <strong>Honest gaps:</strong> {research.fitScore.honest_gaps}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {Array.isArray(research.stackKeywords) && research.stackKeywords.length > 0 && (
-                  <div className="atsGroup">
-                    <div className="atsGroupLabel recs">
-                      Engineering stack — from {research.jobBoard?.count ?? research.openings?.length ?? 0} live job ads
-                    </div>
-                    <div className="stackChips">
-                      {research.stackKeywords.map((k) => {
-                        const matched = research.fitScore?.matched_stack?.some(
-                          (m) => m.toLowerCase() === k.keyword.toLowerCase()
-                        );
-                        return (
-                          <span key={k.keyword} className={"stackChip" + (matched ? " matched" : "")}>
-                            {matched ? "✓ " : ""}{k.keyword}
-                          </span>
-                        );
-                      })}
-                    </div>
-                    <p className="fitEvidence">✓ = already evidenced in your master CV.</p>
-                  </div>
-                )}
-
-                {Array.isArray(research.websiteStack) && research.websiteStack.length > 0 && (
-                  <div className="atsGroup">
-                    <div className="atsGroupLabel recs">Their website runs on</div>
-                    <div className="stackChips">
-                      {research.websiteStack.map((s) => (
-                        <span key={s} className="stackChip muted">{s}</span>
-                      ))}
-                    </div>
-                    <p className="fitEvidence">
-                      Website tech ≠ engineering stack — the job ads above are the real hiring signal.
-                    </p>
-                  </div>
-                )}
-
-                {Array.isArray(research.openings) && research.openings.length > 0 && (
-                  <div className="atsGroup">
-                    <div className="atsGroupLabel recs">
-                      Open roles ({research.openings.length})
-                      {research.jobBoard?.provider && <> — via {research.jobBoard.provider}</>}
-                    </div>
-                    <ul className="openingsList">
-                      {(showAllOpenings ? research.openings : research.openings.slice(0, 6)).map((o, i) => (
-                        <li key={i}>
-                          <button
-                            type="button"
-                            className="openingBtn"
-                            onClick={() => applyOpening(o)}
-                            disabled={loading}
-                            title="Use this job ad as the job description below"
-                          >
-                            <span className="openingTitle">{o.title}</span>
-                            {o.location && <span className="openingLoc">{o.location}</span>}
-                            <span className="openingUse">Use as JD ↓</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                    {research.openings.length > 6 && (
-                      <button
-                        type="button"
-                        className="inlineLink"
-                        onClick={() => setShowAllOpenings((v) => !v)}
-                      >
-                        {showAllOpenings ? "Show fewer" : `Show all ${research.openings.length} roles`}
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Cold outreach — a SEPARATE flow from the JD box: tailor
-                    CV + cover letter straight from the research (no posted
-                    job, no keyword gate), then draft the email to send with
-                    the CV attached (email is owner-only; server enforces). */}
-                {research.profile && (research.profile.company_name || research.profile.what_they_build) ? (
-                  <div className="atsGroup">
-                    <div className="atsGroupLabel recs">Cold outreach — no job posting needed</div>
-                    <p className="gateNote" style={{ marginBottom: "var(--space-3)" }}>
-                      Tailors your CV and cover letter to {research.profile.company_name || "this company"}&apos;s
-                      real stack from the research — completely separate from the job-description box below.
-                    </p>
-                    <div className="gateActions">
-                      <Button variant="secondary" onClick={runColdOutreachTailor} disabled={loading || researchLoading}>
-                        {loading
-                          ? "Tailoring…"
-                          : isUnlimited
-                            ? "Tailor CV + cover letter + cold email"
-                            : "Tailor CV + cover letter for this company"}
-                      </Button>
-                    </div>
-
-                    {isUnlimited && (
-                      <>
-                        <div className="outreachInputs">
-                          <Input
-                            value={recipientName}
-                            onChange={(e) => setRecipientName(e.target.value)}
-                            placeholder="Recipient's name (optional)"
-                            maxLength={80}
-                            autoComplete="off"
-                          />
-                          <Input
-                            value={personalNote}
-                            onChange={(e) => setPersonalNote(e.target.value)}
-                            placeholder="One TRUE line about how you know them (optional)"
-                            maxLength={300}
-                            autoComplete="off"
-                          />
-                        </div>
-                        <p className="fitEvidence">
-                          Left empty, the email skips the personal line — it never invents a connection.
-                        </p>
-                        <div className="gateActions" style={{ marginTop: "var(--space-3)" }}>
-                          <Button
-                            variant="secondary"
-                            onClick={() => handleExtra("cold_email")}
-                            disabled={extrasLoading !== ""}
-                          >
-                            {extrasLoading === "cold_email" ? "Writing…" : coldEmail ? "Rewrite cold email" : "Cold email draft"}
-                          </Button>
-                          <span className="fitEvidence">
-                            {!result?.analysis
-                              ? "No role selected — it pitches speculatively."
-                              : companyNamesMatch(realValue(result.analysis.company_name), research.profile?.company_name)
-                                ? "References the tailored role."
-                                : "The tailored role is for a different company — it pitches speculatively."}
-                          </span>
-                          {coldEmailError && (
-                            <StatusText as="span" role="alert">{coldEmailError}</StatusText>
-                          )}
-                        </div>
-                        {coldEmail && (
-                          <div className="extraBlock">
-                            <div className="gateLabel">Ready to send — attach your downloaded CV</div>
-                            <p className="extraText">{coldEmail}</p>
-                            {coldEmailCheck && coldEmailCheck.skillViolations.length + coldEmailCheck.numberViolations.length > 0 && (
-                              <p className="fitEvidence" role="status" data-email-claim-check>
-                                Claims check:{" "}
-                                {[
-                                  ...coldEmailCheck.skillViolations.map((s) => `${s.skill} is marked learning`),
-                                  ...coldEmailCheck.numberViolations.map((n) =>
-                                    n.kind === "absent" ? `${n.figure} isn't on your CV` : `${n.figure} is used in a different context`
-                                  ),
-                                ].join("; ")}
-                                . Rewrite the email or edit before sending.
-                              </p>
-                            )}
-                            <button type="button" className="inlineLink" onClick={copyColdEmail}>
-                              {emailCopied ? "Copied ✓" : "Copy email"}
-                            </button>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <div className="atsGroup">
-                    <p className="gateNote" style={{ marginBottom: 0 }}>
-                      This research came back without company details, so tailoring and outreach are
-                      unavailable for it — use &quot;research again&quot; above to refresh.
-                    </p>
-                  </div>
-                )}
-              </Card>
-            )}
-          </Card>
-        )}
-
-        {/* JD card — only show once a master CV exists */}
+        {/* JD card — the job comes first; research is the optional step after it */}
         {masterCvText && (
           <Card>
             {appliedState === "cleared" && !result && (
@@ -2353,6 +2100,260 @@ export default function Home() {
             )}
           </Card>
         )}
+
+        {/* Stage 3 — company research + Fit Score (optional, under the JD) */}
+        {masterCvText && (
+          <Card>
+            <FormField
+              label="Company research (optional)"
+              htmlFor="companyUrl"
+              help="Paste the company's website and we'll read their site and live job ads, then score how well your real CV fits before you spend a tailor. Uses one tailor credit — repeat lookups of the same company are free for 7 days."
+            >
+              <div className="researchRow">
+                <Input
+                  id="companyUrl"
+                  value={companyUrl}
+                  onChange={(e) => setCompanyUrl(e.target.value)}
+                  placeholder="e.g. deliveroo.co.uk"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <Button variant="secondary" onClick={() => handleResearch()} disabled={researchLoading || loading}>
+                  {researchLoading ? "Researching…" : "Research company"}
+                </Button>
+              </div>
+            </FormField>
+            {researchError && (
+              <StatusText style={{ marginTop: "var(--space-3)" }} role="alert">{researchError}</StatusText>
+            )}
+
+            {research && !researchLoading && (
+              <Card variant="dashed">
+                <div className="researchHead">
+                  <div>
+                    <div className="gateLabel">Company profile</div>
+                    <div className="researchName">{research.profile?.company_name || companyUrl}</div>
+                    {research.domain && <div className="fitEvidence">{research.domain}</div>}
+                  </div>
+                  <button type="button" className="inlineLink researchRefresh" onClick={() => handleResearch(true)}>
+                    {research.cached ? "Saved result — research again" : "Research again"}
+                  </button>
+                </div>
+                {research.profile?.what_they_build && (
+                  <p className="gateNote">
+                    {research.profile.what_they_build}
+                    {research.profile.target_audience && <> Audience: {research.profile.target_audience}.</>}
+                    {research.profile.ai_footprint && <> {research.profile.ai_footprint}</>}
+                  </p>
+                )}
+
+                {research.fitScore && typeof research.fitScore.total === "number" && (
+                  <div className="fitBlock">
+                    <div className="fitHeader">
+                      <span className={`fitTierBadge ${research.fitScore.tier ?? "low"}`}>
+                        {FIT_TIER_META[research.fitScore.tier ?? "low"].emoji}{" "}
+                        {FIT_TIER_META[research.fitScore.tier ?? "low"].label}
+                      </span>
+                      <span className="fitTotal">
+                        {research.fitScore.total}
+                        <span className="fitOutOf">/100</span>
+                      </span>
+                    </div>
+                    {research.fitScore.headline && <p className="gateNote">{research.fitScore.headline}</p>}
+                    <div className="fitBars">
+                      {FIT_COMPONENT_META.map(({ key, label, weight }) => {
+                        const c = research.fitScore?.components?.[key];
+                        if (!c || typeof c.score !== "number") return null;
+                        return (
+                          <div className="fitBar" key={key}>
+                            <div className="fitBarTop">
+                              <span>{label} · weighs {weight}%</span>
+                              <span>{c.score}</span>
+                            </div>
+                            <div className="fitBarTrack" role="img" aria-label={`${label}: ${c.score} out of 100`}>
+                              <div className="fitBarFill" style={{ width: `${c.score}%` }} />
+                            </div>
+                            {c.evidence && <p className="fitEvidence">{c.evidence}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {research.fitScore.honest_gaps && (
+                      <p className="fitGaps">
+                        <strong>Honest gaps:</strong> {research.fitScore.honest_gaps}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {Array.isArray(research.stackKeywords) && research.stackKeywords.length > 0 && (
+                  <div className="atsGroup">
+                    <div className="atsGroupLabel recs">
+                      Engineering stack — from {research.jobBoard?.count ?? research.openings?.length ?? 0} live job ads
+                    </div>
+                    <div className="stackChips">
+                      {research.stackKeywords.map((k) => {
+                        const matched = research.fitScore?.matched_stack?.some(
+                          (m) => m.toLowerCase() === k.keyword.toLowerCase()
+                        );
+                        return (
+                          <span key={k.keyword} className={"stackChip" + (matched ? " matched" : "")}>
+                            {matched ? "✓ " : ""}{k.keyword}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <p className="fitEvidence">✓ = already evidenced in your master CV.</p>
+                  </div>
+                )}
+
+                {Array.isArray(research.websiteStack) && research.websiteStack.length > 0 && (
+                  <div className="atsGroup">
+                    <div className="atsGroupLabel recs">Their website runs on</div>
+                    <div className="stackChips">
+                      {research.websiteStack.map((s) => (
+                        <span key={s} className="stackChip muted">{s}</span>
+                      ))}
+                    </div>
+                    <p className="fitEvidence">
+                      Website tech ≠ engineering stack — the job ads above are the real hiring signal.
+                    </p>
+                  </div>
+                )}
+
+                {Array.isArray(research.openings) && research.openings.length > 0 && (
+                  <div className="atsGroup">
+                    <div className="atsGroupLabel recs">
+                      Open roles ({research.openings.length})
+                      {research.jobBoard?.provider && <> — via {research.jobBoard.provider}</>}
+                    </div>
+                    <ul className="openingsList">
+                      {(showAllOpenings ? research.openings : research.openings.slice(0, 6)).map((o, i) => (
+                        <li key={i}>
+                          <button
+                            type="button"
+                            className="openingBtn"
+                            onClick={() => applyOpening(o)}
+                            disabled={loading}
+                            title="Use this job ad as the job description below"
+                          >
+                            <span className="openingTitle">{o.title}</span>
+                            {o.location && <span className="openingLoc">{o.location}</span>}
+                            <span className="openingUse">Use as JD ↓</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    {research.openings.length > 6 && (
+                      <button
+                        type="button"
+                        className="inlineLink"
+                        onClick={() => setShowAllOpenings((v) => !v)}
+                      >
+                        {showAllOpenings ? "Show fewer" : `Show all ${research.openings.length} roles`}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Cold outreach — a SEPARATE flow from the JD box: tailor
+                    CV + cover letter straight from the research (no posted
+                    job, no keyword gate), then draft the email to send with
+                    the CV attached (email is owner-only; server enforces). */}
+                {research.profile && (research.profile.company_name || research.profile.what_they_build) ? (
+                  <div className="atsGroup">
+                    <div className="atsGroupLabel recs">Cold outreach — no job posting needed</div>
+                    <p className="gateNote" style={{ marginBottom: "var(--space-3)" }}>
+                      Tailors your CV and cover letter to {research.profile.company_name || "this company"}&apos;s
+                      real stack from the research — completely separate from the job-description box below.
+                    </p>
+                    <div className="gateActions">
+                      <Button variant="secondary" onClick={runColdOutreachTailor} disabled={loading || researchLoading}>
+                        {loading
+                          ? "Tailoring…"
+                          : isUnlimited
+                            ? "Tailor CV + cover letter + cold email"
+                            : "Tailor CV + cover letter for this company"}
+                      </Button>
+                    </div>
+
+                    {isUnlimited && (
+                      <>
+                        <div className="outreachInputs">
+                          <Input
+                            value={recipientName}
+                            onChange={(e) => setRecipientName(e.target.value)}
+                            placeholder="Recipient's name (optional)"
+                            maxLength={80}
+                            autoComplete="off"
+                          />
+                          <Input
+                            value={personalNote}
+                            onChange={(e) => setPersonalNote(e.target.value)}
+                            placeholder="One TRUE line about how you know them (optional)"
+                            maxLength={300}
+                            autoComplete="off"
+                          />
+                        </div>
+                        <p className="fitEvidence">
+                          Left empty, the email skips the personal line — it never invents a connection.
+                        </p>
+                        <div className="gateActions" style={{ marginTop: "var(--space-3)" }}>
+                          <Button
+                            variant="secondary"
+                            onClick={() => handleExtra("cold_email")}
+                            disabled={extrasLoading !== ""}
+                          >
+                            {extrasLoading === "cold_email" ? "Writing…" : coldEmail ? "Rewrite cold email" : "Cold email draft"}
+                          </Button>
+                          <span className="fitEvidence">
+                            {!result?.analysis
+                              ? "No role selected — it pitches speculatively."
+                              : companyNamesMatch(realValue(result.analysis.company_name), research.profile?.company_name)
+                                ? "References the tailored role."
+                                : "The tailored role is for a different company — it pitches speculatively."}
+                          </span>
+                          {coldEmailError && (
+                            <StatusText as="span" role="alert">{coldEmailError}</StatusText>
+                          )}
+                        </div>
+                        {coldEmail && (
+                          <div className="extraBlock">
+                            <div className="gateLabel">Ready to send — attach your downloaded CV</div>
+                            <p className="extraText">{coldEmail}</p>
+                            {coldEmailCheck && coldEmailCheck.skillViolations.length + coldEmailCheck.numberViolations.length > 0 && (
+                              <p className="fitEvidence" role="status" data-email-claim-check>
+                                Claims check:{" "}
+                                {[
+                                  ...coldEmailCheck.skillViolations.map((s) => `${s.skill} is marked learning`),
+                                  ...coldEmailCheck.numberViolations.map((n) =>
+                                    n.kind === "absent" ? `${n.figure} isn't on your CV` : `${n.figure} is used in a different context`
+                                  ),
+                                ].join("; ")}
+                                . Rewrite the email or edit before sending.
+                              </p>
+                            )}
+                            <button type="button" className="inlineLink" onClick={copyColdEmail}>
+                              {emailCopied ? "Copied ✓" : "Copy email"}
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="atsGroup">
+                    <p className="gateNote" style={{ marginBottom: 0 }}>
+                      This research came back without company details, so tailoring and outreach are
+                      unavailable for it — use &quot;research again&quot; above to refresh.
+                    </p>
+                  </div>
+                )}
+              </Card>
+            )}
+          </Card>
+        )}
+
 
         {loading && (
           <section className="loading">
