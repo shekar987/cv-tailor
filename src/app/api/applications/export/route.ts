@@ -5,7 +5,7 @@ import { signedIn, unauthorized } from "@/lib/routeAuth";
 // no LLM call, so no burst limiter.
 //
 // Optional filters mirror the page so the file matches what's on screen:
-//   ?status=Interview            one of the six statuses
+//   ?status=Interview            one of the statuses in lib/tracker
 //   ?from=YYYY-MM-DD&to=YYYY-MM-DD   inclusive range on date_applied. The client
 //                                computes these in its own timezone, so "today"
 //                                means the user's today, not the server's.
@@ -15,8 +15,7 @@ import { signedIn, unauthorized } from "@/lib/routeAuth";
 //                                typed "18 sep" has no ilike form.
 
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
-
-const STATUSES = new Set(["Applied", "Screening", "Interview", "Offer", "Rejected", "Withdrawn"]);
+import { isStatus } from "@/lib/tracker";
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const COLUMNS: { header: string; key: string }[] = [
@@ -52,7 +51,7 @@ export async function GET(req: NextRequest) {
     const status = params.get("status");
     const from = params.get("from");
     const to = params.get("to");
-    if (status && !STATUSES.has(status)) {
+    if (status && !isStatus(status)) {
       return NextResponse.json({ error: "Invalid status filter." }, { status: 400 });
     }
     if ((from && !ISO_DATE_RE.test(from)) || (to && !ISO_DATE_RE.test(to))) {

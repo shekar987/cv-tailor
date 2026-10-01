@@ -36,10 +36,21 @@ export async function GET() {
 
     const insightRows = (rows ?? []).map(rowFromApplication);
     const insights = computeInsights(insightRows);
-    const scoredNote =
+    // Honest about the denominators: which rows the bands can use, and which
+    // rows are in the tracker but not in these figures at all.
+    const parts: string[] = [];
+    parts.push(
       insights.scored > 0
         ? `Score bands use the ${insights.scored} of ${insights.counted} applications with a stored search-visibility score; eligibility reads exist on ${insights.gated}.`
-        : "No application has a stored search-visibility score yet — scores are kept from the next tailored run you save.";
+        : "No application has a stored search-visibility score yet — scores are kept from the next tailored run you save."
+    );
+    if (insights.counted - insights.scored > 0 && insights.scored > 0) {
+      parts.push(`The other ${insights.counted - insights.scored} count in the overall rate but not in the score bands.`);
+    }
+    if (insights.readyToSubmit > 0) {
+      parts.push(`${insights.readyToSubmit} row${insights.readyToSubmit === 1 ? " is" : "s are"} "Ready to submit" and not counted as applications.`);
+    }
+    const scoredNote = parts.join(" ");
     // Decided applications against their stored score — the one question
     // the score has to answer (lib/insights scoreOutcome).
     return NextResponse.json({ insights, scoredNote, scoreOutcome: scoreOutcome(insightRows) });

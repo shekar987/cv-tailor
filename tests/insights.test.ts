@@ -139,3 +139,23 @@ test("computeInsights on nothing", () => {
   assert.equal(i.overallRate, null);
   assert.deepEqual(i.byVisibility, []);
 });
+
+test("Ready to submit rows are kept out of every figure and counted on their own", () => {
+  const rows = [
+    row("Ready to submit", { kwHits: 14, kwTotal: 15 }),
+    row("Ready to submit"),
+    row("Applied"),
+    row("Rejected", { kwHits: 3, kwTotal: 15 }),
+    row("Interview", { kwHits: 12, kwTotal: 15 }),
+    row("Withdrawn"),
+  ];
+  const i = computeInsights(rows);
+  assert.equal(i.total, 6);
+  assert.equal(i.counted, 3, "neither the withdrawn row nor the two unsent rows are applications");
+  assert.equal(i.readyToSubmit, 2);
+  assert.equal(i.scored, 2, "an unsent row's stored score is not a score of an application");
+  assert.equal(i.decided, 2);
+  const s = scoreOutcome(rows);
+  assert.equal(s.points.length, 2, "unsent rows are never plotted");
+  assert.ok(!s.points.some((p) => p.score > 0.9), "the 14/15 unsent row is absent");
+});

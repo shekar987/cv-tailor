@@ -6,6 +6,7 @@ import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 import { seniorityOf } from "@/lib/insights";
 import { GATE_CATEGORIES } from "@/lib/knockouts";
 import { SENT_CV_BUCKET, normalizeSentCv, publicSentCv, ownsPath } from "@/lib/sentCv";
+import { isStatus, READY_TO_SUBMIT, clearsFollowup, followupClearedNote, appendNoteLine, type Status } from "@/lib/tracker";
 
 // CRUD for the application tracker. RLS ("auth.uid() = user_id") is the real
 // boundary; every write is additionally scoped by user id.
@@ -27,11 +28,14 @@ function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value);
 }
 
-const STATUSES = ["Applied", "Screening", "Interview", "Offer", "Rejected", "Withdrawn"] as const;
-type Status = (typeof STATUSES)[number];
-
-function isStatus(value: unknown): value is Status {
-  return typeof value === "string" && (STATUSES as readonly string[]).includes(value);
+// The status list lives in lib/tracker (one copy for the sheet, this route,
+// the export and the insights). "Ready to submit" needs migration
+// 20261001120000; until it is applied the CHECK constraint rejects it
+// (23514) and the write answers 503 needs_migration instead of a 500.
+const STATUS_MIGRATION_HINT =
+  "The database is missing migration supabase/migrations/20261001120000_ready_to_submit_status.sql, which adds the \"Ready to submit\" status. Run it in the Supabase SQL editor, then try again.";
+function isStatusCheckViolation(error: { code?: string; message?: string } | null, status: Status | undefined): boolean {
+  return !!error && error.code === "23514" && status === READY_TO_SUBMIT;
 }
 
 // The list omits tailored_cv and prep_pack (multi-KB JSON per row); GET ?id=
@@ -485,6 +489,9 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true, id: winner.id, alreadySaved: true });
         }
       }
+      if (isStatusCheckViolation(insertError, fields.status)) {
+        return NextResponse.json({ error: STATUS_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+      }
       console.error("applications insert error:", insertError.message);
       if (isMissingColumn(insertError)) {
         return NextResponse.json({ error: MIGRATION_HINT }, { status: 500 });
@@ -523,13 +530,17 @@ export async function PUT(req: NextRequest) {
     }
 
     // The date rule spans two columns; when the patch carries only one of
-    // them, compare against what's stored.
+    // them, compare against what's stored. Closing the row (Rejected /
+    // Withdrawn) also needs what's stored: an open follow-up is cleared and
+    // the old date written into the notes (lib/tracker).
+    const closing = fields.status !== undefined && clearsFollowup(fields.status);
     let dateApplied = fields.date_applied;
     let followup = "followup_date" in fields ? (fields.followup_date ?? null) : undefined;
-    if (dateApplied === undefined || followup === undefined) {
+    let followupCleared: { followup_date: null; notes: string | null } | undefined;
+    if (dateApplied === undefined || followup === undefined || closing) {
       const { data: existing, error: existingError } = await supabase
         .from("applications")
-        .select("date_applied, followup_date")
+        .select("date_applied, followup_date, notes")
         .eq("id", id)
         .eq("user_id", userId)
         .maybeSingle();
@@ -542,6 +553,18 @@ export async function PUT(req: NextRequest) {
       }
       dateApplied ??= existing.date_applied as string;
       if (followup === undefined) followup = (existing.followup_date as string | null) ?? null;
+      const stored = (existing.followup_date as string | null) ?? null;
+      if (closing && stored && !("followup_date" in fields)) {
+        const today = new Date().toISOString().slice(0, 10);
+        const notes = appendNoteLine(
+          "notes" in fields ? fields.notes : (existing.notes as string | null),
+          followupClearedNote(stored, fields.status as string, today)
+        );
+        fields.followup_date = null;
+        fields.notes = notes.slice(0, MAX_NOTES) || null;
+        followup = null;
+        followupCleared = { followup_date: null, notes: fields.notes };
+      }
     }
     if (followupTooEarly(dateApplied, followup)) {
       return NextResponse.json({ error: FOLLOWUP_ERROR }, { status: 400 });
@@ -558,13 +581,16 @@ export async function PUT(req: NextRequest) {
       .select("id");
 
     if (updateError) {
+      if (isStatusCheckViolation(updateError, fields.status)) {
+        return NextResponse.json({ error: STATUS_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+      }
       console.error("applications update error:", updateError.message);
       return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
     }
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 });
     }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ...(followupCleared ? { followupCleared } : {}) });
   } catch (err) {
     console.error("applications PUT error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not save that application" }, { status: 500 });

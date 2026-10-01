@@ -7,7 +7,8 @@
 //
 // Outcome: Screening / Interview / Offer = progressed, Rejected = rejected,
 // Applied = still pending, Withdrawn = excluded (the user pulled out; it says
-// nothing about the screen). A bucket's rate is progressed / decided and is
+// nothing about the screen), "Ready to submit" = excluded (never sent — not
+// an application yet; counted separately as readyToSubmit). A bucket's rate is progressed / decided and is
 // null until at least MIN_DECIDED applications in it have an outcome - a
 // 1-of-1 "100%" would mislead.
 
@@ -68,7 +69,8 @@ export type Bucket = {
 
 export type Insights = {
   total: number;
-  counted: number; // total minus withdrawn
+  counted: number; // total minus withdrawn and ready-to-submit
+  readyToSubmit: number; // prepared but never sent — not applications
   scored: number; // rows with stored keyword lists
   gated: number; // rows with a stored eligibility read
   decided: number;
@@ -92,6 +94,10 @@ export type Insights = {
 // reads as 67% and sends the user chasing noise.
 export const MIN_DECIDED = 8;
 const PROGRESSED = new Set(["Screening", "Interview", "Offer"]);
+// Rows that say nothing about the screen: pulled out, or never sent.
+// (Mirrors lib/tracker; kept as literals so this module stays import-light.)
+const EXCLUDED = new Set(["Withdrawn", "Ready to submit"]);
+const READY_TO_SUBMIT = "Ready to submit";
 
 function obj(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -178,7 +184,8 @@ const REQUIRED_BANDS: { key: string; label: string; test: (f: number) => boolean
 const GATE_LABEL: Record<GateRead, string> = { apply: "Read: apply", long_shot: "Read: long shot", skip: "Read: likely auto-rejected" };
 
 export function computeInsights(rows: InsightRow[]): Insights {
-  const counted = rows.filter((r) => r.status !== "Withdrawn");
+  const counted = rows.filter((r) => !EXCLUDED.has(r.status));
+  const readyToSubmit = rows.filter((r) => r.status === READY_TO_SUBMIT).length;
   const byVisibility = new Map<string, Acc>();
   const byRequired = new Map<string, Acc>();
   const byGate = new Map<string, Acc>();
@@ -235,6 +242,7 @@ export function computeInsights(rows: InsightRow[]): Insights {
   return {
     total: rows.length,
     counted: counted.length,
+    readyToSubmit,
     scored,
     gated,
     decided,
@@ -290,7 +298,7 @@ export function scoreOutcome(rows: InsightRow[]): ScoreOutcome {
   let pendingScored = 0;
   let unscoredDecided = 0;
   for (const r of rows) {
-    if (r.status === "Withdrawn") continue;
+    if (EXCLUDED.has(r.status)) continue;
     const decided: Outcome | null = PROGRESSED.has(r.status) ? "progressed" : r.status === "Rejected" ? "rejected" : null;
     const scored = r.kwTotal !== undefined && r.kwTotal > 0 && r.kwHits !== undefined;
     if (!decided) {
