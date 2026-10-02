@@ -11,7 +11,8 @@ import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
 import { MAX_JD_CHARS as JD_LIMIT, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
-import { MIN_DECIDED, MIN_FOR_VERDICT, type Insights, type Bucket, type ScoreOutcome } from "@/lib/insights";
+import { MIN_DECIDED, MIN_FOR_VERDICT, type Insights, type Bucket, type ScoreOutcome, type ScoreVerdict } from "@/lib/insights";
+import { bandFor, type VisibilityBand } from "@/lib/visibilityVerdict";
 import { gateLine, type GatesSummary } from "@/lib/knockouts";
 import {
   STATUSES,
@@ -129,26 +130,26 @@ function letterFileName(cvReference: string | null): string {
   return stem ? `${stem}_CoverLetter` : "CoverLetter";
 }
 
-// Does the score predict the outcome? Every decided application with a stored
-// score, plotted as it is: one axis (the share of the role's terms the saved
-// CV carried), two lanes (progressed / rejected). Lane and mark shape carry
-// the identity; colour is the app's status pair and never the only cue. The
-// text says what the plot shows even when that is "the metric has no
-// predictive power".
+// Does the score predict the outcome? Decided applications with a stored
+// score, counted per band — the same weak / borderline / ready bands the
+// score shows everywhere (lib/visibilityVerdict) — progressed against
+// rejected, with the one honest statistic (the Mann-Whitney AUC) as a plain
+// sentence and a fixed verdict label. Counts, never a model's grade; the
+// panel says so when the score predicts nothing. The per-application list
+// stays behind "As a table".
+const VERDICT_LABEL: Record<ScoreVerdict, string> = { too_few: "Too few to judge", no_signal: "No signal", weak: "Weak signal", signal: "Signal" };
+const BAND_ROWS: { band: VisibilityBand; label: string; range: string }[] = [
+  { band: "ready", label: "Ready", range: "75%+" },
+  { band: "borderline", label: "Borderline", range: "50–74%" },
+  { band: "weak", label: "Weak", range: "under 50%" },
+];
 function ScoreOutcomePanel({ s }: { s: ScoreOutcome }) {
-  const W = 640, H = 136, L = 124, R = 18;
-  const laneY = { progressed: 42, rejected: 94 } as const;
-  const x = (score: number) => L + score * (W - L - R);
-  const seen = new Map<string, number>();
-  const marks = s.points.map((p, i) => {
-    // Marks at one score in one lane fan out vertically, so none hides another.
-    const key = `${p.outcome}:${p.hits}/${p.total}`;
-    const n = seen.get(key) ?? 0;
-    seen.set(key, n + 1);
-    const dy = n === 0 ? 0 : (n % 2 ? 1 : -1) * Math.ceil(n / 2) * 9;
-    return { ...p, i, cx: x(p.score), cy: laneY[p.outcome] + dy };
-  });
   const pct = (v: number | null) => (v === null ? "—" : `${Math.round(v * 100)}%`);
+  const counts = BAND_ROWS.map((r) => {
+    const inBand = s.points.filter((p) => bandFor(p.hits, p.total) === r.band);
+    return { ...r, progressed: inBand.filter((p) => p.outcome === "progressed").length, rejected: inBand.filter((p) => p.outcome === "rejected").length };
+  });
+  const maxCount = Math.max(1, ...counts.flatMap((c) => [c.progressed, c.rejected]));
   const topProgressed = s.topOutcomes.filter((o) => o === "progressed").length;
   const topLine =
     s.points.length < s.topN
@@ -158,50 +159,60 @@ function ScoreOutcomePanel({ s }: { s: ScoreOutcome }) {
         : `Of your ${s.topN} highest-scoring decided applications, ${topProgressed} progressed.`;
   const verdictLine =
     s.verdict === "too_few"
-      ? `Too few decided applications to judge yet: ${s.points.length} scored and decided${s.auc === null ? ", and only one kind of outcome so far" : ""}. A read needs ${MIN_FOR_VERDICT} with both outcomes.`
+      ? `${s.points.length} scored application${s.points.length === 1 ? " has" : "s have"} an outcome${s.auc === null ? ", all of one kind" : ""}; a read needs ${MIN_FOR_VERDICT} with both outcomes.`
       : s.verdict === "no_signal"
-        ? "So far the score does not predict the outcome. Treat it as a checklist of the role's terms, not a forecast."
+        ? "The score does not predict the outcome so far. Treat it as a checklist of the role's terms, not a forecast."
         : s.verdict === "weak"
           ? "A weak relationship at best: higher scores progressed slightly more often."
           : "Higher scores have progressed more often.";
   return (
-    <div>
-      <p className="fitEvidence" data-score-read>
-        {topLine ? `${topLine} ` : ""}
-        {s.auc !== null &&
-          `Pick one progressed and one rejected application at random: the progressed one has the higher score ${pct(s.auc)} of the time (50% would be a coin flip). `}
+    <div className="scoreOutcome">
+      <p className="fitEvidence scoreOutcome__read" data-score-read>
+        {s.auc !== null && (
+          <>
+            Pick one progressed and one rejected application at random: the progressed one has the higher score{" "}
+            <strong>{pct(s.auc)}</strong> of the time. 50% would be a coin flip.{" "}
+          </>
+        )}
         {verdictLine}
+        {topLine ? ` ${topLine}` : ""}
       </p>
-      <svg className="scorePlot" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Decided applications by search-visibility score">
-        {[0, 0.25, 0.5, 0.75, 1].map((t) => (
-          <g key={t}>
-            <line x1={x(t)} x2={x(t)} y1={16} y2={H - 24} className="scoreGrid" />
-            <text x={x(t)} y={H - 8} textAnchor="middle" className="scoreTick">
-              {Math.round(t * 100)}%
-            </text>
-          </g>
+      <div className="scoreBands" role="img" aria-label="Decided applications by search-visibility band: progressed against rejected">
+        <div className="scoreBands__legend" aria-hidden="true">
+          <span><i className="scoreSwatch progressed" /> Progressed ({s.progressed})</span>
+          <span><i className="scoreSwatch rejected" /> Rejected ({s.rejected})</span>
+        </div>
+        {counts.map((c) => (
+          <div key={c.band} className="scoreBand" data-score-band={c.band}>
+            <div className="scoreBand__label">
+              <strong>{c.label}</strong>
+              <span>{c.range}</span>
+            </div>
+            <div className="scoreBand__bars">
+              {(["progressed", "rejected"] as const).map((o) => {
+                const n = c[o];
+                return (
+                  <div key={o} className={"scoreBar " + o} title={`${n} ${o} with a ${c.label.toLowerCase()} score`}>
+                    <div className="scoreBar__fill" style={{ width: `${Math.max(n ? 4 : 0, Math.round((n / maxCount) * 100))}%` }} />
+                    <span className="scoreBar__n">{n}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         ))}
-        {(["progressed", "rejected"] as const).map((o) => (
-          <g key={o}>
-            <line x1={L} x2={W - R} y1={laneY[o]} y2={laneY[o]} className="scoreLane" />
-            <text x={L - 10} y={laneY[o] + 4} textAnchor="end" className="scoreLaneLabel">
-              {o === "progressed" ? `Progressed (${s.progressed})` : `Rejected (${s.rejected})`}
-            </text>
-          </g>
-        ))}
-        {marks.map((m) => (
-          <g key={m.i} className={`scoreMark ${m.outcome}`} data-score-point={m.outcome}>
-            <title>{`${m.company} — ${m.role}: ${m.hits}/${m.total} (${Math.round(m.score * 100)}%), ${m.outcome}`}</title>
-            <circle cx={m.cx} cy={m.cy} r={6} />
-          </g>
-        ))}
-      </svg>
-      <p className="fitEvidence">
-        Share of the role&apos;s search terms the saved CV carried. Mean: rejected {pct(s.meanRejected)} across {s.rejected}, progressed{" "}
-        {pct(s.meanProgressed)} across {s.progressed}.
-        {s.unscoredDecided > 0 && ` ${s.unscoredDecided} decided application${s.unscoredDecided === 1 ? " has" : "s have"} no stored score and ${s.unscoredDecided === 1 ? "is" : "are"} not plotted.`}
-        {s.pendingScored > 0 && ` ${s.pendingScored} scored application${s.pendingScored === 1 ? " is" : "s are"} still open.`}
-      </p>
+      </div>
+      <ul className="scoreOutcome__notes">
+        <li>
+          Mean score: rejected <strong>{pct(s.meanRejected)}</strong> across {s.rejected}; progressed <strong>{pct(s.meanProgressed)}</strong> across {s.progressed}.
+        </li>
+        {s.unscoredDecided > 0 && (
+          <li>
+            {s.unscoredDecided} decided application{s.unscoredDecided === 1 ? " has" : "s have"} no stored score and {s.unscoredDecided === 1 ? "is" : "are"} not counted here.
+          </li>
+        )}
+        {s.pendingScored > 0 && <li>{s.pendingScored} scored application{s.pendingScored === 1 ? " is" : "s are"} still open.</li>}
+      </ul>
       <details className="scoreTable">
         <summary>As a table</summary>
         <table>
@@ -215,7 +226,7 @@ function ScoreOutcomePanel({ s }: { s: ScoreOutcome }) {
           </thead>
           <tbody>
             {s.points.map((p, i) => (
-              <tr key={i}>
+              <tr key={i} data-score-point={p.outcome}>
                 <td>{p.company}</td>
                 <td>{p.role}</td>
                 <td>
@@ -227,6 +238,59 @@ function ScoreOutcomePanel({ s }: { s: ScoreOutcome }) {
           </tbody>
         </table>
       </details>
+    </div>
+  );
+}
+
+// The "What's working" headline as tiles: the rate, what is open, what the
+// bands can use, and what the data lacks — each a figure with its own
+// label, instead of one paragraph of numbers.
+function InsightsSummary({ insights, withoutJd, withoutCv }: { insights: Insights; withoutJd: number; withoutCv: number }) {
+  const open = insights.counted - insights.decided;
+  const unscored = insights.counted - insights.scored;
+  return (
+    <div className="statGrid" data-insights-summary>
+      <div className="statTile" data-stat="rate">
+        <span className="statTile__value">{insights.overallRate === null ? "—" : `${Math.round(insights.overallRate * 100)}%`}</span>
+        <span className="statTile__label">Progressed past the screen</span>
+        <span className="statTile__sub">
+          {insights.overallRate === null
+            ? `${insights.decided} of the ${MIN_DECIDED} decided applications the rate needs`
+            : `${insights.progressed} of ${insights.decided} decided`}
+        </span>
+      </div>
+      <div className="statTile" data-stat="open">
+        <span className="statTile__value">{open}</span>
+        <span className="statTile__label">Still open</span>
+        <span className="statTile__sub">
+          {insights.rejected} rejected · {insights.progressed} progressed
+          {insights.readyToSubmit > 0 ? ` · ${insights.readyToSubmit} ready to submit, not counted` : ""}
+        </span>
+      </div>
+      <div className="statTile" data-stat="scored">
+        <span className="statTile__value">
+          {insights.scored}
+          <small> / {insights.counted}</small>
+        </span>
+        <span className="statTile__label">With a search-visibility score</span>
+        <span className="statTile__sub">
+          {insights.scored === 0
+            ? "kept from the next tailored run you save"
+            : `${insights.gated > 0 ? `${insights.gated} with an eligibility read` : "no eligibility reads yet"}${unscored > 0 ? `; ${unscored} count in the rate only` : ""}`}
+        </span>
+      </div>
+      {withoutJd + withoutCv > 0 && (
+        <div className="statTile" data-stat="gaps">
+          <span className="statTile__value">{withoutJd > 0 ? withoutJd : withoutCv}</span>
+          <span className="statTile__label">{withoutJd > 0 ? "Without a job description" : "Added by hand, no CV file"}</span>
+          <span className="statTile__sub" data-insights-gaps>
+            {withoutJd > 0 && `${withoutJd} application${withoutJd === 1 ? " has" : "s have"} no job description`}
+            {withoutJd > 0 && withoutCv > 0 && "; "}
+            {withoutCv > 0 && `${withoutCv} added by hand ${withoutCv === 1 ? "has" : "have"} no CV file`}. Nothing can be read from them — add them from the
+            row&apos;s JD and CV cells.
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -1263,8 +1327,7 @@ export default function ApplicationsPage() {
           <div className="limitNotice" role="status" data-bulk-ready={bulkReady}>
             {bulkReady === "offer" ? (
               <>
-                {notSubmitted.length === 1 ? "One application's notes say" : `${notSubmitted.length} applications' notes say`} it was not
-                submitted, but the status is Applied.{" "}
+                {notSubmitted.length === 1 ? "One application's notes say it was not submitted, but its status is Applied." : `${notSubmitted.length} applications' notes say they were not submitted, but their status is Applied.`}{" "}
                 <button type="button" className="inlineLink" onClick={() => setBulkReady("review")}>Review</button>{" "}
                 <button type="button" className="inlineLink" onClick={() => setBulkReady("dismissed")}>Dismiss</button>
               </>
@@ -1323,7 +1386,7 @@ export default function ApplicationsPage() {
         )}
 
         {insights && insights.counted >= 5 && (
-          <Card variant="dashed" data-insights>
+          <Card variant="dashed" data-insights title={insightsNote || undefined}>
             <div className="appsPanelHead">
               <span className="appsPanelTitle">What&apos;s working</span>
               <button
@@ -1335,24 +1398,7 @@ export default function ApplicationsPage() {
                 {showInsights ? "Hide" : "Show breakdown"}
               </button>
             </div>
-            <p className="fitEvidence">
-              {insights.overallRate === null
-                ? `${insights.decided} application${insights.decided === 1 ? " has" : "s have"} an outcome so far — the progression rate shows from ${MIN_DECIDED}.`
-                : `${Math.round(insights.overallRate * 100)}% of decided applications progressed past the screen (${insights.progressed} of ${insights.decided}; ${insights.counted - insights.decided} still open).`}{" "}
-              {insightsNote}
-              {withoutJd + withoutCv > 0 && (
-                <span data-insights-gaps>
-                  {" "}
-                  {[
-                    withoutJd > 0 && `${withoutJd} application${withoutJd === 1 ? " has" : "s have"} no job description`,
-                    withoutCv > 0 && `${withoutCv} added by hand ${withoutCv === 1 ? "has" : "have"} no CV file`,
-                  ]
-                    .filter(Boolean)
-                    .join("; ")}
-                  {" "}— they count in the totals above but nothing can be read from them.
-                </span>
-              )}
-            </p>
+            <InsightsSummary insights={insights} withoutJd={withoutJd} withoutCv={withoutCv} />
             {showInsights && (
               <>
                 <InsightGroup title="By search visibility of the saved CV" buckets={insights.byVisibility} />
@@ -1379,6 +1425,7 @@ export default function ApplicationsPage() {
           <Card variant="dashed" data-score-outcome data-score-verdict={scoreOutcome.verdict}>
             <div className="appsPanelHead">
               <span className="appsPanelTitle">Does the score predict the outcome?</span>
+              <span className="verdictPill" data-verdict={scoreOutcome.verdict}>{VERDICT_LABEL[scoreOutcome.verdict]}</span>
             </div>
             <ScoreOutcomePanel s={scoreOutcome} />
           </Card>

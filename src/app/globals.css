@@ -1319,13 +1319,84 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 /* Score-vs-outcome plot on the tracker: one axis, two lanes, status colours
    with lane + shape as the primary cue. */
-.scorePlot { width: 100%; height: auto; display: block; margin: var(--space-3) 0 var(--space-2); }
-.scoreGrid { stroke: var(--border); stroke-width: 1; }
-.scoreLane { stroke: var(--border-strong); stroke-width: 1; }
-.scoreTick, .scoreLaneLabel { font-size: 11px; fill: var(--muted); font-family: var(--font-sans); }
-.scoreMark circle { stroke: var(--bg); stroke-width: 2; }
-.scoreMark.progressed circle { fill: var(--success); }
-.scoreMark.rejected circle { fill: var(--surface-2); stroke: var(--danger); }
+/* ── Tracker overview: stat tiles and the score-by-band chart ─────────────
+   A figure with its own label beats a paragraph of numbers; the chart is
+   counts per band (weak / borderline / ready), progressed against rejected,
+   so forty decided applications read as six bars, not forty rings. */
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+.statTile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  min-width: 0;
+}
+.statTile__value {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-display);
+  line-height: var(--leading-tight);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.statTile__value small { font-size: var(--text-base); font-weight: 500; color: var(--muted); }
+.statTile__label { font-size: var(--text-sm); font-weight: 600; color: var(--text-subtle); }
+.statTile__sub { font-size: var(--text-xs); color: var(--muted); line-height: var(--leading-snug); }
+.statTile[data-stat="gaps"] { border-color: var(--amber-border); }
+.statTile[data-stat="gaps"] .statTile__value { color: var(--amber-bright); }
+
+.verdictPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-3);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-card);
+  background: var(--surface-3);
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.verdictPill[data-verdict="signal"] { color: var(--success); background: var(--success-dim); border-color: var(--success-border); }
+.verdictPill[data-verdict="weak"] { color: var(--amber-bright); background: var(--amber-dim); border-color: var(--amber-border); }
+.verdictPill[data-verdict="no_signal"] { color: var(--danger); background: var(--danger-dim); border-color: var(--danger-border); }
+
+.scoreOutcome__read { margin-bottom: var(--space-3); }
+.scoreOutcome__read strong { color: var(--text); }
+.scoreBands { display: grid; gap: var(--space-2); margin: var(--space-2) 0 var(--space-3); }
+.scoreBands__legend { display: flex; gap: var(--space-4); font-size: var(--text-xs); color: var(--muted); margin-bottom: var(--space-1); }
+.scoreSwatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+.scoreSwatch.progressed { background: var(--success); }
+.scoreSwatch.rejected { background: var(--danger-dim); border: 1px solid var(--danger); }
+.scoreBand {
+  display: grid;
+  grid-template-columns: minmax(96px, 128px) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+}
+.scoreBand__label { display: flex; flex-direction: column; line-height: var(--leading-tight); }
+.scoreBand__label strong { font-size: var(--text-sm); color: var(--text); font-weight: 600; }
+.scoreBand__label span { font-size: var(--text-xs); color: var(--muted); }
+.scoreBand__bars { display: grid; gap: 4px; max-width: 560px; }
+.scoreBar { display: grid; grid-template-columns: minmax(0, 1fr) 2.5em; align-items: center; gap: var(--space-2); height: 14px; }
+.scoreBar__fill { height: 100%; border-radius: var(--radius-xs); min-width: 0; }
+.scoreBar.progressed .scoreBar__fill { background: var(--success); }
+.scoreBar.rejected .scoreBar__fill { background: var(--danger-dim); border: 1px solid var(--danger); box-sizing: border-box; }
+.scoreBar__n { font-size: var(--text-xs); color: var(--text-subtle); font-variant-numeric: tabular-nums; text-align: right; }
+.scoreOutcome__notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: var(--text-xs); color: var(--muted); }
+.scoreOutcome__notes strong { color: var(--text-subtle); font-weight: 600; }
+@media (max-width: 640px) {
+  .scoreBand { grid-template-columns: 1fr; gap: var(--space-1); }
+  .scoreBand__label { flex-direction: row; gap: var(--space-2); align-items: baseline; }
+}
 /* "Changes vs master CV" under the CV preview (lib/bulletIds). */
 .changesView { margin-top: var(--space-4); font-size: var(--text-sm); color: var(--text-subtle); }
 .changesView > summary { cursor: pointer; color: var(--text); font-weight: 600; }
