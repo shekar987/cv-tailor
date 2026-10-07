@@ -33,7 +33,10 @@ export type SupportDecision = SupportSentence & {
 // checked, never removed ("Thank you for considering my application." and
 // "I am based in London and available for hybrid work." were deleted on the
 // first measured run).
-const COURTESY_RE = /^(?:thank you|thanks|many thanks|i look forward|i would welcome|i'd welcome|i would love|i'd love|please (?:find|see))\b/i;
+// "I have read the job description and feel that I'm a great fit due to the
+// following reasons:" is the UKJI letter's fixed line (7 Oct) — furniture,
+// never a claim to check.
+const COURTESY_RE = /^(?:thank you|thanks|many thanks|i look forward|i would welcome|i'd welcome|i would love|i'd love|please (?:find|see)|i have read (?:the|your) job description)\b/i;
 const INTENT_RE = /^(?:i am|i'm|i would be|i'd be)\s+(?:based in|available|ready|willing|happy|keen|eager|open to|able to (?:start|relocate|work))\b/i;
 
 // Letter and summary sentences that narrate their relevance to the role or

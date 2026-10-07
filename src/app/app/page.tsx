@@ -153,7 +153,14 @@ type Result = {
   rtwStripped?: { cv: string[]; letter: string[] };
   // The letter's shape (lib/letterLint): what was removed, and whether an
   // essential gap the CV has is stated in the letter.
-  letterCheck?: { unsupported: string[]; rewritten: boolean; dropped: number; lint?: { secondPerson: string[]; restatedJd: string[] }; honestGap?: { expected: boolean; stated: boolean; gaps: string[] } } | null;
+  letterCheck?: {
+    unsupported: string[];
+    rewritten: boolean;
+    dropped: number;
+    lint?: { secondPerson: string[]; restatedJd: string[] };
+    honestGap?: { expected: boolean; stated: boolean; gaps: string[] };
+    pageFit?: { target: 1; pagesBefore: number; pagesAfter: number; removed: string[]; fits: boolean };
+  } | null;
   // What the route did with the letter's right-to-work and availability
   // sentences: the Eligibility statement placed, a model sentence replaced
   // by the Eligibility answer or removed, and the answers still to give.
@@ -908,7 +915,13 @@ export default function Home() {
   // The seniority read blocks like a skip read: the posting is written for a
   // level the user's years don't cover, so tailoring is a credit spent on a
   // long shot at best.
-  const seniorityBlocks = gateExtras?.seniority?.fits === false;
+  // Unknown years never pass a mid or senior read either: 351 of the owner's
+  // 448 applications went to mid-level titles with the years field empty and
+  // one progressed (7 Oct) — the posting's level is the strongest signal the
+  // tracker has, so an unchecked one blocks until the years are set.
+  const seniorityBlocks =
+    gateExtras?.seniority?.fits === false ||
+    (gateExtras?.seniority?.fits === null && (gateExtras.seniority.level === "mid" || gateExtras.seniority.level === "senior"));
   const gateVerdicts = useMemo(
     () => [...(gateExtras?.knockouts?.verdicts ?? [])].sort((a, b) => VERDICT_RANK[a.verdict] - VERDICT_RANK[b.verdict]),
     [gateExtras]
@@ -1871,7 +1884,7 @@ export default function Home() {
                 )}
                 {gateExtras?.seniority && gateExtras.seniority.level !== "unknown" && (
                   <div
-                    className={gateExtras.seniority.fits === false ? "limitNotice" : "gateNote"}
+                    className={seniorityBlocks ? "limitNotice" : "gateNote"}
                     role="status"
                     style={{ marginBottom: 'var(--space-4)' }}
                     data-gate-seniority={gateExtras.seniority.level}
@@ -2784,6 +2797,8 @@ export default function Home() {
             {result.letterCheck &&
               ((result.letterCheck.lint?.secondPerson.length ?? 0) > 0 ||
                 (result.letterCheck.lint?.restatedJd.length ?? 0) > 0 ||
+                (result.letterCheck.pageFit?.removed.length ?? 0) > 0 ||
+                result.letterCheck.pageFit?.fits === false ||
                 (result.letterCheck.honestGap?.expected && !result.letterCheck.honestGap.stated)) && (
                 <div className="limitNotice" role="status" data-letter-lint>
                   <div className="limitNotice__title">Cover letter shape</div>
@@ -2801,6 +2816,16 @@ export default function Home() {
                           <span>Removed — it narrated what the reader gets instead of stating a fact: &ldquo;{clip(s)}&rdquo;</span>
                         </li>
                       ))}
+                      {result.letterCheck.pageFit && result.letterCheck.pageFit.removed.length > 0 && (
+                        <li data-letter-page-fit>
+                          <Badge variant="dot" tone="miss">−</Badge>
+                          <span>
+                            Fitted to one page: {result.letterCheck.pageFit.removed.length} sentence{result.letterCheck.pageFit.removed.length === 1 ? "" : "s"} removed from the
+                            longest paragraph{result.letterCheck.pageFit.fits ? "" : " — it still runs over; shorten it in the preview"} (&ldquo;{clip(result.letterCheck.pageFit.removed[0])}&rdquo;
+                            {result.letterCheck.pageFit.removed.length > 1 ? " and more" : ""}).
+                          </span>
+                        </li>
+                      )}
                       {result.letterCheck.honestGap?.expected && !result.letterCheck.honestGap.stated && (
                         <li data-letter-gap>
                           <Badge variant="dot" tone="rec">?</Badge>

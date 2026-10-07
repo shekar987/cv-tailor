@@ -36,26 +36,25 @@ test("profileForDocument: Right to Work is dropped by default and kept only when
   assert.equal(profileForDocument(none, DEFAULT_PREFERENCES), none, "no work when there is nothing to drop");
 });
 
-test("CV length: two pages unless one page is explicitly chosen", () => {
+test("CV length: two pages unless one page is explicitly chosen (7 Oct: 'auto' reads as two)", () => {
   assert.equal(DEFAULT_PREFERENCES.onePageCv, false);
-  assert.equal(DEFAULT_PREFERENCES.cvLength, "auto");
+  assert.equal(DEFAULT_PREFERENCES.cvLength, "two");
   assert.equal(pageTarget(DEFAULT_PREFERENCES), 2, "nothing known about the candidate: two");
   assert.equal(normalizePreferences({ onePageCv: "yes" }).onePageCv, false);
   assert.equal(normalizePreferences({ onePageCv: true }).onePageCv, true);
   assert.equal(normalizePreferences({ onePageCv: true }).cvLength, "one", "the old boolean reads as the one-page choice");
-  assert.equal(normalizePreferences({ onePageCv: false }).cvLength, "auto", "a stored false was never a choice");
+  assert.equal(normalizePreferences({ onePageCv: false }).cvLength, "two", "a stored false was never a choice");
   assert.equal(normalizePreferences({ cvLength: "two", onePageCv: true }).cvLength, "two", "the new field wins");
   assert.equal(normalizePreferences({ cvLength: "two" }).onePageCv, false);
-  assert.equal(normalizePreferences({ cvLength: "big" }).cvLength, "auto");
+  assert.equal(normalizePreferences({ cvLength: "big" }).cvLength, "two");
+  assert.equal(normalizePreferences({ cvLength: "auto" }).cvLength, "two", "the old automatic setting is two pages now");
   assert.equal(pageTarget(normalizePreferences({ onePageCv: true })), 1);
-  // Automatic: one page early in a career, two otherwise; a choice overrides.
-  const auto = normalizePreferences({});
-  assert.equal(pageTargetFor(auto, { yearsExperience: 2 }), 1);
-  assert.equal(pageTargetFor(auto, { yearsExperience: EARLY_CAREER_YEARS }), 1);
-  assert.equal(pageTargetFor(auto, { yearsExperience: EARLY_CAREER_YEARS + 1 }), 2);
-  assert.equal(pageTargetFor(auto, { yearsExperience: null }), 2, "unknown years never forces one page");
-  assert.equal(pageTargetFor(auto, { yearsExperience: 8, graduate: true }), 1, "a graduate scheme is one page whatever the years");
-  assert.equal(pageTargetFor(normalizePreferences({ cvLength: "two" }), { yearsExperience: 1, graduate: true }), 2);
+  // Two pages whatever the years or the posting; one page only by choice.
+  const two = normalizePreferences({});
+  assert.equal(pageTargetFor(two, { yearsExperience: 2 }), 2);
+  assert.equal(pageTargetFor(two, { yearsExperience: EARLY_CAREER_YEARS }), 2);
+  assert.equal(pageTargetFor(two, { yearsExperience: null }), 2);
+  assert.equal(pageTargetFor(two, { yearsExperience: 1, graduate: true }), 2, "a graduate scheme is two pages too");
   assert.equal(pageTargetFor(normalizePreferences({ cvLength: "one" }), { yearsExperience: 10 }), 1);
   // The two switches are independent.
   assert.deepEqual(normalizePreferences({ includeRightToWorkOnCv: true, onePageCv: true }), { version: 1, includeRightToWorkOnCv: true, onePageCv: true, cvLength: "one", projectLinks: {} });

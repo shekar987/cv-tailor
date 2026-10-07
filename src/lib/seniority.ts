@@ -176,7 +176,7 @@ export function seniorityFit(read: SeniorityRead, yearsExperience: number | null
   if (level === "junior") return { level, fits: true, reason: `This reads as ${label}.`, signals };
   const need = level === "senior" ? SENIOR_MIN_YEARS : MID_MIN_YEARS;
   if (yearsExperience === null) {
-    return { level, fits: null, reason: `This reads as ${label} (roles at this level usually expect ${need}+ years). Add your years of experience in Customize to check it.`, signals };
+    return { level, fits: null, reason: `This reads as ${label} (roles at this level usually expect ${need}+ years) and your years of experience are not set in Customize → Eligibility, so it cannot be checked — set them. Tailoring anyway spends a credit.`, signals };
   }
   if (yearsExperience >= need) return { level, fits: true, reason: `This reads as ${label}; your ${yearsExperience} years cover it.`, signals };
   return {

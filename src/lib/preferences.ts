@@ -33,11 +33,12 @@
 import { normalizeProjectLinks, type SavedProjectLinks } from "./projectLinks.ts";
 import { rightToWorkStatement, type RtwFacts } from "./rightToWorkText.ts";
 
-// cvLength (30 Sep): "auto" — one page early in a career (EARLY_CAREER_YEARS
-// stated years or fewer, or a graduate scheme), two pages otherwise; "one" /
-// "two" — the user's own choice. The old boolean `onePageCv` is kept as the
-// derived "one" (Customize wrote it as false on every save, so a stored
-// false is not a choice and reads as "auto").
+// cvLength: "two" is the default and the owner's rule (7 Oct 2026: the
+// tailored CV is strictly two pages, filled from the master CV); "one" is the
+// user's own opt-in trim. "auto" (30 Sep: one page under EARLY_CAREER_YEARS
+// stated years or on a graduate scheme) was the default nobody chose and now
+// reads as "two" — it is kept in the type only so a stored value normalises.
+// The old boolean `onePageCv` is kept as the derived "one".
 export type CvLength = "auto" | "one" | "two";
 export const EARLY_CAREER_YEARS = 3;
 
@@ -49,11 +50,11 @@ export type Preferences = {
   projectLinks: SavedProjectLinks;
 };
 
-export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false, cvLength: "auto", projectLinks: {} };
+export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false, cvLength: "two", projectLinks: {} };
 
 export function normalizePreferences(v: unknown): Preferences {
   const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
-  const cvLength: CvLength = o.cvLength === "one" || o.cvLength === "two" || o.cvLength === "auto" ? o.cvLength : o.onePageCv === true ? "one" : "auto";
+  const cvLength: CvLength = o.cvLength === "one" ? "one" : o.cvLength === "two" || o.cvLength === "auto" ? "two" : o.onePageCv === true ? "one" : "two";
   return {
     version: 1,
     includeRightToWorkOnCv: o.includeRightToWorkOnCv === true,
@@ -63,14 +64,12 @@ export function normalizePreferences(v: unknown): Preferences {
   };
 }
 
-// The page count the downloads lay the CV out to: the user's choice, else
-// one page for an early-career candidate, two otherwise. Both /app and the
-// tailor route resolve it here, with the same inputs.
+// The page count the downloads lay the CV out to: one when the user chose
+// it, two otherwise. Both /app and the tailor route resolve it here. (The
+// ctx argument stays for the callers; nothing in it changes the answer now.)
 export function pageTargetFor(prefs: Pick<Preferences, "cvLength">, ctx: { yearsExperience?: number | null; graduate?: boolean }): 1 | 2 {
-  if (prefs.cvLength === "one") return 1;
-  if (prefs.cvLength === "two") return 2;
-  const years = ctx.yearsExperience;
-  return ctx.graduate || (typeof years === "number" && Number.isFinite(years) && years <= EARLY_CAREER_YEARS) ? 1 : 2;
+  void ctx;
+  return prefs.cvLength === "one" ? 1 : 2;
 }
 // With nothing known about the candidate: the choice, else two.
 export function pageTarget(prefs: Preferences): 1 | 2 {

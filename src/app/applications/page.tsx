@@ -11,7 +11,7 @@ import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
 import { MAX_JD_CHARS as JD_LIMIT, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
-import { MIN_DECIDED, MIN_FOR_VERDICT, type Insights, type Bucket, type ScoreOutcome, type ScoreVerdict } from "@/lib/insights";
+import { MIN_DECIDED, MIN_FOR_VERDICT, seniorityOf, type Insights, type Bucket, type ScoreOutcome, type ScoreVerdict, type Seniority } from "@/lib/insights";
 import { bandFor, type VisibilityBand } from "@/lib/visibilityVerdict";
 import { gateLine, type GatesSummary } from "@/lib/knockouts";
 import {
@@ -245,11 +245,49 @@ function ScoreOutcomePanel({ s }: { s: ScoreOutcome }) {
 // The "What's working" headline as tiles: the rate, what is open, what the
 // bands can use, and what the data lacks — each a figure with its own
 // label, instead of one paragraph of numbers.
-function InsightsSummary({ insights, withoutJd, withoutCv }: { insights: Insights; withoutJd: number; withoutCv: number }) {
+const LANE_LABEL: Record<Seniority, string> = { junior: "Junior / graduate titles", mid: "Mid-level titles", senior: "Senior titles" };
+type Lane = { level: Seniority; applied: number; decided: number; progressed: number; rate: number | null };
+
+// Progression by the LEVEL the role title reads as (lib/insights seniorityOf,
+// over every submitted row — hand-added ones too): the owner's 448 rows on
+// 7 Oct read 351 mid-level with 1 progressed against 88 junior with 5, and
+// nothing else in the tracker separated outcomes at all. A rate shows only
+// from MIN_DECIDED decided applications, as every other bucket.
+export function laneStats(rows: { role: string; status: string }[]): Lane[] {
+  const PROG = new Set(["Screening", "Interview", "Offer"]);
+  return (["junior", "mid", "senior"] as Seniority[]).map((level) => {
+    const lane = rows.filter((r) => r.status !== "Ready to submit" && r.status !== "Withdrawn" && seniorityOf(r.role) === level);
+    const progressed = lane.filter((r) => PROG.has(r.status)).length;
+    const decided = progressed + lane.filter((r) => r.status === "Rejected").length;
+    return { level, applied: lane.length, decided, progressed, rate: decided >= MIN_DECIDED ? progressed / decided : null };
+  });
+}
+
+function LaneTile({ lanes }: { lanes: Lane[] }) {
+  const rated = lanes.filter((l) => l.rate !== null);
+  if (rated.length === 0) return null;
+  const best = [...rated].sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0))[0];
+  const pct = (r: number) => `${Math.round(r * 100)}%`;
+  return (
+    <div className="statTile" data-stat="lane" data-lane-best={best.level}>
+      <span className="statTile__value">{pct(best.rate ?? 0)}</span>
+      <span className="statTile__label">{LANE_LABEL[best.level]} progress most</span>
+      <span className="statTile__sub">
+        {lanes
+          .map((l) => `${LANE_LABEL[l.level].replace(" titles", "")}: ${l.rate === null ? `${l.decided} of ${MIN_DECIDED} decided needed` : `${pct(l.rate)} of ${l.decided} decided`} (${l.applied} applied)`)
+          .join(" · ")}
+        . Read off each row&apos;s title.
+      </span>
+    </div>
+  );
+}
+
+function InsightsSummary({ insights, withoutJd, withoutCv, lanes }: { insights: Insights; withoutJd: number; withoutCv: number; lanes: Lane[] }) {
   const open = insights.counted - insights.decided;
   const unscored = insights.counted - insights.scored;
   return (
     <div className="statGrid" data-insights-summary>
+      <LaneTile lanes={lanes} />
       <div className="statTile" data-stat="rate">
         <span className="statTile__value">{insights.overallRate === null ? "—" : `${Math.round(insights.overallRate * 100)}%`}</span>
         <span className="statTile__label">Progressed past the screen</span>
@@ -668,6 +706,9 @@ export default function ApplicationsPage() {
   // than the data.
   const withoutJd = useMemo(() => rows.filter((r) => isSubmittedRow(r) && !(r.job_description ?? "").trim()).length, [rows]);
   const withoutCv = useMemo(() => rows.filter((r) => isSubmittedRow(r) && r.source === "manual" && !r.sent_cv_name).length, [rows]);
+
+  // Progression by the level the title reads as, over every row.
+  const lanes = useMemo(() => laneStats(rows), [rows]);
 
   // Rows marked Applied whose notes say they were never sent (lib/tracker).
   const notSubmitted = useMemo(() => rows.filter((r) => r.status === "Applied" && notesSayNotSubmitted(r.notes)), [rows]);
@@ -1398,7 +1439,7 @@ export default function ApplicationsPage() {
                 {showInsights ? "Hide" : "Show breakdown"}
               </button>
             </div>
-            <InsightsSummary insights={insights} withoutJd={withoutJd} withoutCv={withoutCv} />
+            <InsightsSummary insights={insights} withoutJd={withoutJd} withoutCv={withoutCv} lanes={lanes} />
             {showInsights && (
               <>
                 <InsightGroup title="By search visibility of the saved CV" buckets={insights.byVisibility} />

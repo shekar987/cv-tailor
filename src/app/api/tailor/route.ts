@@ -36,6 +36,8 @@ import {
 import { lintBullets, countFlags, trimBoltOn } from "@/lib/quality";
 import { fitOnePage, fitTwoPages, fitToRealPages, experienceRefillCandidates, projectRefillCandidates, type PageFitReport, type RefillCandidate } from "@/lib/onePage";
 import { buildCvPdfWithPages } from "@/lib/buildCvPdf";
+import { buildCoverLetterPdfWithPages } from "@/lib/buildCoverLetterPdf";
+import { fitLetterToOnePage, type LetterFitReport } from "@/lib/letterFit";
 import { buildHeadline, degreesInProgress } from "@/lib/headline";
 import { normalizeEligibility, type Eligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
@@ -653,7 +655,7 @@ async function runPipeline(opts: {
   // technology, domain or qualification): the letter should say so in one
   // plain sentence; whether it does is reported, never invented.
   const essentialGaps = evidence.items.filter((i) => i.status === "gap" && i.importance === "required" && i.kind !== "soft").map((i) => i.term);
-  const letterCheck: { unsupported: string[]; rewritten: boolean; dropped: number; lint: LetterLint; honestGap: { expected: boolean; stated: boolean; gaps: string[] } } = {
+  const letterCheck: { unsupported: string[]; rewritten: boolean; dropped: number; lint: LetterLint; honestGap: { expected: boolean; stated: boolean; gaps: string[] }; pageFit?: LetterFitReport } = {
     unsupported: [],
     rewritten: false,
     dropped: 0,
@@ -873,6 +875,19 @@ async function runPipeline(opts: {
   projectsFinal = toBritishDeep(projectsFinal, spellingChanges, spell);
   if (projectsPool) selectedFinal = toBritishDeep(selectedFinal, spellingChanges, spell);
   if (typeof coverLetter === "string") coverLetter = toBritish(coverLetter, spell).text;
+  // Strictly one page (lib/letterFit): the letter's own PDF, with the date
+  // line the preview adds on top, decides; the longest paragraph gives up
+  // its last sentence until it fits. A build failure is logged, never fatal.
+  if (typeof coverLetter === "string" && coverLetter.trim()) {
+    try {
+      const dateLine = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+      const fit = fitLetterToOnePage(coverLetter, (text) => buildCoverLetterPdfWithPages(`${dateLine}\n\n${text}`).pages, { protect: [rightToWork.statement] });
+      coverLetter = fit.text;
+      letterCheck.pageFit = fit.report;
+    } catch (e) {
+      console.error("Letter page fit failed:", e instanceof Error ? e.message : String(e));
+    }
+  }
   if (spellingChanges.length) {
     const seen = new Map<string, string>();
     for (const c of spellingChanges) if (!seen.has(c.from.toLowerCase())) seen.set(c.from.toLowerCase(), `${c.from} → ${c.to}`);

@@ -662,7 +662,7 @@ Subject: <subject line>
 // anecdote, industry opinions and filler lessons): every statement about the
 // candidate is a master-CV fact with its own employer or project; the route
 // then checks each such sentence against the master CV (lib/supportCheck).
-export const coverLetterPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, omitRightToWork: boolean = false, evidenceBlock: string = "") => `You write a cover letter for one job: 200 to 300 words of plain, confident, specific English — dense with true facts, never padded.
+export const coverLetterPrompt = (cv: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, omitRightToWork: boolean = false, evidenceBlock: string = "") => `You write a cover letter for one job: 230 to 330 words of plain, confident, specific English — dense with true facts, never padded. It must fit ONE page; the app trims the longest paragraph if it runs over.
 
 ${ABSOLUTE_RULES}
 ${claimsBlock}
@@ -673,11 +673,12 @@ ${cv}
 
 You will receive JSON: { analysis (the job — role, company, required skills, key responsibilities, seniority, tone), research (the company) }.
 
-STRUCTURE — four short paragraphs, no headings:
-1. The role by name, then — in the same paragraph — the STRONGEST evidence for the job's most important requirement: one example from the master CV, what was built, how, and the result with its exact figure, named with the right employer or project. Lead with the best, never the weakest, and never with a general statement.
-2. A second example for another requirement or key responsibility, from a different employer or project where possible.
-3. When the evidence map marks an essential requirement as absent from the master CV, ONE plain sentence that says so and names the nearest real experience, for example: "I have not yet worked with exchange market data or options pricing, and I would expect to learn that domain from your team." No apology, no promise to learn fast, never softened into a strength, never implying the experience exists. Omit this paragraph only when nothing essential is absent.
-4. A short close: the facts the posting screens on that the master CV states (for a graduate role, the degree and its completion date as written there), then ONE clear ask — a conversation, an interview, a call — in one sentence, then thanks.
+STRUCTURE — the numbered-reasons letter, no headings:
+1. Opening paragraph (two sentences): "I am applying for the <role> role at <company>." Then the candidate's single strongest fact for the job's most important requirement — what was built, how, and the result with its exact figure, named with the right employer or project. Lead with the best, never with a general statement.
+2. One line, exactly: "I have read the job description and feel that I'm a great fit due to the following reasons:"
+3. Three numbered reasons, each on its own line, each in the form "N. <the skill or duty, in the posting's own words>: <how the candidate did it, from the master CV, with a figure where the master CV gives one>" — two sentences at most, each reason from a DIFFERENT fact, employer or project where possible, and the posting's skill named only when the master CV shows that exact work. Pick the three requirements a recruiter will search for first.
+4. When the evidence map marks an essential requirement as absent from the master CV, ONE plain sentence that says so and names the nearest real experience, for example: "I have not yet worked with exchange market data or options pricing, and I would expect to learn that domain from your team." No apology, no promise to learn fast, never softened into a strength, never implying the experience exists. Omit this only when nothing essential is absent.
+5. A short close: the facts the posting screens on that the master CV states (for a graduate role, the degree and its completion date as written there), then ONE clear ask — a conversation, an interview, a call — in one sentence, then thanks.
 
 TRUTH:
 - Every statement about the candidate's past is a fact the master CV states, told with the same employer or project. No anecdotes, conversations, feelings or lessons the master CV does not state ("I spent time with the teams…", "that taught me…").

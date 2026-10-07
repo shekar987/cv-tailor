@@ -12,6 +12,12 @@ const LINE_HEIGHT = SIZE * 1.2;
 const PARA_GAP = 120 / 20; // docx spacing.after 120 twips = 6pt
 
 export function buildCoverLetterPdf(coverLetter: string): Uint8Array {
+  return buildCoverLetterPdfWithPages(coverLetter).bytes;
+}
+
+// The bytes and the real page count — the one-page rule (lib/letterFit) is
+// judged on this layout, not on a word count.
+export function buildCoverLetterPdfWithPages(coverLetter: string): { bytes: Uint8Array; pages: number } {
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
   registerFonts(doc);
   const cursor = new PdfCursor(doc, { top: MARGIN_PT, right: MARGIN_PT, bottom: MARGIN_PT, left: MARGIN_PT });
@@ -25,5 +31,5 @@ export function buildCoverLetterPdf(coverLetter: string): Uint8Array {
     cursor.advance(PARA_GAP);
   }
 
-  return doc.output("arraybuffer") as unknown as Uint8Array;
+  return { bytes: doc.output("arraybuffer") as unknown as Uint8Array, pages: doc.getNumberOfPages() };
 }

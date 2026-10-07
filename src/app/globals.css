@@ -1351,6 +1351,8 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .statTile__label { font-size: var(--text-sm); font-weight: 600; color: var(--text-subtle); }
 .statTile__sub { font-size: var(--text-xs); color: var(--muted); line-height: var(--leading-snug); }
 .statTile[data-stat="gaps"] { border-color: var(--amber-border); }
+.statTile[data-stat="lane"] { border-color: var(--success-border); }
+.statTile[data-stat="lane"] .statTile__value { color: var(--success); }
 .statTile[data-stat="gaps"] .statTile__value { color: var(--amber-bright); }
 
 .verdictPill {
