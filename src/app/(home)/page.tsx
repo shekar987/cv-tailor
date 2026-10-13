@@ -168,16 +168,14 @@ export default function Landing() {
         <section className="lpHero">
           <HeroCanvas />
           <div className="lpHeroText">
-            <p className="lpStrap">Welcome to the jungle.</p>
             <h1 className="lpTitle">
               Honest CVs.<br />
               Real interview practice.
             </h1>
             <p className="lpSub">
               Paste your CV and a job description. Every claim in what comes back is checked
-              against your CV — figures, skills, and each sentence of the summary and letter —
-              before you see it. Then an interviewer built from the same job asks you the
-              questions out loud, UK round by UK round.
+              against your CV before you see it. Then an interviewer built from the same job
+              asks you the questions out loud, UK round by UK round.
             </p>
             <div className="lpHeroCta">
               <Button href="/app">Tailor my CV →</Button>
@@ -212,7 +210,7 @@ export default function Landing() {
                     <li className="hit"><span className="dot">✓</span>PostgreSQL — Experience</li>
                     <li className="hit"><span className="dot">✓</span>Kubernetes — Experience</li>
                     <li className="hit"><span className="dot">✓</span>Distributed systems — Summary</li>
-                    <li className="hit"><span className="dot">…</span>and 9 more</li>
+                    <li className="more">and 9 more</li>
                   </ul>
                 </div>
                 <div className="lpShowScoreGroup">
@@ -345,15 +343,14 @@ export default function Landing() {
             </p>
             {/* The honest note on testimonials — never an invented quote. */}
             <p className="lpQuoteSlot" data-quotes-empty>
-              Nothing yet — and nothing made up. This is where real users&apos; words will go: unedited, with their
-              permission, and only once someone has written to say what it did for them. Until then this space stays
-              empty rather than filled with quotes we wrote ourselves.
+              Nothing yet — and nothing made up. Real users&apos; words will go here, unedited and with their permission;
+              until then there are no quotes.
             </p>
           </Reveal>
         </div>
 
         <footer className="lpFooter">
-          <span>Built by Soma Shekar Keesari</span>
+          <span>Built by Soma Shekar Keesari · <span className="lpFooterTag">Welcome to the jungle.</span></span>
           <nav className="lpFooterLinks" aria-label="Footer">
             <Link href="/auth/login">Sign in</Link>
             <Link href="/app">Tailor my CV</Link>

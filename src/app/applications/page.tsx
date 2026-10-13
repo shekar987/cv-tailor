@@ -1457,18 +1457,6 @@ export default function ApplicationsPage() {
             <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired}>+ Add row</Button>
           </div>
           <div className="appsToolbarGroup appsToolbarFilters">
-            <label className="appsFilterLabel" htmlFor="statusFilter">Status</label>
-            <select
-              id="statusFilter"
-              className="appsSelect"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as "All" | Status)}
-            >
-              <option value="All">All</option>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
             <div className="appsSeg" role="group" aria-label="Filter by date applied">
               {PERIODS.map((p) => (
                 <button

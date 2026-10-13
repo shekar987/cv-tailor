@@ -1659,10 +1659,6 @@ export default function Home() {
     return issues;
   }, [result]);
 
-  // First name only, for a personal greeting on the results — falls back to
-  // nothing (not a placeholder) if no profile name is set yet.
-  const firstName = (profile?.name || "").trim().split(/\s+/)[0] || "";
-
   // The search-visibility band, re-derived from the same "X/N" the score card
   // shows, so the verdict line and the edits heading can never disagree with
   // the number — including for a result saved before the server sent a band.
@@ -3037,7 +3033,6 @@ export default function Home() {
                 purpose: amber on this view belongs to Download. */}
             <div className="actions appliedRow">
               <Button
-                variant="secondary"
                 onClick={() => void handleApplied()}
                 disabled={blocked || appliedChecking || appliedState === "saving" || appliedState === "saved" || appliedState === "already"}
                 title={blocked ? "Fix the flagged claims first" : undefined}

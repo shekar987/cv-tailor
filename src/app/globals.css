@@ -266,11 +266,13 @@ body {
   .resultsRail { position: sticky; top: var(--space-16); }
   .resultsRail .scoreCard { margin: 0; }
 }
-/* The letter's download is the second download on the page: outlined. The
-   right-to-work copy block moves under the document (a flex order), small. */
-.clWrap .dlBtn { background: transparent; color: var(--text); border-color: var(--border-strong); }
-.clWrap .dlBtn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--muted); }
+/* After a result the filled button is "Applied — save to tracker"; both
+   downloads are outlined and identical. The edit hint and the right-to-work
+   copy block sit under the document (flex order), so the paper comes first. */
+.cvActions .dlBtn { background: transparent; color: var(--text); border-color: var(--border-strong); }
+.cvActions .dlBtn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--muted); }
 .cvDocWrap { display: flex; flex-direction: column; }
+.cvDocWrap > .editHint { order: 9; margin-top: var(--space-3); }
 .cvDocWrap > .rtwForms { order: 10; margin-top: var(--space-4); }
 @media (min-width: 1160px) {
 }
@@ -362,7 +364,31 @@ body {
   border: 1px solid var(--border-card);
   margin-left: var(--space-2);
   flex: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease);
 }
+.appBarInitial:hover, .appBarInitial[aria-expanded="true"] { color: var(--text); border-color: var(--border-strong); }
+.appBarAccount { position: relative; display: inline-flex; }
+/* The account menu: Settings and Sign out, the one overlay in the bar. */
+.appBarMenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 200px;
+  display: grid;
+  background: var(--surface-2);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+  box-shadow: var(--shadow-lg);
+  z-index: 40;
+}
+.appBarMenu .dlItem { text-decoration: none; }
+.appBarMenu .dlItem[aria-current="page"] { color: var(--text); background: var(--surface-3); }
+.appBarMenuEmail { font-size: var(--text-xs); color: var(--muted); padding: var(--space-2) var(--space-3) var(--space-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+/* Settings and Sign out appear in the nav only inside the phone menu. */
+.appBarActions > .appBarPhoneOnly { display: none; }
 /* Folio + title + tagline on the dossier's left rule. */
 .pageHead,
 .legalHead {
@@ -433,13 +459,10 @@ body {
 }
 /* Settles rather than just nudging — the shadow drops with the button. */
 .cta:active:not(:disabled) { background: var(--amber); }
-/* A disabled primary is the same button outlined: still clearly the one
-   action, clearly not available yet — never a dimmed, muddy fill. */
+/* A disabled primary is the same filled button at half strength — never a
+   fourth kind of button. */
 .cta:disabled:not(.secondary, .ghost, .danger) {
-  background: transparent;
-  color: var(--amber);
-  border-color: var(--amber-border);
-  opacity: 0.8;
+  opacity: 0.5;
 }
 
 
@@ -564,11 +587,11 @@ body {
 .container--ruled .cstSectionHead { padding: var(--space-5) 0; border-radius: 0; }
 .container--ruled .cstSection[data-open] .cstSectionHead { border-radius: 0; }
 .container--ruled .cstSectionBody { margin: 0; }
-.container--ruled .cstSection[data-open] .cstSectionHead { background: none; box-shadow: inset 2px 0 0 var(--text); padding-left: var(--space-4); }
+.container--ruled .cstSection[data-open] .cstSectionHead { background: none; }
 .container--ruled .cstSectionHead:hover { background: none; }
 /* The pasted posting is input: a size down, in the subtle tone, so the
    output beneath it is the louder text. */
-#jd { font-size: var(--text-sm); color: var(--text-subtle); }
+#jd { font-size: var(--text-sm); color: var(--text-subtle); max-width: 760px; }
 
 /* Pre-tailoring gate — a quick, free preview shown before the paid
    pipeline runs. Dashed = "not yet"; .scoreCard (the real, post-tailoring
@@ -1182,7 +1205,7 @@ textarea { resize: vertical; min-height: 96px; }
   font-weight: 600;
 }
 .cstNav > div:first-child > .cstNavGroup { padding-top: 0; }
-.cstNavItem[aria-current] { color: var(--text); box-shadow: inset 2px 0 0 var(--text); border-radius: 0; }
+.cstNavItem[aria-current] { color: var(--text); font-weight: 600; }
 
 /* A collapsed section is a card whose whole header is the disclosure button. */
 .cstSection { padding: 0; }
@@ -1440,8 +1463,8 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .keySummary::-webkit-details-marker { display: none; }
 .keySummary { list-style: none; display: inline-flex; align-items: center; gap: var(--space-2); }
 /* A chevron, not the browser's triangle; turns when the disclosure opens. */
-.keySummary::before { content: ""; width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform var(--duration) var(--ease); flex: none; }
-details[open] > .keySummary::before { transform: rotate(45deg); }
+
+
 .keySummary:hover { color: var(--amber-bright); }
 
 .keyHowTo {
@@ -1776,6 +1799,10 @@ details[open] > .keySummary::before { transform: rotate(45deg); }
   color: var(--muted);
 }
 .authLabel + .authLabel { margin-top: var(--space-4); }
+/* A label row: the field name left, a quiet action (Forgot password?) right, the field beneath. */
+.authLabelRow { display: flex; justify-content: space-between; align-items: baseline; margin-top: var(--space-4); margin-bottom: var(--space-2); }
+.authLabelRow .authLabel { margin: 0; }
+.authLabelRow + .authLabel { margin-top: 0; }
 
 .authDivider { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-6) 0 var(--space-4); }
 .authDivider .authDividerLine { flex: 1; height: 1px; background: var(--border); }
@@ -1839,7 +1866,7 @@ details[open] > .keySummary::before { transform: rotate(45deg); }
 }
 .lpNav .wordmark { font-size: var(--text-lg); }
 .lpNav .wordmarkMark { height: 22px; }
-.lpStrap { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-folio); color: var(--muted); font-weight: 500; margin-bottom: var(--space-5); }
+.lpFooterTag { color: var(--muted); }
 .lpNavActions { display: flex; align-items: center; gap: var(--space-3); }
 .lpNav .customizeLink { border-color: var(--border-card); }
 /* Neutral by default — the real action on this page is "Tailor my CV". */
@@ -1892,7 +1919,7 @@ details[open] > .keySummary::before { transform: rotate(45deg); }
   pointer-events: none;
   background:
     linear-gradient(to bottom, transparent 82%, var(--bg)),
-    radial-gradient(ellipse 70% 60% at 12% 8%, var(--lp-lamp), transparent 70%),
+    radial-gradient(ellipse 48% 42% at 10% 6%, var(--lp-lamp), transparent 65%),
     var(--lp-desk);
 }
 .lpHeroCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
@@ -1946,6 +1973,7 @@ details[open] > .keySummary::before { transform: rotate(45deg); }
 .lpShowScoreList .dot { flex-shrink: 0; font-weight: 700; }
 .lpShowScoreList .hit .dot { color: var(--success); }
 .lpShowScoreList .miss .dot { color: var(--danger); }
+.lpShowScoreList .more { color: var(--muted); padding-left: calc(1em + var(--space-2)); }
 .lpShowNote { color: var(--muted); font-size: var(--text-sm); line-height: var(--leading-snug); max-width: 62ch; margin: 0; }
 
 /* A product screenshot: a framed, raised image — one of the few boxes on
@@ -1999,7 +2027,7 @@ details[open] > .keySummary::before { transform: rotate(45deg); }
 .lpColumn { padding: var(--space-6) var(--space-8) var(--space-2) 0; min-width: 0; }
 .lpColumn + .lpColumn { border-left: 1px solid var(--border-card); padding-left: var(--space-8); }
 .lpColumnTitle { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--space-3); letter-spacing: var(--tracking-tight); }
-.lpColumnBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); max-width: 40ch; }
+.lpColumnBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); max-width: 40ch; text-wrap: pretty; }
 /* What it costs: three plain rows, not a third column block. */
 .lpCostRows { margin: var(--space-10) 0 0; border-top: 1px solid var(--border-card); }
 .lpCostRows > div { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--space-8); padding: var(--space-5) 0; border-bottom: 1px solid var(--border); }
@@ -2244,6 +2272,7 @@ details[open] > .keySummary::before { transform: rotate(45deg); }
 .appsTable th, .appsTable td { border-right: none; }
 .appsTable td { height: 44px; }
 .appsLinkBtn.muted { opacity: 0.55; }
+.appsTable td[data-label="Notes"] { max-width: 220px; }
 .appsRow td { transition: background var(--duration-fast) var(--ease); }
 .appsRow:hover td { background: var(--surface-2); }
 .appsRow.open td { background: var(--surface-2); }
@@ -2502,7 +2531,7 @@ details[open] > .keySummary::before { transform: rotate(45deg); }
 @media (max-width: 640px) {
   .page { padding-left: var(--space-4); padding-right: var(--space-4); }
   .appBarSticky { padding: var(--space-2) var(--space-4); }
-  .appBarInitial { display: none; }
+  .appBarAccount { display: none; }
   /* Five pills wrapped onto three rows of a sticky bar; now one Menu button
      opens them as a column of 44px rows (a thumb's target), closed by a tap,
      Escape or Sign out. The pills elsewhere in the app keep their size. */
@@ -2512,12 +2541,18 @@ details[open] > .keySummary::before { transform: rotate(45deg); }
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    width: 100%;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
     gap: 0;
-    padding-top: var(--space-2);
+    padding: var(--space-2) var(--space-4) var(--space-3);
+    background: var(--bg);
+    border-bottom: 1px solid var(--border-card);
+    z-index: 40;
   }
-  /* The open menu is a ruled index: 44px rows (a thumb's target) with a
-     hairline between them. */
+  .appBarActions.open > .appBarPhoneOnly { display: inline-flex; }
+  .appBarActions.open > .appBarAccount { display: none; }
   .appBarActions.open .customizeLink { min-height: 44px; justify-content: flex-start; border-radius: 0; border-top: 1px solid var(--border-card); }
   .appBar { flex-wrap: wrap; }
   .pageHead { margin-top: var(--space-6); padding-left: var(--space-4); }
@@ -2823,11 +2858,11 @@ details[open] > .keySummary::before { transform: rotate(45deg); }
 }
 .appsFunnelChip:hover { border-color: var(--border-strong); color: var(--text-subtle); }
 .appsFunnelChip.active {
-  border-color: var(--amber-border);
-  background: var(--amber-dim);
-  color: var(--amber-bright);
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+  color: var(--text);
 }
-.appsFunnelChip.active strong { color: var(--amber-bright); }
+.appsFunnelChip.active strong { color: var(--text); }
 .appsFunnelChip.zero { opacity: 0.55; }
 .appsFunnelChip.due { border-color: var(--amber-border); color: var(--amber-bright); }
 .appsStatusWrap { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 132px; }
@@ -2915,7 +2950,7 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .prepList { margin: 0; padding-left: 1.2em; color: var(--text-subtle); font-size: var(--text-sm); line-height: var(--leading-normal); max-width: var(--measure-prose); }
 .prepList li + li { margin-top: var(--space-2); }
 .prepList strong { color: var(--text); }
-.prepGaps { margin-top: var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-left: 3px solid var(--border-strong); background: var(--surface-2); border-radius: var(--radius-md); }
+.prepGaps { margin-top: var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid var(--border-card); background: var(--surface-2); border-radius: var(--radius-md); }
 .prepGapsTitle { font-size: var(--text-sm); font-weight: 600; color: var(--text); margin-bottom: var(--space-2); }
 
 .prepFilters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
@@ -3226,6 +3261,7 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .interviewLayout__stage { position: sticky; top: var(--space-20); }
 .interviewLayout__side { display: grid; gap: var(--space-4); min-width: 0; }
 .interviewLayout__side > :is(.inputCard, .gateCard, .ruledCard) { margin: 0; }
+.interviewLayout__side .fitEvidence { color: var(--muted); }
 
 .interviewStage {
   position: relative;
@@ -3304,8 +3340,8 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .interviewRound:active { transform: scale(0.995); }
 .interviewRound:focus-within { box-shadow: var(--focus-ring); }
 .interviewRound .folio { padding-top: 5px; }
-.interviewRound[data-selected="true"] { box-shadow: inset 2px 0 0 var(--text); }
-.interviewRound[data-selected="true"]:focus-within { box-shadow: inset 2px 0 0 var(--text), var(--focus-ring); }
+.interviewRound[data-selected="true"] { background: var(--surface-2); }
+.interviewRound[data-selected="true"]:focus-within { box-shadow: var(--focus-ring); }
 .interviewRound input { margin-top: 3px; accent-color: var(--amber); }
 .interviewRound__body { display: grid; gap: 4px; min-width: 0; }
 .interviewRound__title { font-weight: 600; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; }

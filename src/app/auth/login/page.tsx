@@ -257,9 +257,22 @@ export default function LoginPage() {
             />
           </label>
 
+          <div className="authLabelRow">
+            <label className="authLabel" htmlFor="password">Password</label>
+            {mode === 'login' && (
+              <button
+                type="button"
+                className="authLinkBtn authForgot"
+                onClick={handleForgotPassword}
+                disabled={loading || resetLoading}
+              >
+                {resetLoading ? 'Sending reset link…' : 'Forgot password?'}
+              </button>
+            )}
+          </div>
           <label className="authLabel">
-            Password
             <Input
+              id="password"
               variant="auth"
               type="password"
               value={password}
@@ -269,19 +282,6 @@ export default function LoginPage() {
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             />
           </label>
-
-          {mode === 'login' && (
-            <div className="authForgotRow">
-              <button
-                type="button"
-                className="authLinkBtn authForgot"
-                onClick={handleForgotPassword}
-                disabled={loading || resetLoading}
-              >
-                {resetLoading ? 'Sending reset link…' : 'Forgot password?'}
-              </button>
-            </div>
-          )}
 
           {error && (
             <StatusText role="alert" className="msgBelow">{error}</StatusText>

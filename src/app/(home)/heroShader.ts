@@ -64,9 +64,9 @@ void main() {
   // The lamp.
   float dist = distance(p, lamp);
   float breathe = 1.0 + 0.04 * sin(u_time * 0.45);
-  float light = breathe / (1.0 + 6.0 * dist * dist) * smoothstep(1.35, 0.0, dist);
+  float light = breathe / (1.0 + 8.0 * dist * dist) * smoothstep(0.95, 0.0, dist);
   vec3 lampCol = mix(u_amber, u_amberHi, 0.35);
-  col = col * (0.6 + 0.8 * light) + lampCol * light * 0.26;
+  col = col * (0.7 + 0.6 * light) + lampCol * light * 0.18;
 
   // Grain, then the fade into the page at the bottom edge.
   col += (hash(gl_FragCoord.xy + fract(u_time) * 7.0) - 0.5) * u_grain;
