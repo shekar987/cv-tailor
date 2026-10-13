@@ -16,7 +16,7 @@
      hero shader reads --lp-desk; every other page gets the lamp from the
      html background (one radial, no markup). */
   --lp-desk: #141416;
-  --lp-lamp: rgba(224, 160, 77, 0.13);
+  --lp-lamp: rgba(224, 160, 77, 0.08);
   --surface: #1A1A1D;
   --surface-2: #202024;
   --surface-3: #26262B;
@@ -184,17 +184,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html {
-  background: var(--bg-gradient);
-}
-/* A phone sees the lamp as a corner, not a band across the top. */
-@media (max-width: 640px) {
-  html { background: radial-gradient(ellipse 150vw 420px at 0% 0%, var(--lp-lamp), transparent 70%), var(--bg); }
-}
-/* The working screens are a flat desk: the lamp belongs to the public pages
-   and the sign-in sheet, not to a page you read figures off. */
-html:has(main.page) { background: var(--bg); }
-@media (max-width: 640px) {
-  html:has(main.page) { background: var(--bg); }
+  background: var(--bg);
 }
 body {
   background: transparent;
@@ -266,6 +256,7 @@ body {
 .container--narrow > :not(.appHeader):not([role="dialog"]) { max-width: var(--container); margin-left: auto; margin-right: auto; }
 .container--narrow .pageHead { max-width: var(--container); margin-left: auto; margin-right: auto; }
 
+
 /* The column keeps the results' stacking rhythm (the section itself is a
    flex column further down; the rail splits it in two at 1160px). */
 .resultsMain { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
@@ -274,6 +265,14 @@ body {
   .resultsMain { min-width: 0; }
   .resultsRail { position: sticky; top: var(--space-16); }
   .resultsRail .scoreCard { margin: 0; }
+}
+/* The letter's download is the second download on the page: outlined. The
+   right-to-work copy block moves under the document (a flex order), small. */
+.clWrap .dlBtn { background: transparent; color: var(--text); border-color: var(--border-strong); }
+.clWrap .dlBtn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--muted); }
+.cvDocWrap { display: flex; flex-direction: column; }
+.cvDocWrap > .rtwForms { order: 10; margin-top: var(--space-4); }
+@media (min-width: 1160px) {
 }
 .appsContainer { max-width: var(--container-wide); }
 
@@ -548,6 +547,28 @@ body {
   box-shadow: none;
 }
 .ruledCard + .ruledCard { margin-top: 0; }
+/* On the tool pages (/app, /customize) every input card is a ruled section
+   too — the same pattern Settings uses — so the only boxes left are the
+   product's own: the pre-check gate (dashed: not yet), the score, the paper. */
+.container--ruled .inputCard,
+.container--ruled .loading {
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border-card);
+  border-radius: 0;
+  padding: var(--space-6) 0;
+  box-shadow: none;
+}
+.container--ruled .inputCard + .inputCard { margin-top: 0; }
+.container--ruled .cstSection { padding: 0; }
+.container--ruled .cstSectionHead { padding: var(--space-5) 0; border-radius: 0; }
+.container--ruled .cstSection[data-open] .cstSectionHead { border-radius: 0; }
+.container--ruled .cstSectionBody { margin: 0; }
+.container--ruled .cstSection[data-open] .cstSectionHead { background: none; box-shadow: inset 2px 0 0 var(--text); padding-left: var(--space-4); }
+.container--ruled .cstSectionHead:hover { background: none; }
+/* The pasted posting is input: a size down, in the subtle tone, so the
+   output beneath it is the louder text. */
+#jd { font-size: var(--text-sm); color: var(--text-subtle); }
 
 /* Pre-tailoring gate — a quick, free preview shown before the paid
    pipeline runs. Dashed = "not yet"; .scoreCard (the real, post-tailoring
@@ -623,6 +644,8 @@ body {
   background: var(--border-strong);
 }
 .pageFolio { display: flex; }
+.folio--text::after, .clHeading::after { display: none; }
+.folio--text::before, .clHeading::before { content: ""; width: 24px; height: 1px; background: var(--border-strong); }
 
 .label {
   display: block;
@@ -1043,7 +1066,7 @@ textarea { resize: vertical; min-height: 96px; }
 }
 .scoreNote {
   color: var(--muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   line-height: var(--leading-normal);
   max-width: var(--measure-prose);
 }
@@ -1118,7 +1141,7 @@ textarea { resize: vertical; min-height: 96px; }
   .cstContainer { max-width: var(--container-wide); }
   .cstLayout {
     display: grid;
-    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-columns: 200px minmax(0, 1fr);
     gap: var(--space-8);
     align-items: start;
   }
@@ -1158,7 +1181,8 @@ textarea { resize: vertical; min-height: 96px; }
   color: var(--muted);
   font-weight: 600;
 }
-.cstNavGroup:first-child { padding-top: 0; }
+.cstNav > div:first-child > .cstNavGroup { padding-top: 0; }
+.cstNavItem[aria-current] { color: var(--text); box-shadow: inset 2px 0 0 var(--text); border-radius: 0; }
 
 /* A collapsed section is a card whose whole header is the disclosure button. */
 .cstSection { padding: 0; }
@@ -1197,7 +1221,7 @@ textarea { resize: vertical; min-height: 96px; }
   white-space: nowrap;
 }
 .cstSectionSummary[data-tone="ok"] { color: var(--success); }
-.cstSectionSummary[data-tone="warn"] { color: var(--amber-bright); }
+.cstSectionSummary[data-tone="warn"] { color: var(--danger); }
 .cstChevron {
   width: 18px;
   height: 18px;
@@ -1393,13 +1417,14 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .keyEmail { font-size: var(--text-sm); color: var(--muted); }
 .keyCardHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-1); }
 .keyLabel {
-  --icon-size: 18px;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-base);
+  gap: var(--space-3);
+  font-size: var(--text-xs);
   font-weight: 600;
-  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--text-subtle);
 }
 /* The icon anchors the heading; it must not compete with the heading's text. */
 .keyLabel .icon { color: var(--muted); }
@@ -1412,7 +1437,11 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   user-select: none;
   transition: color var(--duration-fast) var(--ease);
 }
-.keySummary::-webkit-details-marker { color: var(--muted); }
+.keySummary::-webkit-details-marker { display: none; }
+.keySummary { list-style: none; display: inline-flex; align-items: center; gap: var(--space-2); }
+/* A chevron, not the browser's triangle; turns when the disclosure opens. */
+.keySummary::before { content: ""; width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform var(--duration) var(--ease); flex: none; }
+details[open] > .keySummary::before { transform: rotate(45deg); }
 .keySummary:hover { color: var(--amber-bright); }
 
 .keyHowTo {
@@ -1810,7 +1839,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 }
 .lpNav .wordmark { font-size: var(--text-lg); }
 .lpNav .wordmarkMark { height: 22px; }
-.lpStrap { font-size: var(--text-md); color: var(--muted); margin-bottom: var(--space-4); }
+.lpStrap { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-folio); color: var(--muted); font-weight: 500; margin-bottom: var(--space-5); }
 .lpNavActions { display: flex; align-items: center; gap: var(--space-3); }
 .lpNav .customizeLink { border-color: var(--border-card); }
 /* Neutral by default — the real action on this page is "Tailor my CV". */
@@ -1886,7 +1915,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
    the real .cvDoc / .scoreCard — this page never imports CvPreview.tsx). */
 .lpExample { display: grid; gap: var(--space-5); min-width: 0; }
 .lpShowCv {
-  background: var(--doc-paper); color: var(--doc-ink); border-radius: 2px;
+  background: var(--doc-paper); color: var(--doc-ink); border-radius: var(--radius-lg);
   padding: var(--space-5) var(--space-6); box-shadow: var(--shadow-lg);
   overflow-wrap: anywhere;
 }
@@ -1932,11 +1961,11 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 }
 
 /* ── The dossier: everything under the hero hangs on one left rule ────────── */
-.lpDossier { position: relative; padding-left: var(--space-10); }
+.lpDossier { position: relative; }
 .lpDossier::before {
   content: "";
   position: absolute;
-  left: 0;
+  left: calc(-1 * var(--space-5));
   top: 0;
   bottom: var(--space-12);
   width: 1px;
@@ -1971,23 +2000,15 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .lpColumn + .lpColumn { border-left: 1px solid var(--border-card); padding-left: var(--space-8); }
 .lpColumnTitle { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--space-3); letter-spacing: var(--tracking-tight); }
 .lpColumnBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); max-width: 40ch; }
+/* What it costs: three plain rows, not a third column block. */
+.lpCostRows { margin: var(--space-10) 0 0; border-top: 1px solid var(--border-card); }
+.lpCostRows > div { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--space-8); padding: var(--space-5) 0; border-bottom: 1px solid var(--border); }
+.lpCostRows dt { font-weight: 600; }
+.lpCostRows dd { margin: 0; color: var(--text-subtle); line-height: var(--leading-relaxed); max-width: 60ch; }
 
-/* ── How it works: four numbered entries ──────────────────────────────────── */
-.lpSteps { display: grid; margin-top: var(--space-8); border-top: 1px solid var(--border-card); }
-.lpStep { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: var(--space-5); padding: var(--space-5) 0; border-bottom: 1px solid var(--border); align-items: start; }
-.lpStepNum {
-  font-size: var(--text-3xl);
-  font-weight: 300;
-  color: var(--text-subtle);
-  letter-spacing: var(--tracking-hero);
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  padding-top: 2px;
-}
-.lpStep p { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); max-width: 58ch; }
-.lpStep p strong { color: var(--text); }
 
-/* ── The whole journey: text left, one 600-wide frame right, every time ──── */
+
+/* ── The journey: four stations, one 600×400 frame each, sides alternating ── */
 .lpJourneySteps { list-style: none; margin: var(--space-10) 0 0; padding: 0; display: grid; gap: var(--space-16); }
 .lpJourneyStep {
   display: grid;
@@ -1995,26 +2016,22 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   gap: var(--space-10);
   align-items: center;
 }
+.lpJourneyStep:nth-child(even) { grid-template-columns: minmax(0, 600px) minmax(0, 1fr); }
+.lpJourneyStep:nth-child(even) .lpJourneyText { order: 2; }
 .lpJourneyText { display: flex; flex-direction: column; gap: var(--space-3); align-items: flex-start; }
-.lpJourneyText .lpStepNum { margin-bottom: var(--space-2); }
-/* One station breaks the rhythm: the paper CV, the only bright plane on
-   the page, runs the full width under its text. */
-.lpJourneyStep--wide { grid-template-columns: minmax(0, 1fr); }
-.lpJourneyStep--wide .lpJourneyText { max-width: 60ch; }
 .lpJourneyTitle { font-size: var(--text-lg); font-weight: 600; letter-spacing: var(--tracking-tight); }
 .lpJourneyBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); }
 
-/* ── Trust: an honest empty slot, set on lined paper ───────────────────────── */
+/* ── The honest note on testimonials: one footnote under the final ask ──── */
 .lpQuoteSlot {
-  margin: var(--space-6) 0 0;
-  padding: 0 0 0 var(--space-5);
-  border-left: 1px solid var(--border-card);
-  color: var(--text-subtle);
-  font-size: var(--text-base);
-  line-height: var(--leading-relaxed);
-  max-width: 60ch;
+  margin: var(--space-8) 0 0;
+  padding: var(--space-4) 0 0;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  max-width: 62ch;
 }
-.lpQuoteSlot p { margin: 0; }
 
 /* ── Close ─────────────────────────────────────────────────────────────────── */
 .lpClose { padding: var(--space-20) 0 var(--space-16); border-top: 1px solid var(--border); }
@@ -2045,17 +2062,20 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 }
 @media (max-width: 860px) {
   .lpHero { grid-template-columns: 1fr; gap: var(--space-10); align-items: start; }
-  .lpJourneyStep { grid-template-columns: 1fr; gap: var(--space-4); }
+  .lpJourneyStep, .lpJourneyStep:nth-child(even) { grid-template-columns: 1fr; gap: var(--space-4); }
+  .lpJourneyStep:nth-child(even) .lpJourneyText { order: 0; }
+  .lpCostRows > div { grid-template-columns: 1fr; gap: var(--space-2); }
 }
 @media (max-width: 640px) {
-  .lpDossier { padding-left: 0; }
+
   .lpDossier::before { display: none; }
   .lpColumns { --lp-cols: 1; }
   .lpColumn + .lpColumn { border-left: 0; border-top: 1px solid var(--border-card); padding-left: 0; }
   .lpColumn { padding-right: 0; }
-  .lpStep { grid-template-columns: 56px minmax(0, 1fr); gap: var(--space-4); }
+
   .lpHero { padding-top: var(--space-10); padding-bottom: var(--space-12); }
   .lpHeroCta { align-items: stretch; flex-direction: column; }
+  .lpClose .cta { width: 100%; }
   .lpShowScoreLists { grid-template-columns: 1fr; }
   .lpSection, .lpClose { padding: var(--space-12) 0; }
   .lpFooter { flex-direction: column; align-items: flex-start; }
@@ -2220,6 +2240,10 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .appsTable th:last-child,
 .appsTable td:last-child { border-right: none; }
 .appsTable tbody tr:last-child td { border-bottom: none; }
+/* A sheet reads by its rows: horizontal rules only, no cell boxes. */
+.appsTable th, .appsTable td { border-right: none; }
+.appsTable td { height: 44px; }
+.appsLinkBtn.muted { opacity: 0.55; }
 .appsRow td { transition: background var(--duration-fast) var(--ease); }
 .appsRow:hover td { background: var(--surface-2); }
 .appsRow.open td { background: var(--surface-2); }
@@ -2498,6 +2522,8 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   .appBar { flex-wrap: wrap; }
   .pageHead { margin-top: var(--space-6); padding-left: var(--space-4); }
   .pageTitle { font-size: var(--text-xl); }
+  .appsFunnel { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--space-1); }
+  .appsToolbar .appsSearch, .appsSearchWrap, .appsToolbarSearch { width: 100%; }
   .inputCard, .scoreCard, .gateCard { padding: var(--space-5); }
   .feedbackWidget { width: min(var(--container), 100% - 2 * var(--space-4)); }
 }
@@ -2804,13 +2830,13 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .appsFunnelChip.active strong { color: var(--amber-bright); }
 .appsFunnelChip.zero { opacity: 0.55; }
 .appsFunnelChip.due { border-color: var(--amber-border); color: var(--amber-bright); }
-.appsStatusWrap { display: inline-flex; align-items: center; gap: var(--space-2); }
+.appsStatusWrap { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 132px; }
 .appsStatusDot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .appsStatusDot.neutral { background: var(--text-subtle); }
 .appsStatusDot.success { background: var(--success); }
 .appsStatusDot.danger { background: var(--danger); }
 .appsStatusDot.muted { background: var(--border-strong); }
-.appsCellBtn.due { color: var(--amber-bright); font-weight: 600; }
+.appsCellBtn.due { color: var(--text); font-weight: 600; }
 /* The status select shows its whole word; the CV / JD cells are links in
    the text colour, not amber. */
 .appsTable td .appsSelect { min-width: 136px; }
@@ -2866,6 +2892,7 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .prepHead { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
 .prepHeadMeta { font-size: var(--text-sm); color: var(--muted); display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .prepHeadActions { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+.prepHeadActions > .cta:not(.secondary):not(.ghost):not(.danger) { order: -1; }
 .prepHeadActions .cta { min-height: 40px; }
 
 .prepHero ul { margin: var(--space-3) 0 var(--space-4); padding-left: 1.2em; color: var(--text-subtle); font-size: var(--text-sm); line-height: var(--leading-normal); }
@@ -2888,8 +2915,8 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .prepList { margin: 0; padding-left: 1.2em; color: var(--text-subtle); font-size: var(--text-sm); line-height: var(--leading-normal); max-width: var(--measure-prose); }
 .prepList li + li { margin-top: var(--space-2); }
 .prepList strong { color: var(--text); }
-.prepGaps { margin-top: var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-left: 3px solid var(--amber); background: var(--surface-2); border-radius: var(--radius-md); }
-.prepGapsTitle { font-size: var(--text-sm); font-weight: 600; color: var(--amber-bright); margin-bottom: var(--space-2); }
+.prepGaps { margin-top: var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-left: 3px solid var(--border-strong); background: var(--surface-2); border-radius: var(--radius-md); }
+.prepGapsTitle { font-size: var(--text-sm); font-weight: 600; color: var(--text); margin-bottom: var(--space-2); }
 
 .prepFilters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
 .prepChip { cursor: pointer; }
@@ -3202,7 +3229,7 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 
 .interviewStage {
   position: relative;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 4 / 5;
   border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--interview-backdrop);
@@ -3277,8 +3304,8 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .interviewRound:active { transform: scale(0.995); }
 .interviewRound:focus-within { box-shadow: var(--focus-ring); }
 .interviewRound .folio { padding-top: 5px; }
-.interviewRound[data-selected="true"] { box-shadow: inset 2px 0 0 var(--amber); }
-.interviewRound[data-selected="true"]:focus-within { box-shadow: inset 2px 0 0 var(--amber), var(--focus-ring); }
+.interviewRound[data-selected="true"] { box-shadow: inset 2px 0 0 var(--text); }
+.interviewRound[data-selected="true"]:focus-within { box-shadow: inset 2px 0 0 var(--text), var(--focus-ring); }
 .interviewRound input { margin-top: 3px; accent-color: var(--amber); }
 .interviewRound__body { display: grid; gap: 4px; min-width: 0; }
 .interviewRound__title { font-weight: 600; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; }

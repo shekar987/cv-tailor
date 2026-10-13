@@ -63,7 +63,7 @@ const AvatarStage = forwardRef<AvatarHandle, Props>(function AvatarStage({ url, 
           lipsyncModules: [],
           // Head and shoulders, like a video call: a little closer and higher
           // than TalkingHead's "upper" view.
-          ...(window.matchMedia("(max-width: 640px)").matches ? { cameraView: "head" } : { cameraView: "upper", cameraDistance: -0.3, cameraY: 0.08 }),
+          ...(window.matchMedia("(max-width: 640px)").matches ? { cameraView: "head" } : { cameraView: "upper", cameraDistance: -0.42, cameraY: 0.1 }),
           modelFPS: 30,
           cameraRotateEnable: false,
           modelMovementFactor: reducedMotion ? 0 : 1,

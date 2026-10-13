@@ -1685,7 +1685,7 @@ export default function Home() {
 
   return (
     <main className="page">
-      <div className="container">
+      <div className="container container--ruled">
         <AppHeader
           title="Tailor your CV"
           tagline="Honest tailoring. Every claim traces back to your real CV — nothing invented."
@@ -1776,7 +1776,8 @@ export default function Home() {
                 pre-check itself failed there was no way to switch provider). */}
             {!preCheck && (
               <div className="actions">
-                <Button onClick={handlePreCheck} disabled={gateLoading || loading}>
+                {/* Once a result exists the primary action is its download, so this steps back to an outline. */}
+                <Button variant={result ? "secondary" : "primary"} onClick={handlePreCheck} disabled={gateLoading || loading}>
                   {gateLoading ? "Checking keyword match…" : "Tailor my CV"}
                 </Button>
                 {isUnlimited && (
@@ -2387,7 +2388,7 @@ export default function Home() {
         {!cvLoading && result && (
           <section className="results riseIn" ref={resultsRef}>
             <div className="resultsMain">
-            <p className="folio" aria-hidden="true">Tailored result</p>
+            <p className="folio folio--text" aria-hidden="true">Tailored result</p>
             {resultInfo && (
               <div className="resultsContext">
                 <span>
@@ -3207,7 +3208,7 @@ export default function Home() {
               {result.atsScore?.keyword_coverage && (
                 <div className="scoreCard">
                   <div className="scoreLabel">
-                    {firstName ? `Hey ${firstName}, here's your recruiter search visibility` : "Your recruiter search visibility"}
+                    Recruiter search visibility
                   </div>
                   <div className="scoreValue">{result.atsScore.keyword_coverage}</div>
                   {verdict && (

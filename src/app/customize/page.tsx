@@ -974,7 +974,7 @@ export default function CustomizePage() {
 
   return (
     <main className="page">
-      <div className="container cstContainer">
+      <div className="container container--ruled cstContainer">
         <AppHeader
           title="Customize"
           tagline="Manage your master CV, your details, and how your tailored CV is laid out."
@@ -990,6 +990,7 @@ export default function CustomizePage() {
                     key={item.id}
                     type="button"
                     className="cstNavItem"
+                    aria-current={!item.always && openSections.has(item.id) ? "true" : undefined}
                     onClick={() => goToSection(item.id, item.always)}
                   >
                     <Folio n={FOLIO[item.id]} />

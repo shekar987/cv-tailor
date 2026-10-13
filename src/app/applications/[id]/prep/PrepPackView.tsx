@@ -44,7 +44,7 @@ export function RewriteButton({ target, onRewrite, rewriting }: { target: PrepRe
 }
 
 export const CATEGORY_LABEL: Record<PrepCategory, string> = {
-  behavioral: "Behavioral",
+  behavioral: "Behavioural",
   technical: "Technical",
   role: "Role & motivation",
   company: "Company",

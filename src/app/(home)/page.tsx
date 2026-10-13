@@ -5,18 +5,16 @@ import Link from "next/link";
 import Image, { type StaticImageData } from "next/image";
 import Button from "@/components/ui/Button";
 import Wordmark from "@/components/ui/Wordmark";
-import Folio, { pad2 } from "@/components/ui/Folio";
+import Folio from "@/components/ui/Folio";
 import HeroCanvas from "./HeroCanvas";
 // Real screenshots of the product from a test account (Alex Tester, Northwind
 // Labs and every company in them are made up), captured by the design-loop
-// harness (scratchpad/design-loop/recapture.mjs): one 600×400 detail each,
-// at 2× density. Re-capture after a redesign.
-import shotCustomize from "../../../public/landing/customize.jpg";
+// harness (scratchpad/design-loop/recapture.mjs): one 600×400 frame each, a
+// single detail at 1× set on the surface tone, 2× density. Re-capture after
+// a redesign.
 import shotPrecheck from "../../../public/landing/precheck.jpg";
 import shotTailored from "../../../public/landing/tailored.jpg";
 import shotScore from "../../../public/landing/score.jpg";
-import shotTracker from "../../../public/landing/tracker.jpg";
-import shotPrep from "../../../public/landing/prep.jpg";
 import shotInterview from "../../../public/landing/interview.jpg";
 import { createClient } from "@/lib/supabase/client";
 
@@ -78,61 +76,33 @@ function Kicker({ n, children }: { n: number; children: React.ReactNode }) {
   );
 }
 
-const STEPS: React.ReactNode[] = [
-  <><strong>Save your CV once, then paste a job description.</strong> A free pre-check reads the conditions the form screens on — right to work, years, location — and your keyword match before a tailor is spent.</>,
-  <><strong>We tailor your summary, skills, experience, and projects</strong> — using only what&apos;s already true in your CV.</>,
-  <><strong>See exactly how visible you are</strong> to a recruiter searching for the job&apos;s top terms — what hits, what&apos;s missing, and why.</>,
-  <><strong>Edit anything inline</strong>, then download a matching CV and cover letter — PDF or Word, ready to send. One click saves the run to your application tracker.</>,
-];
 
-const JOURNEY: { n: number; title: string; body: string; img: StaticImageData; alt: string; wide?: boolean }[] = [
+const JOURNEY: { n: number; title: string; body: string; img: StaticImageData; alt: string }[] = [
   {
     n: 1,
-    title: "Save your CV once.",
-    body: "Paste or upload it on Customize. The details, projects and education are pulled out for you to check, and every skill gets a level — production, project or learning — that the tailoring must respect.",
-    img: shotCustomize,
-    alt: "The Customize page's extracted details — name, tagline, location, email, LinkedIn, GitHub — in editable fields.",
-  },
-  {
-    n: 2,
     title: "A free pre-check before a credit is spent.",
-    body: "The posting's eligibility conditions are read against your own answers, your keyword match is counted, and the tracker says whether you have applied to this company before.",
+    body: "Save your CV once on Customize — the details, projects and education are pulled out for you to check, and every skill gets a level, production, project or learning, that the tailoring must respect. Then paste a posting: its eligibility conditions are read against your own answers, your keyword match is counted, and the tracker says whether you have applied to this company before.",
     img: shotPrecheck,
     alt: "The pre-check card: the role and company read off the posting, the keyword and required-skill counts, and the read \"Apply\".",
   },
   {
-    n: 3,
-    wide: true,
+    n: 2,
     title: "A tailored CV built only from what is true.",
-    body: "Summary, skills, experience and projects, selected and reordered from your own bullets. Job titles, employers and dates are never touched; every figure is checked against the master CV.",
+    body: "Summary, skills, experience and projects, selected and reordered from your own bullets. Job titles, employers and dates are never touched; every figure is checked against the master CV. Edit anything inline, then download a matching CV and cover letter — PDF or Word, ready to send.",
     img: shotTailored,
     alt: "The top of the tailored CV preview: name and contact line, the professional summary and the two skills lines.",
   },
   {
-    n: 4,
+    n: 3,
     title: "A score that is a count, not a compliment.",
-    body: "How many of the role's terms the tailored text carries, with the matched and missing lists. 6 of 10 reads \"Borderline. Fix these before sending.\" — never \"strong\".",
+    body: "How many of the role's terms the tailored text carries, with the matched and missing lists. 6 of 10 reads \"Borderline. Fix these before sending.\" — never \"strong\". Click Applied and the run lands in your tracker — the exact CV and letter you sent, the posting, a follow-up date, and a \"What's working\" read that says plainly what it cannot measure.",
     img: shotScore,
     alt: "The recruiter search visibility card: 6/10, Borderline, and the start of the matched list.",
   },
   {
-    n: 5,
-    title: "Applied, and it lands in the tracker.",
-    body: "The exact CV and letter you sent, the posting, a follow-up date, and a \"What's working\" read that says plainly what it cannot measure.",
-    img: shotTracker,
-    alt: "The tracker's What's working figures: progression by title level, past the screen, and still open, each with its count.",
-  },
-  {
-    n: 6,
-    title: "A prep pack traced line by line.",
-    body: "The questions this job will ask, with STAR answers built only from your CV — each line marked \"Traced to your CV\" or flagged for you to rephrase.",
-    img: shotPrep,
-    alt: "An interview prep question with its STAR answer and two lines marked Traced to your CV.",
-  },
-  {
-    n: 7,
+    n: 4,
     title: "Then say it out loud.",
-    body: "Pick the UK round — screening call, competency, strengths-based, technical, hiring manager, final — and an interviewer built from the same job asks the questions and checks each answer against your CV. Emma Clarke runs the screening, competency and strengths rounds; Daniel Okafor the technical ones. Rendered live in your browser — no video, no upload.",
+    body: "A prep pack first: the questions this job will ask, with STAR answers built only from your CV, each line marked \"Traced to your CV\" or flagged for you to rephrase. Then pick the UK round — screening call, competency, strengths-based, technical, hiring manager, final — and an interviewer built from the same job asks the questions and checks each answer against your CV. Emma Clarke runs the screening, competency and strengths rounds; Daniel Okafor the technical ones. Rendered live in your browser — no video, no upload.",
     img: shotInterview,
     alt: "Emma Clarke, one of the two AI interviewers, rendered in the browser: a woman in a pinstriped jacket against a dark backdrop.",
   },
@@ -211,7 +181,7 @@ export default function Landing() {
             </p>
             <div className="lpHeroCta">
               <Button href="/app">Tailor my CV →</Button>
-              <a href="#journey" className="cta secondary">See the whole journey ↓</a>
+              <a href="#journey" className="cta secondary">See the journey ↓</a>
             </div>
           </div>
           <div className="lpExample" id="example">
@@ -285,23 +255,9 @@ export default function Landing() {
             </div>
           </Reveal>
 
-          {/* ── How it works ────────────────────────────────────────────────── */}
-          <Reveal as="section" className="lpSection lpHow">
-            <Kicker n={2}>How it works</Kicker>
-            <h2 className="lpH2">Four steps. No wall of settings.</h2>
-            <div className="lpSteps">
-              {STEPS.map((body, i) => (
-                <div className="lpStep" key={i}>
-                  <span className="lpStepNum" aria-hidden="true">{pad2(i + 1)}</span>
-                  <p>{body}</p>
-                </div>
-              ))}
-            </div>
-          </Reveal>
-
           {/* ── The whole journey — real screenshots, a test account ────────── */}
           <Reveal as="section" className="lpSection lpJourney" id="journey">
-            <Kicker n={3}>The whole journey</Kicker>
+            <Kicker n={2}>The whole journey</Kicker>
             <h2 className="lpH2">From one saved CV to the interview, in one place.</h2>
             <p className="lpShowNote">
               Screenshots of the real screens, from a test account: Alex Tester, Northwind Labs and every company in the
@@ -309,9 +265,8 @@ export default function Landing() {
             </p>
             <ol className="lpJourneySteps">
               {JOURNEY.map((step) => (
-                <li key={step.n} className={"lpJourneyStep" + (step.wide ? " lpJourneyStep--wide" : "")}>
+                <li key={step.n} className="lpJourneyStep">
                   <div className="lpJourneyText">
-                    <span className="lpStepNum" aria-hidden="true">{pad2(step.n)}</span>
                     <h3 className="lpJourneyTitle">{step.title}</h3>
                     <p className="lpJourneyBody">{step.body}</p>
                   </div>
@@ -321,22 +276,9 @@ export default function Landing() {
             </ol>
           </Reveal>
 
-          {/* ── Trust — an honest empty slot, never an invented quote ───────── */}
-          <Reveal as="section" className="lpSection lpTrust" id="trust">
-            <Kicker n={4}>What people say</Kicker>
-            <h2 className="lpH2">Nothing yet — and nothing made up.</h2>
-            <blockquote className="lpQuoteSlot" data-quotes-empty>
-              <p>
-                This is where real users&apos; words will go: unedited, with their permission, and only once someone has
-                written to say what it did for them. Until then this space stays empty rather than filled with quotes we
-                wrote ourselves.
-              </p>
-            </blockquote>
-          </Reveal>
-
           {/* ── What makes it different ─────────────────────────────────────── */}
           <Reveal as="section" className="lpSection lpDiff">
-            <Kicker n={5}>Why it&apos;s different</Kicker>
+            <Kicker n={3}>Why it&apos;s different</Kicker>
             <h2 className="lpH2">Built around one constraint: nothing invented.</h2>
             <div className="lpColumns lpColumns--3">
               <div className="lpColumn">
@@ -369,25 +311,26 @@ export default function Landing() {
 
           {/* ── What it costs — said here, not discovered at the limit ──────── */}
           <Reveal as="section" className="lpSection lpCost">
-            <Kicker n={6}>What it costs</Kicker>
+            <Kicker n={4}>What it costs</Kicker>
             <h2 className="lpH2">Free to start. Honest about what happens after.</h2>
-            <div className="lpColumns">
-              <div className="lpColumn">
-                <h3 className="lpColumnTitle">Three tailors on us, no card</h3>
-                <p className="lpColumnBody">
-                  Your first three runs are on Claude — CV, cover letter and search-visibility score.
-                  Three a day is the cap, whoever pays.
-                </p>
+            <dl className="lpCostRows">
+              <div>
+                <dt>Three tailors on us, no card</dt>
+                <dd>Your first three runs are on Claude — CV, cover letter and search-visibility score.</dd>
               </div>
-              <div className="lpColumn">
-                <h3 className="lpColumnTitle">Then your own free key</h3>
-                <p className="lpColumnBody">
+              <div>
+                <dt>The cap</dt>
+                <dd>Three a day, whoever pays.</dd>
+              </div>
+              <div>
+                <dt>Then your own free key</dt>
+                <dd>
                   Add a free OpenRouter key in Settings and keep going at no cost. One honest note:
                   OpenRouter&apos;s free models may train on what you send — Settings says how to
                   check that in your OpenRouter account.
-                </p>
+                </dd>
               </div>
-            </div>
+            </dl>
           </Reveal>
 
           {/* ── Final CTA ───────────────────────────────────────────────────── */}
@@ -399,6 +342,12 @@ export default function Landing() {
             <Button href="/app">Tailor my CV →</Button>
             <p className="lpPrivacy">
               Your CV stays in your account and is processed only by the AI provider that runs your tailoring.
+            </p>
+            {/* The honest note on testimonials — never an invented quote. */}
+            <p className="lpQuoteSlot" data-quotes-empty>
+              Nothing yet — and nothing made up. This is where real users&apos; words will go: unedited, with their
+              permission, and only once someone has written to say what it did for them. Until then this space stays
+              empty rather than filled with quotes we wrote ourselves.
             </p>
           </Reveal>
         </div>

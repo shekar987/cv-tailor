@@ -93,6 +93,10 @@ export default function LoginPage() {
     // The submit button is disabled while loading, but Enter in a field still
     // submits the form — repeated presses were tripping Supabase's rate limit.
     if (loading || socialLoading) return
+    if (!email.trim() || !password) {
+      setError('Enter your email and password.')
+      return
+    }
     setLoading(true)
     setError(null)
 
@@ -285,7 +289,7 @@ export default function LoginPage() {
 
           <Button
             type="submit"
-            disabled={loading || !email || !password}
+            disabled={loading}
             block
             className="authSubmit"
           >

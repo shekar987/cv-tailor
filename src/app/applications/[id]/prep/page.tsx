@@ -397,11 +397,11 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
                     </Button>
                   </>
                 ) : (
-                  <Button variant="secondary" onClick={() => setConfirmRegen(true)} disabled={generating}>
+                  <Button variant="ghost" onClick={() => setConfirmRegen(true)} disabled={generating}>
                     Regenerate…
                   </Button>
                 )}
-                <Button variant="secondary" onClick={downloadPdf} disabled={pdfBusy || generating}>
+                <Button variant="ghost" onClick={downloadPdf} disabled={pdfBusy || generating}>
                   {pdfBusy ? "Preparing…" : "Download PDF"}
                 </Button>
                 {!practicing && (
