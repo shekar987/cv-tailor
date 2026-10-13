@@ -16,7 +16,7 @@ import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
-import Icon from "@/components/ui/Icon";
+import Folio from "@/components/ui/Folio";
 import Skeleton from "@/components/ui/Skeleton";
 import StatusText from "@/components/ui/StatusText";
 
@@ -277,12 +277,12 @@ export default function SettingsPage() {
   if (!loaded) {
     return (
       <main className="page">
-        <div className="container">
+        <div className="container container--narrow">
           <AppHeader title="Settings" tagline={PAGE_TAGLINE} />
           <div className="keyList">
-            <Card><Skeleton lines={2} label="Loading your account" /></Card>
-            <Card><Skeleton lines={3} label="Loading your keys" /></Card>
-            <Card><Skeleton lines={3} label="Loading your keys" /></Card>
+            <Card variant="ruled"><Skeleton lines={2} label="Loading your account" /></Card>
+            <Card variant="ruled"><Skeleton lines={3} label="Loading your keys" /></Card>
+            <Card variant="ruled"><Skeleton lines={3} label="Loading your keys" /></Card>
           </div>
         </div>
       </main>
@@ -298,16 +298,16 @@ export default function SettingsPage() {
 
   return (
     <main className="page">
-      <div className="container">
+      <div className="container container--narrow">
         <AppHeader title="Settings" tagline={PAGE_TAGLINE} />
 
         {pageError && <p role="alert" className="keyError">{pageError}</p>}
 
         <div className="keyList">
-          <Card>
+          <Card variant="ruled">
             <div className="keyCardHeader">
-              <span className="keyLabel"><Icon name="gauge" />Account &amp; usage</span>
-              {email && <Badge variant="pill">{email}</Badge>}
+              <span className="keyLabel"><Folio n={1} />Account &amp; usage</span>
+              {email && <span className="keyEmail">{email}</span>}
             </div>
             {usage === undefined ? (
               <Skeleton lines={2} label="Loading your usage" />
@@ -333,7 +333,7 @@ export default function SettingsPage() {
             )}
           </Card>
 
-          {SLOTS.map((slot) => {
+          {SLOTS.map((slot, i) => {
             const saved = savedKeys[slot.provider];
             const isBusy = status[slot.provider] === "saving";
             const err = slotErrors[slot.provider];
@@ -341,10 +341,10 @@ export default function SettingsPage() {
             const showInputField = !saved || isReplacing;
 
             return (
-              <Card key={slot.provider} className={slot.muted ? "keyCardMuted" : undefined}>
+              <Card variant="ruled" key={slot.provider} className={slot.muted ? "keyCardMuted" : undefined}>
                 {/* Card header — provider name + masked badge */}
                 <div className="keyCardHeader">
-                  <span className="keyLabel"><Icon name="key" />{slot.label}</span>
+                  <span className="keyLabel"><Folio n={2 + i} />{slot.label}</span>
                   {saved && !isReplacing && (
                     <Badge variant="pill">✓ Saved ••••{saved.hint}</Badge>
                   )}
@@ -464,9 +464,9 @@ export default function SettingsPage() {
             );
           })}
 
-          <Card data-your-data>
+          <Card variant="ruled" data-your-data>
             <div className="keyCardHeader">
-              <span className="keyLabel"><Icon name="shield" />Your data</span>
+              <span className="keyLabel"><Folio n={2 + SLOTS.length} />Your data</span>
             </div>
             <p className="keyCaveat">
               Everything in your account — CV, answers, applications, prep packs, interview transcripts — as one JSON file, or gone

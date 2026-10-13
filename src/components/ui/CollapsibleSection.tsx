@@ -13,8 +13,12 @@
 // The body is hidden with the `hidden` attribute rather than unmounted: these
 // sections hold unsaved drafts (an eligibility field, a pool textarea), and
 // collapsing a section must never throw away what the user typed.
+//
+// With `folio` the header carries the section's two-digit number (the same
+// one the page's index shows) in place of the icon.
 
 import Icon, { type IconName } from "./Icon";
+import Folio from "./Folio";
 import type { ReactNode } from "react";
 
 export type SectionTone = "neutral" | "ok" | "warn";
@@ -22,6 +26,7 @@ export type SectionTone = "neutral" | "ok" | "warn";
 export type CollapsibleSectionProps = {
   id: string;
   icon: IconName;
+  folio?: number | string;
   title: string;
   /** One line describing the current state, shown whether open or closed. */
   summary?: ReactNode;
@@ -34,6 +39,7 @@ export type CollapsibleSectionProps = {
 export default function CollapsibleSection({
   id,
   icon,
+  folio,
   title,
   summary,
   tone = "neutral",
@@ -56,7 +62,7 @@ export default function CollapsibleSection({
         aria-controls={bodyId}
         onClick={() => onToggle(id)}
       >
-        <Icon name={icon} />
+        {folio !== undefined ? <Folio n={folio} /> : <Icon name={icon} />}
         <span className="cstSectionTitle">{title}</span>
         {summary && (
           <span className="cstSectionSummary" data-tone={tone}>

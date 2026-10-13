@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Wordmark from "@/components/ui/Wordmark";
 
 // The frame the two legal pages share: wordmark home, title, the date, the
 // text, and a footer with the other legal page. Server component; the text
@@ -17,7 +18,7 @@ export default function LegalShell({
     <main className="page legalPage">
       <div className="container">
         <header className="legalHead">
-          <Link href="/" className="authWordmark authWordmarkLink">Jobhuntz</Link>
+          <Wordmark href="/" className="authWordmark authWordmarkLink" />
           <h1 className="pageTitle">{title}</h1>
           <p className="tagline">Last updated {updated}. Plain English, on purpose.</p>
         </header>

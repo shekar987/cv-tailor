@@ -296,7 +296,7 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
 
   return (
     <main className="page">
-      <div className="container">
+      <div className="container container--narrow">
         <AppHeader
           title="Interview prep"
           tagline={
@@ -397,7 +397,7 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
                     </Button>
                   </>
                 ) : (
-                  <Button variant="ghost" onClick={() => setConfirmRegen(true)} disabled={generating}>
+                  <Button variant="secondary" onClick={() => setConfirmRegen(true)} disabled={generating}>
                     Regenerate…
                   </Button>
                 )}

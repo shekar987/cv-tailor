@@ -124,7 +124,7 @@ function QuestionCard({ q, index, rating, flags, onRewrite, rewriting }: { q: Pr
   return (
     <article className="prepQuestion" id={q.id}>
       <div className="prepQHead">
-        <span className="prepQIndex">{index + 1}</span>
+        <span className="prepQIndex">{String(index + 1).padStart(2, "0")}</span>
         <span className={`stackChip prepCat ${q.category}`}>{CATEGORY_LABEL[q.category]}</span>
         {rating && <span className={`prepRatingTag r${rating}`}>{RATING_LABEL[rating]}</span>}
       </div>

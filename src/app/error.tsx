@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Button from "@/components/ui/Button";
+import Wordmark from "@/components/ui/Wordmark";
 
 // Route-level error boundary. Every page is a client component doing async
 // work; without this, a thrown render error shows Next's unbranded
@@ -20,6 +21,7 @@ export default function ErrorPage({
   return (
     <main className="authPage">
       <div className="authCard danger">
+        <Wordmark href="/" className="authWordmark authWordmarkLink" />
         <p className="authEyebrow danger">Something went wrong</p>
         <h1 className="authTitle">This page hit an error</h1>
         <p className="authMuted">

@@ -2386,6 +2386,8 @@ export default function Home() {
 
         {!cvLoading && result && (
           <section className="results riseIn" ref={resultsRef}>
+            <div className="resultsMain">
+            <p className="folio" aria-hidden="true">Tailored result</p>
             {resultInfo && (
               <div className="resultsContext">
                 <span>
@@ -2983,70 +2985,6 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {result.atsScore?.keyword_coverage && (
-              <div className="scoreCard">
-                <div className="scoreLabel">
-                  {firstName ? `Hey ${firstName}, here's your recruiter search visibility` : "Your recruiter search visibility"}
-                </div>
-                <div className="scoreValue">{result.atsScore.keyword_coverage}</div>
-                {verdict && (
-                  <div className="scoreVerdict" data-band={verdict.band} data-visibility-verdict>
-                    {verdict.label}
-                  </div>
-                )}
-                {verdict?.fitNote && (
-                  <div className="scoreSub" data-fit-reference>
-                    {verdict.fitNote}
-                  </div>
-                )}
-                {result.atsScore.required_skill_coverage && (
-                  <div className="scoreSub">
-                    Required skills in the tailored CV: {result.atsScore.required_skill_coverage}
-                    {(result.atsScore.required_misses?.length ?? 0) > 0
-                      ? ` — not present: ${result.atsScore.required_misses!.join(", ")}`
-                      : ""}
-                  </div>
-                )}
-                <p className="scoreNote">
-                  How likely a recruiter searching their pipeline for this role&apos;s terms is to surface your CV — the count is how many of those terms the tailored text carries.
-                </p>
-
-                {Array.isArray(result.atsScore.hits) && result.atsScore.hits.length > 0 && (
-                  <div className="atsGroup">
-                    <div className="atsGroupLabel hits">Matched ({result.atsScore.hits.length})</div>
-                    <ul className="atsList">
-                      {result.atsScore.hits.map((h, i) => (
-                        <li key={i}><Badge variant="dot" tone="hit">✓</Badge>{h}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {Array.isArray(result.atsScore.misses) && result.atsScore.misses.length > 0 && (
-                  <div className="atsGroup">
-                    <div className="atsGroupLabel misses">Missing ({result.atsScore.misses.length})</div>
-                    <ul className="atsList">
-                      {result.atsScore.misses.map((m, i) => (
-                        <li key={i}><Badge variant="dot" tone="miss">✕</Badge>{m}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {Array.isArray(result.atsScore.recommendations) && result.atsScore.recommendations.length > 0 && (
-                  <div className="atsGroup">
-                    <div className="atsGroupLabel recs">
-                      {verdict?.band === "weak" ? "Fix first" : verdict?.band === "borderline" ? "Fix before sending" : "Optional edits"}
-                    </div>
-                    <ul className="atsList">
-                      {result.atsScore.recommendations.map((r, i) => (
-                        <li key={i}><Badge variant="dot" tone="rec">→</Badge>{r}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
           
             
             {/* High-fit extras — only when the research scored this company
@@ -3264,6 +3202,73 @@ export default function Home() {
                 </>
               )}
             </div>
+            </div>
+            <aside className="resultsRail" aria-label="Your recruiter search visibility">
+              {result.atsScore?.keyword_coverage && (
+                <div className="scoreCard">
+                  <div className="scoreLabel">
+                    {firstName ? `Hey ${firstName}, here's your recruiter search visibility` : "Your recruiter search visibility"}
+                  </div>
+                  <div className="scoreValue">{result.atsScore.keyword_coverage}</div>
+                  {verdict && (
+                    <div className="scoreVerdict" data-band={verdict.band} data-visibility-verdict>
+                      {verdict.label}
+                    </div>
+                  )}
+                  {verdict?.fitNote && (
+                    <div className="scoreSub" data-fit-reference>
+                      {verdict.fitNote}
+                    </div>
+                  )}
+                  {result.atsScore.required_skill_coverage && (
+                    <div className="scoreSub">
+                      Required skills in the tailored CV: {result.atsScore.required_skill_coverage}
+                      {(result.atsScore.required_misses?.length ?? 0) > 0
+                        ? ` — not present: ${result.atsScore.required_misses!.join(", ")}`
+                        : ""}
+                    </div>
+                  )}
+                  <p className="scoreNote">
+                    How likely a recruiter searching their pipeline for this role&apos;s terms is to surface your CV — the count is how many of those terms the tailored text carries.
+                  </p>
+
+                  {Array.isArray(result.atsScore.hits) && result.atsScore.hits.length > 0 && (
+                    <div className="atsGroup">
+                      <div className="atsGroupLabel hits">Matched ({result.atsScore.hits.length})</div>
+                      <ul className="atsList">
+                        {result.atsScore.hits.map((h, i) => (
+                          <li key={i}><Badge variant="dot" tone="hit">✓</Badge>{h}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {Array.isArray(result.atsScore.misses) && result.atsScore.misses.length > 0 && (
+                    <div className="atsGroup">
+                      <div className="atsGroupLabel misses">Missing ({result.atsScore.misses.length})</div>
+                      <ul className="atsList">
+                        {result.atsScore.misses.map((m, i) => (
+                          <li key={i}><Badge variant="dot" tone="miss">✕</Badge>{m}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {Array.isArray(result.atsScore.recommendations) && result.atsScore.recommendations.length > 0 && (
+                    <div className="atsGroup">
+                      <div className="atsGroupLabel recs">
+                        {verdict?.band === "weak" ? "Fix first" : verdict?.band === "borderline" ? "Fix before sending" : "Optional edits"}
+                      </div>
+                      <ul className="atsList">
+                        {result.atsScore.recommendations.map((r, i) => (
+                          <li key={i}><Badge variant="dot" tone="rec">→</Badge>{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </aside>
           </section>
         )}
       </div>

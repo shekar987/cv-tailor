@@ -7,6 +7,7 @@ import { getUsage, type Usage } from "@/lib/usage";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import Folio from "@/components/ui/Folio";
 import EmptyState from "@/components/ui/EmptyState";
 import Skeleton from "@/components/ui/Skeleton";
 import StatusText from "@/components/ui/StatusText";
@@ -377,7 +378,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
 
                 {phase === "setup" && (
                   <>
-                    <Card>
+                    <Card variant="ruled">
                       <p className="fitEvidence" role="status" data-avatar-progress={avatar.state}>
                         {avatar.state === "loading"
                           ? `Loading the 3D interviewer${avatar.pct ? ` · ${avatar.pct}%` : "…"} — choose the round and voice meanwhile; nothing waits for it.`
@@ -387,12 +388,13 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                       </p>
                       <fieldset className="interviewRounds">
                         <legend className="label">Choose the round</legend>
-                        {INTERVIEW_TYPES.map((t) => {
+                        {INTERVIEW_TYPES.map((t, i) => {
                           const r = ROUNDS[t];
                           const p = PERSONAS[r.persona];
                           return (
                             <label key={t} className="interviewRound" data-selected={t === type ? "true" : "false"}>
                               <input type="radio" name="round" value={t} checked={t === type} onChange={() => setType(t)} />
+                              <Folio n={i + 1} />
                               <span className="interviewRound__body">
                                 <span className="interviewRound__title">{r.label}<span className="interviewRound__meta">~{r.minutes} min · {r.fixedBefore.length + r.modelQuestions + r.fixedAfter.length} questions</span></span>
                                 <span className="interviewRound__summary">{r.summary}</span>
@@ -404,7 +406,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                       </fieldset>
                     </Card>
 
-                    <Card>
+                    <Card variant="ruled">
                       <div className="label">Voice and microphone</div>
                       <div className="interviewSetting">
                         <span className="interviewSetting__name">{persona.firstName}&apos;s voice</span>
@@ -467,7 +469,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                       </div>
                     </Card>
 
-                    <Card className="interviewStart">
+                    <Card variant="ruled" className="interviewStart">
                       {renderError()}
                       <p className="cvHelp">
                         {round.label} with {persona.name} · about {round.minutes} minutes. Interviews stay private to you and are deleted with the application.
@@ -482,7 +484,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                     </Card>
 
                     {past.length > 0 && (
-                      <Card>
+                      <Card variant="ruled">
                         <div className="label">Your interviews for this job</div>
                         <ul className="interviewPast">
                           {past.map((p) => (

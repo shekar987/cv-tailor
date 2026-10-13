@@ -5,6 +5,7 @@ import Link from "next/link";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import SectionHeading from "@/components/ui/SectionHeading";
 import EmptyState from "@/components/ui/EmptyState";
 import Skeleton from "@/components/ui/Skeleton";
 import StatusText from "@/components/ui/StatusText";
@@ -83,13 +84,13 @@ export default function InterviewsPage() {
 
   return (
     <main className="page">
-      <div className="container">
+      <div className="container container--narrow">
         <AppHeader title="Interviews" tagline={PAGE_TAGLINE} />
         {error && <StatusText role="alert">{error}</StatusText>}
         {notice && <div className="limitNotice" role="status">{notice}</div>}
 
-        <Card data-interviews-list>
-          <div className="label">Mock interviews</div>
+        <Card variant="ruled" data-interviews-list>
+          <SectionHeading folio={1}>Mock interviews</SectionHeading>
           {loading ? (
             <Skeleton lines={3} label="Loading your interviews" />
           ) : !interviews || interviews.length === 0 ? (
@@ -122,8 +123,8 @@ export default function InterviewsPage() {
           )}
         </Card>
 
-        <Card data-prep-list>
-          <div className="label">Prep packs</div>
+        <Card variant="ruled" data-prep-list>
+          <SectionHeading folio={2}>Prep packs</SectionHeading>
           {packs === null && !error ? (
             <Skeleton lines={3} label="Loading your prep packs" />
           ) : !packs || packs.length === 0 ? (

@@ -8,6 +8,7 @@ import { safeNextPath } from '@/lib/safeNext'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import StatusText from '@/components/ui/StatusText'
+import Wordmark from '@/components/ui/Wordmark'
 
 type Mode = 'login' | 'signup'
 
@@ -164,7 +165,7 @@ export default function LoginPage() {
     return (
       <main className="authPage">
         <div className="authCard">
-          <Wordmark />
+          <Wordmark href="/" className="authWordmark authWordmarkLink" />
           <p className="authEyebrow">Password reset</p>
           <h1 className="authTitle">Check your inbox</h1>
           <p className="authMuted">
@@ -188,7 +189,7 @@ export default function LoginPage() {
     return (
       <main className="authPage">
         <div className="authCard">
-          <Wordmark />
+          <Wordmark href="/" className="authWordmark authWordmarkLink" />
           <p className="authEyebrow">Almost there</p>
           <h1 className="authTitle">Check your inbox</h1>
           <p className="authMuted">
@@ -210,7 +211,7 @@ export default function LoginPage() {
   return (
     <main className="authPage">
       <div className="authCard">
-        <Wordmark />
+        <Wordmark href="/" className="authWordmark authWordmarkLink" />
         <h1 className="authTitle">{mode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
         <p className="authMuted">
           {mode === 'login'
@@ -326,14 +327,5 @@ export default function LoginPage() {
         </p>
       </div>
     </main>
-  )
-}
-
-function Wordmark() {
-  // A real link home — the auth screens previously had no way back to "/".
-  return (
-    <Link href="/" className="authWordmark authWordmarkLink">
-      Jobhuntz
-    </Link>
   )
 }

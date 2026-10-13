@@ -679,7 +679,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
   return (
     <div className="cvDocWrap">
       <div className="cvActions">
-        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason={downloadsDisabledReason || "Fix the flagged claims first"} />
+        <DownloadButton label="Download CV" onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason={downloadsDisabledReason || "Fix the flagged claims first"} />
         {downloadsDisabled && fixClaimsAvailable && (
           <Button type="button" data-fix-claims disabled={fixingClaims} aria-busy={fixingClaims || undefined}>
             {fixingClaims ? "Fixing…" : "Fix it"}

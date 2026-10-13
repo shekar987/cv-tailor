@@ -1426,52 +1426,6 @@ export default function ApplicationsPage() {
           </div>
         )}
 
-        {insights && insights.counted >= 5 && (
-          <Card variant="dashed" data-insights title={insightsNote || undefined}>
-            <div className="appsPanelHead">
-              <span className="appsPanelTitle">What&apos;s working</span>
-              <button
-                type="button"
-                className="appsActionBtn"
-                onClick={() => setShowInsights((v) => !v)}
-                aria-expanded={showInsights}
-              >
-                {showInsights ? "Hide" : "Show breakdown"}
-              </button>
-            </div>
-            <InsightsSummary insights={insights} withoutJd={withoutJd} withoutCv={withoutCv} lanes={lanes} />
-            {showInsights && (
-              <>
-                <InsightGroup title="By search visibility of the saved CV" buckets={insights.byVisibility} />
-                <InsightGroup title="By required-skill coverage" buckets={insights.byRequired} />
-                <InsightGroup title="By eligibility read at the pre-check" buckets={insights.byGate} />
-                <InsightGroup title="By role seniority" buckets={insights.bySeniority} />
-                <InsightGroup title="By role" buckets={insights.byRole} />
-                <InsightGroup title="By company" buckets={insights.byCompany} />
-                <InsightGroup title="By how the row was made" buckets={insights.bySource} />
-                <InsightGroup title="By follow-up date" buckets={insights.byFollowup} />
-                <InsightGroup title="By page count of the CV sent" buckets={insights.byPages} />
-                <InsightGroup title="By posting age when you applied" buckets={insights.byPostingAge} />
-                {insights.byVisibility.length + insights.byRequired.length + insights.byGate.length === 0 && (
-                  <p className="fitEvidence">
-                    Score and eligibility bands appear once applications saved from a tailored run have outcomes.
-                  </p>
-                )}
-              </>
-            )}
-          </Card>
-        )}
-
-        {scoreOutcome && scoreOutcome.points.length > 0 && (
-          <Card variant="dashed" data-score-outcome data-score-verdict={scoreOutcome.verdict}>
-            <div className="appsPanelHead">
-              <span className="appsPanelTitle">Does the score predict the outcome?</span>
-              <span className="verdictPill" data-verdict={scoreOutcome.verdict}>{VERDICT_LABEL[scoreOutcome.verdict]}</span>
-            </div>
-            <ScoreOutcomePanel s={scoreOutcome} />
-          </Card>
-        )}
-
         <div className="appsToolbar">
           <div className="appsToolbarGroup appsToolbarSearch">
             <div className="appsSearchWrap">
@@ -1901,6 +1855,54 @@ export default function ApplicationsPage() {
               </nav>
             )}
           </div>
+        )}
+
+        {/* The insights read off the sheet above them: the figures come second,
+            the rows first. */}
+        {insights && insights.counted >= 5 && (
+          <Card data-insights title={insightsNote || undefined}>
+            <div className="appsPanelHead">
+              <span className="appsPanelTitle">What&apos;s working</span>
+              <button
+                type="button"
+                className="appsActionBtn"
+                onClick={() => setShowInsights((v) => !v)}
+                aria-expanded={showInsights}
+              >
+                {showInsights ? "Hide" : "Show breakdown"}
+              </button>
+            </div>
+            <InsightsSummary insights={insights} withoutJd={withoutJd} withoutCv={withoutCv} lanes={lanes} />
+            {showInsights && (
+              <>
+                <InsightGroup title="By search visibility of the saved CV" buckets={insights.byVisibility} />
+                <InsightGroup title="By required-skill coverage" buckets={insights.byRequired} />
+                <InsightGroup title="By eligibility read at the pre-check" buckets={insights.byGate} />
+                <InsightGroup title="By role seniority" buckets={insights.bySeniority} />
+                <InsightGroup title="By role" buckets={insights.byRole} />
+                <InsightGroup title="By company" buckets={insights.byCompany} />
+                <InsightGroup title="By how the row was made" buckets={insights.bySource} />
+                <InsightGroup title="By follow-up date" buckets={insights.byFollowup} />
+                <InsightGroup title="By page count of the CV sent" buckets={insights.byPages} />
+                <InsightGroup title="By posting age when you applied" buckets={insights.byPostingAge} />
+                {insights.byVisibility.length + insights.byRequired.length + insights.byGate.length === 0 && (
+                  <p className="fitEvidence">
+                    Score and eligibility bands appear once applications saved from a tailored run have outcomes.
+                  </p>
+                )}
+              </>
+            )}
+          </Card>
+        )}
+
+        {scoreOutcome && scoreOutcome.points.length > 0 && (
+          <Card data-score-outcome data-score-verdict={scoreOutcome.verdict}>
+            <div className="appsPanelHead">
+              <span className="appsPanelTitle">Does the score predict the outcome?</span>
+              <span className="verdictPill" data-verdict={scoreOutcome.verdict}>{VERDICT_LABEL[scoreOutcome.verdict]}</span>
+            </div>
+            <ScoreOutcomePanel s={scoreOutcome} />
+          </Card>
         )}
       </div>
     </main>

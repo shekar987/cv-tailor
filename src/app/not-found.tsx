@@ -1,11 +1,11 @@
-import Link from "next/link";
+import Wordmark from "@/components/ui/Wordmark";
 import Button from "@/components/ui/Button";
 
 export default function NotFound() {
   return (
     <main className="authPage">
       <div className="authCard">
-        <Link href="/" className="authWordmark authWordmarkLink">Jobhuntz</Link>
+        <Wordmark href="/" className="authWordmark authWordmarkLink" />
         <p className="authEyebrow">404</p>
         <h1 className="authTitle">That page doesn&apos;t exist</h1>
         <p className="authMuted">

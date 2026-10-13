@@ -85,7 +85,8 @@ import FormField from "@/components/ui/FormField";
 import StatusText from "@/components/ui/StatusText";
 import SectionHeading from "@/components/ui/SectionHeading";
 import CollapsibleSection from "@/components/ui/CollapsibleSection";
-import Icon, { type IconName } from "@/components/ui/Icon";
+import { type IconName } from "@/components/ui/Icon";
+import Folio from "@/components/ui/Folio";
 import {
   DEFAULT_SECTION_ORDER,
   SECTION_LABELS,
@@ -177,6 +178,9 @@ const NAV_GROUPS: { group: string; items: { id: string; icon: IconName; label: s
     ],
   },
 ];
+// Each section's folio: its position in the index above, so the nav's
+// numeral and the section's own numeral can never disagree.
+const FOLIO: Record<string, number> = Object.fromEntries(NAV_GROUPS.flatMap((g) => g.items).map((it, i) => [it.id, i + 1]));
 
 // Reorder the CV's standard sections. Section ORDER only — bullet counts and
 // content are untouched and still come from the tailoring run.
@@ -988,7 +992,7 @@ export default function CustomizePage() {
                     className="cstNavItem"
                     onClick={() => goToSection(item.id, item.always)}
                   >
-                    <Icon name={item.icon} />
+                    <Folio n={FOLIO[item.id]} />
                     {item.label}
                   </button>
                 ))}
@@ -1000,7 +1004,7 @@ export default function CustomizePage() {
         <Card id="master-cv">
           {cvLoading ? (
             <>
-              <div className="label">Master CV</div>
+              <SectionHeading folio={FOLIO["master-cv"]}>Master CV</SectionHeading>
               <Skeleton lines={3} label="Loading your CV" />
             </>
           ) : editingCv ? (
@@ -1057,6 +1061,8 @@ export default function CustomizePage() {
               </div>
             </FormField>
           ) : (
+            <>
+            <SectionHeading folio={FOLIO["master-cv"]}>Master CV</SectionHeading>
             <div className="cvSavedRow">
               <div>
                 <div className="cvSavedLabel">✓ Master CV saved</div>
@@ -1081,11 +1087,12 @@ export default function CustomizePage() {
                 )}
               </div>
             </div>
+            </>
           )}
         </Card>
 
         <Card id="your-details">
-          <SectionHeading icon="user">
+          <SectionHeading folio={FOLIO["your-details"]}>
             Your details {extracting && <span className="cvSavedMeta">— extracting…</span>}
           </SectionHeading>
           {profileError && <p role="alert" className="keyError">{profileError}</p>}
@@ -1209,6 +1216,7 @@ export default function CustomizePage() {
             before the CV is read. Compared by the pre-check on /app. */}
         <CollapsibleSection
           id="eligibility"
+          folio={FOLIO["eligibility"]}
           icon="shield"
           title="Eligibility"
           open={openSections.has("eligibility")}
@@ -1561,6 +1569,7 @@ export default function CustomizePage() {
         {masterCvText && (
           <CollapsibleSection
             id="claims"
+            folio={FOLIO["claims"]}
             icon="verified"
             title="Claims registry"
             open={openSections.has("claims")}
@@ -1657,6 +1666,7 @@ export default function CustomizePage() {
         {masterCvText && (
           <CollapsibleSection
             id="variants"
+            folio={FOLIO["variants"]}
             icon="target"
             title="Positioning"
             open={openSections.has("variants")}
@@ -1745,6 +1755,7 @@ export default function CustomizePage() {
 
         <CollapsibleSection
           id="section-order"
+          folio={FOLIO["section-order"]}
           icon="list"
           title="Section order"
           open={openSections.has("section-order")}
@@ -1844,6 +1855,7 @@ export default function CustomizePage() {
             user_settings.preferences.onePageCv. */}
         <CollapsibleSection
           id="cv-length"
+          folio={FOLIO["cv-length"]}
           icon="document"
           title="CV length"
           open={openSections.has("cv-length")}
@@ -1883,6 +1895,7 @@ export default function CustomizePage() {
             kept and offered for forms; the cover letter is unchanged. */}
         <CollapsibleSection
           id="right-to-work"
+          folio={FOLIO["right-to-work"]}
           icon="globe"
           title="Right to Work"
           open={openSections.has("right-to-work")}
@@ -1928,6 +1941,7 @@ export default function CustomizePage() {
             user_settings.preferences.projectLinks. */}
         <CollapsibleSection
           id="project-links"
+          folio={FOLIO["project-links"]}
           icon="link"
           title="Project links"
           open={openSections.has("project-links")}
@@ -2042,6 +2056,7 @@ export default function CustomizePage() {
         {masterCvText && (
           <CollapsibleSection
             id="advanced"
+            folio={FOLIO["advanced"]}
             icon="sliders"
             title="Project pool"
             open={openSections.has("advanced")}

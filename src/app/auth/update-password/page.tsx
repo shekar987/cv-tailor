@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
+import Wordmark from '@/components/ui/Wordmark'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Button from '@/components/ui/Button'
@@ -68,7 +68,7 @@ export default function UpdatePasswordPage() {
     return (
       <main className="authPage">
         <div className="authCard danger">
-          <Link href="/" className="authWordmark authWordmarkLink">Jobhuntz</Link>
+          <Wordmark href="/" className="authWordmark authWordmarkLink" />
           <p className="authEyebrow danger">Link expired</p>
           <h1 className="authTitle">This reset link no longer works</h1>
           <p className="authMuted">
@@ -85,7 +85,7 @@ export default function UpdatePasswordPage() {
     return (
       <main className="authPage">
         <div className="authCard">
-          <Link href="/" className="authWordmark authWordmarkLink">Jobhuntz</Link>
+          <Wordmark href="/" className="authWordmark authWordmarkLink" />
           <p className="authEyebrow">Password updated</p>
           <h1 className="authTitle">You&apos;re all set</h1>
           <p className="authMuted">Your new password is saved. Taking you to the app…</p>
@@ -98,7 +98,7 @@ export default function UpdatePasswordPage() {
   return (
     <main className="authPage">
       <div className="authCard">
-        <Link href="/" className="authWordmark authWordmarkLink">Jobhuntz</Link>
+        <Wordmark href="/" className="authWordmark authWordmarkLink" />
         <p className="authEyebrow">Password reset</p>
         <h1 className="authTitle">Choose a new password</h1>
         <p className="authMuted">At least {MIN_PASSWORD} characters. You&apos;ll stay signed in on this device.</p>

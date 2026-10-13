@@ -144,7 +144,7 @@ const CoverLetterPreview = forwardRef<CoverLetterPreviewHandle, Props>(function 
   return (
     <div className="clWrap">
       <div className="cvActions">
-        <DownloadButton onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason={downloadsDisabledReason || "Fix the flagged claims first"} />
+        <DownloadButton label="Download letter" onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason={downloadsDisabledReason || "Fix the flagged claims first"} />
         {downloadsDisabled && downloadsDisabledReason && (
           <StatusText as="span" role="alert" data-download-blocked-reason>
             {downloadsDisabledReason}

@@ -1,4 +1,4 @@
-import Link from 'next/link'
+import Wordmark from '@/components/ui/Wordmark'
 import Button from '@/components/ui/Button'
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -27,7 +27,7 @@ export default async function AuthErrorPage({
   return (
     <main className="authPage">
       <div className="authStack">
-        <Link href="/" className="authWordmark authWordmarkLink">Jobhuntz</Link>
+        <Wordmark href="/" className="authWordmark authWordmarkLink" />
 
         <div className="authCard danger">
           <p className="authEyebrow danger">Sign-in error</p>

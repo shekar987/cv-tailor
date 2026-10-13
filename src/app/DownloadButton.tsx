@@ -13,6 +13,7 @@ export default function DownloadButton({
   busy = false,
   disabled = false,
   disabledReason,
+  label = "Download",
 }: {
   onPdf: () => void;
   onWord: () => void;
@@ -21,6 +22,8 @@ export default function DownloadButton({
   // stays "Download" and the reason rides in the tooltip.
   disabled?: boolean;
   disabledReason?: string;
+  // "Download CV" / "Download letter": the two buttons on one page must not read the same.
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -63,7 +66,7 @@ export default function DownloadButton({
         aria-expanded={open}
         aria-controls={panelId}
       >
-        {busy ? "Generating…" : "Download"}
+        {busy ? "Generating…" : label}
         <span className="dlCaret" aria-hidden="true">▾</span>
       </Button>
       {open && (

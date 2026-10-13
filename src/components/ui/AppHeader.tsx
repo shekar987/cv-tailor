@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { clearAllWorkspaces } from "@/lib/workspace";
 import { clearAllPrepProgress } from "@/lib/prepProgress";
 import { clearAllGameCounts } from "@/lib/games/pick";
+import Wordmark from "./Wordmark";
 
 // The one header for every signed-in page. Previously each page hand-wrote
 // its own bar and they drifted: Sign out existed only on /app, Applications
@@ -16,6 +17,8 @@ import { clearAllGameCounts } from "@/lib/games/pick";
 // so there is always a session — and only the email chip waits for it. That
 // removes the bar popping in after load, and keeps Sign out reachable for an
 // account whose provider released no email address.
+//
+// Under the bar, the page's title and tagline sit on the dossier's left rule.
 
 const NAV = [
   { href: "/app", label: "Tailor" },
@@ -82,7 +85,7 @@ export default function AppHeader({
             }
           }}
         >
-          <Link href="/app" className="wordmark">Jobhuntz</Link>
+          <Wordmark href="/app" className="wordmark" />
           <button
             ref={menuBtnRef}
             type="button"
@@ -95,7 +98,6 @@ export default function AppHeader({
             {open ? "Close" : "Menu"}
           </button>
           <nav id="appBarNav" className={"appBarActions" + (open ? " open" : "")} aria-label="Main">
-            {email && <span className="appBarEmail" title={email}>{email}</span>}
             {NAV.map((item) => (
               <Link
                 key={item.href}
@@ -110,11 +112,21 @@ export default function AppHeader({
             <button type="button" onClick={handleSignOut} className="customizeLink" disabled={signingOut}>
               {signingOut ? "Signing out…" : "Sign out"}
             </button>
+            {/* The account as its initial; the address itself is on Settings. */}
+            {email && (
+              <span className="appBarInitial" title={email} aria-label={`Signed in as ${email}`}>
+                {email[0].toUpperCase()}
+              </span>
+            )}
           </nav>
         </div>
       </div>
-      {title && <h1 className="pageTitle">{title}</h1>}
-      {tagline && <p className="tagline">{tagline}</p>}
+      {(title || tagline) && (
+        <div className="pageHead">
+          {title && <h1 className="pageTitle">{title}</h1>}
+          {tagline && <p className="tagline">{tagline}</p>}
+        </div>
+      )}
     </header>
   );
 }
