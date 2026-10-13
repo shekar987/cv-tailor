@@ -16,8 +16,7 @@ import { ROUNDS, type InterviewType } from "@/lib/interviewTypes";
 // each line links back to that row's prep or interview page. Two free reads,
 // no model call.
 
-const PAGE_TAGLINE =
-  "Every mock interview you have done and every prep pack you have built, across all your applications. Start a new one from the tracker's Prep and Interview buttons.";
+const PAGE_TAGLINE = "Every mock interview and every prep pack, across all your applications.";
 
 type InterviewRow = {
   id: string;

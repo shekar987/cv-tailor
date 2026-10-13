@@ -301,8 +301,8 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
           title="Interview prep"
           tagline={
             row
-              ? `${row.role} at ${row.company_name} — answers built from your real CV and checked sentence by sentence; anything it couldn't trace is marked.`
-              : "Answers built from your real CV and checked sentence by sentence; anything it couldn't trace is marked."
+              ? `${row.role} at ${row.company_name} — answers from your real CV, checked sentence by sentence.`
+              : "Answers from your real CV, checked sentence by sentence."
           }
         />
         <p className="prepBack">
@@ -397,21 +397,21 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
                     </Button>
                   </>
                 ) : (
-                  <Button variant="ghost" onClick={() => setConfirmRegen(true)} disabled={generating}>
+                  <button type="button" className="linkBtn" onClick={() => setConfirmRegen(true)} disabled={generating}>
                     Regenerate…
-                  </Button>
+                  </button>
                 )}
-                <Button variant="ghost" onClick={downloadPdf} disabled={pdfBusy || generating}>
+                <button type="button" className="linkBtn" onClick={downloadPdf} disabled={pdfBusy || generating}>
                   {pdfBusy ? "Preparing…" : "Download PDF"}
-                </Button>
+                </button>
                 {!practicing && (
                   <Button ref={practiceBtnRef} onClick={() => setPracticing(true)} disabled={generating}>
                     Practice
                   </Button>
                 )}
-                <Button variant="secondary" href={`/applications/${id}/interview`}>
+                <Link href={`/applications/${id}/interview`} className="linkBtn">
                   Mock interview
-                </Button>
+                </Link>
               </div>
             </div>
             {warning && <div className="limitNotice" role="status">{warning}</div>}
@@ -430,10 +430,10 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
               />
             )}
             {!generating && !practicing && (
-              <Card>
+              <div className="prepPack">
                 {rewriteMsg && <StatusText as="span" tone="success" role="status" data-prep-rewrite-msg>{rewriteMsg}</StatusText>}
                 <PrepPackView pack={pack} ratings={ratings} onRewrite={rewrite} rewriting={rewriting} />
-              </Card>
+              </div>
             )}
           </>
         )}

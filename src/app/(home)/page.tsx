@@ -13,8 +13,8 @@ import HeroCanvas from "./HeroCanvas";
 // single detail at 1× set on the surface tone, 2× density. Re-capture after
 // a redesign.
 import shotPrecheck from "../../../public/landing/precheck.jpg";
-import shotTailored from "../../../public/landing/tailored.jpg";
 import shotScore from "../../../public/landing/score.jpg";
+import shotPrep from "../../../public/landing/prep.jpg";
 import shotInterview from "../../../public/landing/interview.jpg";
 import { createClient } from "@/lib/supabase/client";
 
@@ -77,34 +77,39 @@ function Kicker({ n, children }: { n: number; children: React.ReactNode }) {
 }
 
 
+// The journey: four rows on one rhythm — a numeral, a one-line claim, one
+// sentence or two, and ONE real detail of that screen at 1:1 (480×280, no
+// scaling; captured by the harness's recapture.mjs from a test account).
+// The interviewer is not pictured: the room is the product, and the round
+// picker says what it is without a face standing in for it.
 const JOURNEY: { n: number; title: string; body: string; img: StaticImageData; alt: string }[] = [
   {
     n: 1,
-    title: "A free pre-check before a credit is spent.",
-    body: "Save your CV once on Customize — the details, projects and education are pulled out for you to check, and every skill gets a level, production, project or learning, that the tailoring must respect. Then paste a posting: its eligibility conditions are read against your own answers, your keyword match is counted, and the tracker says whether you have applied to this company before.",
+    title: "A free pre-check before any credit is spent.",
+    body: "Paste a posting. Its eligibility conditions are read against your own answers, your keyword match is counted, and the tracker says whether you have applied to this company before.",
     img: shotPrecheck,
-    alt: "The pre-check card: the role and company read off the posting, the keyword and required-skill counts, and the read \"Apply\".",
+    alt: "The pre-check: a notice that you have already applied to this company three times, then the read \"Apply\" and a rough keyword match of 6/10.",
   },
   {
     n: 2,
-    title: "A tailored CV built only from what is true.",
-    body: "Summary, skills, experience and projects, selected and reordered from your own bullets. Job titles, employers and dates are never touched; every figure is checked against the master CV. Edit anything inline, then download a matching CV and cover letter — PDF or Word, ready to send.",
-    img: shotTailored,
-    alt: "The top of the tailored CV preview: name and contact line, the professional summary and the two skills lines.",
+    title: "A tailored CV, and a score that is a count.",
+    body: "Summary, skills, experience and projects are selected from your own bullets; titles, employers and dates are never touched. The score is how many of the role's terms the text carries — 6 of 10 reads \"Borderline\", never \"strong\".",
+    img: shotScore,
+    alt: "Recruiter search visibility: 6/10, \"Borderline. Fix these before sending.\", required skills 3 of 4, then the matched list.",
   },
   {
     n: 3,
-    title: "A score that is a count, not a compliment.",
-    body: "How many of the role's terms the tailored text carries, with the matched and missing lists. 6 of 10 reads \"Borderline. Fix these before sending.\" — never \"strong\". Click Applied and the run lands in your tracker — the exact CV and letter you sent, the posting, a follow-up date, and a \"What's working\" read that says plainly what it cannot measure.",
-    img: shotScore,
-    alt: "The recruiter search visibility card: 6/10, Borderline, and the start of the matched list.",
+    title: "Interview answers traced, line by line, to your CV.",
+    body: "A prep pack for the job: the questions it will ask, STAR answers built only from your CV, and every line marked as traced to your CV or flagged for you to rephrase.",
+    img: shotPrep,
+    alt: "One prep question with its STAR answer — situation, task, action, result — and under it the CV line it was traced to, ticked.",
   },
   {
     n: 4,
-    title: "Then say it out loud.",
-    body: "A prep pack first: the questions this job will ask, with STAR answers built only from your CV, each line marked \"Traced to your CV\" or flagged for you to rephrase. Then pick the UK round — screening call, competency, strengths-based, technical, hiring manager, final — and an interviewer built from the same job asks the questions and checks each answer against your CV. Emma Clarke runs the screening, competency and strengths rounds; Daniel Okafor the technical ones. Rendered live in your browser — no video, no upload.",
+    title: "Then a UK interview, out loud.",
+    body: "Pick the round — screening, competency, strengths-based, technical, hiring manager, final — and an interviewer built from the same job asks the questions aloud and checks each answer against your CV. In your browser; no video, no upload.",
     img: shotInterview,
-    alt: "Emma Clarke, one of the two AI interviewers, rendered in the browser: a woman in a pinstriped jacket against a dark backdrop.",
+    alt: "The round picker: a screening call with a talent acquisition partner, and the competency interview selected, with its length and question count.",
   },
 ];
 
@@ -151,11 +156,11 @@ export default function Landing() {
           <Wordmark href="/" className="wordmark lpWordmark" />
           <div className="lpNavActions">
             {signedIn ? (
-              <Link href="/app" className="lpNavCta">Open the app →</Link>
+              <Link href="/app" className="customizeLink">Open the app →</Link>
             ) : (
               <>
-                <Link href="/auth/login" className="customizeLink">Sign in</Link>
-                <Link href="/app" className="lpNavCta">Open the tool</Link>
+                <Link href="/auth/login" className="lpNavLink">Sign in</Link>
+                <Link href="/app" className="customizeLink">Open the tool</Link>
               </>
             )}
           </div>
@@ -223,7 +228,7 @@ export default function Landing() {
                 </div>
               </div>
             </div>
-            <p className="lpShowNote">A worked example: Jordan and Northwind are made up. The layout, the score and the two lists are exactly what the tool produces for a real CV and posting.</p>
+            <p className="lpShowNote">A worked example — Jordan and Northwind are made up; the layout, the score and the lists are exactly what the tool produces.</p>
           </div>
         </section>
 
@@ -257,18 +262,15 @@ export default function Landing() {
           <Reveal as="section" className="lpSection lpJourney" id="journey">
             <Kicker n={2}>The whole journey</Kicker>
             <h2 className="lpH2">From one saved CV to the interview, in one place.</h2>
-            <p className="lpShowNote">
-              Screenshots of the real screens, from a test account: Alex Tester, Northwind Labs and every company in the
-              tracker are made up. The checks, the numbers and the wording are exactly what the tool shows.
-            </p>
             <ol className="lpJourneySteps">
               {JOURNEY.map((step) => (
                 <li key={step.n} className="lpJourneyStep">
+                  <Folio n={step.n} />
                   <div className="lpJourneyText">
                     <h3 className="lpJourneyTitle">{step.title}</h3>
                     <p className="lpJourneyBody">{step.body}</p>
                   </div>
-                  <Image src={step.img} alt={step.alt} className="lpShot" sizes="(max-width: 860px) 100vw, 600px" />
+                  <Image src={step.img} alt={step.alt} className="lpShot" sizes="(max-width: 860px) 100vw, 480px" />
                 </li>
               ))}
             </ol>
@@ -338,13 +340,13 @@ export default function Landing() {
               A CV with ten skills you can defend beats one with twenty that fall apart under questioning.
             </p>
             <Button href="/app">Tailor my CV →</Button>
-            <p className="lpPrivacy">
-              Your CV stays in your account and is processed only by the AI provider that runs your tailoring.
-            </p>
-            {/* The honest note on testimonials — never an invented quote. */}
-            <p className="lpQuoteSlot" data-quotes-empty>
-              Nothing yet — and nothing made up. Real users&apos; words will go here, unedited and with their permission;
-              until then there are no quotes.
+            {/* The page's one footnote: privacy, the screenshots, and the honest
+                note on testimonials — never an invented quote. */}
+            <p className="lpFootnote" data-quotes-empty>
+              Your CV stays in your account and is processed only by the AI provider that runs your tailoring. The
+              screenshots above are the real screens on a test account — Alex Tester and every company are made up.
+              Testimonials: Nothing yet — and nothing made up. Real users&apos; words will go here, unedited and with their
+              permission.
             </p>
           </Reveal>
         </div>

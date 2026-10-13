@@ -34,8 +34,7 @@ import Skeleton from "@/components/ui/Skeleton";
 import Textarea from "@/components/ui/Textarea";
 import StatusText from "@/components/ui/StatusText";
 
-const PAGE_TAGLINE =
-  "Every role you've applied to, in one sheet. Click any cell to edit it; click CV, JD or Notes to open that application's details — or add the CV you sent for an application made elsewhere.";
+const PAGE_TAGLINE = "Every role you've applied to, in one sheet. Click any cell to edit it.";
 
 const MAX_JD_CHARS = JD_LIMIT;
 const MAX_NOTES = MAX_NOTES_CHARS;
@@ -393,8 +392,8 @@ const COLUMNS: { key: SortKey | PanelKind | "gate"; label: string; sortable: boo
   { key: "gate", label: "Gate", sortable: false },
   { key: "status", label: "Status", sortable: true },
   { key: "salary", label: "Salary", sortable: true },
-  { key: "date_applied", label: "Date Applied", sortable: true },
-  { key: "followup_date", label: "Follow-up Date", sortable: true },
+  { key: "date_applied", label: "Applied on", sortable: true },
+  { key: "followup_date", label: "Follow-up", sortable: true },
   { key: "notes", label: "Notes", sortable: false },
 ];
 const COL_COUNT = COLUMNS.length + 1; // + the delete column
@@ -1396,36 +1395,6 @@ export default function ApplicationsPage() {
           </div>
         )}
 
-        {hasRows && (
-          <div className="appsFunnel riseIn" role="group" aria-label="Applications by status">
-            {STATUSES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                className={
-                  "appsFunnelChip" +
-                  (statusFilter === s ? " active" : "") +
-                  (statusCounts[s] === 0 ? " zero" : "")
-                }
-                onClick={() => setStatusFilter(statusFilter === s ? "All" : s)}
-                aria-pressed={statusFilter === s}
-              >
-                {s} <strong>{statusCounts[s]}</strong>
-              </button>
-            ))}
-            {dueCount > 0 && (
-              <button
-                type="button"
-                className={"appsFunnelChip due" + (dueOnly ? " active" : "")}
-                onClick={() => setDueOnly((v) => !v)}
-                aria-pressed={dueOnly}
-              >
-                {dueCount} follow-up{dueCount === 1 ? "" : "s"} due
-              </button>
-            )}
-          </div>
-        )}
-
         <div className="appsToolbar">
           <div className="appsToolbarGroup appsToolbarSearch">
             <div className="appsSearchWrap">
@@ -1446,15 +1415,35 @@ export default function ApplicationsPage() {
                 </button>
               )}
             </div>
-          </div>
-          <div className="appsToolbarGroup appsToolbarActions">
-            {/* Only offered when the current filters leave something to export. */}
-            {exportCount > 0 && (
-              <button type="button" className="customizeLink" onClick={exportCsv} disabled={exporting}>
-                {exporting ? "Exporting…" : `Export CSV${periodFilter !== "all" || statusFilter !== "All" || searchTerm ? ` (${exportCount})` : ""}`}
-              </button>
+            {hasRows && (
+              <div className="appsFunnel riseIn" role="group" aria-label="Applications by status">
+                {STATUSES.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className={
+                      "appsFunnelChip" +
+                      (statusFilter === s ? " active" : "") +
+                      (statusCounts[s] === 0 ? " zero" : "")
+                    }
+                    onClick={() => setStatusFilter(statusFilter === s ? "All" : s)}
+                    aria-pressed={statusFilter === s}
+                  >
+                    {s} <strong>{statusCounts[s]}</strong>
+                  </button>
+                ))}
+                {dueCount > 0 && (
+                  <button
+                    type="button"
+                    className={"appsFunnelChip due" + (dueOnly ? " active" : "")}
+                    onClick={() => setDueOnly((v) => !v)}
+                    aria-pressed={dueOnly}
+                  >
+                    {dueCount} follow-up{dueCount === 1 ? "" : "s"} due
+                  </button>
+                )}
+              </div>
             )}
-            <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired}>+ Add row</Button>
           </div>
           <div className="appsToolbarGroup appsToolbarFilters">
             <div className="appsSeg" role="group" aria-label="Filter by date applied">
@@ -1487,6 +1476,15 @@ export default function ApplicationsPage() {
                 )}
               </StatusText>
             )}
+          </div>
+          <div className="appsToolbarGroup appsToolbarActions">
+            {/* Only offered when the current filters leave something to export. */}
+            {exportCount > 0 && (
+              <button type="button" className="customizeLink" onClick={exportCsv} disabled={exporting}>
+                {exporting ? "Exporting…" : `Export CSV${periodFilter !== "all" || statusFilter !== "All" || searchTerm ? ` (${exportCount})` : ""}`}
+              </button>
+            )}
+            <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired}>+ Add row</Button>
           </div>
         </div>
 
@@ -1727,11 +1725,11 @@ export default function ApplicationsPage() {
                             const line = gateLine(readStoredGates(row.gates));
                             return (
                               <span
-                                className={"stackChip gateChip " + (line.label === "Knockout" ? "knockout" : line.label === "Clear" ? "matched" : line.label === "Long shot" ? "longshot" : "muted")}
+                                className={"appsGateDot " + (line.label === "Knockout" ? "knockout" : line.label === "Clear" ? "matched" : line.label === "Long shot" ? "longshot" : "muted")}
                                 title={line.detail}
                                 data-gate={line.label}
                               >
-                                {line.label}
+                                <span className="srOnly">{line.label}: {line.detail}</span>
                               </span>
                             );
                           })()}

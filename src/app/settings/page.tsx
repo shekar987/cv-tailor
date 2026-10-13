@@ -20,8 +20,7 @@ import Folio from "@/components/ui/Folio";
 import Skeleton from "@/components/ui/Skeleton";
 import StatusText from "@/components/ui/StatusText";
 
-const PAGE_TAGLINE =
-  "Your account, your usage, and the provider keys that keep tailoring running after the free credits. Keys are encrypted before storage and are never shown in full after saving.";
+const PAGE_TAGLINE = "Your account, your usage, and the provider keys that keep tailoring running after the free credits.";
 
 type Provider = "gemini" | "openrouter";
 type SlotStatus = "idle" | "saving" | "error";

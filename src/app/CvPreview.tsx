@@ -86,6 +86,16 @@ type CvPreviewProps = {
   // defeats the memo that keeps inline edits alive.
   fixClaimsAvailable?: boolean;
   fixingClaims?: boolean;
+  // "Applied — save to tracker" beside Download: the one filled action after
+  // a result. Plain values only, for the same reason as Fix it — the page
+  // handles the click on its wrapper ([data-applied]).
+  appliedLabel?: string;
+  appliedDisabled?: boolean;
+  appliedTitle?: string;
+  showTrackerLink?: boolean;
+  // The page estimate, as the toolbar's right-hand note.
+  pagesNote?: string;
+  pagesWarn?: boolean;
 };
 
 // What collectPayload() hands back: the document as currently on screen,
@@ -108,7 +118,7 @@ export type CvPreviewHandle = {
 };
 
 const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvPreview(
-  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "", rightToWorkUnset = false, targetPages = 2, fixClaimsAvailable = false, fixingClaims = false },
+  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "", rightToWorkUnset = false, targetPages = 2, fixClaimsAvailable = false, fixingClaims = false, appliedLabel, appliedDisabled = false, appliedTitle, showTrackerLink = false, pagesNote, pagesWarn = false },
   fwdRef
 ) {
   const order = resolveSectionOrder(sectionOrder);
@@ -685,10 +695,21 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
             {fixingClaims ? "Fixing…" : "Fix it"}
           </Button>
         )}
+        {appliedLabel && (
+          <Button type="button" data-applied disabled={appliedDisabled} title={appliedTitle}>
+            {appliedLabel}
+          </Button>
+        )}
+        {showTrackerLink && (
+          <Link href="/applications" className="customizeLink">View tracker →</Link>
+        )}
         {downloadsDisabled && downloadsDisabledReason && (
           <StatusText as="span" role="alert" data-download-blocked-reason>
             {downloadsDisabledReason}
           </StatusText>
+        )}
+        {pagesNote && (
+          <span className="cvActionsMeta" data-page-estimate data-warn={pagesWarn ? "" : undefined}>{pagesNote}</span>
         )}
       </div>
       {!rightToWorkForForms && rightToWorkUnset && (

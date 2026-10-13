@@ -126,6 +126,7 @@ export default function AppHeader({
           >
             {open ? "Close" : "Menu"}
           </button>
+          {open && <div className="appBarScrim" onClick={() => closeMenu()} aria-hidden="true" />}
           <nav id="appBarNav" className={"appBarActions" + (open ? " open" : "")} aria-label="Main">
             {NAV.map((item) => (
               <Link

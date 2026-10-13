@@ -301,7 +301,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
       <div className="container interviewPage">
         <AppHeader
           title="Mock interview"
-          tagline={row ? `${row.role} at ${row.company_name} — a realistic UK interview, out loud, built from this job and the CV you sent.` : "A realistic UK interview, out loud, built from the job and the CV you sent."}
+          tagline={row ? `${row.role} at ${row.company_name} — a UK interview, out loud, built from this job and your CV.` : "A UK interview, out loud, built from the job and your CV."}
         />
         <p className="prepBack">
           <Link href="/applications" className="inlineLink">← Back to applications</Link>

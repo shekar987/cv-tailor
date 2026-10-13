@@ -28,6 +28,8 @@ export default function FeedbackWidget() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
+  // Closed by default: a line in the page's footer, the form on request.
+  const [open, setOpen] = useState(false);
   const sentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -74,8 +76,16 @@ export default function FeedbackWidget() {
   if (!signedIn || !onAppRoute) return null;
 
   return (
-    <section className="feedbackWidget" aria-labelledby="feedback-label">
-      <FormField label={<span id="feedback-label">Feedback</span>} htmlFor="feedback-message" help="Bugs, ideas, anything — goes straight to the team.">
+    <footer className="appFooter">
+      <div className="appFooterRow">
+        <button type="button" className="linkBtn" aria-expanded={open} aria-controls="feedback-form" onClick={() => setOpen((v) => !v)} data-feedback-toggle>
+          Feedback
+        </button>
+        <span className="appFooterNote">Bugs, ideas, anything — goes straight to the team.</span>
+      </div>
+      {open && (
+    <section className="feedbackWidget" id="feedback-form" aria-labelledby="feedback-label">
+      <FormField label={<span id="feedback-label">Feedback</span>} htmlFor="feedback-message" help="What's working, what's not, what you'd like to see.">
         <Textarea
           id="feedback-message"
           value={message}
@@ -103,5 +113,7 @@ export default function FeedbackWidget() {
         {error && <StatusText as="span" role="alert">{error}</StatusText>}
       </div>
     </section>
+      )}
+    </footer>
   );
 }

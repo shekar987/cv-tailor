@@ -1297,7 +1297,9 @@ export default function Home() {
   // The preview's own "Fix it" button (beside the blocked Download) is
   // handled here, on the wrapper, so CvPreview gets no callback prop.
   function onPreviewClick(e: React.MouseEvent<HTMLDivElement>) {
-    if ((e.target as HTMLElement).closest("[data-fix-claims]")) fixClaims();
+    const t = e.target as HTMLElement;
+    if (t.closest("[data-fix-claims]")) fixClaims();
+    else if (t.closest("[data-applied]")) void handleApplied();
   }
 
   // Paint the flagged figures and skills onto the editable previews with the
@@ -3029,34 +3031,19 @@ export default function Home() {
               </Card>
             )}
 
-            {/* Applied → snapshot this run into the tracker. Secondary on
-                purpose: amber on this view belongs to Download. */}
-            <div className="actions appliedRow">
-              <Button
-                onClick={() => void handleApplied()}
-                disabled={blocked || appliedChecking || appliedState === "saving" || appliedState === "saved" || appliedState === "already"}
-                title={blocked ? "Fix the flagged claims first" : undefined}
-              >
-                {appliedChecking
-                  ? "Checking…"
-                  : appliedState === "saving"
-                  ? "Saving…"
-                  : appliedState === "saved"
-                    ? "Saved to tracker ✓"
-                    : appliedState === "already"
-                      ? "Already in tracker"
-                      : "Applied — save to tracker"}
-              </Button>
-              {(appliedState === "saved" || appliedState === "already") && (
-                <Link href="/applications" className="customizeLink">View tracker →</Link>
-              )}
-              {appliedError && (
-                <StatusText as="span" role="alert">{appliedError}</StatusText>
-              )}
-              {blocked && appliedState === "idle" && (
-                <StatusText as="span" role="status">Fix the flagged claims above first — press Fix it, or edit the preview. No credit is used.</StatusText>
-              )}
-            </div>
+            {/* The Applied button itself sits in the preview's toolbar beside
+                Download (plain props; its click is delegated on the wrapper
+                below, like Fix it). This row carries only its messages. */}
+            {(appliedError || (blocked && appliedState === "idle")) && (
+              <div className="actions appliedRow">
+                {appliedError && (
+                  <StatusText as="span" role="alert">{appliedError}</StatusText>
+                )}
+                {blocked && appliedState === "idle" && (
+                  <StatusText as="span" role="status">Fix the flagged claims above first — press Fix it, or edit the preview. No credit is used.</StatusText>
+                )}
+              </div>
+            )}
             {appliedConfirm && appliedState !== "saving" && appliedState !== "saved" && appliedState !== "cleared" && (
               <div className="limitNotice" role="status" data-send-confirm>
                 <p><strong>Send anyway?</strong> Before this goes in the tracker as applied:</p>
@@ -3082,18 +3069,30 @@ export default function Home() {
             {/* Focus leaving either editable preview re-runs the claim check
                 on the edited text (focusout bubbles; the previews stay memo'd
                 and untouched). */}
-            {quality && (
-              <p className="fitEvidence" data-page-estimate={quality.pages.pages} data-warn={overOnePage || quality.pages.overBudget ? "" : undefined}>
-                About {quality.pages.pages} {quality.pages.pages === 1 ? "page" : "pages"} at the spacing the download uses
-                {quality.pages.overBudget
-                  ? " — over the two-page limit."
-                  : overOnePage
-                    ? " — over the one page you chose on Customize. See Before you send above."
-                    : "."}
-              </p>
-            )}
             <div onBlur={onPreviewBlur} onClick={onPreviewClick}>
               <CvPreview
+                appliedLabel={
+                  appliedChecking
+                    ? "Checking…"
+                    : appliedState === "saving"
+                      ? "Saving…"
+                      : appliedState === "saved"
+                        ? "Saved to tracker ✓"
+                        : appliedState === "already"
+                          ? "Already in tracker"
+                          : "Applied — save to tracker"
+                }
+                appliedDisabled={blocked || appliedChecking || appliedState === "saving" || appliedState === "saved" || appliedState === "already"}
+                appliedTitle={blocked ? "Fix the flagged claims first" : undefined}
+                showTrackerLink={appliedState === "saved" || appliedState === "already"}
+                pagesNote={
+                  quality
+                    ? `About ${quality.pages.pages} ${quality.pages.pages === 1 ? "page" : "pages"} at the download's spacing${
+                        quality.pages.overBudget ? " — over the two-page limit" : overOnePage ? " — over the one page you chose" : ""
+                      }`
+                    : undefined
+                }
+                pagesWarn={!!quality && (overOnePage || quality.pages.overBudget)}
                 key={previewKey}
                 ref={previewRef}
                 data={cvData}

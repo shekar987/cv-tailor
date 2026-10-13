@@ -253,8 +253,8 @@ body {
    width as a left-aligned column inside it (.container--narrow); the result
    page's score sits in a rail beside that column. */
 .container { max-width: var(--container-wide); margin: 0 auto; }
-.container--narrow > :not(.appHeader):not([role="dialog"]) { max-width: var(--container); margin-left: auto; margin-right: auto; }
-.container--narrow .pageHead { max-width: var(--container); margin-left: auto; margin-right: auto; }
+.container--narrow > :not(.appHeader):not([role="dialog"]) { max-width: var(--container); }
+.container--narrow .pageHead { max-width: var(--container); }
 
 
 /* The column keeps the results' stacking rhythm (the section itself is a
@@ -387,6 +387,7 @@ body {
 .appBarMenu .dlItem { text-decoration: none; }
 .appBarMenu .dlItem[aria-current="page"] { color: var(--text); background: var(--surface-3); }
 .appBarMenuEmail { font-size: var(--text-xs); color: var(--muted); padding: var(--space-2) var(--space-3) var(--space-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.appBarScrim { display: none; }
 /* Settings and Sign out appear in the nav only inside the phone menu. */
 .appBarActions > .appBarPhoneOnly { display: none; }
 /* Folio + title + tagline on the dossier's left rule. */
@@ -542,6 +543,23 @@ body {
 }
 .inlineLink { color: var(--text-subtle); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; transition: color var(--duration-fast) var(--ease); }
 .inlineLink:hover { color: var(--amber-bright); text-decoration-color: currentColor; }
+.linkBtn {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-subtle);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease);
+}
+.linkBtn:hover:not(:disabled) { color: var(--amber-bright); text-decoration-color: currentColor; }
+.linkBtn:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-xs); }
+.linkBtn:active:not(:disabled) { color: var(--amber); }
+.linkBtn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Cards & elevation ladder ───────────────────────────────────────────────
    base (border only) → raised (.inputCard: sm shadow + inset hairline)
@@ -591,7 +609,8 @@ body {
 .container--ruled .cstSectionHead:hover { background: none; }
 /* The pasted posting is input: a size down, in the subtle tone, so the
    output beneath it is the louder text. */
-#jd { font-size: var(--text-sm); color: var(--text-subtle); max-width: 760px; }
+#jd { font-size: var(--text-sm); color: var(--text-subtle); max-width: 760px; resize: none; }
+#jd + .charCount { max-width: 760px; }
 
 /* Pre-tailoring gate — a quick, free preview shown before the paid
    pipeline runs. Dashed = "not yet"; .scoreCard (the real, post-tailoring
@@ -1148,7 +1167,7 @@ textarea { resize: vertical; min-height: 96px; }
 
 /* "Applied" row on the results view — secondary by design; amber on this
    view belongs to Download. */
-.appliedRow { margin-top: var(--space-4); margin-bottom: var(--space-2); }
+.appliedRow { margin-top: var(--space-2); margin-bottom: 0; }
 
 /* ── Customize: section nav + collapsible sections ───────────────────────────
    The page was nine equal always-open cards, ~3,900px tall. Now: the two that
@@ -1348,15 +1367,17 @@ textarea { resize: vertical; min-height: 96px; }
    An invitation, not a caution — so not the notices' amber left rule, and
    not an accent either: one quiet box a step above the page, sized against
    the viewport so it never runs edge-to-edge on a phone. */
-.feedbackWidget {
-  background: var(--surface);
-  border: 1px solid var(--border-card);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm), var(--surface-inset);
-  padding: var(--space-6);
-  margin: var(--space-10) auto var(--space-8);
-  width: min(var(--container), 100% - 2 * var(--space-6));
+.appFooter {
+  max-width: calc(var(--container-wide) + 2 * var(--space-6));
+  margin: var(--space-12) auto 0;
+  padding: var(--space-5) var(--space-6) var(--space-10);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
+.appFooterRow { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+.appFooterNote { color: var(--muted); }
+.feedbackWidget { margin-top: var(--space-4); max-width: var(--container); }
 .feedbackWidget textarea { margin-bottom: var(--space-1); }
 
 /* ── Master CV status row (/customize) ─────────────────────────────────────── */
@@ -1487,12 +1508,15 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
    .cvBullet out of the live DOM to build the .docx and PDF. Never rename them. */
 .cvDocWrap { margin-top: var(--space-6); }
 .editHint { font-size: var(--text-xs); color: var(--muted); margin-bottom: var(--space-3); }
-.cvActions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-3); margin-bottom: var(--space-3); }
+.cvActions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); min-height: 44px; }
 /* Buttons keep their one-line label. The blocked reason sits beside them
    when there is room and drops to its own full-width line on a phone. */
 .cvActions > button,
 .cvActions > .dlWrap { flex-shrink: 0; white-space: nowrap; }
 .cvActions > [data-download-blocked-reason] { flex: 1 1 18rem; min-width: 0; }
+/* The page estimate at the toolbar's right, a note not a row. */
+.cvActionsMeta { margin-left: auto; font-size: var(--text-xs); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cvActionsMeta[data-warn] { color: var(--danger); }
 
 /* Score-vs-outcome plot on the tracker: one axis, two lanes, status colours
    with lane + shape as the primary cue. */
@@ -1616,7 +1640,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   /* A long unbroken token (a URL in a project link, a package name) must
      break inside the document, not push the whole page sideways on mobile. */
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.4;
   outline: none;
   box-shadow: var(--shadow-doc);
@@ -1676,7 +1700,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   padding: 36px 44px;
   font-family: Calibri, "Segoe UI", system-ui, sans-serif;
   overflow-wrap: anywhere;
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.4;
   outline: none;
   box-shadow: var(--shadow-doc);
@@ -1868,16 +1892,21 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .lpNav .wordmarkMark { height: 22px; }
 .lpFooterTag { color: var(--muted); }
 .lpNavActions { display: flex; align-items: center; gap: var(--space-3); }
-.lpNav .customizeLink { border-color: var(--border-card); }
-/* Neutral by default — the real action on this page is "Tailor my CV". */
-.lpNavCta {
-  color: var(--muted);
+.lpNav .customizeLink { border-color: var(--border-strong); }
+/* Sign in is text: the nav's one box is the tool, the page's one filled
+   button is the hero's. */
+.lpNavLink {
+  color: var(--text-subtle);
   text-decoration: none;
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: 500;
+  padding: var(--space-2) var(--space-1);
+  border-radius: var(--radius-xs);
   transition: color var(--duration-fast) var(--ease);
 }
-.lpNavCta:hover { color: var(--text); text-decoration: underline; }
+.lpNavLink:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.lpNavLink:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.lpNavLink:active { color: var(--amber); }
 
 /* ── Scroll-reveal: progressive enhancement ──────────────────────────────────
    Hidden ONLY under `.js-ready`, which page.tsx adds to <html> on mount —
@@ -1976,15 +2005,15 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .lpShowScoreList .more { color: var(--muted); padding-left: calc(1em + var(--space-2)); }
 .lpShowNote { color: var(--muted); font-size: var(--text-sm); line-height: var(--leading-snug); max-width: 62ch; margin: 0; }
 
-/* A product screenshot: a framed, raised image — one of the few boxes on
-   the page, because it IS the product. Every journey frame is 600×400. */
+/* A product screenshot: one real detail at 1:1 (480×280), framed by a
+   hairline — one of the few boxes on the page, because it IS the product. */
 .lpShot {
   display: block;
   width: 100%;
+  max-width: 480px;
   height: auto;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-card);
-  box-shadow: var(--shadow-lg);
   background: var(--surface);
 }
 
@@ -1995,7 +2024,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   position: absolute;
   left: calc(-1 * var(--space-5));
   top: 0;
-  bottom: var(--space-12);
+  bottom: 0;
   width: 1px;
   background: var(--border-card);
 }
@@ -2031,40 +2060,43 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* What it costs: three plain rows, not a third column block. */
 .lpCostRows { margin: var(--space-10) 0 0; border-top: 1px solid var(--border-card); }
 .lpCostRows > div { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--space-8); padding: var(--space-5) 0; border-bottom: 1px solid var(--border); }
+.lpCostRows > div:last-child { border-bottom: 0; }
 .lpCostRows dt { font-weight: 600; }
 .lpCostRows dd { margin: 0; color: var(--text-subtle); line-height: var(--leading-relaxed); max-width: 60ch; }
 
 
 
-/* ── The journey: four stations, one 600×400 frame each, sides alternating ── */
-.lpJourneySteps { list-style: none; margin: var(--space-10) 0 0; padding: 0; display: grid; gap: var(--space-16); }
+/* ── The journey: four rows on one rhythm — numeral, claim, one 480×280 crop ── */
+.lpJourneySteps { list-style: none; margin: var(--space-8) 0 0; padding: 0; border-top: 1px solid var(--border-card); }
 .lpJourneyStep {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 600px);
-  gap: var(--space-10);
-  align-items: center;
+  grid-template-columns: 64px minmax(0, 1fr) 480px;
+  gap: var(--space-8);
+  align-items: start;
+  padding: var(--space-8) 0;
+  border-bottom: 1px solid var(--border);
 }
-.lpJourneyStep:nth-child(even) { grid-template-columns: minmax(0, 600px) minmax(0, 1fr); }
-.lpJourneyStep:nth-child(even) .lpJourneyText { order: 2; }
-.lpJourneyText { display: flex; flex-direction: column; gap: var(--space-3); align-items: flex-start; }
-.lpJourneyTitle { font-size: var(--text-lg); font-weight: 600; letter-spacing: var(--tracking-tight); }
-.lpJourneyBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); }
+.lpJourneyStep:last-child { border-bottom: 0; }
+.lpJourneyStep > .folio { padding-top: 7px; }
+.lpJourneyText { display: flex; flex-direction: column; gap: var(--space-3); align-items: flex-start; max-width: 44ch; }
+.lpJourneyTitle { font-size: var(--text-lg); font-weight: 600; letter-spacing: var(--tracking-tight); line-height: var(--leading-snug); text-wrap: balance; }
+.lpJourneyBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); text-wrap: pretty; }
 
-/* ── The honest note on testimonials: one footnote under the final ask ──── */
-.lpQuoteSlot {
-  margin: var(--space-8) 0 0;
+/* ── The page's one footnote: privacy, the screenshots, the testimonials ── */
+.lpFootnote {
+  margin: var(--space-10) 0 0;
   padding: var(--space-4) 0 0;
   border-top: 1px solid var(--border);
   color: var(--muted);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
-  max-width: 62ch;
+  max-width: 72ch;
 }
 
 /* ── Close ─────────────────────────────────────────────────────────────────── */
 .lpClose { padding: var(--space-20) 0 var(--space-16); border-top: 1px solid var(--border); }
 .lpCloseSub { font-size: var(--text-md); color: var(--text-subtle); max-width: 520px; margin: 0 0 var(--space-6); line-height: var(--leading-relaxed); }
-.lpPrivacy { font-size: var(--text-sm); color: var(--muted); max-width: 520px; margin: var(--space-6) 0 0; line-height: var(--leading-normal); }
+
 
 .lpFooter {
   display: flex;
@@ -2082,7 +2114,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .lpFooterLinks a:hover { color: var(--text); text-decoration: underline; }
 
 @media (max-width: 1000px) {
-  .lpJourneyStep { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+  .lpJourneyStep { grid-template-columns: 64px minmax(0, 1fr) minmax(0, 440px); }
 }
 @media (max-width: 900px) {
   .lpColumns--3 { --lp-cols: 1; }
@@ -2090,8 +2122,8 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 }
 @media (max-width: 860px) {
   .lpHero { grid-template-columns: 1fr; gap: var(--space-10); align-items: start; }
-  .lpJourneyStep, .lpJourneyStep:nth-child(even) { grid-template-columns: 1fr; gap: var(--space-4); }
-  .lpJourneyStep:nth-child(even) .lpJourneyText { order: 0; }
+  .lpJourneyStep { grid-template-columns: 64px minmax(0, 1fr); gap: var(--space-4) var(--space-5); }
+  .lpJourneyStep > .lpShot { grid-column: 2; }
   .lpCostRows > div { grid-template-columns: 1fr; gap: var(--space-2); }
 }
 @media (max-width: 640px) {
@@ -2102,6 +2134,8 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   .lpColumn { padding-right: 0; }
 
   .lpHero { padding-top: var(--space-10); padding-bottom: var(--space-12); }
+  .lpSub { font-size: var(--text-base); }
+  .lpJourneyStep > .lpShot { grid-column: 1 / -1; max-width: 100%; }
   .lpHeroCta { align-items: stretch; flex-direction: column; }
   .lpClose .cta { width: 100%; }
   .lpShowScoreLists { grid-template-columns: 1fr; }
@@ -2162,9 +2196,11 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   gap: var(--space-3);
   margin-bottom: var(--space-4);
 }
-.appsToolbarSearch { grid-column: 1; grid-row: 1; }
-.appsToolbarActions { grid-column: 2; grid-row: 1; justify-content: flex-end; }
-.appsToolbarFilters { grid-column: 1 / -1; grid-row: 2; }
+.appsToolbarSearch { grid-column: 1 / -1; grid-row: 1; }
+.appsToolbarFilters { grid-column: 1; grid-row: 2; }
+.appsToolbarActions { grid-column: 2; grid-row: 2; justify-content: flex-end; }
+/* The status chips ARE the filter, on the search's row. */
+.appsToolbarSearch > .appsFunnel { margin: 0; flex: 1 1 auto; }
 @media (max-width: 720px) {
   /* Stacked: find, then narrow, then act — the action last so it isn't
      wedged between the two controls that describe what it will export. */
@@ -2172,7 +2208,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   .appsToolbarSearch,
   .appsToolbarActions,
   .appsToolbarFilters { grid-column: 1; grid-row: auto; }
-  .appsToolbarActions { order: 3; }
+  .appsToolbarActions { order: 3; justify-content: flex-start; }
   .appsToolbarSearch .appsSearchWrap { width: 100%; }
   .appsToolbar .appsSearch { width: 100%; }
   .appsToolbarSearch { width: 100%; }
@@ -2245,7 +2281,28 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm), var(--surface-inset);
 }
-.appsTable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--text-sm); }
+.appsTable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--text-sm); table-layout: fixed; }
+.appsTable th:nth-child(1) { width: 150px; }
+.appsTable th:nth-child(2) { width: 160px; }
+.appsTable th:nth-child(3), .appsTable th:nth-child(4) { width: 54px; }
+.appsTable th:nth-child(5) { width: 56px; }
+.appsTable th:nth-child(6) { width: 128px; }
+.appsTable th:nth-child(7) { width: 62px; }
+.appsTable th:nth-child(8) { width: 116px; }
+.appsTable th:nth-child(9) { width: 112px; }
+.appsTable th.appsActions { width: 158px; }
+/* The gate is a dot (its sentence is the title, and the CV panel carries the
+   line); the row actions are text, not three pills. */
+.appsGateDot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); margin-left: 10px; cursor: help; }
+.appsGateDot.matched { background: var(--success); }
+.appsGateDot.longshot { background: var(--amber); }
+.appsGateDot.knockout { background: var(--danger); }
+.appsTable .appsActionBtn { border: 0; padding: 0 1px; margin-left: 6px; background: none; min-height: 0; font-size: var(--text-sm); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.appsTable .appsActionBtn:hover:not(:disabled) { background: none; color: var(--text); text-decoration-color: currentColor; }
+.appsTable .appsActionBtn.primary { color: var(--text-subtle); }
+.appsTable th { padding-left: 10px; padding-right: 10px; }
+.appsTable td > .appsCellSelect, .appsTable td > .appsLinkBtn, .appsTable td > .appsCellStatic, .appsTable td > .appsStatusWrap > .appsCellSelect { padding-left: 10px; padding-right: 10px; }
+.appsStatusWrap .appsCellSelect { padding-right: 26px; }
 .appsTable th {
   position: sticky;
   top: 0;
@@ -2272,7 +2329,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .appsTable th, .appsTable td { border-right: none; }
 .appsTable td { height: 44px; }
 .appsLinkBtn.muted { opacity: 0.55; }
-.appsTable td[data-label="Notes"] { max-width: 220px; }
+.appsTable td[data-label="Notes"] { overflow: hidden; }
 .appsRow td { transition: background var(--duration-fast) var(--ease); }
 .appsRow:hover td { background: var(--surface-2); }
 .appsRow.open td { background: var(--surface-2); }
@@ -2553,6 +2610,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   }
   .appBarActions.open > .appBarPhoneOnly { display: inline-flex; }
   .appBarActions.open > .appBarAccount { display: none; }
+  .appBarScrim { display: block; position: absolute; left: 0; right: 0; top: 100%; height: 100vh; background: color-mix(in srgb, var(--bg) 70%, transparent); z-index: 39; }
   .appBarActions.open .customizeLink { min-height: 44px; justify-content: flex-start; border-radius: 0; border-top: 1px solid var(--border-card); }
   .appBar { flex-wrap: wrap; }
   .pageHead { margin-top: var(--space-6); padding-left: var(--space-4); }
@@ -2560,7 +2618,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   .appsFunnel { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--space-1); }
   .appsToolbar .appsSearch, .appsSearchWrap, .appsToolbarSearch { width: 100%; }
   .inputCard, .scoreCard, .gateCard { padding: var(--space-5); }
-  .feedbackWidget { width: min(var(--container), 100% - 2 * var(--space-4)); }
+  .appFooter { padding-inline: var(--space-4); }
 }
 
 /* ── /app UX pass: usage chip, detected role, loading meta, results header ── */
@@ -2865,7 +2923,21 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .appsFunnelChip.active strong { color: var(--text); }
 .appsFunnelChip.zero { opacity: 0.55; }
 .appsFunnelChip.due { border-color: var(--amber-border); color: var(--amber-bright); }
-.appsStatusWrap { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 132px; }
+.appsStatusWrap { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; width: 100%; position: relative; }
+/* The product's chevron on the status select, not the platform's. */
+.appsStatusWrap::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+.appsStatusWrap .appsCellSelect { -webkit-appearance: none; appearance: none; padding-right: 26px; }
 .appsStatusDot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .appsStatusDot.neutral { background: var(--text-subtle); }
 .appsStatusDot.success { background: var(--success); }
@@ -2874,7 +2946,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .appsCellBtn.due { color: var(--text); font-weight: 600; }
 /* The status select shows its whole word; the CV / JD cells are links in
    the text colour, not amber. */
-.appsTable td .appsSelect { min-width: 136px; }
+.appsTable td .appsSelect { min-width: 0; }
 .appsTable .appsLinkBtn:not(.muted) { color: var(--text-subtle); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
 .appsTable .appsLinkBtn:not(.muted):hover { color: var(--amber-bright); text-decoration-color: currentColor; }
 /* Opacity-only overlay flash — background/box-shadow are never animated here. */
@@ -2929,6 +3001,8 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .prepHeadActions { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
 .prepHeadActions > .cta:not(.secondary):not(.ghost):not(.danger) { order: -1; }
 .prepHeadActions .cta { min-height: 40px; }
+.prepHeadActions { gap: var(--space-4); }
+.prepPack { margin-top: var(--space-6); border-top: 1px solid var(--border-card); padding-top: var(--space-5); }
 
 .prepHero ul { margin: var(--space-3) 0 var(--space-4); padding-left: 1.2em; color: var(--text-subtle); font-size: var(--text-sm); line-height: var(--leading-normal); }
 .prepHero li + li { margin-top: var(--space-1); }
@@ -2950,7 +3024,7 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .prepList { margin: 0; padding-left: 1.2em; color: var(--text-subtle); font-size: var(--text-sm); line-height: var(--leading-normal); max-width: var(--measure-prose); }
 .prepList li + li { margin-top: var(--space-2); }
 .prepList strong { color: var(--text); }
-.prepGaps { margin-top: var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid var(--border-card); background: var(--surface-2); border-radius: var(--radius-md); }
+.prepGaps { margin-top: var(--space-4); padding: var(--space-1) 0 var(--space-1) var(--space-4); border-left: 3px solid var(--amber); }
 .prepGapsTitle { font-size: var(--text-sm); font-weight: 600; color: var(--text); margin-bottom: var(--space-2); }
 
 .prepFilters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
@@ -3242,6 +3316,11 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
   align-items: start;
 }
 .interviewLayout--room { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+/* During setup the rounds are the control and the interviewer a 340px
+   portrait at the right; in the room the stage leads. */
+.interviewLayout:not(.interviewLayout--room) { grid-template-columns: minmax(0, 1fr) 340px; }
+.interviewLayout:not(.interviewLayout--room) > .interviewLayout__stage { order: 2; }
+.interviewLayout:not(.interviewLayout--room) > .interviewLayout__side { order: 1; }
 .interviewLayout[hidden] { display: none; }
 .interviewPage { max-width: var(--container-wide); }
 .interviewBand {
@@ -3419,7 +3498,7 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .interviewPast li > .inlineLink { margin-left: auto; }
 
 @media (max-width: 900px) {
-  .interviewLayout, .interviewLayout--room { grid-template-columns: minmax(0, 1fr); }
+  .interviewLayout, .interviewLayout--room, .interviewLayout:not(.interviewLayout--room) { grid-template-columns: minmax(0, 1fr); }
   .interviewLayout__stage { position: static; }
   /* One column: during setup the round picker comes first and the (possibly
      still loading) 3D stage after it; in the room the interviewer leads. */
