@@ -20,6 +20,8 @@ import {
   fetchPage,
   assertSafeUrl,
   UnsafeUrlError,
+  FetchPageError,
+  describeFetchFailure,
   extractLinks,
   extractTitle,
   extractMetaDescription,
@@ -113,10 +115,12 @@ export async function POST(req: NextRequest) {
       if (e instanceof UnsafeUrlError) {
         return NextResponse.json({ error: e.message }, { status: 400 });
       }
-      return NextResponse.json(
-        { error: "Couldn't reach that site. Check the URL and try again." },
-        { status: 422 }
-      );
+      // What actually happened — a certificate problem is the site's, not the
+      // URL's (lib/fetchPage repairs an incomplete chain first; this is what is
+      // left). The kind rides along for the log and the client.
+      const failure = e instanceof FetchPageError ? e : describeFetchFailure(e);
+      console.warn(`Research: homepage fetch failed (${failure.kind}${failure.code ? " " + failure.code : ""})`);
+      return NextResponse.json({ error: failure.message, errorType: `fetch_${failure.kind}` }, { status: 422 });
     }
     if (homepage.status >= 400 || !homepage.body.trim()) {
       return NextResponse.json(
