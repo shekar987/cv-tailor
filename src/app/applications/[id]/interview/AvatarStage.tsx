@@ -73,9 +73,9 @@ const AvatarStage = forwardRef<AvatarHandle, Props>(function AvatarStage({ url, 
           // face has shape; a soft ambient fill; a cool rim from behind to lift
           // the head off the backdrop. TalkingHead's default lights her from
           // the side and behind, which left the face flat and washed out.
-          lightAmbientIntensity: 0.9,
+          lightAmbientIntensity: 0.8,
           lightDirectColor: "#fff1e0",
-          lightDirectIntensity: 10,
+          lightDirectIntensity: 7,
           lightDirectPhi: 0.95,
           lightDirectTheta: 0.6,
           lightSpotIntensity: 4,

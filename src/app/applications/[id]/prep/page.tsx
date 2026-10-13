@@ -307,8 +307,6 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
         />
         <p className="prepBack">
           <Link href="/applications" className="inlineLink">← Back to applications</Link>
-          {" · "}
-          <Link href={`/applications/${id}/interview`} className="inlineLink">Practise out loud with a mock interviewer</Link>
         </p>
 
         {load === "loading" && (

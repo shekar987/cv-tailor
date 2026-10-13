@@ -61,12 +61,14 @@ void main() {
   float fibre = fbm(vec2(p.x * 160.0, p.y * 28.0));
   vec3 col = u_desk * (0.86 + 0.28 * fibre);
 
-  // The lamp.
-  float dist = distance(p, lamp);
+  // The lamp: a pool stretched along the desk, so its light reaches the
+  // sheet of paper at the right of the hero and does not stop at the corner.
+  vec2 off = p - lamp;
+  float dist = length(vec2(off.x * 0.55, off.y * 1.1));
   float breathe = 1.0 + 0.04 * sin(u_time * 0.45);
-  float light = breathe / (1.0 + 8.0 * dist * dist) * smoothstep(0.95, 0.0, dist);
+  float light = breathe / (1.0 + 4.0 * dist * dist) * smoothstep(1.35, 0.0, dist);
   vec3 lampCol = mix(u_amber, u_amberHi, 0.35);
-  col = col * (0.7 + 0.6 * light) + lampCol * light * 0.18;
+  col = col * (0.7 + 0.6 * light) + lampCol * light * 0.15;
 
   // Grain, then the fade into the page at the bottom edge.
   col += (hash(gl_FragCoord.xy + fract(u_time) * 7.0) - 0.5) * u_grain;

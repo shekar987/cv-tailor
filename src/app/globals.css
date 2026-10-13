@@ -164,6 +164,8 @@
   --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.25), 0 6px 16px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.4);
   --shadow-doc: 0 4px 24px rgba(0, 0, 0, 0.3);
+  --shadow-paper: 24px 36px 72px -12px rgba(0, 0, 0, 0.65), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --text-lp: 17px;
   --focus-ring: 0 0 0 3px var(--amber-dim);
 
   --measure-prose: 62ch;
@@ -186,6 +188,8 @@
 html {
   background: var(--bg);
 }
+/* The desk under the sign-in sheet: the lamp from the corner, as on the landing. */
+html:has(main.authPage) { background: var(--bg-gradient); background-attachment: fixed; }
 body {
   background: transparent;
   color: var(--text);
@@ -460,10 +464,13 @@ body {
 }
 /* Settles rather than just nudging — the shadow drops with the button. */
 .cta:active:not(:disabled) { background: var(--amber); }
-/* A disabled primary is the same filled button at half strength — never a
-   fourth kind of button. */
+/* A disabled primary is the same button outlined — amber text on the amber
+   border, no fill — never a dimmed fill (three critics read that as mud). */
 .cta:disabled:not(.secondary, .ghost, .danger) {
-  opacity: 0.5;
+  background: transparent;
+  color: var(--amber);
+  border-color: var(--amber-border);
+  opacity: 0.75;
 }
 
 
@@ -609,8 +616,9 @@ body {
 .container--ruled .cstSectionHead:hover { background: none; }
 /* The pasted posting is input: a size down, in the subtle tone, so the
    output beneath it is the louder text. */
-#jd { font-size: var(--text-sm); color: var(--text-subtle); max-width: 760px; resize: none; }
-#jd + .charCount { max-width: 760px; }
+#jd { font-size: var(--text-sm); color: var(--text-subtle); max-width: 808px; resize: none; }
+#jd + .charCount { max-width: 808px; }
+.researchRow { max-width: 808px; }
 
 /* Pre-tailoring gate — a quick, free preview shown before the paid
    pipeline runs. Dashed = "not yet"; .scoreCard (the real, post-tailoring
@@ -1386,7 +1394,7 @@ textarea { resize: vertical; min-height: 96px; }
   gap: var(--space-4); flex-wrap: wrap;
 }
 .cvSavedLabel {
-  font-size: var(--text-base); font-weight: 600; color: var(--success);
+  font-size: var(--text-sm); font-weight: 500; color: var(--text);
   display: flex; align-items: center; gap: var(--space-2);
 }
 .cvSavedMeta { font-size: var(--text-xs); color: var(--muted); margin-top: var(--space-1); }
@@ -1932,12 +1940,14 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .lpHero {
   position: relative;
   isolation: isolate;
-  padding: var(--space-16) 0 var(--space-20);
+  padding: var(--space-16) 0 var(--space-16);
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  gap: var(--space-16);
+  grid-template-columns: minmax(0, 1fr) 540px;
+  grid-template-areas: "text paper" "ledger ledger";
+  gap: var(--space-14, 56px) var(--space-16);
   align-items: center;
 }
+.lpHeroText { grid-area: text; }
 .lpHeroBackdrop {
   position: absolute;
   top: -120px;
@@ -1948,12 +1958,12 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   pointer-events: none;
   background:
     linear-gradient(to bottom, transparent 82%, var(--bg)),
-    radial-gradient(ellipse 48% 42% at 10% 6%, var(--lp-lamp), transparent 65%),
+    radial-gradient(ellipse 90% 72% at 14% 8%, var(--lp-lamp), transparent 70%),
     var(--lp-desk);
 }
 .lpHeroCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .lpHeroBackdrop[data-hero-state="fallback"] .lpHeroCanvas { display: none; }
-.lpHeroText { min-width: 0; }
+.lpHeroText { min-width: 0; grid-area: text; }
 /* A full sentence set as a display line — tight, two lines, no shout. */
 .lpTitle, .lpHero h1 {
   font-size: clamp(2.75rem, 1rem + 5vw, 4.75rem);
@@ -1963,36 +1973,51 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   margin-bottom: var(--space-6);
   text-wrap: balance;
 }
-.lpSub { font-size: var(--text-md); line-height: var(--leading-relaxed); color: var(--text-subtle); max-width: 46ch; }
+.lpSub { font-size: var(--text-lp); line-height: 1.65; color: var(--text-subtle); max-width: 46ch; }
 .lpHeroCta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-top: var(--space-8); }
 
 /* The worked example: the paper CV, then its score as a ledger, then the
    one honest line about it. Hand-built with its own scoped classes (never
    the real .cvDoc / .scoreCard — this page never imports CvPreview.tsx). */
-.lpExample { display: grid; gap: var(--space-5); min-width: 0; }
+.lpExample { grid-area: paper; min-width: 0; }
+/* The paper: the one bright object, lit from the lamp's side, with the long
+   shadow a sheet casts on a desk. */
 .lpShowCv {
-  background: var(--doc-paper); color: var(--doc-ink); border-radius: var(--radius-lg);
-  padding: var(--space-5) var(--space-6); box-shadow: var(--shadow-lg);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--amber) 10%, var(--doc-paper)), var(--doc-paper) 55%);
+  color: var(--doc-ink); border-radius: 3px;
+  padding: 30px 34px 28px; box-shadow: var(--shadow-paper);
   overflow-wrap: anywhere;
 }
-.lpCvName { font-size: 17px; font-weight: 700; color: var(--doc-navy); text-align: center; margin-bottom: 2px; }
-.lpCvContact { font-size: 10.5px; color: var(--doc-body); text-align: center; margin-bottom: 12px; overflow-wrap: anywhere; }
+.lpCvName { font-size: 19px; font-weight: 700; color: var(--doc-navy); text-align: center; margin-bottom: 3px; letter-spacing: 0.02em; }
+.lpCvContact { font-size: 12px; color: var(--doc-body); text-align: center; margin-bottom: 14px; overflow-wrap: anywhere; }
 .lpCvHead {
-  font-size: 10.5px; font-weight: 700; color: var(--doc-navy); text-transform: uppercase; letter-spacing: 0.04em;
+  font-size: 11.5px; font-weight: 700; color: var(--doc-navy); text-transform: uppercase; letter-spacing: 0.05em;
   border-bottom: 1.5px solid var(--doc-navy); padding-bottom: 3px; margin-bottom: 8px;
 }
-.lpCvJob { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-weight: 700; font-size: 12px; margin-bottom: 6px; }
+.lpCvSummary { font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
+.lpCvJob { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-weight: 700; font-size: 13px; margin-bottom: 6px; }
 .lpCvDate { white-space: nowrap; flex-shrink: 0; margin-left: auto; color: var(--doc-body); font-weight: 600; }
 .lpCvBullets { list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.lpCvBullets li { font-size: 11.5px; line-height: 1.5; padding-left: 13px; position: relative; }
+.lpCvBullets li { font-size: 13px; line-height: 1.5; padding-left: 14px; position: relative; }
 .lpCvBullets li::before { content: '•'; position: absolute; left: 0; color: var(--doc-navy); }
 .lpShowCv mark { background: var(--amber-dim); color: var(--doc-mark); padding: 0 3px; border-radius: 3px; font-weight: 600; }
 
-.lpShowScore { border-top: 1px solid var(--border-strong); padding-top: var(--space-4); }
+/* The ledger band: the figure, then every term — matched in two columns. */
+.lpLedger {
+  grid-area: ledger;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--space-6) var(--space-10);
+  align-items: start;
+  border-top: 1px solid var(--border-strong);
+  padding-top: var(--space-6);
+}
+.lpLedger > .lpShowNote { grid-column: 1 / -1; }
 .lpShowScoreLabel { font-weight: 500; color: var(--muted); margin-bottom: var(--space-3); }
-.lpShowScoreRow { display: flex; align-items: flex-end; gap: var(--space-5); flex-wrap: wrap; margin-bottom: var(--space-4); }
-.lpShowScoreValue { font-size: 56px; font-weight: 300; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-hero); line-height: 1; }
-.lpShowScoreSub { font-size: var(--text-sm); color: var(--text-subtle); line-height: var(--leading-snug); max-width: 24ch; padding-bottom: 4px; }
+.lpShowScoreValue { font-size: 96px; font-weight: 300; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-hero); line-height: 0.95; }
+.lpShowScoreSub { font-size: var(--text-sm); color: var(--text-subtle); line-height: var(--leading-snug); max-width: 30ch; margin-top: var(--space-3); }
+.lpShowScoreGroup--hits .lpShowScoreList { columns: 2; column-gap: var(--space-6); display: block; }
+.lpShowScoreGroup--hits .lpShowScoreList li { break-inside: avoid; margin-bottom: var(--space-2); }
 .lpShowScoreLists { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); border-top: 1px solid var(--border); padding-top: var(--space-4); }
 .lpShowScoreGroupLabel { font-weight: 600; margin-bottom: var(--space-2); }
 .lpShowScoreGroupLabel.hits { color: var(--success); }
@@ -2053,16 +2078,16 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   border-top: 1px solid var(--border-card);
 }
 .lpColumns--3 { --lp-cols: 3; }
-.lpColumn { padding: var(--space-6) var(--space-8) var(--space-2) 0; min-width: 0; }
-.lpColumn + .lpColumn { border-left: 1px solid var(--border-card); padding-left: var(--space-8); }
+.lpColumn { padding: var(--space-6) var(--space-12) var(--space-2) 0; min-width: 0; }
+.lpColumn + .lpColumn { padding-left: 0; }
 .lpColumnTitle { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--space-3); letter-spacing: var(--tracking-tight); }
-.lpColumnBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); max-width: 40ch; text-wrap: pretty; }
+.lpColumnBody { font-size: var(--text-lp); line-height: 1.65; color: var(--text-subtle); max-width: 40ch; text-wrap: pretty; }
 /* What it costs: three plain rows, not a third column block. */
 .lpCostRows { margin: var(--space-10) 0 0; border-top: 1px solid var(--border-card); }
 .lpCostRows > div { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--space-8); padding: var(--space-5) 0; border-bottom: 1px solid var(--border); }
 .lpCostRows > div:last-child { border-bottom: 0; }
 .lpCostRows dt { font-weight: 600; }
-.lpCostRows dd { margin: 0; color: var(--text-subtle); line-height: var(--leading-relaxed); max-width: 60ch; }
+.lpCostRows dd { margin: 0; color: var(--text-subtle); font-size: var(--text-lp); line-height: 1.65; max-width: 60ch; }
 
 
 
@@ -2080,22 +2105,22 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .lpJourneyStep > .folio { padding-top: 7px; }
 .lpJourneyText { display: flex; flex-direction: column; gap: var(--space-3); align-items: flex-start; max-width: 44ch; }
 .lpJourneyTitle { font-size: var(--text-lg); font-weight: 600; letter-spacing: var(--tracking-tight); line-height: var(--leading-snug); text-wrap: balance; }
-.lpJourneyBody { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--text-subtle); text-wrap: pretty; }
+.lpJourneyBody { font-size: var(--text-lp); line-height: 1.65; color: var(--text-subtle); text-wrap: pretty; }
 
-/* ── The page's one footnote: privacy, the screenshots, the testimonials ── */
+/* ── The page's one footnote, in the footer: privacy, the screenshots, the testimonials ── */
 .lpFootnote {
-  margin: var(--space-10) 0 0;
-  padding: var(--space-4) 0 0;
-  border-top: 1px solid var(--border);
+  flex-basis: 100%;
+  margin: 0 0 var(--space-4);
   color: var(--muted);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
-  max-width: 72ch;
+  max-width: 76ch;
 }
 
 /* ── Close ─────────────────────────────────────────────────────────────────── */
 .lpClose { padding: var(--space-20) 0 var(--space-16); border-top: 1px solid var(--border); }
-.lpCloseSub { font-size: var(--text-md); color: var(--text-subtle); max-width: 520px; margin: 0 0 var(--space-6); line-height: var(--leading-relaxed); }
+.lpClose .lpH2 { font-size: var(--text-3xl); max-width: none; }
+.lpCloseSub { font-size: var(--text-lp); color: var(--text-subtle); max-width: 60ch; margin: 0 0 var(--space-6); line-height: 1.65; }
 
 
 .lpFooter {
@@ -2121,7 +2146,9 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   .lpColumns--3 .lpColumn + .lpColumn { border-left: 0; border-top: 1px solid var(--border-card); padding-left: 0; }
 }
 @media (max-width: 860px) {
-  .lpHero { grid-template-columns: 1fr; gap: var(--space-10); align-items: start; }
+  .lpHero { grid-template-columns: 1fr; grid-template-areas: "text" "paper" "ledger"; gap: var(--space-10); align-items: start; }
+  .lpLedger { grid-template-columns: 1fr; }
+  .lpShowScoreGroup--hits .lpShowScoreList { columns: 1; }
   .lpJourneyStep { grid-template-columns: 64px minmax(0, 1fr); gap: var(--space-4) var(--space-5); }
   .lpJourneyStep > .lpShot { grid-column: 2; }
   .lpCostRows > div { grid-template-columns: 1fr; gap: var(--space-2); }
@@ -2134,7 +2161,8 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   .lpColumn { padding-right: 0; }
 
   .lpHero { padding-top: var(--space-10); padding-bottom: var(--space-12); }
-  .lpSub { font-size: var(--text-base); }
+  .lpSub, .lpColumnBody, .lpJourneyBody, .lpCostRows dd, .lpCloseSub { font-size: var(--text-base); }
+  .lpShowCv { padding: 22px 20px; }
   .lpJourneyStep > .lpShot { grid-column: 1 / -1; max-width: 100%; }
   .lpHeroCta { align-items: stretch; flex-direction: column; }
   .lpClose .cta { width: 100%; }
@@ -2282,24 +2310,30 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   box-shadow: var(--shadow-sm), var(--surface-inset);
 }
 .appsTable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--text-sm); table-layout: fixed; }
-.appsTable th:nth-child(1) { width: 150px; }
-.appsTable th:nth-child(2) { width: 160px; }
-.appsTable th:nth-child(3), .appsTable th:nth-child(4) { width: 54px; }
-.appsTable th:nth-child(5) { width: 56px; }
-.appsTable th:nth-child(6) { width: 128px; }
+.appsTable th:nth-child(1) { width: 148px; }
+.appsTable th:nth-child(2) { width: 150px; }
+.appsTable th:nth-child(3), .appsTable th:nth-child(4) { width: 72px; }
+.appsTable th:nth-child(5) { width: 30px; }
+.appsTable th:nth-child(6) { width: 124px; }
 .appsTable th:nth-child(7) { width: 62px; }
 .appsTable th:nth-child(8) { width: 116px; }
 .appsTable th:nth-child(9) { width: 112px; }
-.appsTable th.appsActions { width: 158px; }
+.appsTable th.appsActions { width: 172px; }
+.appsTable th:nth-child(5) { font-size: 0; }
+.appsTable th:nth-child(5)::before { content: "\2022"; font-size: var(--text-xs); }
 /* The gate is a dot (its sentence is the title, and the CV panel carries the
    line); the row actions are text, not three pills. */
-.appsGateDot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); margin-left: 10px; cursor: help; }
+.appsGateDot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); margin-left: 11px; cursor: help; }
 .appsGateDot.matched { background: var(--success); }
 .appsGateDot.longshot { background: var(--amber); }
 .appsGateDot.knockout { background: var(--danger); }
 .appsTable .appsActionBtn { border: 0; padding: 0 1px; margin-left: 6px; background: none; min-height: 0; font-size: var(--text-sm); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
 .appsTable .appsActionBtn:hover:not(:disabled) { background: none; color: var(--text); text-decoration-color: currentColor; }
 .appsTable .appsActionBtn.primary { color: var(--text-subtle); }
+.appsTable .appsActionBtn.danger { margin-left: var(--space-5); }
+/* One control height in the toolbar rows. */
+.appsToolbar .cta, .appsToolbar .appsFunnelChip, .appsToolbar .appsSegBtn, .appsToolbar .appsSearch { min-height: 36px; }
+.appsToolbar .cta { padding-top: 0; padding-bottom: 0; }
 .appsTable th { padding-left: 10px; padding-right: 10px; }
 .appsTable td > .appsCellSelect, .appsTable td > .appsLinkBtn, .appsTable td > .appsCellStatic, .appsTable td > .appsStatusWrap > .appsCellSelect { padding-left: 10px; padding-right: 10px; }
 .appsStatusWrap .appsCellSelect { padding-right: 26px; }
@@ -3318,9 +3352,11 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .interviewLayout--room { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
 /* During setup the rounds are the control and the interviewer a 340px
    portrait at the right; in the room the stage leads. */
-.interviewLayout:not(.interviewLayout--room) { grid-template-columns: minmax(0, 1fr) 340px; }
+.interviewLayout:not(.interviewLayout--room) { grid-template-columns: minmax(0, 1fr) 260px; }
 .interviewLayout:not(.interviewLayout--room) > .interviewLayout__stage { order: 2; }
 .interviewLayout:not(.interviewLayout--room) > .interviewLayout__side { order: 1; }
+/* A portrait frame: taller than 4:5 so the head has room above it at 260px. */
+.interviewLayout:not(.interviewLayout--room) .interviewStage { aspect-ratio: 3 / 4; }
 .interviewLayout[hidden] { display: none; }
 .interviewPage { max-width: var(--container-wide); }
 .interviewBand {

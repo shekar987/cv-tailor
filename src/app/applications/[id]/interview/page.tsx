@@ -379,7 +379,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                 {phase === "setup" && (
                   <>
                     <Card variant="ruled">
-                      <p className="fitEvidence" role="status" data-avatar-progress={avatar.state}>
+                      <p className="fitEvidence" role="status" data-avatar-progress={avatar.state} hidden={avatar.state === "ready"}>
                         {avatar.state === "loading"
                           ? `Loading the 3D interviewer${avatar.pct ? ` · ${avatar.pct}%` : "…"} — choose the round and voice meanwhile; nothing waits for it.`
                           : avatar.state === "ready"

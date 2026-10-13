@@ -191,6 +191,11 @@ export default function Landing() {
             <div className="lpShowCv" aria-label="A worked example of a tailored CV">
               <div className="lpCvName">JORDAN REYES</div>
               <div className="lpCvContact">London · jordan@email.com · linkedin.com/in/jordanreyes</div>
+              <div className="lpCvHead">Professional summary</div>
+              <p className="lpCvSummary">
+                Senior Backend Engineer with six years on payments systems in <mark>Python</mark> — distributed services on
+                PostgreSQL and Kubernetes, with a figure behind each claim.
+              </p>
               <div className="lpCvHead">Experience</div>
               <div className="lpCvJob">
                 <span>Senior Backend Engineer, Northwind Systems</span>
@@ -199,34 +204,41 @@ export default function Landing() {
               <ul className="lpCvBullets">
                 <li>Redesigned the payments service using <mark>PostgreSQL</mark> and event-driven queues, cutting checkout latency 40%.</li>
                 <li>Led migration to <mark>Kubernetes</mark>, reducing deploy time from 25 minutes to under 3.</li>
-                <li>Built internal tooling in <mark>Python</mark> to catch schema drift before it reached production.</li>
+                <li>Built internal tooling in Python to catch schema drift before it reached production.</li>
               </ul>
             </div>
-            <div className="lpShowScore">
+          </div>
+          {/* The ledger: the score as a band under the paper, every term shown. */}
+          <div className="lpLedger" aria-label="The worked example's recruiter search visibility">
+            <div className="lpLedgerScore">
               <div className="lpShowScoreLabel">Recruiter search visibility</div>
-              <div className="lpShowScoreRow">
-                <div className="lpShowScoreValue">12/15</div>
-                <div className="lpShowScoreSub">Ready to send. Required skills in the tailored CV: 8/10 — not present: Go, Kafka.</div>
-              </div>
-              <div className="lpShowScoreLists">
-                <div className="lpShowScoreGroup">
-                  <div className="lpShowScoreGroupLabel hits">Matched (12)</div>
-                  <ul className="lpShowScoreList">
-                    <li className="hit"><span className="dot">✓</span>PostgreSQL — Experience</li>
-                    <li className="hit"><span className="dot">✓</span>Kubernetes — Experience</li>
-                    <li className="hit"><span className="dot">✓</span>Distributed systems — Summary</li>
-                    <li className="more">and 9 more</li>
-                  </ul>
-                </div>
-                <div className="lpShowScoreGroup">
-                  <div className="lpShowScoreGroupLabel misses">Missing (3)</div>
-                  <ul className="lpShowScoreList">
-                    <li className="miss"><span className="dot">✕</span>GraphQL — not in your CV</li>
-                    <li className="miss"><span className="dot">✕</span>Go — not in your CV</li>
-                    <li className="miss"><span className="dot">✕</span>Kafka — not in your CV</li>
-                  </ul>
-                </div>
-              </div>
+              <div className="lpShowScoreValue">12/15</div>
+              <div className="lpShowScoreSub">Ready to send. Required skills in the tailored CV: 8/10 — not present: Go, Kafka.</div>
+            </div>
+            <div className="lpShowScoreGroup lpShowScoreGroup--hits">
+              <div className="lpShowScoreGroupLabel hits">Matched (12)</div>
+              <ul className="lpShowScoreList">
+                <li className="hit"><span className="dot">✓</span>PostgreSQL — Experience</li>
+                <li className="hit"><span className="dot">✓</span>Kubernetes — Experience</li>
+                <li className="hit"><span className="dot">✓</span>Python — Summary</li>
+                <li className="hit"><span className="dot">✓</span>Payments — Experience</li>
+                <li className="hit"><span className="dot">✓</span>Event-driven — Experience</li>
+                <li className="hit"><span className="dot">✓</span>Distributed systems — Summary</li>
+                <li className="hit"><span className="dot">✓</span>Backend — Title</li>
+                <li className="hit"><span className="dot">✓</span>Senior engineer — Title</li>
+                <li className="hit"><span className="dot">✓</span>Deployment — Experience</li>
+                <li className="hit"><span className="dot">✓</span>Latency — Experience</li>
+                <li className="hit"><span className="dot">✓</span>Schema — Experience</li>
+                <li className="hit"><span className="dot">✓</span>Internal tooling — Experience</li>
+              </ul>
+            </div>
+            <div className="lpShowScoreGroup">
+              <div className="lpShowScoreGroupLabel misses">Missing (3)</div>
+              <ul className="lpShowScoreList">
+                <li className="miss"><span className="dot">✕</span>GraphQL — not in your CV</li>
+                <li className="miss"><span className="dot">✕</span>Go — not in your CV</li>
+                <li className="miss"><span className="dot">✕</span>Kafka — not in your CV</li>
+              </ul>
             </div>
             <p className="lpShowNote">A worked example — Jordan and Northwind are made up; the layout, the score and the lists are exactly what the tool produces.</p>
           </div>
@@ -340,18 +352,18 @@ export default function Landing() {
               A CV with ten skills you can defend beats one with twenty that fall apart under questioning.
             </p>
             <Button href="/app">Tailor my CV →</Button>
-            {/* The page's one footnote: privacy, the screenshots, and the honest
-                note on testimonials — never an invented quote. */}
-            <p className="lpFootnote" data-quotes-empty>
-              Your CV stays in your account and is processed only by the AI provider that runs your tailoring. The
-              screenshots above are the real screens on a test account — Alex Tester and every company are made up.
-              Testimonials: Nothing yet — and nothing made up. Real users&apos; words will go here, unedited and with their
-              permission.
-            </p>
           </Reveal>
         </div>
 
         <footer className="lpFooter">
+          {/* The page's one footnote: privacy, the screenshots, and the honest
+              note on testimonials — never an invented quote. */}
+          <p className="lpFootnote" data-quotes-empty>
+            Your CV stays in your account and is processed only by the AI provider that runs your tailoring. The
+            screenshots above are the real screens on a test account — Alex Tester and every company are made up.
+            Testimonials: Nothing yet — and nothing made up. Real users&apos; words will go here, unedited and with their
+            permission.
+          </p>
           <span>Built by Soma Shekar Keesari · <span className="lpFooterTag">Welcome to the jungle.</span></span>
           <nav className="lpFooterLinks" aria-label="Footer">
             <Link href="/auth/login">Sign in</Link>
