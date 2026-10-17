@@ -1,5 +1,8 @@
-import { ABSOLUTE_RULES } from "./rules";
-import { DEFAULT_CLAIMS_BLOCK } from "@/lib/claims";
+// Relative paths with the extension (like every lib module) so node:test can
+// load the prompts: tests/promptSnapshot.test.ts proves the UKJI strings never
+// change by a byte. Turbopack resolves both forms.
+import { ABSOLUTE_RULES } from "./rules.ts";
+import { DEFAULT_CLAIMS_BLOCK } from "../lib/claims.ts";
 
 // Every prompt that writes about the candidate takes a `claimsBlock`: the
 // rendered claims registry (lib/claims renderClaimsBlock) saying what each
