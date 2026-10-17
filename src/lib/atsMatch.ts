@@ -280,17 +280,43 @@ export function matchAtsKeywords(cvText: string, keywords: unknown): AtsMatchRes
 // three prose sections plus every project bullet. Shared by reconcileAtsScore
 // (the score shown after a run) and the tracker (the score stored with an
 // application), so the two can never compute from different text.
-export function tailoredSectionsText(sections: {
-  summary?: unknown;
-  skills?: unknown;
-  experience?: unknown;
-  projects?: unknown;
-}): string {
+// `shape` (lib/formatStyles/ids SkillsShape, taken structurally so this
+// module stays import-free): a grouped skills block's label-only "Technical
+// Tools:" line and its group labels ("Databases:", "Testing:") are not the
+// candidate's claims — they are dropped from the text the scorer and the
+// claims check read, so a label alone can never match a posting term. The
+// flat shape (UKJI) is the text exactly as before.
+const LABEL_LINE_RE = /^(\s*\**\s*)([^:|•]{1,40}?)(\s*\**\s*:\s*\**\s*)(.*)$/;
+function withoutGroupLabels(skills: string, groups: readonly string[]): string {
+  const keys = new Set(groups.map((g) => g.trim().toLowerCase()));
+  return skills
+    .split("\n")
+    .map((line) => {
+      const m = LABEL_LINE_RE.exec(line);
+      if (!m) return line;
+      const label = m[2].trim().toLowerCase();
+      if (label === "technical tools" && !m[4].trim()) return "";
+      return keys.has(label) ? m[4] : line;
+    })
+    .filter((l) => l.trim() !== "")
+    .join("\n");
+}
+
+export function tailoredSectionsText(
+  sections: {
+    summary?: unknown;
+    skills?: unknown;
+    experience?: unknown;
+    projects?: unknown;
+  },
+  shape?: { grouped: boolean; groups: readonly string[] }
+): string {
   const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const skillsText = shape?.grouped ? withoutGroupLabels(str(sections.skills), shape.groups) : str(sections.skills);
   const projectText = Object.values(
     (sections.projects && typeof sections.projects === "object" ? sections.projects : {}) as Record<string, unknown>
   )
     .flatMap((v) => (Array.isArray(v) ? v.filter((b): b is string => typeof b === "string") : []))
     .join("\n");
-  return [str(sections.summary), str(sections.skills), str(sections.experience), projectText].filter(Boolean).join("\n");
+  return [str(sections.summary), skillsText, str(sections.experience), projectText].filter(Boolean).join("\n");
 }

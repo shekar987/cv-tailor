@@ -22,6 +22,8 @@
 // browser (the live re-check) and under node:test.
 
 import { matchAtsKeywords } from "./atsMatch.ts";
+import { FLAT_SKILLS, type SkillsShape } from "./formatStyles/ids.ts";
+import { parseSkillsBlock, toolItems, toolLines, writeToolLines, addToolItem } from "./skillsLines.ts";
 import { unglue } from "./textRuns.ts";
 
 export type ClaimLevel = "production" | "project" | "learning";
@@ -718,8 +720,11 @@ function rangesIn(text: string): { raw: string; key: string; index: number }[] {
 const TOOLS_LINE_RE = /^(\s*\**\s*technical tools\s*\**\s*:\s*\**\s*)(.*)$/im;
 
 // The items on the "Technical Tools:" line, in order.
-export function technicalTools(skills: unknown): string[] {
+// `shape` (lib/formatStyles): the grouped block's items in reading order
+// across its group lines; the flat line as before.
+export function technicalTools(skills: unknown, shape: SkillsShape = FLAT_SKILLS): string[] {
   if (typeof skills !== "string") return [];
+  if (shape.grouped) return toolItems(parseSkillsBlock(skills, shape));
   const m = TOOLS_LINE_RE.exec(skills);
   if (!m) return [];
   return m[2].split(/\s*[|·•,]\s*/).map((t) => t.trim()).filter(Boolean);
@@ -728,8 +733,9 @@ export function technicalTools(skills: unknown): string[] {
 // Moves any project-level skill out of the first TOOLS_LEAD_SLOTS Technical
 // Tools (to the end of the line) — deterministic, so no model call is needed
 // to satisfy the lead-tool rule. Returns the demoted names.
-export function demoteProjectTools(skills: unknown, projectSkillNames: string[]): { skills: unknown; demoted: string[] } {
+export function demoteProjectTools(skills: unknown, projectSkillNames: string[], shape: SkillsShape = FLAT_SKILLS): { skills: unknown; demoted: string[] } {
   if (typeof skills !== "string") return { skills, demoted: [] };
+  if (shape.grouped) return demoteGrouped(skills, projectSkillNames, shape);
   const m = TOOLS_LINE_RE.exec(skills);
   if (!m) return { skills, demoted: [] };
   const items = m[2].split(/\s*\|\s*/).map((t) => t.trim()).filter(Boolean);
@@ -741,6 +747,31 @@ export function demoteProjectTools(skills: unknown, projectSkillNames: string[])
   const kept = items.filter((i) => !demoted.includes(i));
   const line = `${m[1]}${[...kept, ...demoted].join(" | ")}`;
   return { skills: skills.replace(TOOLS_LINE_RE, line.replace(/\$/g, "$$$$")), demoted };
+}
+// The grouped block (lib/formatStyles, CareerSet): the lead slots are the
+// first TOOLS_LEAD_SLOTS items in reading order across the group lines. A
+// project-level tool among them leaves its group for the "Other" line
+// (made when the block has none) — the one place a demoted tool can sit
+// without mislabelling it — until none is left in the lead, or no move can
+// help (a short block, as on the flat line: the claims check then reports it).
+function demoteGrouped(skills: string, projectSkillNames: string[], shape: SkillsShape): { skills: unknown; demoted: string[] } {
+  const isProject = (item: string) => projectSkillNames.some((n) => skillMentioned(item, n));
+  let block = parseSkillsBlock(skills, shape);
+  const demoted: string[] = [];
+  const moved = new Set<string>();
+  for (let round = 0; round < 40; round++) {
+    const items = toolItems(block);
+    if (items.length <= TOOLS_LEAD_SLOTS) break;
+    const offender = items.slice(0, TOOLS_LEAD_SLOTS).find((i) => isProject(i) && !moved.has(i));
+    if (!offender) break;
+    moved.add(offender);
+    const perLine = toolLines(block).map((l) => l.items.filter((i) => i !== offender));
+    block = parseSkillsBlock(writeToolLines(block, perLine), shape);
+    block = parseSkillsBlock(addToolItem(block, offender, "Other"), shape);
+    demoted.push(offender);
+  }
+  if (demoted.length === 0) return { skills, demoted: [] };
+  return { skills: block.lines.join("\n"), demoted };
 }
 export type ClaimCheck = {
   mode: ClaimMode;
@@ -758,7 +789,9 @@ export type ClaimCheck = {
 // CV: a project-only skill appearing there is a production claim.
 // `skills` is the skills section alone: a project-only skill among the lead
 // Technical Tools is a claim too.
-export type ClaimPart = { where: ClaimWhere; text: string; extraSources?: (string | null | undefined)[]; experience?: unknown; skills?: unknown };
+// `skillsShape`: how the skills section is read for the lead-tool rule (the
+// flat line when absent; the grouped block's reading order for CareerSet).
+export type ClaimPart = { where: ClaimWhere; text: string; extraSources?: (string | null | undefined)[]; experience?: unknown; skills?: unknown; skillsShape?: SkillsShape };
 
 // Wording that turns a mention into a competency claim: "proficient in X",
 // "experienced with X", "strong X skills", "3 years of X".
@@ -925,7 +958,7 @@ export function checkClaims(
     // — the registry is the candidate's statement, the CV bullet is the
     // overclaim it corrects), among the lead Technical Tools, or with
     // proficiency wording anywhere.
-    const leadTools = technicalTools(part.skills).slice(0, TOOLS_LEAD_SLOTS);
+    const leadTools = technicalTools(part.skills, part.skillsShape).slice(0, TOOLS_LEAD_SLOTS);
     for (const s of projectSkills) {
       if (!mentions(part.text, s.name)) continue;
       // Bullets only: a "Role | Employer | Dates" header line names no skill.

@@ -36,6 +36,8 @@ import {
   type GraftRule,
 } from "./claims.ts";
 import { tailoredSectionsText } from "./atsMatch.ts";
+import { FLAT_SKILLS, type SkillsShape } from "./formatStyles/ids.ts";
+import { splitItems, stripGroupLabels } from "./skillsLines.ts";
 
 export type RepairSection = "summary" | "skills" | "experience" | "projects" | "coverLetter";
 export type RepairSections = {
@@ -88,15 +90,17 @@ export function checkSections(
   registry: ClaimsRegistry | null,
   sources: (string | null | undefined)[],
   jd: string,
-  grafts: GraftRule[] = []
+  grafts: GraftRule[] = [],
+  shape: SkillsShape = FLAT_SKILLS
 ): ClaimCheck {
   return checkClaims(
     [
       {
         where: "cv",
-        text: tailoredSectionsText({ summary: s.summary, skills: s.skills, experience: s.experience, projects: s.projects }),
+        text: tailoredSectionsText({ summary: s.summary, skills: s.skills, experience: s.experience, projects: s.projects }, shape),
         experience: s.experience,
         skills: s.skills,
+        skillsShape: shape,
       },
       { where: "coverLetter", text: s.coverLetter, extraSources: [jd] },
     ],
@@ -121,13 +125,21 @@ function sentencesIn(s: RepairSections, section: RepairSection): string[] {
   return raw.map((x) => x.replace(BULLET_RE, "").trim()).filter(Boolean);
 }
 
+// The line of the skills section that carries tools: the "Technical Tools:"
+// line, or (grouped, lib/formatStyles) any of the group lines.
+function isToolLine(line: string, shape: SkillsShape): boolean {
+  if (!shape.grouped) return /^technical tools\s*:/i.test(line);
+  const l = line.toLowerCase();
+  return shape.groups.some((g) => l.startsWith(`${g.toLowerCase()}:`));
+}
+
 // Every sentence that makes the check fail, with what is wrong in it. The
 // check reports only the FIRST rule a project-level skill breaks, so fixing
 // that one used to expose the next on the following check; here every
 // sentence that breaks any rule for a flagged skill is listed at once, so one
 // repair round (and one model call) covers them all. A sentence named by
 // several problems is one item.
-export function listRepairs(s: RepairSections, check: ClaimCheck, registry?: ClaimsRegistry | null): RepairItem[] {
+export function listRepairs(s: RepairSections, check: ClaimCheck, registry?: ClaimsRegistry | null, shape: SkillsShape = FLAT_SKILLS): RepairItem[] {
   const registered = registryMentions(registry);
   const items = new Map<string, RepairItem>();
   const add = (section: RepairSection, sentence: string, problem: string, skill?: string, figure?: string, absent = false) => {
@@ -169,8 +181,8 @@ export function listRepairs(s: RepairSections, check: ClaimCheck, registry?: Cla
     }
     // Among the lead Technical Tools. demoteProjectTools() moves it down when
     // the line is long enough; on a short line it can only leave the line.
-    if (!f.letter && f.level === "project" && technicalTools(s.skills).slice(0, TOOLS_LEAD_SLOTS).some((t) => registered(t, f.skill))) {
-      const line = sentencesIn(s, "skills").find((x) => /^technical tools\s*:/i.test(x) && registered(x, f.skill));
+    if (!f.letter && f.level === "project" && technicalTools(s.skills, shape).slice(0, TOOLS_LEAD_SLOTS).some((t) => registered(t, f.skill))) {
+      const line = sentencesIn(s, "skills").find((x) => isToolLine(x, shape) && registered(x, f.skill));
       if (line) add("skills", line, `${f.skill}: ${SKILL_RULE_TEXT.project_lead_tool}`, f.skill);
     }
   }
@@ -382,11 +394,20 @@ const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // skill go, the label and the separator stay. At least one item must remain.
 type Mentions = (text: string, skill: string) => boolean;
 
-function trimListLine(line: string, skill: string, mentions: Mentions = skillMentioned): string {
+// `dualSplit` (a grouped line, lib/formatStyles): commas and pipes both
+// separate, brackets kept whole, and the kept items are written back with
+// commas — the grouped block's own separator.
+function trimListLine(line: string, skill: string, mentions: Mentions = skillMentioned, dualSplit = false): string {
   const m = /^(\s*(?:\*\*)?[^:|]{1,40}:(?:\*\*)?\s*)?([\s\S]*)$/.exec(line)!;
   const label = m[1] ?? "";
   const body = m[2];
   const sep = /\s\|\s/.test(body) ? "|" : body.includes("·") ? "·" : body.includes(",") ? "," : null;
+  if (dualSplit && sep) {
+    const items = splitItems(body, true);
+    const kept = items.filter((x) => !mentions(stripBold(x), skill));
+    if (kept.length === items.length || kept.length === 0) return line;
+    return label + kept.join(", ");
+  }
   if (!sep) return line;
   const items = body.split(sep === "," ? /\s*,\s*/ : new RegExp(`\\s*${esc(sep)}\\s*`)).filter((x) => x.trim());
   const kept = items.filter((x) => !mentions(stripBold(x), skill));
@@ -397,11 +418,11 @@ function trimListLine(line: string, skill: string, mentions: Mentions = skillMen
 // The sentence with the skills' own words removed where that is exact, or
 // null when no exact removal clears every one of them. `listLine`: the
 // sentence is a skills-section line, whose items are the unit of removal.
-export function removeSkillMentions(sentence: string, skills: string[], listLine = false, mentions: Mentions = skillMentioned): string | null {
+export function removeSkillMentions(sentence: string, skills: string[], listLine = false, mentions: Mentions = skillMentioned, dualSplit = false): string | null {
   let out = sentence;
   for (const skill of skills) {
     if (listLine) {
-      out = trimListLine(out, skill, mentions);
+      out = trimListLine(out, skill, mentions, dualSplit);
       continue;
     }
     const forms = [...new Set([skill, ...distinctiveTokens(skill)])].filter((f) => f.length >= 2).sort((a, b) => b.length - a.length);
@@ -436,7 +457,7 @@ export function removeSkillMentions(sentence: string, skills: string[], listLine
 // Apply the exact removals to every item that is only about skills (a
 // figure needs the model or the drop). Works on the sentence as it stands
 // in the section, so bold markers around kept words stay.
-export function surgicalPass(s: RepairSections, items: RepairItem[], registry?: ClaimsRegistry | null): { sections: RepairSections; changes: RepairChange[] } {
+export function surgicalPass(s: RepairSections, items: RepairItem[], registry?: ClaimsRegistry | null, shape: SkillsShape = FLAT_SKILLS): { sections: RepairSections; changes: RepairChange[] } {
   const registered = registryMentions(registry);
   let cur = s;
   const changes: RepairChange[] = [];
@@ -444,7 +465,7 @@ export function surgicalPass(s: RepairSections, items: RepairItem[], registry?: 
     if (it.skills.length === 0 || it.figures.length > 0) continue;
     const orig = originalOf(cur, it.section, it.sentence);
     if (orig === null) continue;
-    const trimmed = removeSkillMentions(orig, it.skills, it.section === "skills", mentionsFor(it, registered));
+    const trimmed = removeSkillMentions(orig, it.skills, it.section === "skills", mentionsFor(it, registered), shape.grouped && it.section === "skills");
     if (trimmed === null) continue;
     const next = applyToSection(cur, it.section, it.sentence, trimmed);
     if (!next) continue;
@@ -462,12 +483,13 @@ export function surgicalUntilStable(
   registry: ClaimsRegistry | null,
   sources: (string | null | undefined)[],
   jd: string,
-  grafts: GraftRule[] = []
+  grafts: GraftRule[] = [],
+  shape: SkillsShape = FLAT_SKILLS
 ): { sections: RepairSections; changes: RepairChange[] } {
   let cur = s;
   const changes: RepairChange[] = [];
   for (let round = 0; round < 4; round++) {
-    const pass = surgicalPass(cur, listRepairs(cur, checkSections(cur, registry, sources, jd, grafts), registry), registry);
+    const pass = surgicalPass(cur, listRepairs(cur, checkSections(cur, registry, sources, jd, grafts, shape), registry, shape), registry, shape);
     if (pass.changes.length === 0) break;
     cur = pass.sections;
     changes.push(...pass.changes);
@@ -504,7 +526,8 @@ export function replacementPasses(
   registry: ClaimsRegistry | null,
   sources: (string | null | undefined)[],
   jd: string,
-  grafts: GraftRule[] = []
+  grafts: GraftRule[] = [],
+  shape: SkillsShape = FLAT_SKILLS
 ): boolean {
   if (!replacement.trim()) return true;
   const letter = section === "coverLetter";
@@ -512,9 +535,10 @@ export function replacementPasses(
     [
       {
         where: letter ? "coverLetter" : "cv",
-        text: replacement,
+        text: section === "skills" ? stripGroupLabels(replacement, shape) : replacement,
         experience: section === "experience" ? replacement : undefined,
         skills: section === "skills" ? replacement : undefined,
+        skillsShape: shape,
         extraSources: letter ? [jd] : undefined,
       },
     ],
@@ -576,15 +600,16 @@ export function dropUntilClean(
   registry: ClaimsRegistry | null,
   sources: (string | null | undefined)[],
   jd: string,
-  grafts: GraftRule[] = []
+  grafts: GraftRule[] = [],
+  shape: SkillsShape = FLAT_SKILLS
 ): { sections: RepairSections; changes: RepairChange[] } {
   let cur = s;
   const changes: RepairChange[] = [];
   for (let round = 0; round < 6; round++) {
-    const trimmed = surgicalUntilStable(cur, registry, sources, jd, grafts);
+    const trimmed = surgicalUntilStable(cur, registry, sources, jd, grafts, shape);
     cur = trimmed.sections;
     changes.push(...trimmed.changes);
-    const items = listRepairs(cur, checkSections(cur, registry, sources, jd, grafts), registry);
+    const items = listRepairs(cur, checkSections(cur, registry, sources, jd, grafts, shape), registry, shape);
     if (items.length === 0) break;
     const dropped = dropPass(cur, items);
     if (dropped.changes.length === 0) break;

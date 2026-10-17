@@ -77,7 +77,7 @@ import {
 import { jdCopyTerms, jdCopyProblems, jdCopyHits } from "@/lib/jdCopyGuard";
 import { normalizeLetter, capEmDashes, insertBeforeSignoff } from "@/lib/letterFormat";
 import { reconcileAtsScore, renderBandBlock } from "@/lib/visibilityVerdict";
-import { applyFormatRules } from "@/lib/formatRules";
+import { applyFormatRules, formatRulesFor } from "@/lib/formatRules";
 import { FORMAT_STYLES, normalizeFormatStyle, type FormatStyle } from "@/lib/formatStyles/index";
 
 // Minimal shape check for a client-supplied analysis object (from the
@@ -314,7 +314,7 @@ async function runPipeline(opts: {
   // to the 15 most JD-relevant terms and the summary to three sentences.
   // Applied BEFORE the score and the claim check, so both read exactly the
   // text the user gets; the response says what was dropped.
-  const formatted = applyFormatRules({ summary, skills: dropRefusal(skillsRaw) }, analysis, [cv, projectsPool], roleTitle, claims ?? null);
+  const formatted = applyFormatRules({ summary, skills: dropRefusal(skillsRaw) }, analysis, [cv, projectsPool], roleTitle, claims ?? null, formatRulesFor(style));
   summary = formatted.summary;
   const skills = formatted.skills;
   const formatFixes = formatted.fixes;
@@ -442,7 +442,7 @@ async function runPipeline(opts: {
     const sources = [cv, projectsPool];
     const projectSkillNames = (claims?.skills ?? []).filter((s) => s.level === "project").map((s) => s.name);
     if (projectSkillNames.length > 0) {
-      const demoted = demoteProjectTools(skillsFinal, projectSkillNames);
+      const demoted = demoteProjectTools(skillsFinal, projectSkillNames, style.skills);
       skillsFinal = demoted.skills;
       claimFix.toolsDemoted = demoted.demoted;
     }
@@ -469,14 +469,14 @@ async function runPipeline(opts: {
       // Exact trims (lib/claimRepair): only the flagged words go — "LLM/RAG"
       // → "LLM", a list item — so every other word, figure and outcome
       // stays. A fast (OpenRouter) run gets these too.
-      const t = surgicalUntilStable(asSections(), registry, sources, jd, grafts);
+      const t = surgicalUntilStable(asSections(), registry, sources, jd, grafts, style.skills);
       if (t.changes.length > 0) {
         write(t.sections);
         claimFix.trimmed = t.changes.map((c) => c.after);
       }
       // One rewrite call for what a trim cannot fix, each sentence accepted
       // only when it passes the check on its own and keeps the role title.
-      const items = listRepairs(asSections(), checkSections(asSections(), registry, sources, jd, grafts), registry);
+      const items = listRepairs(asSections(), checkSections(asSections(), registry, sources, jd, grafts, style.skills), registry, style.skills);
       if (!fast && items.length > 0) {
         const a = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
         const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 30) : []);
@@ -489,7 +489,7 @@ async function runPipeline(opts: {
           maxTokens: 3000,
         }).catch(swallowStep(null));
         const applied = applyModelEdits(asSections(), items, normalizeRepairEdits(raw, items), (it, rep) =>
-          replacementPasses(rep, it.section, registry, sources, jd, grafts) &&
+          replacementPasses(rep, it.section, registry, sources, jd, grafts, style.skills) &&
           (it.section !== "summary" || !roleTitle || !titleInText(it.sentence, roleTitle) || titleInText(rep, roleTitle))
         );
         if (applied.changes.length > 0) {
@@ -497,7 +497,7 @@ async function runPipeline(opts: {
           claimFix.rewritten = applied.changes.map((c) => c.section);
         }
       }
-      claimFix.remaining = listRepairs(asSections(), checkSections(asSections(), registry, sources, jd, grafts), registry).length;
+      claimFix.remaining = listRepairs(asSections(), checkSections(asSections(), registry, sources, jd, grafts, style.skills), registry, style.skills).length;
     } catch (e) {
       console.error("Claims repair pass failed:", e instanceof Error ? e.message : String(e));
     }
@@ -613,7 +613,7 @@ async function runPipeline(opts: {
   }
 
   const sections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
-  const tailoredText = tailoredSectionsText(sections);
+  const tailoredText = tailoredSectionsText(sections, style.skills);
   const terms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
   const coverage = matchAtsKeywords(tailoredText, terms.top_15_ats_keywords);
   const requiredRaw = matchAtsKeywords(tailoredText, terms.required_skills);
@@ -786,7 +786,7 @@ async function runPipeline(opts: {
         if (mergedProjects(fix, facts.projects, facts.paidWork).length > 0) return false;
         // A fix that still claims the posting's absent requirement is no fix.
         if (jdCopyHits(fix, s.section, copyTerms).length > 0) return false;
-        if (!replacementPasses(fix, s.section, claims ?? null, [cv, projectsPool], jd, grafts)) return false;
+        if (!replacementPasses(fix, s.section, claims ?? null, [cv, projectsPool], jd, grafts, style.skills)) return false;
         const had = unsupportedProperNouns(s.sentence, nameSources(s.section));
         if (unsupportedProperNouns(fix, nameSources(s.section)).some((n) => !had.includes(n))) return false;
         return s.section !== "summary" || !roleTitle || !titleInText(s.sentence, roleTitle) || titleInText(fix, roleTitle);
@@ -901,7 +901,7 @@ async function runPipeline(opts: {
   }
   letterCheck.honestGap.stated = typeof coverLetter === "string" && hasHonestGap(coverLetter);
   const finalSections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
-  const finalText = tailoredSectionsText(finalSections);
+  const finalText = tailoredSectionsText(finalSections, style.skills);
   const finalCoverage = matchAtsKeywords(finalText, terms.top_15_ats_keywords);
   const finalRequiredRaw = matchAtsKeywords(finalText, terms.required_skills);
   const atsScore = finalCoverage.total > 0 ? reconcileAtsScore(atsAnnotation, finalCoverage, finalRequiredRaw.total > 0 ? finalRequiredRaw : null) : null;
@@ -912,7 +912,7 @@ async function runPipeline(opts: {
   // as a source.
   const claimCheck = checkClaims(
     [
-      { where: "cv", text: finalText, experience: finalSections.experience, skills: finalSections.skills },
+      { where: "cv", text: finalText, experience: finalSections.experience, skills: finalSections.skills, skillsShape: style.skills },
       { where: "coverLetter", text: typeof coverLetter === "string" ? coverLetter : "", extraSources: [jd] },
     ],
     claims,

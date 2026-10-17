@@ -31,6 +31,7 @@ import {
 import { unsupportedProperNouns } from "@/lib/properNouns";
 import { buildEvidenceMap, graftRules } from "@/lib/evidenceMap";
 import { claimsRepairPrompt } from "@/prompts/steps";
+import { SKILLS_SHAPE, normalizeFormatStyle } from "@/lib/formatStyles/ids";
 import {
   MAX_CV_CHARS,
   MAX_JD_CHARS,
@@ -108,6 +109,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Job analysis is too large." }, { status: 400 });
     }
     const analysis = body.analysis && typeof body.analysis === "object" ? (body.analysis as Record<string, unknown>) : {};
+    // The run's format style (lib/formatStyles): how the skills block is read
+    // — one Technical Tools line, or CareerSet's group lines.
+    const shape = SKILLS_SHAPE[normalizeFormatStyle(body.formatStyle)];
 
     const sec = body.sections && typeof body.sections === "object" ? (body.sections as Record<string, unknown>) : null;
     if (!sec) return NextResponse.json({ error: "No CV sections to fix." }, { status: 400 });
@@ -130,7 +134,7 @@ export async function POST(req: NextRequest) {
     // 0. The lead-tool rule without touching a word, when the line is long
     //    enough to move the tool down.
     const projectNames = (claims?.skills ?? []).filter((k) => k.level === "project").map((k) => k.name);
-    const demoted = demoteProjectTools(cur.skills, projectNames);
+    const demoted = demoteProjectTools(cur.skills, projectNames, shape);
     if (demoted.demoted.length > 0 && typeof demoted.skills === "string") {
       changes.push({
         section: "skills",
@@ -142,12 +146,12 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. Exact trims.
-    const trimmed = surgicalUntilStable(cur, claims, sources, jd, grafts);
+    const trimmed = surgicalUntilStable(cur, claims, sources, jd, grafts, shape);
     cur = trimmed.sections;
     changes.push(...trimmed.changes);
 
     // 2. One model call for what is left.
-    const items = listRepairs(cur, checkSections(cur, claims, sources, jd, grafts), claims).slice(0, MAX_MODEL_ITEMS);
+    const items = listRepairs(cur, checkSections(cur, claims, sources, jd, grafts, shape), claims, shape).slice(0, MAX_MODEL_ITEMS);
     const model: { used: boolean; provider: string | null; fallback: boolean; rejected: number; error: string | null } = {
       used: false,
       provider: null,
@@ -179,7 +183,7 @@ export async function POST(req: NextRequest) {
         model.fallback = out.fallback;
         const edits = normalizeRepairEdits(out.result, items);
         const applied = applyModelEdits(cur, items, edits, (it, rep) => {
-          if (!replacementPasses(rep, it.section, claims, sources, jd, grafts)) return false;
+          if (!replacementPasses(rep, it.section, claims, sources, jd, grafts, shape)) return false;
           const names = it.section === "summary" || it.section === "coverLetter" ? openNameSources : cvNameSources;
           return unsupportedProperNouns(rep, names).filter((n) => !unsupportedProperNouns(it.sentence, names).includes(n)).length === 0;
         });
@@ -195,11 +199,11 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Whatever still fails is removed.
-    const dropped = dropUntilClean(cur, claims, sources, jd, grafts);
+    const dropped = dropUntilClean(cur, claims, sources, jd, grafts, shape);
     cur = dropped.sections;
     changes.push(...dropped.changes);
 
-    return NextResponse.json({ sections: cur, claimCheck: checkSections(cur, claims, sources, jd, grafts), changes, model });
+    return NextResponse.json({ sections: cur, claimCheck: checkSections(cur, claims, sources, jd, grafts, shape), changes, model });
   } catch (error) {
     console.error("Fix-claims API error:", error instanceof Error ? error.message : "Unknown error");
     return NextResponse.json({ error: "Couldn't fix the flagged claims. Edit the highlighted text in the preview instead — the re-check is free." }, { status: 500 });

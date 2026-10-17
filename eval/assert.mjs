@@ -17,6 +17,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PROJ = join(HERE, "..");
 const { checkClaims } = await import(pathToFileURL(join(PROJ, "src/lib/claims.ts")));
 const { matchAtsKeywords, tailoredSectionsText } = await import(pathToFileURL(join(PROJ, "src/lib/atsMatch.ts")));
+const { SKILLS_SHAPE } = await import(pathToFileURL(join(PROJ, "src/lib/formatStyles/ids.ts")));
+const { parseSkillsBlock, toolItems: groupedToolItems } = await import(pathToFileURL(join(PROJ, "src/lib/skillsLines.ts")));
 const { estimatePages, weakBullets, inflationHits, orderingDiffers, findDuplicateContent, relevanceBoltOns } = await import(pathToFileURL(join(PROJ, "src/lib/quality.ts")));
 const { coreTitle, titleInText } = await import(pathToFileURL(join(PROJ, "src/lib/roleTitle.ts")));
 const { applyLetterLint, hasHonestGap } = await import(pathToFileURL(join(PROJ, "src/lib/letterLint.ts")));
@@ -33,8 +35,14 @@ function loadRun(label, cvId, jdId) {
 
 // Tools/languages in the skills line: the "Technical Tools:" items on a
 // technical CV, or the flat list otherwise. Functional-competency phrases
-// are capabilities, not claims of a named tool, and are skipped.
-function toolItems(skills) {
+// are capabilities, not claims of a named tool, and are skipped. A CareerSet
+// run's grouped block is read through lib/skillsLines.
+function toolItems(skills, shape) {
+  if (shape?.grouped) {
+    return groupedToolItems(parseSkillsBlock(String(skills || ""), shape))
+      .map((s) => s.replace(/\(.*?\)/g, "").trim())
+      .filter((s) => s.length >= 2 && s.length <= 40);
+  }
   const lines = String(skills || "").split("\n").map((l) => l.trim()).filter(Boolean);
   const tools = lines.find((l) => /^technical tools\s*:/i.test(l));
   const source = tools ? tools.replace(/^technical tools\s*:/i, "") : lines.some((l) => /^functional competencies\s*:/i.test(l)) ? "" : lines.join(" | ");
@@ -55,10 +63,11 @@ function evaluate(label) {
       }
       const d = run.result;
       const sections = { summary: d.summary, skills: d.skills, experience: d.experience, projects: d.projects };
-      const text = tailoredSectionsText(sections);
+      const shape = d.formatStyle === "careerset" ? SKILLS_SHAPE.careerset : SKILLS_SHAPE.ukji;
+      const text = tailoredSectionsText(sections, shape);
       const check = checkClaims([{ where: "cv", text }, { where: "coverLetter", text: d.coverLetter ?? "", extraSources: [jd.text] }], null, [cv.text]);
       const absentFigures = check.numberViolations.filter((n) => n.kind === "absent");
-      const tools = toolItems(d.skills);
+      const tools = toolItems(d.skills, shape);
       const absentTools = tools.filter((t) => matchAtsKeywords(cv.text, [t]).matched === 0);
       const pages = estimatePages(sections, { projects: [], education: [], certifications: [], rightToWork: [] });
       const learningPresent = (cv.learning ?? []).filter((s) => matchAtsKeywords([text, d.coverLetter ?? ""].join("\n"), [s]).matched > 0);
