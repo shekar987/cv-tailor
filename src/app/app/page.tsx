@@ -2664,7 +2664,7 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines || result.formatFixes?.spelling || result.formatFixes?.pageOverflow) && (
+            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines || result.formatFixes?.spelling || result.formatFixes?.pageOverflow || (isUnlimited && result.formatFixes?.style && (result.formatFixes.style.debolded + result.formatFixes.style.highlightsStripped + result.formatFixes.style.fullStopsStripped + result.formatFixes.style.swapped.length > 0))) && (
               <div className="limitNotice" role="status" data-format-fixes>
                 <div className="limitNotice__title">Formatting rules applied</div>
                 <div className="limitNotice__body">
@@ -2741,6 +2741,24 @@ export default function Home() {
                         <span>
                           British spelling throughout: {result.formatFixes.spelling.count === 1 ? "one word" : `${result.formatFixes.spelling.count} words`} changed
                           {result.formatFixes.spelling.examples.length > 0 ? ` (${result.formatFixes.spelling.examples.join(", ")})` : ""}. Recruiter searches match either spelling.
+                        </span>
+                      </li>
+                    )}
+                    {/* The style pass (lib/stylePass): what the style's bullet rules changed. */}
+                    {isUnlimited && result.formatFixes.style && (result.formatFixes.style.debolded + result.formatFixes.style.highlightsStripped + result.formatFixes.style.fullStopsStripped + result.formatFixes.style.swapped.length > 0) && (
+                      <li data-format-fix="style">
+                        <Badge variant="dot" tone="rec">→</Badge>
+                        <span>
+                          {styleLabel} style:{" "}
+                          {[
+                            result.formatFixes.style.debolded > 0 ? `bold removed from ${result.formatFixes.style.debolded} bullet${result.formatFixes.style.debolded === 1 ? "" : "s"}` : "",
+                            result.formatFixes.style.highlightsStripped > 0 ? `${result.formatFixes.style.highlightsStripped} “Highlight:” prefix${result.formatFixes.style.highlightsStripped === 1 ? "" : "es"} dropped` : "",
+                            result.formatFixes.style.fullStopsStripped > 0 ? `the full stop taken off ${result.formatFixes.style.fullStopsStripped} bullet${result.formatFixes.style.fullStopsStripped === 1 ? "" : "s"}` : "",
+                            result.formatFixes.style.swapped.length > 0 ? `${result.formatFixes.style.swapped.map((s) => `“${s.from}” → “${s.to || "(dropped)"}”`).join(", ")}` : "",
+                          ]
+                            .filter(Boolean)
+                            .join("; ")}
+                          . Every swap stays within the two-word budget a master bullet allows.
                         </span>
                       </li>
                     )}
@@ -2901,10 +2919,15 @@ export default function Home() {
                 </div>
               )}
             {result.rightToWork &&
-              (result.rightToWork.asked.length > 0 || result.rightToWork.inserted || result.rightToWork.availability.replaced.length > 0 || result.rightToWork.availability.removed.length > 0) && (
+              (result.rightToWork.asked.length > 0 || result.rightToWork.inserted || result.rightToWork.availability.replaced.length > 0 || result.rightToWork.availability.removed.length > 0 || !!result.rightToWork.appended) && (
                 <div className="limitNotice" role="status" data-rtw-reconciled>
                   <div className="limitNotice__title">Right to work and availability come from your Eligibility answers</div>
                   <div className="limitNotice__body">
+                    {result.rightToWork.appended && (
+                      <p className="fitEvidence" data-rtw-appended>
+                        The summary ends with your availability, written from your Eligibility answers: &ldquo;{result.rightToWork.appended}&rdquo;
+                      </p>
+                    )}
                     {result.rightToWork.inserted && (
                       <p className="fitEvidence" data-rtw-inserted>
                         The letter closes with your right-to-work statement: &ldquo;{result.rightToWork.statement}&rdquo;
