@@ -32,6 +32,13 @@
 
 import { normalizeProjectLinks, type SavedProjectLinks } from "./projectLinks.ts";
 import { rightToWorkStatement, type RtwFacts } from "./rightToWorkText.ts";
+import { normalizeFormatStyle, type FormatStyleId } from "./formatStyles/ids.ts";
+
+// formatStyle (16 Oct 2026): the document's format style, UKJI (the default,
+// the shape the app always produced) or CareerSet (lib/formatStyles). The
+// saved default; /app may override it per run. Anything but "careerset"
+// reads as UKJI. For now only the owner's account sees the choice (the
+// tailor route runs UKJI for every other account whatever is stored).
 
 // cvLength: "two" is the default and the owner's rule (7 Oct 2026: the
 // tailored CV is strictly two pages, filled from the master CV); "one" is the
@@ -48,9 +55,10 @@ export type Preferences = {
   onePageCv: boolean;
   cvLength: CvLength;
   projectLinks: SavedProjectLinks;
+  formatStyle: FormatStyleId;
 };
 
-export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false, cvLength: "two", projectLinks: {} };
+export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false, cvLength: "two", projectLinks: {}, formatStyle: "ukji" };
 
 export function normalizePreferences(v: unknown): Preferences {
   const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -61,6 +69,7 @@ export function normalizePreferences(v: unknown): Preferences {
     onePageCv: cvLength === "one",
     cvLength,
     projectLinks: normalizeProjectLinks(o.projectLinks),
+    formatStyle: normalizeFormatStyle(o.formatStyle),
   };
 }
 

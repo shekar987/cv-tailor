@@ -25,7 +25,6 @@ import {
   projectsPrompt,
   poolProjectsPrompt,
   COMPANY_RESEARCH_PROMPT,
-  coverLetterPrompt,
   coverLetterFixPrompt,
   claimsRepairPrompt,
   supportCheckPrompt,
@@ -79,6 +78,7 @@ import { jdCopyTerms, jdCopyProblems, jdCopyHits } from "@/lib/jdCopyGuard";
 import { normalizeLetter, capEmDashes, insertBeforeSignoff } from "@/lib/letterFormat";
 import { reconcileAtsScore, renderBandBlock } from "@/lib/visibilityVerdict";
 import { applyFormatRules } from "@/lib/formatRules";
+import { FORMAT_STYLES, normalizeFormatStyle, type FormatStyle } from "@/lib/formatStyles/index";
 
 // Minimal shape check for a client-supplied analysis object (from the
 // pre-tailoring ATS gate — see runPipeline's precomputedAnalysis param). Not a
@@ -173,8 +173,12 @@ async function runPipeline(opts: {
   // headline + lead skills for the summary and skills steps. Null = the
   // CV's own positioning.
   variant?: Variant | null;
+  // The format style (lib/formatStyles): UKJI, or CareerSet. Every prompt
+  // passage that differs by style, every limit and renderer option the run
+  // uses is a field of it — the route never branches on the id.
+  style: FormatStyle;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, cvLength, profile, eligibility } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, cvLength, profile, eligibility, style } = opts;
   const yearsExperience = eligibility.yearsExperience;
   // Fast mode on OpenRouter: free models take 30–50 s per call, so the four
   // optional polish retries (title, bullet lint, claims rewrite, letter
@@ -197,6 +201,8 @@ async function runPipeline(opts: {
   // skipped ones are reported so the user can fix the variant or the level.
   const leadSkills = variant ? productionLeadSkills(variant.leadSkills, claims) : { kept: [] as string[], dropped: [] };
   const variantBlock = renderVariantBlock(variant ? { ...variant, leadSkills: leadSkills.kept } : null);
+  // The style's FORM line for the summary (lib/formatStyles).
+  const summaryForm = style.prompts.summaryForm({ availabilityAppended: false });
 
   // Step 0 — JD analysis. Reused from the pre-tailoring gate when available and
   // well-formed; otherwise run fresh (this is also the fallback for a caller
@@ -266,20 +272,20 @@ async function runPipeline(opts: {
       ? Promise.resolve<unknown>(companyResearch) // real scraped research — skip the synthetic call
       : callLLM({ provider, apiKeyOverride, system: COMPANY_RESEARCH_PROMPT, userInput: analysisStr, expectJson: true })
           .catch(swallowStep({})),
-    callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle, "", evidenceBlock, asIdentity), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle, "", evidenceBlock, asIdentity, summaryForm), userInput: analysisStr })
       .catch(swallowStep("")),
-    callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv, claimsBlock, variantBlock, evidenceBlock), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: skillsPrompt(cv, claimsBlock, variantBlock, evidenceBlock, style.prompts.skillsShape), userInput: analysisStr })
       .catch(swallowStep("")),
-    callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, "", idBlock, evidenceBlock), userInput: analysisStr })
+    callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, "", idBlock, evidenceBlock, style.prompts.verbRule, style.prompts.experienceFormat), userInput: analysisStr })
       .catch(swallowStep("")),
     projectsPool
       // Pool mode: select + tailor from the pasted pool. Runs even when the
       // extracted profile has no projects (projectNames empty) — the pool is
       // the source, not the profile.
-      ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool, claimsBlock, "", evidenceBlock, coverageBlock), userInput: analysisStr, expectJson: true })
+      ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool, claimsBlock, "", evidenceBlock, coverageBlock, style.prompts.poolBullets), userInput: analysisStr, expectJson: true })
           .catch(swallowStep({}))
       : projectNames.length > 0
-        ? callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock, "", evidenceBlock), userInput: analysisStr, expectJson: true })
+        ? callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock, "", evidenceBlock, style.prompts.projectsBullets), userInput: analysisStr, expectJson: true })
             .catch(swallowStep({}))
         : Promise.resolve({}),
   ]);
@@ -296,7 +302,7 @@ async function runPipeline(opts: {
   if (!fast && roleTitle && typeof summaryDraft === "string" && summaryDraft.trim() && !titleCheck.present) {
     const retryBlock = `\nREJECTED IN YOUR PREVIOUS DRAFT: the summary did not contain the exact role title "${roleTitle}". Rewrite it so that title appears verbatim once, ${asIdentity ? "opening the summary as the candidate's professional identity" : "as the job being applied for"}. Keep every fact and figure as it was.\n`;
     const retry = dropRefusal(
-      await callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle, retryBlock, evidenceBlock, asIdentity), userInput: analysisStr }).catch(swallowStep(""))
+      await callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle, retryBlock, evidenceBlock, asIdentity, summaryForm), userInput: analysisStr }).catch(swallowStep(""))
     );
     if (typeof retry === "string" && retry.trim() && titleInText(retry, roleTitle)) {
       summary = retry;
@@ -362,14 +368,14 @@ async function runPipeline(opts: {
   if (!fast && countFlags(draftLint) > 0) {
     const [experienceRetry, projectsRetry] = await Promise.all([
       draftLint.experience.length > 0
-        ? callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, rejectedBulletsBlock(draftLint.experience), idBlock, evidenceBlock), userInput: analysisStr })
+        ? callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, rejectedBulletsBlock(draftLint.experience), idBlock, evidenceBlock, style.prompts.verbRule, style.prompts.experienceFormat), userInput: analysisStr })
             .catch(swallowStep(""))
         : Promise.resolve<unknown>(""),
       draftLint.projects.length > 0
         ? projectsPool
-          ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool, claimsBlock, rejectedBulletsBlock(draftLint.projects), evidenceBlock, coverageBlock), userInput: analysisStr, expectJson: true })
+          ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool, claimsBlock, rejectedBulletsBlock(draftLint.projects), evidenceBlock, coverageBlock, style.prompts.poolBullets), userInput: analysisStr, expectJson: true })
               .catch(swallowStep({}))
-          : callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock, rejectedBulletsBlock(draftLint.projects), evidenceBlock), userInput: analysisStr, expectJson: true })
+          : callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock, rejectedBulletsBlock(draftLint.projects), evidenceBlock, style.prompts.projectsBullets), userInput: analysisStr, expectJson: true })
               .catch(swallowStep({}))
         : Promise.resolve<unknown>({}),
     ]);
@@ -629,7 +635,7 @@ async function runPipeline(opts: {
   });
 
   const [coverLetterRaw, atsAnnotation] = await Promise.all([
-    callLLM({ provider, apiKeyOverride, system: coverLetterPrompt(cv, claimsBlock, omitRightToWork, evidenceBlock), userInput: coverLetterInput, maxTokens: 1200 })
+    callLLM({ provider, apiKeyOverride, system: style.prompts.coverLetter(cv, claimsBlock, omitRightToWork, evidenceBlock, ""), userInput: coverLetterInput, maxTokens: 1200 })
       .catch(swallowStep("")),
     coverage.total > 0
       ? callLLM({ provider, apiKeyOverride, system: atsScoringPrompt(renderBandBlock(coverage, required)), userInput: atsInput, expectJson: true })
@@ -917,6 +923,9 @@ async function runPipeline(opts: {
   return {
     analysis,
     research,
+    // The format style this run was made with (lib/formatStyles); the preview,
+    // the downloads and the Applied snapshot read it.
+    formatStyle: style.id,
     summary,
     skills: skillsFinal,
     experience: experienceFinal,
@@ -1027,6 +1036,11 @@ export async function POST(req: NextRequest) {
     // Document switches (lib/preferences), sent along by the client like the
     // registry — the server reads no per-user table here. Absent = defaults.
     const preferences = normalizePreferences(body.preferences);
+    // The format style for this run (lib/formatStyles): the body's own choice,
+    // else the saved default. CareerSet is the owner's for now — decided once
+    // the route is resolved below; every other account runs UKJI whatever it
+    // sends or has saved.
+    const requestedStyle = normalizeFormatStyle(body.formatStyle ?? preferences.formatStyle);
     // Eligibility answers (years → the header line) and the document profile
     // (for the page fit), both sent by the client like the registry.
     if (body.eligibility !== undefined && JSON.stringify(body.eligibility).length > MAX_ELIGIBILITY_JSON) {
@@ -1059,6 +1073,8 @@ export async function POST(req: NextRequest) {
       routeKey = own.key;
     }
 
+    const style = FORMAT_STYLES[route.reason === "unlimited" ? requestedStyle : "ukji"];
+
     async function runOrRefund(opts: Parameters<typeof runPipeline>[0]) {
       if (!route.ok) throw new Error("unreachable");
       try {
@@ -1085,6 +1101,7 @@ export async function POST(req: NextRequest) {
         cvLength: preferences.cvLength,
         profile: bodyProfile,
         eligibility,
+        style,
     };
     try {
       const result = await runOrRefund(pipelineOpts);

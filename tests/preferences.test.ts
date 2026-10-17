@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTarget, pageTargetFor, EARLY_CAREER_YEARS, DEFAULT_PREFERENCES } from "../src/lib/preferences.ts";
 
 const profile = { name: "Jane", rightToWork: ["Full right to work in the UK", "No sponsorship required"], certifications: ["AWS"] };
-const ON = { version: 1 as const, includeRightToWorkOnCv: true, onePageCv: false, cvLength: "auto" as const, projectLinks: {} };
+const ON = { version: 1 as const, includeRightToWorkOnCv: true, onePageCv: false, cvLength: "auto" as const, projectLinks: {}, formatStyle: "ukji" as const };
 const ELIG = { rightToWork: { status: "full" as const, countries: ["UK"], permissionEnds: null }, availability: { status: "now" as const, from: null }, canWorkFullTime: "yes" as const };
 const UNSET = { rightToWork: { status: "unknown" as const, countries: [], permissionEnds: null }, availability: { status: "unknown" as const, from: null }, canWorkFullTime: "unknown" as const };
 
@@ -57,7 +57,7 @@ test("CV length: two pages unless one page is explicitly chosen (7 Oct: 'auto' r
   assert.equal(pageTargetFor(two, { yearsExperience: 1, graduate: true }), 2, "a graduate scheme is two pages too");
   assert.equal(pageTargetFor(normalizePreferences({ cvLength: "one" }), { yearsExperience: 10 }), 1);
   // The two switches are independent.
-  assert.deepEqual(normalizePreferences({ includeRightToWorkOnCv: true, onePageCv: true }), { version: 1, includeRightToWorkOnCv: true, onePageCv: true, cvLength: "one", projectLinks: {} });
+  assert.deepEqual(normalizePreferences({ includeRightToWorkOnCv: true, onePageCv: true }), { version: 1, includeRightToWorkOnCv: true, onePageCv: true, cvLength: "one", projectLinks: {}, formatStyle: "ukji" });
 });
 
 test("rightToWorkForForms is the Eligibility statement, one sentence per line, empty until answered", () => {
