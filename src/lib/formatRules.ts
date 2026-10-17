@@ -61,6 +61,10 @@ export type FormatFixes = {
   // The real-page-count fit (lib/onePage fitToRealPages): the built PDF ran
   // past the target and these bullets went, or it still does not fit.
   pageOverflow?: { target: 1 | 2; pagesBefore: number; pagesAfter: number; dropped: { where: "experience" | "projects"; owner: string; bullet: string }[]; fits: boolean } | null;
+  // The style pass (lib/stylePass, CareerSet): bold markers, highlight
+  // prefixes and trailing full stops removed from the bullets, banned words
+  // swapped for the plain equivalent the style allows or dropped.
+  style?: { debolded: number; highlightsStripped: number; fullStopsStripped: number; swapped: { where: "experience" | "projects"; from: string; to: string; bullet: string }[] } | null;
 };
 export type SkillLinesFix = { moved: string[]; removedFromTools: string[]; removedFromCompetencies: string[] };
 

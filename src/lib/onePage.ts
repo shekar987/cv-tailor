@@ -26,11 +26,12 @@
 // ties, then the model's own order (it writes the strongest bullet first).
 //
 // Imports only relative .ts modules so it runs under node:test.
-import { estimatePages, hasEvidence, type Sections, type ProfileLike } from "./quality.ts";
+import { estimatePages, cvWordCount, hasEvidence, type Sections, type ProfileLike, type ContactRender } from "./quality.ts";
 import { stripLinkText } from "./projectLinks.ts";
 import { matchAtsKeywords } from "./atsMatch.ts";
 import { capTechnicalTools, splitSentences } from "./formatRules.ts";
 import { diffAgainstMaster, overlap, type MasterRole } from "./bulletIds.ts";
+import type { SkillsShape } from "./formatStyles/ids.ts";
 
 export const ONE_PAGE_SUMMARY_WORDS = 60;
 export const ONE_PAGE_TOOLS = 12;
@@ -44,6 +45,33 @@ export const PROJECT_MIN_BULLETS = 1;
 export const REFILL_DENSITIES: readonly string[] = ["roomy", "normal", "snug"];
 // A candidate this close to a bullet already on the page is the same point.
 export const DUPLICATE_OVERLAP = 0.4;
+
+// A style's caps on the whole document (lib/formatStyles — CareerSet: 20
+// bullets across experience and projects, 900 words, two per project), the
+// summary sentences never dropped (the appended availability sentence), how
+// the contact row is counted and the skills block's shape. UKJI passes none:
+// the page alone decides, as before.
+export type FitOptions = {
+  maxBullets?: number | null;
+  maxWords?: number | null;
+  projectMin?: number;
+  protect?: readonly string[];
+  render?: ContactRender;
+  skills?: SkillsShape;
+};
+
+// Every bullet on the document: the experience bullet lines plus the project bullets.
+export function bulletCount(s: Sections): number {
+  const exp = typeof s.experience === "string" ? s.experience.split("\n").filter((l) => BULLET_RE.test(l.trim())).length : 0;
+  const proj = s.projects && typeof s.projects === "object" && !Array.isArray(s.projects) ? Object.values(s.projects as Record<string, unknown>).reduce<number>((n, v) => n + (Array.isArray(v) ? v.length : 0), 0) : 0;
+  return exp + proj;
+}
+
+function withinCaps(s: Sections, profile: ProfileLike, opts: FitOptions): boolean {
+  if (opts.maxBullets != null && bulletCount(s) > opts.maxBullets) return false;
+  if (opts.maxWords != null && cvWordCount(s, profile, opts.render) > opts.maxWords) return false;
+  return true;
+}
 
 export type LeftOut = {
   summary: string[];
@@ -95,20 +123,33 @@ export function bulletRelevance(bullet: string, terms: OnePageTerms): number {
 }
 
 // The summary keeps whole leading sentences while they fit the word budget;
-// the first sentence always stays (it carries the role title).
-export function capSummaryWords(summary: unknown, max = ONE_PAGE_SUMMARY_WORDS): { summary: unknown; dropped: string[] } {
+// the first sentence always stays (it carries the role title). `protect`:
+// sentences never dropped, kept in place (the availability sentence a style
+// appends — lib/formatStyles).
+export function capSummaryWords(summary: unknown, max = ONE_PAGE_SUMMARY_WORDS, protect: readonly string[] = []): { summary: unknown; dropped: string[] } {
   if (typeof summary !== "string") return { summary, dropped: [] };
   const sentences = splitSentences(summary);
   if (sentences.length <= 1 || words(summary) <= max) return { summary, dropped: [] };
+  const isProtected = (s: string) => protect.includes(s.trim());
   const kept: string[] = [];
+  const dropped: string[] = [];
   let total = 0;
+  let broken = false;
   for (const s of sentences) {
     const n = words(s);
-    if (kept.length > 0 && total + n > max) break;
+    if (isProtected(s)) {
+      kept.push(s);
+      total += n;
+      continue;
+    }
+    if (broken || (kept.length > 0 && total + n > max)) {
+      broken = true;
+      dropped.push(s);
+      continue;
+    }
     kept.push(s);
     total += n;
   }
-  const dropped = sentences.slice(kept.length);
   return { summary: kept.join("\n"), dropped };
 }
 
@@ -156,7 +197,8 @@ function trimToFit(
   terms: OnePageTerms,
   target: 1 | 2,
   caps: { first: number; rest: number; project: number } | null,
-  leftOut: LeftOut
+  leftOut: LeftOut,
+  opts: FitOptions = {}
 ): Sections {
   const expText = typeof base.experience === "string" ? base.experience : "";
   const expLines = expText.split("\n");
@@ -218,7 +260,7 @@ function trimToFit(
       : base.projects,
   });
   const fits = (s: Sections) =>
-    target === 1 ? estimatePages(s, profile, 1).fitsOnePage : !estimatePages(s, profile, 2).overBudget;
+    (target === 1 ? estimatePages(s, profile, 1, opts.render).fitsOnePage : !estimatePages(s, profile, 2, opts.render).overBudget) && withinCaps(s, profile, opts);
 
   let current = assemble();
   let guard = 0;
@@ -229,7 +271,7 @@ function trimToFit(
     };
     projects.forEach((p) => {
       const removed = removedProject.get(p.key)!;
-      if (alive(p.bullets, removed) <= PROJECT_MIN_BULLETS) return;
+      if (alive(p.bullets, removed) <= (opts.projectMin ?? PROJECT_MIN_BULLETS)) return;
       const w = weakest(p.bullets, removed);
       if (w) consider(w.score, 0, () => dropProject(p, w));
     });
@@ -256,7 +298,7 @@ function trimToFit(
 // `countPages` is the builder; a test passes a fake one.
 export type RealFitReport = { target: 1 | 2; pagesBefore: number; pagesAfter: number; dropped: { where: "experience" | "projects"; owner: string; bullet: string }[]; fits: boolean };
 
-export function dropLeastRelevant(base: Sections, profile: ProfileLike, terms: OnePageTerms): { sections: Sections; dropped: RealFitReport["dropped"][number] | null } {
+export function dropLeastRelevant(base: Sections, profile: ProfileLike, terms: OnePageTerms, projectMin = PROJECT_MIN_BULLETS): { sections: Sections; dropped: RealFitReport["dropped"][number] | null } {
   const leftOut = emptyLeftOut();
   const expText = typeof base.experience === "string" ? base.experience : "";
   const expLines = expText.split("\n");
@@ -281,7 +323,7 @@ export function dropLeastRelevant(base: Sections, profile: ProfileLike, terms: O
   };
   const none = new Set<number>();
   for (const p of projects) {
-    if (p.bullets.length <= PROJECT_MIN_BULLETS) continue;
+    if (p.bullets.length <= projectMin) continue;
     const w = weakest(p.bullets, none);
     if (w) {
       consider(w.score, 0, () => ({
@@ -311,14 +353,15 @@ export function fitToRealPages(
   terms: OnePageTerms,
   target: 1 | 2,
   countPages: (sections: Sections) => number,
-  maxDrops = 12
+  maxDrops = 12,
+  projectMin = PROJECT_MIN_BULLETS
 ): { sections: Sections; report: RealFitReport } {
   let current = base;
   const pagesBefore = countPages(current);
   let pages = pagesBefore;
   const dropped: RealFitReport["dropped"] = [];
   while (pages > target && dropped.length < maxDrops) {
-    const next = dropLeastRelevant(current, profile, terms);
+    const next = dropLeastRelevant(current, profile, terms, projectMin);
     if (!next.dropped) break;
     dropped.push(next.dropped);
     current = next.sections;
@@ -332,15 +375,16 @@ export function fitToRealPages(
 export function fitOnePage(
   sections: Sections,
   profile: ProfileLike,
-  terms: OnePageTerms
+  terms: OnePageTerms,
+  opts: FitOptions = {}
 ): { sections: Sections; report: PageFitReport } {
   const leftOut = emptyLeftOut();
-  const pagesBefore = estimatePages(sections, profile, 1).pages;
+  const pagesBefore = estimatePages(sections, profile, 1, opts.render).pages;
 
   // Summary and tools: fixed one-page caps.
-  const sum = capSummaryWords(sections.summary);
+  const sum = capSummaryWords(sections.summary, ONE_PAGE_SUMMARY_WORDS, opts.protect);
   leftOut.summary = sum.dropped;
-  const tools = capTechnicalTools(sections.skills, terms.keywords, terms.required, ONE_PAGE_TOOLS);
+  const tools = capTechnicalTools(sections.skills, terms.keywords, terms.required, ONE_PAGE_TOOLS, opts.skills);
   leftOut.tools = tools.fix?.dropped ?? [];
 
   const current = trimToFit(
@@ -349,9 +393,10 @@ export function fitOnePage(
     terms,
     1,
     { first: ONE_PAGE_ROLE_CAP_FIRST, rest: ONE_PAGE_ROLE_CAP_REST, project: ONE_PAGE_PROJECT_CAP },
-    leftOut
+    leftOut,
+    opts
   );
-  const after = estimatePages(current, profile, 1);
+  const after = estimatePages(current, profile, 1, opts.render);
   return { sections: current, report: { target: 1, fits: after.fitsOnePage, pagesBefore, pagesAfter: after.pages, leftOut, restored: [] } };
 }
 
@@ -443,15 +488,16 @@ export function fitTwoPages(
   sections: Sections,
   profile: ProfileLike,
   terms: OnePageTerms,
-  candidates: RefillCandidate[]
+  candidates: RefillCandidate[],
+  opts: FitOptions = {}
 ): { sections: Sections; report: PageFitReport } {
   const leftOut = emptyLeftOut();
   const restored: PageFitReport["restored"] = [];
-  const before = estimatePages(sections, profile, 2);
+  const before = estimatePages(sections, profile, 2, opts.render);
   let current: Sections = sections;
 
-  if (before.overBudget) {
-    current = trimToFit(sections, profile, terms, 2, null, leftOut);
+  if (before.overBudget || !withinCaps(sections, profile, opts)) {
+    current = trimToFit(sections, profile, terms, 2, null, leftOut, opts);
   } else {
     const ranked = candidates
       .map((c, order) => ({ c, order, score: bulletRelevance(c.text, terms) }))
@@ -474,17 +520,17 @@ export function fitTwoPages(
         if (list.some((b) => overlap(b, c.text) >= DUPLICATE_OVERLAP)) continue;
         next = { ...current, projects: { ...projects, [c.key]: [...list, c.text] } };
       }
-      const est = estimatePages(next, profile, 2);
-      if (est.overBudget || !REFILL_DENSITIES.includes(est.density)) continue;
+      const est = estimatePages(next, profile, 2, opts.render);
+      if (est.overBudget || !REFILL_DENSITIES.includes(est.density) || !withinCaps(next, profile, opts)) continue;
       current = next;
       restored.push({ section: c.where === "experience" ? c.masterHeader.split("|")[0].trim() : c.project, bullet: c.text });
     }
   }
 
-  const after = estimatePages(current, profile, 2);
+  const after = estimatePages(current, profile, 2, opts.render);
   return {
     sections: current,
-    report: { target: 2, fits: !after.overBudget, pagesBefore: before.pages, pagesAfter: after.pages, leftOut, restored },
+    report: { target: 2, fits: !after.overBudget && withinCaps(current, profile, opts), pagesBefore: before.pages, pagesAfter: after.pages, leftOut, restored },
   };
 }
 

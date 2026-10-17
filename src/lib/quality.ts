@@ -16,8 +16,10 @@ import { extractFigures } from "./claims.ts";
 import { linksText, displayUrl } from "./projectLinks.ts";
 import { placeholderHits } from "./placeholders.ts";
 import { inflationHits, isTooLong, bulletLines, repeatedStem, MAX_BULLET_LINES } from "./bulletShape.ts";
+import { bannedWordsIn, openingVerb } from "./stylePass.ts";
 
 export type ProfileLike = {
+  name?: string;
   tagline?: string;
   location?: string;
   phone?: string;
@@ -80,13 +82,10 @@ function contactRowTextOf(p: NonNullable<ProfileLike>, render: ContactRender): s
     .join(render.contactSeparator);
 }
 
-// targetPages: the layout the downloads will pick — 2 by default, 1 when the
-// user chose a one-page CV (Preferences.onePageCv). `pages` is read against it.
-// render (lib/formatStyles RenderOptions): with printed addresses (CareerSet)
-// the contact row can wrap and is counted; with labels it is one line, as
-// lib/cvDocument counts it.
-export function estimatePages(sections: Sections, profile: ProfileLike, targetPages: number = TARGET_PAGES, render?: ContactRender): PageEstimate {
-  const p = profile ?? {};
+// The document's text — what the page estimate measures and the word count
+// counts: the tailored sections plus the profile's own lines (project
+// names, tech and links, education, certifications, right to work, extras).
+function documentParts(sections: Sections, p: NonNullable<ProfileLike>) {
   const summary = str(sections.summary);
   const skills = str(sections.skills);
   const experience = str(sections.experience);
@@ -104,6 +103,27 @@ export function estimatePages(sections: Sections, profile: ProfileLike, targetPa
   const bodyText = [summary, skills, experience, projectText, projectMetaText, educationText, certs.join("\n"), rtw.join("\n"), extrasText]
     .filter(Boolean)
     .join("\n");
+  return { summary, skills, experience, projectMetaText, education, certs, rtw, extras, bodyText };
+}
+
+// The document's words — name, headline, the contact row as printed and the
+// body (lib/formatStyles: CareerSet caps the CV at 900).
+export function cvWordCount(sections: Sections, profile: ProfileLike, render?: ContactRender): number {
+  const p = profile ?? {};
+  const row = contactRowTextOf(p, render ?? { contactLinks: "labels", contactSeparator: " · " });
+  const text = [str(p.name), str(p.tagline), row, documentParts(sections, p).bodyText].join("\n");
+  // A bare separator ("|", "·") between items is not a word.
+  return text.replace(/\*\*/g, "").split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)).length;
+}
+
+// targetPages: the layout the downloads will pick — 2 by default, 1 when the
+// user chose a one-page CV (Preferences.onePageCv). `pages` is read against it.
+// render (lib/formatStyles RenderOptions): with printed addresses (CareerSet)
+// the contact row can wrap and is counted; with labels it is one line, as
+// lib/cvDocument counts it.
+export function estimatePages(sections: Sections, profile: ProfileLike, targetPages: number = TARGET_PAGES, render?: ContactRender): PageEstimate {
+  const p = profile ?? {};
+  const { summary, skills, experience, projectMetaText, education, certs, rtw, extras, bodyText } = documentParts(sections, p);
   const hasContactRow = !!(p.location || p.phone || p.email || p.linkedin || p.github || p.website);
   const contactRowLines = !hasContactRow ? 0 : render?.contactLinks === "addresses" ? Math.max(1, wrappedLines(contactRowTextOf(p, render))) : 1;
   const contactLines = 1 + (p.tagline ? 1 : 0) + contactRowLines;
@@ -282,7 +302,10 @@ export type BulletLint = { experience: BulletFlag[]; projects: BulletFlag[] };
 // CV's own, so only what the edit could have added is flagged — a bolt-on,
 // filler, template text — and the length and repetition rules are enforced
 // where the edit is judged (lib/bulletIds reconcileExperience).
-function flagBullet(bullet: string, company?: string, generated = false): BulletFlag | null {
+// `style` (lib/formatStyles): a word cap and banned words a style adds —
+// CareerSet's 30 words and its nine words; UKJI adds none.
+export type BulletLintStyle = { maxWords: number | null; bannedWords: readonly string[]; verbCap: number | null };
+function bulletReasons(bullet: string, company?: string, generated = false, style?: BulletLintStyle): string[] {
   const reasons: string[] = [];
   if (isRelevanceBoltOn(bullet, company)) reasons.push("ends with a clause narrating its relevance to the employer — state what was built, how, and the result, then stop");
   for (const h of inflationHits(bullet)) reasons.push(h.count >= 2 ? `filler: ${h.word} (twice in one bullet)` : `filler: ${h.word}`);
@@ -292,13 +315,36 @@ function flagBullet(bullet: string, company?: string, generated = false): Bullet
     const rep = repeatedStem(bullet);
     if (rep) reasons.push(`repeats a word (${rep}) — say it once`);
   }
-  return reasons.length ? { bullet, reasons } : null;
+  if (style) {
+    if (style.maxWords !== null) {
+      const n = bullet.replace(/\*\*/g, "").trim().split(/\s+/).filter(Boolean).length;
+      if (n > style.maxWords) reasons.push(`${n} words — at most ${style.maxWords} in this style; ${generated ? "cut words, never facts" : "select a shorter bullet"}`);
+    }
+    for (const w of bannedWordsIn(bullet, style.bannedWords)) reasons.push(`"${w}" is banned in this style — the plain equivalent the rules allow, or another bullet`);
+  }
+  return reasons;
 }
 
-export function lintBullets(sections: { experience?: unknown; projects?: unknown }, company?: string): BulletLint {
+// The opening-verb cap (lib/formatStyles, CareerSet: no verb opens more than
+// two bullets across experience AND projects): the bullets past the cap, in
+// document order, get a reason — the one regeneration can pick or reorder
+// differently; the style pass reports what remains.
+export function lintBullets(sections: { experience?: unknown; projects?: unknown }, company?: string, style?: BulletLintStyle): BulletLint {
+  const exp = bulletsOf(str(sections.experience)).map((bullet) => ({ bullet, reasons: bulletReasons(bullet, company, false, style) }));
+  const proj = projectBullets(sections.projects).map((bullet) => ({ bullet, reasons: bulletReasons(bullet, company, true, style) }));
+  if (style && style.verbCap !== null) {
+    const counts = new Map<string, number>();
+    for (const f of [...exp, ...proj]) {
+      const v = openingVerb(f.bullet);
+      if (!v) continue;
+      const n = (counts.get(v) ?? 0) + 1;
+      counts.set(v, n);
+      if (n > style.verbCap) f.reasons.push(`opens with "${f.bullet.trim().split(/\s+/)[0]}", already the opening verb of ${style.verbCap} bullets — at most ${style.verbCap} in this style; open on a different verb or pick another bullet`);
+    }
+  }
   return {
-    experience: bulletsOf(str(sections.experience)).map((b) => flagBullet(b, company)).filter((f): f is BulletFlag => f !== null),
-    projects: projectBullets(sections.projects).map((b) => flagBullet(b, company, true)).filter((f): f is BulletFlag => f !== null),
+    experience: exp.filter((f) => f.reasons.length > 0),
+    projects: proj.filter((f) => f.reasons.length > 0),
   };
 }
 

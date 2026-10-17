@@ -90,11 +90,71 @@ const SHARED_RULES = `- Keep every bullet to a maximum of two printed lines (190
 - Trim ONLY by deleting whole bullets. Never merge two achievements into one sentence, never combine metrics, and never drop a qualifier that a claim depends on — that would state something the master CV does not support.
 - Never drop a whole role, and never change any employer, title, or date.`;
 
+// A style's bullet limits (lib/formatStyles): CareerSet keeps 12-20 bullets
+// across experience and projects, each at most 30 words, the document
+// under 900 words. `total` null = UKJI, whose budget is the page's.
+export type BulletBudgetStyle = {
+  maxWords: number | null;
+  total: { min: number; max: number } | null;
+  perProject: { min: number; max: number };
+  cvMaxWords: number | null;
+};
+// How many bullets each project gets in the plan: four for up to two
+// projects, three beyond, never above the style's own per-project cap.
+export function plannedPerProject(projectCount: number, style?: BulletBudgetStyle | null): number {
+  const per = projectCount <= 2 ? 4 : projectCount <= 4 ? 3 : 2;
+  return style?.total ? Math.max(style.perProject.min, Math.min(per, style.perProject.max)) : per;
+}
+// The experience bullets a style's total leaves after the projects' share,
+// never below this floor.
+const STYLE_EXPERIENCE_FLOOR = 8;
+export function styledExperienceCapacity(style: BulletBudgetStyle, projectCount: number): number {
+  if (!style.total) return EXPERIENCE_BULLET_CAPACITY;
+  return Math.max(STYLE_EXPERIENCE_FLOOR, style.total.max - projectCount * plannedPerProject(projectCount, style));
+}
+
+function perRoleCaps(shape: ExperienceShape, capacity: number): number[] {
+  // Distribute the allowance across roles in master-CV order (most recent
+  // first by convention), never below 2 bullets for a role and never above
+  // what the role actually has.
+  const caps: number[] = [];
+  let remaining = capacity;
+  shape.bulletsPerRole.forEach((have, i) => {
+    const rolesLeft = shape.roleCount - i;
+    const fairShare = Math.ceil(remaining / rolesLeft) + (i === 0 ? 1 : 0);
+    const cap = Math.max(2, Math.min(have, fairShare, remaining - (rolesLeft - 1) * 2));
+    caps.push(cap);
+    remaining -= cap;
+  });
+  return caps;
+}
+
 // The experience budget for THIS master CV, or null when the CV can't be
-// parsed (the caller then uses the fixed LENGTH_BUDGET default).
-export function experienceBudget(cvText: string): string | null {
+// parsed (the caller then uses the fixed LENGTH_BUDGET default). `style`
+// with a total (CareerSet): the total across experience and projects, the
+// word cap per bullet and the document's word cap replace the page's own
+// capacity; otherwise the text is exactly UKJI's.
+export function experienceBudget(cvText: string, style?: BulletBudgetStyle | null, projectCount = 0): string | null {
   const shape = parseExperienceShape(cvText);
   if (!shape) return null;
+
+  if (style?.total) {
+    const capacity = styledExperienceCapacity(style, projectCount);
+    const per = plannedPerProject(projectCount, style);
+    const head = `LENGTH BUDGET — this style keeps the whole CV to ${style.total.min}-${style.total.max} bullets ACROSS experience and projects, each at most ${style.maxWords ?? 30} words and two printed lines, the document under ${style.cvMaxWords ?? 900} words and two A4 pages. This master CV has ${shape.totalBullets} experience bullets across ${shape.roleCount} role(s); with ${projectCount} project(s) at up to ${per} bullets each, keep at most ${capacity} experience bullets`;
+    if (shape.totalBullets <= capacity) {
+      return `${head} — every bullet from every role fits:
+- Keep EVERY bullet from EVERY role; tailor by REORDERING bullets within each role so the most JD-relevant come first, and by the two-word swaps the protocol allows.
+${SHARED_RULES}`;
+    }
+    const perRole = perRoleCaps(shape, capacity)
+      .map((c, i) => `- Role ${i + 1} (in master-CV order): at most ${c} bullets.`)
+      .join("\n");
+    return `${head}:
+${perRole}
+- Keep the bullets with the strongest evidence for THIS job (a figure, a scale, a named system); drop the rest entirely, oldest roles first.
+${SHARED_RULES}`;
+  }
 
   if (shape.totalBullets <= EXPERIENCE_BULLET_CAPACITY) {
     return `LENGTH BUDGET — the finished CV must fit on TWO A4 pages, and this master CV is compact enough that EVERY experience bullet fits:
@@ -105,16 +165,7 @@ ${SHARED_RULES}`;
   // Over capacity: distribute the two-page allowance across roles in
   // master-CV order (most recent first by convention), never below 2 bullets
   // for a role and never above what the role actually has.
-  const caps: number[] = [];
-  let remaining = EXPERIENCE_BULLET_CAPACITY;
-  shape.bulletsPerRole.forEach((have, i) => {
-    const rolesLeft = shape.roleCount - i;
-    const fairShare = Math.ceil(remaining / rolesLeft) + (i === 0 ? 1 : 0);
-    const cap = Math.max(2, Math.min(have, fairShare, remaining - (rolesLeft - 1) * 2));
-    caps.push(cap);
-    remaining -= cap;
-  });
-  const perRole = caps
+  const perRole = perRoleCaps(shape, EXPERIENCE_BULLET_CAPACITY)
     .map((c, i) => `- Role ${i + 1} (in master-CV order): at most ${c} bullets.`)
     .join("\n");
   return `LENGTH BUDGET — the finished CV must fit on TWO A4 pages; this master CV has more experience bullets (${shape.totalBullets}) than two pages hold, so trim to these caps:
@@ -170,7 +221,13 @@ ${SHARED_RULES}`;
 }
 
 // Per-project bullet allowance scaled by how many projects there are.
-export function projectsBudget(projectCount: number, onePage = false): string {
+// `style` with a total (CareerSet): 2 to 4 per project, at most 30 words each,
+// inside the style's total; otherwise the text is exactly UKJI's.
+export function projectsBudget(projectCount: number, onePage = false, style?: BulletBudgetStyle | null): string {
+  if (style?.total && !onePage) {
+    const per = plannedPerProject(projectCount, style);
+    return `LENGTH BUDGET — this style keeps the whole CV to ${style.total.min}-${style.total.max} bullets across experience and projects, and projects sit after experience. This CV has ${projectCount} project(s): write ${style.perProject.min} to ${per} bullets per project (fewer only when the master CV has fewer for that project), each at most ${style.maxWords ?? 30} words and never more than two printed lines — use the project's REAL bullets from the master CV as the base (rephrased and reordered for this JD), never pad with invented ones. Trim by dropping a whole bullet, never by merging two achievements or combining their metrics into one sentence.`;
+  }
   if (onePage) {
     return `LENGTH BUDGET — the candidate asked for a one-page CV, so the finished CV must fit on ONE A4 page, and projects sit after experience. This CV has ${projectCount} project(s): write at most 2 bullets per project (1 is fine) — use the project's REAL bullets from the master CV as the base (rephrased and reordered for this JD), never pad with invented ones. Keep each bullet to a single printed line. Trim by dropping a whole bullet, never by merging two achievements or combining their metrics into one sentence.`;
   }

@@ -79,6 +79,7 @@ import { jdCopyTerms, jdCopyProblems, jdCopyHits } from "@/lib/jdCopyGuard";
 import { normalizeLetter, capEmDashes, insertBeforeSignoff } from "@/lib/letterFormat";
 import { reconcileAtsScore, renderBandBlock } from "@/lib/visibilityVerdict";
 import { applyFormatRules, formatRulesFor } from "@/lib/formatRules";
+import { applyBulletStyle, type MasterCvNote, type StylePassReport } from "@/lib/stylePass";
 import { FORMAT_STYLES, normalizeFormatStyle, type FormatStyle } from "@/lib/formatStyles/index";
 
 // Minimal shape check for a client-supplied analysis object (from the
@@ -259,8 +260,21 @@ async function runPipeline(opts: {
   // Adaptive content budget: only ask the model to trim what two pages truly
   // can't hold (lib/contentBudget.ts). When the CV can't be parsed, the
   // prompts fall back to their fixed defaults — behaviour as before.
-  const expBudget = onePage ? onePageExperienceBudget(cv) : experienceBudget(cv) ?? undefined;
-  const projBudget = projectsBudget(projectNames.length, onePage);
+  // The style's bullet limits (lib/formatStyles): CareerSet's total across
+  // experience and projects, its word caps; UKJI's are null and the budget
+  // text is exactly as before. The pool prompt picks two projects.
+  const bulletBudget = { maxWords: style.limits.bullets.maxWords, total: style.limits.bullets.total, perProject: style.limits.bullets.perProject, cvMaxWords: style.limits.cv.maxWords };
+  const projectCount = projectsPool ? 2 : projectNames.length;
+  const expBudget = onePage ? onePageExperienceBudget(cv) : experienceBudget(cv, bulletBudget, projectCount) ?? undefined;
+  const projBudget = projectsBudget(projectNames.length, onePage, bulletBudget);
+  // The style pass (lib/stylePass): bold, highlight lines, trailing full
+  // stops and banned words as the style wants them, inside the id protocol's
+  // two-word budget — right after reconcile, and again after the page fit
+  // (whose refill puts master bullets back verbatim). The lint reads the
+  // style's word cap, banned words and opening-verb cap.
+  const bulletStyle = { render: style.render, lint: style.lint, limits: style.limits };
+  const lintStyle = { maxWords: style.limits.bullets.maxWords, bannedWords: style.lint.bannedWords, verbCap: style.lint.verbCap };
+  const styleExperience = (text: string) => applyBulletStyle({ experience: text, projects: {} }, bulletStyle, masterRoles).experience;
   // Bullets by id (lib/bulletIds): the experience step selects and reorders
   // the master CV's numbered bullets; the output is reconciled against them.
   const masterRoles = parseMasterExperience(cv);
@@ -354,7 +368,7 @@ async function runPipeline(opts: {
   const idProtocol = reconciled.changes !== null;
   let headerLock: HeaderLock | null = reconciled.headers;
   let chronology: ChronologyReport | null = reconciled.chronology;
-  const experienceOut = typeof reconciled.experience === "string" ? normalizeExperienceOutput(reconciled.experience) : reconciled.experience;
+  const experienceOut = typeof reconciled.experience === "string" ? styleExperience(normalizeExperienceOutput(reconciled.experience)) : reconciled.experience;
 
   // Bullet lint, then ONE retry per flagged section. The same deterministic
   // checks the UI shows (lib/quality: relevance bolt-ons, filler) run on the
@@ -368,7 +382,7 @@ async function runPipeline(opts: {
   let experienceFinal = experienceOut;
   let projectsFinal: unknown = projectsOut;
   let selectedFinal = selectedProjects;
-  const draftLint = lintBullets({ experience: experienceOut, projects: projectsOut }, company);
+  const draftLint = lintBullets({ experience: experienceOut, projects: projectsOut }, company, lintStyle);
   const retried = { experience: false, projects: false };
   if (!fast && countFlags(draftLint) > 0) {
     const [experienceRetry, projectsRetry] = await Promise.all([
@@ -387,8 +401,8 @@ async function runPipeline(opts: {
     if (draftLint.experience.length > 0) {
       const candidate = dropRefusal(experienceRetry);
       const candidateLock = typeof candidate === "string" && candidate.trim() ? reconcileAndLock(candidate) : null;
-      const candidateOut = candidateLock ? normalizeExperienceOutput(candidateLock.experience) : "";
-      if (candidateOut && lintBullets({ experience: candidateOut }, company).experience.length < draftLint.experience.length) {
+      const candidateOut = candidateLock ? styleExperience(normalizeExperienceOutput(candidateLock.experience)) : "";
+      if (candidateOut && lintBullets({ experience: candidateOut }, company, lintStyle).experience.length < draftLint.experience.length) {
         experienceFinal = candidateOut;
         headerLock = candidateLock?.headers ?? headerLock;
         chronology = candidateLock?.chronology ?? chronology;
@@ -399,7 +413,7 @@ async function runPipeline(opts: {
       const candidateSelected = projectsPool ? normalizeSelectedProjects(projectsRetry, projectsPool) : [];
       const candidateProjects: unknown = projectsPool ? projectsFromSelected(candidateSelected) : projectsRetry;
       const nonEmpty = !!candidateProjects && typeof candidateProjects === "object" && Object.keys(candidateProjects as object).length > 0;
-      if (nonEmpty && lintBullets({ projects: candidateProjects }, company).projects.length < draftLint.projects.length) {
+      if (nonEmpty && lintBullets({ projects: candidateProjects }, company, lintStyle).projects.length < draftLint.projects.length) {
         projectsFinal = candidateProjects;
         selectedFinal = candidateSelected;
         retried.projects = true;
@@ -421,10 +435,12 @@ async function runPipeline(opts: {
             .filter(Boolean)
         : [];
     }
-    projectsFinal = trimmedProjects;
-    if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: trimmedProjects[String(i)] ?? p.bullets }));
+    // The style pass on the generated project bullets (no master budget).
+    const styledProjects = applyBulletStyle({ experience: "", projects: trimmedProjects }, bulletStyle, [], projectsPool ? selectedFinal.map((s) => s.name) : projectNames).projects;
+    projectsFinal = styledProjects;
+    if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: styledProjects[String(i)] ?? p.bullets }));
   }
-  const bulletLint = { retried, remaining: lintBullets({ experience: experienceFinal, projects: projectsFinal }, company) };
+  const bulletLint = { retried, remaining: lintBullets({ experience: experienceFinal, projects: projectsFinal }, company, lintStyle) };
 
   // Search-visibility score — deterministic, BEFORE wave 2: the band is
   // arithmetic on lib/atsMatch over the same text assembly the tracker scores
@@ -577,9 +593,20 @@ async function runPipeline(opts: {
     const fitTerms = { keywords: t.top_15_ats_keywords, required: t.required_skills };
     const fitProfile = (profile ?? null) as Parameters<typeof fitOnePage>[1];
     const current = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
+    // The style's caps on the document (lib/onePage FitOptions): CareerSet's
+    // 20 bullets, 900 words and two per project, the availability sentence
+    // protected, the printed contact row counted; UKJI's are the page's own.
+    const fitOpts = {
+      maxBullets: style.limits.bullets.total?.max ?? null,
+      maxWords: style.limits.cv.maxWords,
+      projectMin: style.limits.bullets.perProject.min,
+      protect: availabilityLine ? [availabilityLine] : [],
+      render: style.render,
+      skills: style.skills,
+    };
     let fitted: ReturnType<typeof fitOnePage>;
     if (onePage) {
-      fitted = fitOnePage(current, fitProfile, fitTerms);
+      fitted = fitOnePage(current, fitProfile, fitTerms, fitOpts);
     } else {
       const allowed = (c: RefillCandidate) => {
         if (omitRightToWork && mentionsRightToWork(c.text)) return false;
@@ -596,7 +623,7 @@ async function runPipeline(opts: {
         // Pool mode renders the selected pool projects, not the profile's.
         ...(projectsPool ? [] : projectRefillCandidates(projectsFinal, metas)),
       ].filter(allowed);
-      fitted = fitTwoPages(current, fitProfile, fitTerms, candidates);
+      fitted = fitTwoPages(current, fitProfile, fitTerms, candidates, fitOpts);
     }
     summary = fitted.sections.summary;
     skillsFinal = fitted.sections.skills;
@@ -628,7 +655,7 @@ async function runPipeline(opts: {
         formatStyle: style.id,
       }).pages;
     try {
-      const real = fitToRealPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal }, fitProfile, fitTerms, target, countPages, PAGE_LIMIT_MAX_DROPS);
+      const real = fitToRealPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal }, fitProfile, fitTerms, target, countPages, PAGE_LIMIT_MAX_DROPS, fitOpts.projectMin);
       if (real.report.dropped.length > 0 || !real.report.fits) {
         summary = real.sections.summary;
         skillsFinal = real.sections.skills;
@@ -641,6 +668,27 @@ async function runPipeline(opts: {
       // The PDF build is a measurement, never a reason to fail the run.
       console.error("Real page count failed:", e instanceof Error ? e.message : String(e));
     }
+  }
+  // The style pass once more (lib/stylePass): the refill above restores
+  // master bullets verbatim — bold, full stops, highlight prefixes and all —
+  // and this final run also writes the notes only the master CV can answer.
+  let masterCvNotes: MasterCvNote[] = [];
+  let stylePass: StylePassReport | null = null;
+  if (typeof experienceFinal === "string" && projectsFinal && typeof projectsFinal === "object") {
+    const final = applyBulletStyle(
+      { experience: experienceFinal, projects: projectsFinal as Record<string, string[]> },
+      bulletStyle,
+      masterRoles,
+      projectsPool ? selectedFinal.map((s) => s.name) : projectNames
+    );
+    experienceFinal = final.experience;
+    projectsFinal = final.projects;
+    if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: final.projects[String(i)] ?? p.bullets }));
+    masterCvNotes = final.report.notes;
+    stylePass = final.report;
+  }
+  if (stylePass && stylePass.debolded + stylePass.highlightsStripped + stylePass.fullStopsStripped + stylePass.swapped.length > 0) {
+    formatFixes.style = { debolded: stylePass.debolded, highlightsStripped: stylePass.highlightsStripped, fullStopsStripped: stylePass.fullStopsStripped, swapped: stylePass.swapped };
   }
 
   const sections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
@@ -985,6 +1033,10 @@ async function runPipeline(opts: {
     // True when the polish retries were skipped to fit the time limit (OpenRouter).
     fastMode: fast,
     variantLeadSkills: variant ? leadSkills : null,
+    // What only the master CV can fix for this style (lib/stylePass): a
+    // bullet over the word cap, a banned word with no honest equivalent, an
+    // opening verb past the cap. Empty for UKJI.
+    masterCvNotes,
     // "Changes vs master CV": the finished text against the master's own
     // bullets (lib/bulletIds) — kept, edited (which words), dropped, new.
     bulletChanges: {
