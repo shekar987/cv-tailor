@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { FORMAT_STYLES, styleFor, normalizeFormatStyle, isFormatStyleId, rowStyle, FORMAT_STYLE_LABELS, ROW_STYLE_LABELS, RENDER_OPTIONS, SKILLS_SHAPE, CAREERSET_TOOL_GROUPS } from "../src/lib/formatStyles/index.ts";
+import { FORMAT_STYLES, styleFor, normalizeFormatStyle, isFormatStyleId, rowStyle, FORMAT_STYLE_LABELS, ROW_STYLE_LABELS, RENDER_OPTIONS, SKILLS_SHAPE, CAREERSET_TOOL_GROUPS, STYLE_RULES } from "../src/lib/formatStyles/index.ts";
 import { UKJI } from "../src/lib/formatStyles/ukji.ts";
 import { CAREERSET, CAREERSET_EQUIVALENCES, CAREERSET_BANNED_WORDS } from "../src/lib/formatStyles/careerset.ts";
 import { MAX_SUMMARY_SENTENCES, MAX_SUMMARY_WORDS, MAX_TECHNICAL_TOOLS, MAX_COMPETENCIES } from "../src/lib/formatRules.ts";
@@ -101,6 +101,18 @@ test("CareerSet furniture matches its fixed lines and nothing else", () => {
   assert.ok(!interest.test("I am particularly interested in roles because of X."));
   assert.equal(CAREERSET.letter.fixedLine, "Having read the job description, these are the four areas where I can add value from the start:");
   assert.equal(CAREERSET.letter.thanksLine, "Thank you for considering my application.");
+});
+
+test("the server styles are the import-free rules plus the prompts", () => {
+  assert.equal(UKJI.limits, STYLE_RULES.ukji.limits);
+  assert.equal(UKJI.render, STYLE_RULES.ukji.render);
+  assert.equal(UKJI.letter, STYLE_RULES.ukji.letter);
+  assert.equal(CAREERSET.limits, STYLE_RULES.careerset.limits);
+  assert.equal(CAREERSET.lint, STYLE_RULES.careerset.lint);
+  assert.equal(CAREERSET.letter, STYLE_RULES.careerset.letter);
+  assert.equal(STYLE_RULES.ukji.check, false);
+  assert.equal(STYLE_RULES.careerset.check, true);
+  assert.equal(typeof UKJI.prompts.coverLetter, "function");
 });
 
 test("the registry and styleFor", () => {

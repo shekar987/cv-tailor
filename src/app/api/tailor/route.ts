@@ -81,6 +81,7 @@ import { eligiblePointsBlock, checkInterestLine, tidyNumberedPoints, countNumber
 import { reconcileAtsScore, renderBandBlock } from "@/lib/visibilityVerdict";
 import { applyFormatRules, formatRulesFor } from "@/lib/formatRules";
 import { applyBulletStyle, type MasterCvNote, type StylePassReport } from "@/lib/stylePass";
+import { checkStyle } from "@/lib/styleCheck";
 import { FORMAT_STYLES, normalizeFormatStyle, type FormatStyle } from "@/lib/formatStyles/index";
 
 // Minimal shape check for a client-supplied analysis object (from the
@@ -589,6 +590,8 @@ async function runPipeline(opts: {
     style.render
   ).headline;
   let pageFitReport: PageFitReport | null = null;
+  // The built PDF's page count after the fit, for the style's format check.
+  let realPages: number | null = null;
   {
     const t = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
     const fitTerms = { keywords: t.top_15_ats_keywords, required: t.required_skills };
@@ -657,6 +660,7 @@ async function runPipeline(opts: {
       }).pages;
     try {
       const real = fitToRealPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal }, fitProfile, fitTerms, target, countPages, PAGE_LIMIT_MAX_DROPS, fitOpts.projectMin);
+      realPages = real.report.pagesAfter;
       if (real.report.dropped.length > 0 || !real.report.fits) {
         summary = real.sections.summary;
         skillsFinal = real.sections.skills;
@@ -1044,12 +1048,25 @@ async function runPipeline(opts: {
     grafts
   );
 
+  // The style's own format check (lib/styleCheck): our read of the rules
+  // over the finished run, deterministic — never a score, never blocking.
+  // Null for a style without one (UKJI).
+  const styleCheck = style.check
+    ? checkStyle(style, {
+        sections: finalSections,
+        profile: profile && typeof profile === "object" ? ({ ...(profile as Record<string, unknown>), tagline: headline } as Parameters<typeof checkStyle>[1]["profile"]) : null,
+        coverLetter: typeof coverLetter === "string" ? coverLetter : "",
+        pages: realPages ?? pageFitReport?.pagesAfter ?? null,
+      })
+    : null;
+
   return {
     analysis,
     research,
     // The format style this run was made with (lib/formatStyles); the preview,
     // the downloads and the Applied snapshot read it.
     formatStyle: style.id,
+    styleCheck,
     summary,
     skills: skillsFinal,
     experience: experienceFinal,

@@ -7,6 +7,8 @@ import { seniorityOf } from "@/lib/insights";
 import { GATE_CATEGORIES } from "@/lib/knockouts";
 import { SENT_CV_BUCKET, normalizeSentCv, publicSentCv, ownsPath } from "@/lib/sentCv";
 import { isStatus, READY_TO_SUBMIT, clearsFollowup, followupClearedNote, appendNoteLine, type Status } from "@/lib/tracker";
+import { isFormatStyleId } from "@/lib/formatStyles/ids";
+import { normalizeStyleCheck } from "@/lib/styleCheck";
 
 // CRUD for the application tracker. RLS ("auth.uid() = user_id") is the real
 // boundary; every write is additionally scoped by user id.
@@ -179,6 +181,12 @@ function cleanTailoredCv(value: unknown, role: string): { snapshot: Record<strin
   if (Number.isFinite(age) && age >= 0 && age <= 365) snapshot.postingAgeDays = Math.round(age);
   // Role seniority, read off the title here so every save carries it.
   if (role) snapshot.seniority = seniorityOf(role);
+  // The format style this CV was made with (lib/formatStyles) and the style's
+  // own format check as the page re-ran it on the edited preview
+  // (lib/styleCheck), both bounded; absent = not recorded.
+  if (isFormatStyleId(input.formatStyle)) snapshot.formatStyle = input.formatStyle;
+  const styleCheck = normalizeStyleCheck(input.styleCheck);
+  if (styleCheck) snapshot.styleCheck = styleCheck;
   if (JSON.stringify(snapshot).length > MAX_TAILORED_CV_JSON) {
     return { error: "Tailored CV snapshot is too large to store." };
   }

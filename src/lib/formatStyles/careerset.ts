@@ -1,35 +1,20 @@
 // The CareerSet style (16 Oct 2026): the shape the owner tuned by hand in
 // their university's CV tool — the attached CV scored 98/100 and the letter
-// 100/100 there. Where a CareerSet rule meets an honesty rule, the honesty
-// rule wins: the banned-word swaps below never claim more than the master CV
-// (ABSOLUTE_RULES 10), the headline carries only the stated years and
+// 100/100 there. Its rules are ids.ts STYLE_RULES.careerset (import-free, so
+// the page can run the format check and the tracker can draw a row); the
+// prompt blocks live here. Where a CareerSet rule meets an honesty rule, the
+// honesty rule wins: the banned-word swaps never claim more than the master
+// CV (ABSOLUTE_RULES 10), the headline carries only the stated years and
 // production-level registry skills, the availability sentence comes from
 // Eligibility, and the letter's interest and numbered points come only from
 // the posting, the research and the evidence map. The style changes WORDING
 // and SHAPE; every honesty check, the bullet-id protocol and the credit cost
 // are shared with UKJI.
 import { careersetCoverLetterPrompt } from "../../prompts/steps.ts";
-import { TOOLS_LEAD_SLOTS } from "../claims.ts";
-import { MAX_BULLET_LINES } from "../bulletShape.ts";
-import { RENDER_OPTIONS, SKILLS_SHAPE, CAREERSET_TOOL_GROUPS } from "./ids.ts";
+import { STYLE_RULES, CAREERSET_TOOL_GROUPS } from "./ids.ts";
 import type { FormatStyle, SummaryFormCtx } from "./types.ts";
 
-export const CAREERSET_BANNED_WORDS = ["contributed", "supported", "assisted", "helped", "worked on", "work in", "responsible for", "successfully", "used"] as const;
-// The only automatic swaps. "applied" says no more than "used"; dropping
-// "successfully" removes a grade, never a fact; "owned" is what "responsible
-// for" states. "supported", "assisted", "contributed", "helped", "worked on"
-// and "work in" have no plain equivalent that claims the same — a stronger
-// verb would be the overclaim rule 10 forbids — so such a bullet is reported
-// (the "Your master CV" notice) and left as the master CV wrote it.
-export const CAREERSET_EQUIVALENCES: Readonly<Record<string, readonly string[]>> = {
-  used: ["applied", "implemented"],
-  successfully: [""],
-  "responsible for": ["owned"],
-};
-export const CAREERSET_LETTER_BANNED = ["used", "assisted", "contribute", "contributed", "also", "kind of"] as const;
-export const CAREERSET_FIXED_LINE = "Having read the job description, these are the four areas where I can add value from the start:";
-export const CAREERSET_INTEREST_OPENING = "I am particularly interested in this role because";
-export const CAREERSET_THANKS = "Thank you for considering my application.";
+export { CAREERSET_BANNED_WORDS, CAREERSET_EQUIVALENCES, CAREERSET_LETTER_BANNED, CAREERSET_FIXED_LINE, CAREERSET_INTEREST_OPENING, CAREERSET_THANKS } from "./ids.ts";
 
 const BANNED_LIST = `"contributed", "supported", "assisted", "helped", "worked on", "work in", "responsible for", "successfully" or "used"`;
 
@@ -68,8 +53,7 @@ words ${BANNED_LIST}; no opening verb more than twice across the whole CV, so
 vary the opening verbs.`;
 
 export const CAREERSET: FormatStyle = {
-  id: "careerset",
-  label: "CareerSet",
+  ...STYLE_RULES.careerset,
   prompts: {
     summaryForm: careersetSummaryForm,
     skillsShape: CAREERSET_SKILLS_SHAPE,
@@ -78,32 +62,6 @@ export const CAREERSET: FormatStyle = {
     projectsBullets: CAREERSET_PROJECTS_BULLETS,
     poolBullets: CAREERSET_POOL_BULLETS,
     coverLetter: careersetCoverLetterPrompt,
-  },
-  limits: {
-    // The model writes 3-4 sentences (65-90 words); the app appends the
-    // availability sentence; the cap leaves room for both.
-    summary: { maxSentences: 5, maxWords: 95 },
-    competencies: { max: 12 },
-    tools: { max: 30, leadSlots: TOOLS_LEAD_SLOTS },
-    bullets: { maxWords: 30, maxLines: MAX_BULLET_LINES, total: { min: 12, max: 20 }, perProject: { min: 2, max: 4 } },
-    cv: { maxWords: 900 },
-    letter: { minWords: 300, maxWords: 420 },
-  },
-  skills: SKILLS_SHAPE.careerset,
-  lint: { bannedWords: CAREERSET_BANNED_WORDS, equivalences: CAREERSET_EQUIVALENCES, verbCap: 2, letterBanned: CAREERSET_LETTER_BANNED },
-  render: RENDER_OPTIONS.careerset,
-  summary: { appendAvailability: true },
-  letter: {
-    furniture: [/^Having read the job description, these are the four areas where I can add value from the start:?$/i, /^I am particularly interested in this role because\b/i],
-    interestOpening: CAREERSET_INTEREST_OPENING,
-    fixedLine: CAREERSET_FIXED_LINE,
-    thanksLine: CAREERSET_THANKS,
-    points: 4,
-    teamSuffix: "Hiring Team",
-    statementPlacement: "close_paragraph",
-    renumberPoints: true,
-    pointsFromEvidence: true,
-    protectFurnitureInFit: true,
   },
 };
 

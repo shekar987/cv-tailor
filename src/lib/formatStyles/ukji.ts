@@ -1,16 +1,14 @@
 // The UKJI style: the pipeline exactly as it ran before styles existed, as
-// an object. Every numeric limit is IMPORTED from where it has always lived
-// (one value, never a copy), and every prompt passage below is the exact text
+// an object. Its rules are ids.ts STYLE_RULES.ukji (the values that have
+// always lived in lib/formatRules, lib/claims, lib/bulletShape and
+// lib/onePage — tests/formatStyles.test.ts holds them equal to those
+// exports), and every prompt passage below is the exact text
 // prompts/steps.ts carried until the prompts took their style blocks (16 Oct
 // 2026) — tests/promptSnapshot.test.ts proves, byte for byte, that passing
 // these blocks rebuilds the captured prompts. Change a passage here and that
 // test fails: UKJI is the control group for the CareerSet comparison.
-import { MAX_SUMMARY_SENTENCES, MAX_SUMMARY_WORDS, MAX_TECHNICAL_TOOLS, MAX_COMPETENCIES } from "../formatRules.ts";
-import { TOOLS_LEAD_SLOTS } from "../claims.ts";
-import { MAX_BULLET_LINES } from "../bulletShape.ts";
-import { PROJECT_MIN_BULLETS } from "../onePage.ts";
 import { coverLetterPrompt } from "../../prompts/steps.ts";
-import { RENDER_OPTIONS, SKILLS_SHAPE } from "./ids.ts";
+import { STYLE_RULES } from "./ids.ts";
 import type { FormatStyle } from "./types.ts";
 
 // steps.ts summaryPrompt, the first FORM line.
@@ -27,8 +25,7 @@ export const UKJI_POOL_BULLETS = "For each selected project write 3 tailored bul
 export const UKJI_LETTER_WORDS = { min: 230, max: 330 } as const;
 
 export const UKJI: FormatStyle = {
-  id: "ukji",
-  label: "UKJI",
+  ...STYLE_RULES.ukji,
   prompts: {
     summaryForm: () => UKJI_SUMMARY_FORM,
     skillsShape: UKJI_SKILLS_SHAPE,
@@ -38,31 +35,5 @@ export const UKJI: FormatStyle = {
     projectsBullets: "",
     poolBullets: UKJI_POOL_BULLETS,
     coverLetter: (cv, claimsBlock, omitRightToWork, evidenceBlock) => coverLetterPrompt(cv, claimsBlock, omitRightToWork, evidenceBlock),
-  },
-  limits: {
-    summary: { maxSentences: MAX_SUMMARY_SENTENCES, maxWords: MAX_SUMMARY_WORDS },
-    competencies: { max: MAX_COMPETENCIES },
-    tools: { max: MAX_TECHNICAL_TOOLS, leadSlots: TOOLS_LEAD_SLOTS },
-    // No word cap and no total cap: lib/contentBudget and lib/onePage decide
-    // by the page; projects 4/3/2 per project by count, floor PROJECT_MIN_BULLETS.
-    bullets: { maxWords: null, maxLines: MAX_BULLET_LINES, total: null, perProject: { min: PROJECT_MIN_BULLETS, max: 4 } },
-    cv: { maxWords: null },
-    letter: { minWords: UKJI_LETTER_WORDS.min, maxWords: UKJI_LETTER_WORDS.max },
-  },
-  skills: SKILLS_SHAPE.ukji,
-  lint: { bannedWords: [], equivalences: {}, verbCap: null, letterBanned: [] },
-  render: RENDER_OPTIONS.ukji,
-  summary: { appendAvailability: false },
-  letter: {
-    furniture: [],
-    interestOpening: null,
-    fixedLine: "I have read the job description and feel that I'm a great fit due to the following reasons:",
-    thanksLine: "Thank you",
-    points: 3,
-    teamSuffix: "team",
-    statementPlacement: "own_paragraph",
-    renumberPoints: false,
-    pointsFromEvidence: false,
-    protectFurnitureInFit: false,
   },
 };
