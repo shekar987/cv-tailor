@@ -188,6 +188,28 @@ export function addToolItem(block: SkillsBlock, item: string, group: string | nu
 // "Technical Tools:" line goes, each group line keeps only its items. The
 // words of a label ("Testing", "Cloud", "LLM") are not the candidate's
 // claims and must never be scored or claim-checked as such.
+// A grouped block holds only label lines (Functional Competencies, Technical
+// Tools, the groups) and blank lines. Anything else the model wrote under
+// them is commentary, not a skill — the 17 Oct eval's recsys run carried a
+// 23-line "EVIDENCE & RATIONALE" block ("- Kubeflow, JAX: Listed under
+// 'Currently learning' — explicitly excluded by rule 2.") straight onto the
+// CV, because every rule reads label lines and leaves the rest alone. Dropped
+// and reported; a flat (UKJI) block is returned unchanged.
+export function dropStrayLines(skills: string, shape: SkillsShape): { skills: string; dropped: string[] } {
+  if (!shape.grouped) return { skills, dropped: [] };
+  const known = new Set(["functional competencies", "technical tools", ...shape.groups.map(key)]);
+  const dropped: string[] = [];
+  const kept = skills.split("\n").filter((line) => {
+    const t = line.trim();
+    if (!t) return true;
+    const p = parseLabelLine(line);
+    if (p && known.has(key(p.label))) return true;
+    dropped.push(t);
+    return false;
+  });
+  return dropped.length ? { skills: kept.join("\n"), dropped } : { skills, dropped };
+}
+
 export function stripGroupLabels(skills: string, shape: SkillsShape): string {
   if (!shape.grouped) return skills;
   const groupKeys = new Set(shape.groups.map(key));

@@ -19,7 +19,7 @@ import { matchAtsKeywords } from "./atsMatch.ts";
 import { namesRequirement, sectionsOf, distinctiveTokens, learningText, TOOLS_LEAD_SLOTS, type ClaimsRegistry } from "./claims.ts";
 import { titleInText } from "./roleTitle.ts";
 import { FLAT_SKILLS, type SkillsShape } from "./formatStyles/ids.ts";
-import { parseSkillsBlock, toolItems, toolLines, writeToolLines, keepToolItems, addToolItem } from "./skillsLines.ts";
+import { parseSkillsBlock, toolItems, toolLines, writeToolLines, keepToolItems, addToolItem, dropStrayLines } from "./skillsLines.ts";
 
 export const MAX_TECHNICAL_TOOLS = 15;
 export const MAX_SUMMARY_SENTENCES = 3;
@@ -55,6 +55,9 @@ export type FormatFixes = {
   // carries ("Technical Tools:" written twice — the Marshall Wace CV, 30 Sep),
   // or an exact repeat of an earlier line.
   duplicateLines?: string[] | null;
+  // dropStrayLines() (grouped blocks only): lines under the skills labels that
+  // are not skills at all — the model's own commentary or rationale.
+  strayLines?: string[] | null;
   // The British-English pass (lib/britishSpelling): how many words changed,
   // and the first few as "from → to".
   spelling?: { count: number; examples: string[] } | null;
@@ -542,7 +545,10 @@ export function applyFormatRules(
   // First, so every rule below works on the one line per label it expects
   // (each finds the FIRST matching line and would leave a second untouched).
   const deduped = dedupeSkillLines(sections.skills);
-  const unsupported = dropUnsupportedTools(deduped.skills, sources, rules.skills);
+  // A grouped block keeps only its label lines (lib/skillsLines dropStrayLines).
+  const stray =
+    rules.skills.grouped && typeof deduped.skills === "string" ? dropStrayLines(deduped.skills, rules.skills) : { skills: deduped.skills, dropped: [] as string[] };
+  const unsupported = dropUnsupportedTools(stray.skills, sources, rules.skills);
   const competencies = dropUnsupportedCompetencies(unsupported.skills, sources);
   const tools = capTechnicalTools(competencies.skills, a.top_15_ats_keywords, a.required_skills, rules.maxTools, rules.skills);
   const restored =
@@ -562,6 +568,7 @@ export function applyFormatRules(
       restoredTools: restored.restored.length ? restored.restored : null,
       skillLines: separated.fix,
       duplicateLines: deduped.dropped.length ? deduped.dropped : null,
+      strayLines: stray.dropped.length ? stray.dropped : null,
     },
   };
 }

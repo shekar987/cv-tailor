@@ -108,8 +108,12 @@ function evaluate(label) {
         ...Object.values(d.projects && typeof d.projects === "object" ? d.projects : {}).flat().filter((b) => typeof b === "string"),
       ];
       const styledBold = careerset ? bulletLines.filter((l) => /\*\*/.test(l) || /^\s*[•\-*]?\s*highlight\s*:/i.test(l)).length : 0;
+      // A grouped skills block holds label lines only; anything else is the
+      // model's commentary printed on the CV (the 17 Oct recsys run).
+      const KNOWN_LABEL = /^(\*\*)?(functional competencies|technical tools|languages & frameworks|databases|ai & llm|cloud & devops|testing|other)(\*\*)?\s*:/i;
+      const strayLines = careerset ? String(d.skills || "").split("\n").map((l) => l.trim()).filter((l) => l && !KNOWN_LABEL.test(l)).length : 0;
       rows.push({
-        styleFailKeys, styleFails: styleFailKeys.length, styledBold, careerset,
+        styleFailKeys, styleFails: styleFailKeys.length, styledBold, strayLines, careerset,
         cv: cv.id, jd: jd.id, ms: run.ms,
         absentFigures: absentFigures.map((n) => n.figure),
         absentTools,
@@ -139,6 +143,7 @@ function summarize(label, rows) {
     if (r.titleMissing) hardFails.push(`${r.cv}×${r.jd}: role title "${r.title}" absent from the summary`);
     if (r.careerset && r.styledBold) hardFails.push(`${r.cv}×${r.jd}: CareerSet bullets carry bold or a Highlight prefix (${r.styledBold})`);
     if (r.careerset && r.styleFailKeys.includes("fullStops")) hardFails.push(`${r.cv}×${r.jd}: CareerSet bullets end in a full stop`);
+    if (r.careerset && r.strayLines) hardFails.push(`${r.cv}×${r.jd}: ${r.strayLines} non-skill line(s) in the skills block`);
     // reported per CV below; the run-level rule is two or more identical CVs
   }
   const sameCvs = [...new Set(present.filter((r) => r.orderingDiffers === false).map((r) => r.cv))];
@@ -168,6 +173,7 @@ function summarize(label, rows) {
     letterHonestGapMissing: sum("honestGapMissing"),
     careersetRuns: present.filter((r) => r.careerset).length,
     styleFails: sum("styleFails"),
+    strayLines: sum("strayLines"),
     avgMs: present.length ? Math.round(sum("ms") / present.length) : 0,
   };
   return { hardFails, metrics };

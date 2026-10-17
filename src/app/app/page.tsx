@@ -132,6 +132,9 @@ type Result = {
     // The style pass (lib/stylePass, CareerSet): bold, highlight prefixes and
     // trailing full stops removed, banned words swapped or dropped.
     style?: { debolded: number; highlightsStripped: number; fullStopsStripped: number; swapped: { where: string; from: string; to: string; bullet: string }[] } | null;
+    // dropStrayLines() (lib/skillsLines, grouped blocks): commentary the model
+    // wrote under the skills labels, dropped.
+    strayLines?: string[] | null;
     tools?: { kept: string[]; dropped: string[] } | null;
     summary?: { sentences: number; kept: number; words?: number } | null;
     // Technical Tools the master CV never names, and Functional
@@ -2664,7 +2667,7 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines || result.formatFixes?.spelling || result.formatFixes?.pageOverflow || (isUnlimited && result.formatFixes?.style && (result.formatFixes.style.debolded + result.formatFixes.style.highlightsStripped + result.formatFixes.style.fullStopsStripped + result.formatFixes.style.swapped.length > 0))) && (
+            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines || result.formatFixes?.strayLines || result.formatFixes?.spelling || result.formatFixes?.pageOverflow || (isUnlimited && result.formatFixes?.style && (result.formatFixes.style.debolded + result.formatFixes.style.highlightsStripped + result.formatFixes.style.fullStopsStripped + result.formatFixes.style.swapped.length > 0))) && (
               <div className="limitNotice" role="status" data-format-fixes>
                 <div className="limitNotice__title">Formatting rules applied</div>
                 <div className="limitNotice__body">
@@ -2759,6 +2762,17 @@ export default function Home() {
                             .filter(Boolean)
                             .join("; ")}
                           .{result.formatFixes.style.swapped.length > 0 ? " Every swap stays within the two-word budget a master bullet allows." : ""}
+                        </span>
+                      </li>
+                    )}
+                    {result.formatFixes.strayLines && result.formatFixes.strayLines.length > 0 && (
+                      <li data-format-fix="stray-lines">
+                        <Badge variant="dot" tone="miss">−</Badge>
+                        <span>
+                          {result.formatFixes.strayLines.length === 1 ? "A line" : `${result.formatFixes.strayLines.length} lines`} under the skills labels{" "}
+                          {result.formatFixes.strayLines.length === 1 ? "was" : "were"} not skills and {result.formatFixes.strayLines.length === 1 ? "was" : "were"} dropped:{" "}
+                          {result.formatFixes.strayLines.slice(0, 3).map((l) => `“${clip(l, 80)}”`).join(" · ")}
+                          {result.formatFixes.strayLines.length > 3 ? ` and ${result.formatFixes.strayLines.length - 3} more` : ""}
                         </span>
                       </li>
                     )}

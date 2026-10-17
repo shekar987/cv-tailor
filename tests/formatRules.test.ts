@@ -103,7 +103,7 @@ test("applyFormatRules: both rules run from the analysis, and a clean result rep
   assert.equal(r.fixes.tools?.kept.length, 15);
   assert.ok(r.fixes.tools?.kept.includes("Docker") && r.fixes.tools?.kept.includes("Kubernetes"));
   const clean = applyFormatRules({ summary: "A.\nB.\nC.", skills: skillsBlock(tools25.slice(0, 10)) }, null);
-  assert.deepEqual(clean.fixes, { tools: null, summary: null, unsupportedTools: null, competencies: null, restoredTools: null, skillLines: null, duplicateLines: null });
+  assert.deepEqual(clean.fixes, { tools: null, summary: null, unsupportedTools: null, competencies: null, restoredTools: null, skillLines: null, duplicateLines: null, strayLines: null });
   assert.equal(clean.skills, skillsBlock(tools25.slice(0, 10)));
 });
 
