@@ -13,6 +13,7 @@
 // 1-of-1 "100%" would mislead.
 
 import { POSTING_AGE_BANDS } from "./postingAge.ts";
+import { isFormatStyleId, FORMAT_STYLE_LABELS, type FormatStyleId } from "./formatStyles/ids.ts";
 
 export type GateRead = "apply" | "long_shot" | "skip";
 export type Seniority = "junior" | "mid" | "senior";
@@ -27,6 +28,10 @@ export type InsightRow = {
   reqTotal?: number;
   gateRead?: GateRead;
   seniority?: Seniority;
+  // The format style the CV was made with (lib/formatStyles), stored with
+  // every tailored save since 17 Oct 2026 and picked by hand for a manual
+  // row; absent = not recorded, never read as UKJI.
+  formatStyle?: FormatStyleId;
   // Prompt 13: how the row was made, whether a follow-up date was set, the
   // page count of the CV sent, and how old the posting was at application.
   source?: "tailored" | "manual";
@@ -87,6 +92,10 @@ export type Insights = {
   byFollowup: Bucket[];
   byPages: Bucket[];
   byPostingAge: Bucket[];
+  // Progression by format style (UKJI / CareerSet) over the rows that
+  // recorded one; the rest are counted, never compared.
+  byStyle: Bucket[];
+  styleNotRecorded: number;
 };
 
 // A group's progression rate shows only once at least this many of its
@@ -135,6 +144,8 @@ export function rowFromApplication(row: unknown): InsightRow {
   const stored = r.seniority ?? snapshot.seniority;
   if (stored === "junior" || stored === "mid" || stored === "senior") out.seniority = stored;
   else if (out.role) out.seniority = seniorityOf(out.role);
+  const style = r.format_style ?? snapshot.formatStyle;
+  if (isFormatStyleId(style)) out.formatStyle = style;
   return out;
 }
 
@@ -196,6 +207,8 @@ export function computeInsights(rows: InsightRow[]): Insights {
   const byFollowup = new Map<string, Acc>();
   const byPages = new Map<string, Acc>();
   const byPostingAge = new Map<string, Acc>();
+  const byStyle = new Map<string, Acc>();
+  let styleNotRecorded = 0;
   let scored = 0;
   let gated = 0;
   let progressed = 0;
@@ -227,6 +240,8 @@ export function computeInsights(rows: InsightRow[]): Insights {
       const band = POSTING_AGE_BANDS.find((b) => b.test(row.postingAgeDays!));
       if (band) bucketOf(byPostingAge, band.key, band.label, row);
     }
+    if (row.formatStyle) bucketOf(byStyle, row.formatStyle, FORMAT_STYLE_LABELS[row.formatStyle], row);
+    else styleNotRecorded++;
   }
 
   const ordered = (map: Map<string, Acc>, order: string[]) =>
@@ -259,6 +274,8 @@ export function computeInsights(rows: InsightRow[]): Insights {
     byFollowup: ordered(byFollowup, ["set", "none"]),
     byPages: ordered(byPages, ["1", "2", "3", "4", "5"]),
     byPostingAge: ordered(byPostingAge, ["fresh", "week", "old"]),
+    byStyle: ordered(byStyle, ["ukji", "careerset"]),
+    styleNotRecorded,
   };
 }
 

@@ -2327,6 +2327,9 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .appsGateDot.matched { background: var(--success); }
 .appsGateDot.longshot { background: var(--amber); }
 .appsGateDot.knockout { background: var(--danger); }
+/* The format-style tag under a row's CV link (owner's trial, lib/formatStyles). */
+.appsStyleTag { display: block; margin-top: 2px; font-size: var(--text-xs); color: var(--muted); letter-spacing: 0.02em; }
+.appsStyleSelect { margin-top: 2px; font-size: var(--text-xs); max-width: 100%; }
 .appsTable .appsActionBtn { border: 0; padding: 0 1px; margin-left: 6px; background: none; min-height: 0; font-size: var(--text-sm); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
 .appsTable .appsActionBtn:hover:not(:disabled) { background: none; color: var(--text); text-decoration-color: currentColor; }
 .appsTable .appsActionBtn.primary { color: var(--text-subtle); }

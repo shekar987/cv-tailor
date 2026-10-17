@@ -7,7 +7,7 @@ import { seniorityOf } from "@/lib/insights";
 import { GATE_CATEGORIES } from "@/lib/knockouts";
 import { SENT_CV_BUCKET, normalizeSentCv, publicSentCv, ownsPath } from "@/lib/sentCv";
 import { isStatus, READY_TO_SUBMIT, clearsFollowup, followupClearedNote, appendNoteLine, type Status } from "@/lib/tracker";
-import { isFormatStyleId } from "@/lib/formatStyles/ids";
+import { isFormatStyleId, type FormatStyleId } from "@/lib/formatStyles/ids";
 import { normalizeStyleCheck } from "@/lib/styleCheck";
 
 // CRUD for the application tracker. RLS ("auth.uid() = user_id") is the real
@@ -47,7 +47,9 @@ const SELECT_COLUMNS =
   "id, company_name, role, cv_reference, tailor_session_id, status, salary, date_applied, followup_date, notes, job_description, source, created_at, updated_at";
 // gates: the pre-check's eligibility read stored with the snapshot, so the
 // sheet can show "Knockout: <quote>" / "Clear" per row without the detail read.
-const LIST_COLUMNS = `${SELECT_COLUMNS}, prep_generated_at:prep_pack->>generatedAt, gates:tailored_cv->gates`;
+// format_style: the format style the CV was made with, or the one picked by
+// hand for a manual row (lib/formatStyles; absent = not recorded).
+const LIST_COLUMNS = `${SELECT_COLUMNS}, prep_generated_at:prep_pack->>generatedAt, gates:tailored_cv->gates, format_style:tailored_cv->>formatStyle`;
 // sent_cv_name: the file name of the CV the user uploaded for the row
 // (lib/sentCv, migration 20260927120000), so the sheet can mark it.
 const LIST_COLUMNS_SENT = `${LIST_COLUMNS}, sent_cv_name:sent_cv->>fileName`;
@@ -411,7 +413,12 @@ export async function POST(req: NextRequest) {
     const source = body.source === "tailored" ? "tailored" : "manual";
     const sessionId = source === "tailored" ? clampOptional(body.tailor_session_id, MAX_SESSION_ID) : null;
     const cvReference = source === "tailored" ? clampOptional(body.cv_reference, MAX_CV_REF) : null;
-    const cv = source === "tailored" ? cleanTailoredCv(body.tailored_cv, String(fields.role ?? "")) : { snapshot: null };
+    // A hand-added row stores only the format style the user picked for it
+    // (lib/formatStyles), if any — a tag, never a CV: the panel and the prep
+    // route read a snapshot without sections as "none".
+    const cv = source === "tailored"
+      ? cleanTailoredCv(body.tailored_cv, String(fields.role ?? ""))
+      : { snapshot: isFormatStyleId(body.formatStyle) ? { formatStyle: body.formatStyle } : null };
     if ("error" in cv) {
       return NextResponse.json({ error: cv.error }, { status: 400 });
     }
@@ -533,8 +540,49 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: validated.error }, { status: 400 });
     }
     const { fields } = validated;
-    if (Object.keys(fields).length === 0) {
+    // The format-style tag of a hand-added row (lib/formatStyles): null or
+    // "unknown" clears it, a style id sets it; merged into the row's
+    // tailored_cv below. A tailored row keeps the style it was made with.
+    const stylePatch: FormatStyleId | null | undefined = !("formatStyle" in body)
+      ? undefined
+      : body.formatStyle == null || body.formatStyle === "" || body.formatStyle === "unknown"
+        ? null
+        : isFormatStyleId(body.formatStyle)
+          ? body.formatStyle
+          : undefined;
+    if ("formatStyle" in body && stylePatch === undefined) {
+      return NextResponse.json({ error: "Pick a valid format style." }, { status: 400 });
+    }
+    if (Object.keys(fields).length === 0 && stylePatch === undefined) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+    }
+    let snapshotPatch: Record<string, unknown> | null | undefined;
+    if (stylePatch !== undefined) {
+      const { data: existing, error: existingError } = await supabase
+        .from("applications")
+        .select("source, tailored_cv")
+        .eq("id", id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (existingError) {
+        if (isMissingColumn(existingError)) {
+          return NextResponse.json({ error: MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+        }
+        console.error("applications lookup error:", existingError.message);
+        return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
+      }
+      if (!existing) {
+        return NextResponse.json({ error: "Application not found" }, { status: 404 });
+      }
+      if (existing.source === "tailored") {
+        return NextResponse.json({ error: "A tailored row keeps the style it was made with." }, { status: 400 });
+      }
+      const stored = existing.tailored_cv;
+      const snapshot: Record<string, unknown> =
+        stored && typeof stored === "object" && !Array.isArray(stored) ? { ...(stored as Record<string, unknown>) } : {};
+      if (stylePatch) snapshot.formatStyle = stylePatch;
+      else delete snapshot.formatStyle;
+      snapshotPatch = Object.keys(snapshot).length > 0 ? snapshot : null;
     }
 
     // The date rule spans two columns; when the patch carries only one of
@@ -581,9 +629,10 @@ export async function PUT(req: NextRequest) {
     // Scoped by id as well as RLS: belt and braces on a write. RLS hides
     // another user's row rather than erroring, so an empty result means
     // "not yours or not there".
+    const update: Record<string, unknown> = { ...fields, ...(snapshotPatch !== undefined ? { tailored_cv: snapshotPatch } : {}) };
     const { data: updated, error: updateError } = await supabase
       .from("applications")
-      .update(fields)
+      .update(update)
       .eq("id", id)
       .eq("user_id", userId)
       .select("id");

@@ -14,6 +14,9 @@ import { MAX_JD_CHARS as JD_LIMIT, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/li
 import { MIN_DECIDED, MIN_FOR_VERDICT, seniorityOf, type Insights, type Bucket, type ScoreOutcome, type ScoreVerdict, type Seniority } from "@/lib/insights";
 import { bandFor, type VisibilityBand } from "@/lib/visibilityVerdict";
 import { gateLine, type GatesSummary } from "@/lib/knockouts";
+import { rowStyle, isFormatStyleId, normalizeFormatStyle, ROW_STYLE_LABELS, type RowStyle } from "@/lib/formatStyles/ids";
+import { normalizeStyleCheck, summarizeStyleCheck } from "@/lib/styleCheck";
+import { getUsage } from "@/lib/usage";
 import {
   STATUSES,
   READY_TO_SUBMIT,
@@ -63,6 +66,10 @@ type Application = {
   // The file name of the CV the user uploaded for this row (lib/sentCv; a
   // JSON-path alias in the list query), absent until that migration is applied.
   sent_cv_name?: string | null;
+  // The format style the CV was made with, or the one picked by hand for a
+  // manual row (lib/formatStyles; a JSON-path alias in the list query);
+  // absent or null = not recorded.
+  format_style?: string | null;
 };
 
 // What the Applied button stored: the generated sections plus the profile and
@@ -79,6 +86,10 @@ type TailoredCv = {
   coverLetter?: string;
   ats?: unknown;
   gates?: unknown;
+  // Since 17 Oct 2026: the format style and the style's own format check as
+  // the page last ran it (lib/formatStyles, lib/styleCheck).
+  formatStyle?: string;
+  styleCheck?: unknown;
 };
 
 type StoredAts = {
@@ -281,12 +292,37 @@ function LaneTile({ lanes }: { lanes: Lane[] }) {
   );
 }
 
-function InsightsSummary({ insights, withoutJd, withoutCv, lanes }: { insights: Insights; withoutJd: number; withoutCv: number; lanes: Lane[] }) {
+// Progression by format style (lib/insights byStyle): the question the
+// CareerSet trial asks. A style's rate shows only from MIN_DECIDED decided
+// applications; rows with no recorded style are counted, never compared.
+function StyleTile({ insights }: { insights: Insights }) {
+  if (insights.byStyle.length === 0) return null;
+  const pct = (r: number) => `${Math.round(r * 100)}%`;
+  const rated = insights.byStyle.filter((b) => b.rate !== null);
+  const best = rated.length > 0 ? [...rated].sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0))[0] : null;
+  return (
+    <div className="statTile" data-stat="style" data-style-best={best ? best.key : "none"}>
+      <span className="statTile__value">{best ? pct(best.rate ?? 0) : "—"}</span>
+      <span className="statTile__label">
+        {rated.length >= 2 ? `${best!.label} style progresses most` : best ? `${best.label} style, so far` : "Format style: too few to judge"}
+      </span>
+      <span className="statTile__sub">
+        {insights.byStyle
+          .map((b) => `${b.label}: ${b.rate === null ? `${b.progressed + b.rejected} of ${MIN_DECIDED} decided needed` : `${pct(b.rate)} of ${b.progressed + b.rejected} decided`} (${b.n} applied)`)
+          .join(" · ")}
+        {insights.styleNotRecorded > 0 ? ` · ${insights.styleNotRecorded} with no recorded style, not compared` : ""}.
+      </span>
+    </div>
+  );
+}
+
+function InsightsSummary({ insights, withoutJd, withoutCv, lanes, showStyle }: { insights: Insights; withoutJd: number; withoutCv: number; lanes: Lane[]; showStyle: boolean }) {
   const open = insights.counted - insights.decided;
   const unscored = insights.counted - insights.scored;
   return (
     <div className="statGrid" data-insights-summary>
       <LaneTile lanes={lanes} />
+      {showStyle && <StyleTile insights={insights} />}
       <div className="statTile" data-stat="rate">
         <span className="statTile__value">{insights.overallRate === null ? "—" : `${Math.round(insights.overallRate * 100)}%`}</span>
         <span className="statTile__label">Progressed past the screen</span>
@@ -405,7 +441,10 @@ type NewRow = {
   salary: string;
   date_applied: string;
   followup_date: string;
+  // The format style of the CV sent (lib/formatStyles); "unknown" = not recorded.
+  formatStyle: RowStyle;
 };
+const ROW_STYLES: readonly RowStyle[] = ["unknown", "ukji", "careerset"];
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -532,6 +571,10 @@ export default function ApplicationsPage() {
 
   const [statusFilter, setStatusFilter] = useState<"All" | Status>("All");
   const [periodFilter, setPeriodFilter] = useState<Period>("all");
+  // The format-style tag, filter, picker and tile are the owner's while the
+  // two styles are compared (profiles.is_unlimited, read fail-soft).
+  const [isOwner, setIsOwner] = useState(false);
+  const [styleFilter, setStyleFilter] = useState<"all" | RowStyle>("all");
   const [sortKey, setSortKey] = useState<SortKey>("date_applied");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -605,6 +648,9 @@ export default function ApplicationsPage() {
     getProfile().then((p) => {
       if (!cancelled) setProfile(p);
     });
+    getUsage().then((u) => {
+      if (!cancelled) setIsOwner(!!u?.unlimited);
+    });
     fetch("/api/applications/insights")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -658,6 +704,7 @@ export default function ApplicationsPage() {
     const filtered = rows.filter(
       (r) =>
         (statusFilter === "All" || r.status === statusFilter) &&
+        (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) &&
         (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
         (!dueOnly || isDue(r)) &&
         matchesSearch(r, searchTerm)
@@ -688,11 +735,11 @@ export default function ApplicationsPage() {
       if (cmp !== 0) return sortDir === "asc" ? cmp : -cmp;
       return b.created_at.localeCompare(a.created_at);
     });
-  }, [rows, statusFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, searchTerm]);
+  }, [rows, statusFilter, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, searchTerm]);
 
   // Only PAGE_SIZE rows are painted at a time; search, filters, counts and the
   // export cover the whole set. A different filter/sort state starts at page 1.
-  const pageKey = [statusFilter, periodFilter, sortKey, sortDir, dueOnly ? "due" : "", searchTerm].join("\u0000");
+  const pageKey = [statusFilter, styleFilter, periodFilter, sortKey, sortDir, dueOnly ? "due" : "", searchTerm].join("\u0000");
   const sheet = pageSlice(visible, paging.key === pageKey ? paging.page : 1);
   const pageRows = sheet.items;
   function goToPage(page: number) {
@@ -726,9 +773,10 @@ export default function ApplicationsPage() {
       params.set("to", bounds.to);
     }
     if (searchTerm) params.set("q", searchTerm);
+    if (styleFilter !== "all") params.set("style", styleFilter);
     const qs = params.toString();
     return `/api/applications/export${qs ? `?${qs}` : ""}`;
-  }, [statusFilter, bounds?.from, bounds?.to, searchTerm]);
+  }, [statusFilter, styleFilter, bounds?.from, bounds?.to, searchTerm]);
 
   // What the export FILE will contain: the server honours status/period/search,
   // never the computed follow-ups-due filter — so the count on the button
@@ -738,17 +786,20 @@ export default function ApplicationsPage() {
       rows.filter(
         (r) =>
           (statusFilter === "All" || r.status === statusFilter) &&
+          (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) &&
           (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
           matchesSearch(r, searchTerm)
       ).length,
-    [rows, statusFilter, bounds?.from, bounds?.to, searchTerm]
+    [rows, statusFilter, styleFilter, bounds?.from, bounds?.to, searchTerm]
   );
 
   // The CV shown in the open panel. Memoised so CvPreview's React.memo holds.
   const panelCv = panel?.kind === "cv" ? cvCache[panel.id] : undefined;
+  // A snapshot with no section at all (a hand-added row's style tag, lib/formatStyles)
+  // is not a CV: the panel shows what it does for a row without one.
   const panelCvData = useMemo(
     () =>
-      panelCv
+      panelCv && (panelCv.summary !== undefined || panelCv.skills !== undefined || panelCv.experience !== undefined || panelCv.projects !== undefined)
         ? {
             summary: panelCv.summary,
             skills: panelCv.skills,
@@ -766,6 +817,23 @@ export default function ApplicationsPage() {
     }
     setSortKey(key);
     setSortDir(DATE_FIELDS.has(key) ? "desc" : "asc");
+  }
+
+  // The format-style tag of a hand-added row (lib/formatStyles): applied
+  // locally, then PUT as `formatStyle`; put back if the save fails.
+  async function changeStyle(row: Application, value: string) {
+    const next = isFormatStyleId(value) ? value : null;
+    const previous = row.format_style ?? null;
+    setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, format_style: next } : r)));
+    const { ok, status, data } = await api("PUT", { id: row.id, formatStyle: next });
+    if (!ok) {
+      setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, format_style: previous } : r)));
+      if (status === 401) setSessionExpired(true);
+      setActionError(status === 401 ? SESSION_EXPIRED : data.error || "Could not save that change.");
+      return;
+    }
+    setCvCache((c) => (c[row.id] ? { ...c, [row.id]: { ...c[row.id]!, formatStyle: next ?? undefined } } : c));
+    flashRow(row.id);
   }
 
   // Apply locally first, then PUT one field; put it back if the save fails.
@@ -1016,6 +1084,7 @@ export default function ApplicationsPage() {
       salary: "",
       date_applied: todayLocal(),
       followup_date: "",
+      formatStyle: "unknown",
     });
     setNewRowErr("");
   }
@@ -1032,6 +1101,7 @@ export default function ApplicationsPage() {
     const { ok, status, data } = await api("POST", {
       ...newRow,
       followup_date: newRow.followup_date || null,
+      formatStyle: newRow.formatStyle === "unknown" ? null : newRow.formatStyle,
       source: "manual",
     });
     if (!ok) {
@@ -1186,7 +1256,19 @@ export default function ApplicationsPage() {
                 profile={snap.profile ?? profile}
                 sectionOrder={snap.sectionOrder ?? sectionOrder}
                 fileBaseName={row.cv_reference ?? "CV"}
+                formatStyle={normalizeFormatStyle(snap.formatStyle)}
               />
+              {isOwner && (() => {
+                const tag = rowStyle(snap.formatStyle ?? row.format_style);
+                const check = normalizeStyleCheck(snap.styleCheck);
+                const sum = check ? summarizeStyleCheck(check) : null;
+                return (
+                  <p className="fitEvidence" data-panel-style={tag}>
+                    Format style: {ROW_STYLE_LABELS[tag]}
+                    {sum ? ` · format check at save: ${sum.pass} of ${sum.pass + sum.fail} rules kept${sum.fail > 0 ? ` (${check!.filter((i) => i.status === "fail").map((i) => i.label.toLowerCase()).join(", ")})` : ""}` : ""}.
+                  </p>
+                );
+              })()}
               {(() => {
                 const line = gateLine(readStoredGates(row.gates ?? snap.gates));
                 return (
@@ -1459,6 +1541,21 @@ export default function ApplicationsPage() {
                 </button>
               ))}
             </div>
+            {isOwner && hasRows && (
+              <div className="appsSeg" role="group" aria-label="Filter by format style" data-style-filter={styleFilter}>
+                {(["all", ...ROW_STYLES] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className={"appsSegBtn" + (styleFilter === k ? " active" : "")}
+                    onClick={() => setStyleFilter(k)}
+                    aria-pressed={styleFilter === k}
+                  >
+                    {k === "all" ? "Any style" : ROW_STYLE_LABELS[k]}
+                  </button>
+                ))}
+              </div>
+            )}
             {hasRows && (
               <span className="appsCount" data-apps-count>
                 {sheet.pages > 1 ? `${sheet.from}–${sheet.to} of ${visible.length}` : `${visible.length} of ${rows.length}`}
@@ -1481,7 +1578,7 @@ export default function ApplicationsPage() {
             {/* Only offered when the current filters leave something to export. */}
             {exportCount > 0 && (
               <button type="button" className="customizeLink" onClick={exportCsv} disabled={exporting}>
-                {exporting ? "Exporting…" : `Export CSV${periodFilter !== "all" || statusFilter !== "All" || searchTerm ? ` (${exportCount})` : ""}`}
+                {exporting ? "Exporting…" : `Export CSV${periodFilter !== "all" || statusFilter !== "All" || styleFilter !== "all" || searchTerm ? ` (${exportCount})` : ""}`}
               </button>
             )}
             <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired}>+ Add row</Button>
@@ -1519,6 +1616,7 @@ export default function ApplicationsPage() {
                   No applications
                   {periodFilter !== "all" ? ` ${PERIODS.find((p) => p.key === periodFilter)?.label.toLowerCase()}` : ""}
                   {statusFilter !== "All" ? ` with status “${statusFilter}”` : ""}
+                  {styleFilter !== "all" ? ` in the ${ROW_STYLE_LABELS[styleFilter]} style` : ""}
                   {dueOnly ? " with a follow-up due" : ""}
                   {searchTerm ? ` matching “${searchTerm}”` : ""}
                 </>
@@ -1526,7 +1624,7 @@ export default function ApplicationsPage() {
               actions={
                 <Button
                   variant="secondary"
-                  onClick={() => { setPeriodFilter("all"); setStatusFilter("All"); setDueOnly(false); setQuery(""); }}
+                  onClick={() => { setPeriodFilter("all"); setStatusFilter("All"); setStyleFilter("all"); setDueOnly(false); setQuery(""); }}
                 >
                   Clear filters
                 </Button>
@@ -1595,7 +1693,26 @@ export default function ApplicationsPage() {
                           disabled={savingNew}
                         />
                       </td>
-                      <td data-label="CV"><span className="appsCellStatic">—</span></td>
+                      <td data-label="CV">
+                        {isOwner ? (
+                          <select
+                            className="appsCellSelect appsStyleSelect"
+                            value={newRow.formatStyle}
+                            onChange={(e) => updateNewRow("formatStyle", rowStyle(e.target.value))}
+                            onKeyDown={handleNewRowKey}
+                            aria-label="Format style of the CV sent"
+                            title="The format style of the CV you sent"
+                            disabled={savingNew}
+                            data-new-style
+                          >
+                            {ROW_STYLES.map((k) => (
+                              <option key={k} value={k}>{ROW_STYLE_LABELS[k]}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="appsCellStatic">—</span>
+                        )}
+                      </td>
                       <td data-label="JD"><span className="appsCellStatic">after save</span></td>
                       <td data-label="Gate"><span className="appsCellStatic">—</span></td>
                       <td data-label="Status">
@@ -1710,6 +1827,28 @@ export default function ApplicationsPage() {
                           >
                             {cvLoading[row.id] ? "Loading…" : row.source === "tailored" || row.sent_cv_name ? "View CV" : "Add CV"}
                           </button>
+                          {/* The format-style tag (lib/formatStyles): a tailored row
+                              keeps the style it was made with; a hand-added row is
+                              told by hand. The owner's account only. */}
+                          {isOwner &&
+                            (row.source === "tailored" ? (
+                              <span className="appsStyleTag" data-style-tag={rowStyle(row.format_style)}>
+                                {ROW_STYLE_LABELS[rowStyle(row.format_style)]}
+                              </span>
+                            ) : (
+                              <select
+                                className="appsCellSelect appsStyleSelect"
+                                value={rowStyle(row.format_style)}
+                                onChange={(e) => void changeStyle(row, e.target.value)}
+                                aria-label={`Format style of the CV sent to ${row.company_name}`}
+                                title="The format style of the CV you sent"
+                                data-style-pick={rowStyle(row.format_style)}
+                              >
+                                {ROW_STYLES.map((k) => (
+                                  <option key={k} value={k}>{ROW_STYLE_LABELS[k]}</option>
+                                ))}
+                              </select>
+                            ))}
                         </td>
                         <td data-label="JD">
                           <button
@@ -1858,7 +1997,7 @@ export default function ApplicationsPage() {
                 {showInsights ? "Hide" : "Show breakdown"}
               </button>
             </div>
-            <InsightsSummary insights={insights} withoutJd={withoutJd} withoutCv={withoutCv} lanes={lanes} />
+            <InsightsSummary insights={insights} withoutJd={withoutJd} withoutCv={withoutCv} lanes={lanes} showStyle={isOwner} />
             {showInsights && (
               <>
                 <InsightGroup title="By search visibility of the saved CV" buckets={insights.byVisibility} />
@@ -1871,6 +2010,7 @@ export default function ApplicationsPage() {
                 <InsightGroup title="By follow-up date" buckets={insights.byFollowup} />
                 <InsightGroup title="By page count of the CV sent" buckets={insights.byPages} />
                 <InsightGroup title="By posting age when you applied" buckets={insights.byPostingAge} />
+                {isOwner && <InsightGroup title="By format style" buckets={insights.byStyle} />}
                 {insights.byVisibility.length + insights.byRequired.length + insights.byGate.length === 0 && (
                   <p className="fitEvidence">
                     Score and eligibility bands appear once applications saved from a tailored run have outcomes.

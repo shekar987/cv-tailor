@@ -9,7 +9,7 @@ import { signedIn, unauthorized } from "@/lib/routeAuth";
 import { computeInsights, rowFromApplication, scoreOutcome } from "@/lib/insights";
 
 const WITH_SNAPSHOT_PATHS =
-  "status, role, company_name, source, followup_date, ats:tailored_cv->ats, gates:tailored_cv->gates, pages:tailored_cv->>pages, posting_age_days:tailored_cv->>postingAgeDays";
+  "status, role, company_name, source, followup_date, ats:tailored_cv->ats, gates:tailored_cv->gates, pages:tailored_cv->>pages, posting_age_days:tailored_cv->>postingAgeDays, format_style:tailored_cv->>formatStyle";
 const PLAIN = "status, role, company_name, source, followup_date";
 
 export async function GET() {
