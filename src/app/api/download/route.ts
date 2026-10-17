@@ -286,10 +286,12 @@ export async function POST(req: NextRequest) {
     // a missing field renders blank — never owner data.
     // One page for a candidate who chose it (the preview sends targetPages: 1
     // — lib/onePage trimmed the content to fit it); two otherwise.
-    const { contact, education, certs, rightToWork, extraSections, density } = prepareCvDocument({
+    const { contact, render, contactPieces, education, certs, rightToWork, extraSections, density } = prepareCvDocument({
       profile: normalizeProfile(body.profile),
       summary, skills, experience, projects, projectsMeta,
       targetPages: body.targetPages === 1 ? 1 : 2,
+      // The run's format style (lib/formatStyles): labels or printed addresses on the contact line.
+      formatStyle: body.formatStyle,
     });
 
     const children: Paragraph[] = [];
@@ -303,34 +305,20 @@ export async function POST(req: NextRequest) {
         children: [new TextRun({ text: contact.tagline, size: 20, color: GREY, font: "Calibri" })] }));
     }
     if (contact.hasRow) {
-      // One line: location · phone · email (mailto) · LinkedIn · GitHub —
-      // only the pieces that exist, each separated by " · ", never a
-      // dangling separator for a missing piece. Email gets its own mailto:
-      // link built explicitly here — it does NOT go through the S1
-      // http/https-only sanitisation below (that gate is for arbitrary
-      // profile/link URLs; mailto: is a fixed scheme we construct ourselves
-      // from a controlled prefix, not user-suppliable).
+      // One line of the pieces that exist (lib/cvDocument contactPieces — the
+      // style decides whether a link prints its label or its address), each
+      // separated by the style's separator, never a dangling one. Email's
+      // mailto: link is built there from a controlled prefix — it does NOT go
+      // through the S1 http/https-only sanitisation below (that gate is for
+      // arbitrary profile/link URLs, not a fixed scheme we construct ourselves).
       const contactRuns: (TextRun | ExternalHyperlink)[] = [];
-      const addContactRun = (run: TextRun | ExternalHyperlink) => {
-        if (contactRuns.length > 0) contactRuns.push(new TextRun({ text: " · ", size: 20, font: "Calibri" }));
-        contactRuns.push(run);
-      };
-      if (contact.location) addContactRun(new TextRun({ text: contact.location, size: 20, font: "Calibri" }));
-      if (contact.phone) addContactRun(new TextRun({ text: contact.phone, size: 20, font: "Calibri" }));
-      if (contact.email) {
-        addContactRun(new ExternalHyperlink({
-          link: `mailto:${contact.email}`,
-          children: [new TextRun({ text: contact.email, size: 20, color: LINK, underline: {}, font: "Calibri" })],
-        }));
-      }
-      if (contact.linkedin) {
-        addContactRun(new ExternalHyperlink({ link: contact.linkedin, children: [new TextRun({ text: "LinkedIn", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
-      }
-      if (contact.github) {
-        addContactRun(new ExternalHyperlink({ link: contact.github, children: [new TextRun({ text: "GitHub", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
-      }
-      if (contact.website) {
-        addContactRun(new ExternalHyperlink({ link: contact.website, children: [new TextRun({ text: "Portfolio", size: 20, color: LINK, underline: {}, font: "Calibri" })] }));
+      for (const p of contactPieces) {
+        if (contactRuns.length > 0) contactRuns.push(new TextRun({ text: render.contactSeparator, size: 20, font: "Calibri" }));
+        contactRuns.push(
+          p.link
+            ? new ExternalHyperlink({ link: p.link, children: [new TextRun({ text: p.text, size: 20, color: LINK, underline: {}, font: "Calibri" })] })
+            : new TextRun({ text: p.text, size: 20, font: "Calibri" })
+        );
       }
       children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 }, children: contactRuns }));
     }

@@ -12,8 +12,9 @@
 // it under node:test.
 import { chooseDensity, wrappedLines, type Density } from "./cvDensity.ts";
 import { filterExtraSections } from "./sections.ts";
-import { linksText } from "./projectLinks.ts";
+import { linksText, displayUrl } from "./projectLinks.ts";
 import { cleanTagline, type ExtraSection, type Profile } from "./profile.ts";
+import { RENDER_OPTIONS, normalizeFormatStyle, type RenderOptions } from "./formatStyles/ids.ts";
 
 export type CvContact = {
   name: string;
@@ -40,10 +41,19 @@ export type CvDocumentInput = {
   projects: Record<string, unknown>;
   projectsMeta: unknown[];
   targetPages: 1 | 2;
+  // The run's format style (lib/formatStyles ids): how the contact line is
+  // drawn. Anything but "careerset" is UKJI.
+  formatStyle?: unknown;
 };
+
+// One piece of the contact line: the text to print and the link behind it.
+export type ContactPiece = { text: string; link: string | null };
 
 export type CvDocument = {
   contact: CvContact;
+  render: RenderOptions;
+  // The contact line's pieces in order, as the style draws them.
+  contactPieces: ContactPiece[];
   education: CvEducationEntry[];
   certs: string[];
   rightToWork: string[];
@@ -58,8 +68,38 @@ export function ensureHttps(address: string): string {
 
 type ProjectMeta = { name?: unknown; tech?: unknown; links?: unknown } | null | undefined;
 
+// The contact line's pieces, in order, only the ones that exist. UKJI prints
+// a link's label ("LinkedIn", "GitHub", "Portfolio") with the address behind
+// it; CareerSet prints the address itself ("linkedin.com/in/jane"), still
+// linked — a parser reading the document finds the details either way, and
+// the owner's university tool could not find them behind the labels.
+export function contactPieces(contact: CvContact, render: RenderOptions): ContactPiece[] {
+  const addresses = render.contactLinks === "addresses";
+  const out: ContactPiece[] = [];
+  if (contact.location) out.push({ text: contact.location, link: null });
+  if (contact.phone) out.push({ text: contact.phone, link: null });
+  if (contact.email) out.push({ text: contact.email, link: `mailto:${contact.email}` });
+  if (contact.linkedin) out.push({ text: addresses ? displayUrl(contact.linkedin) : "LinkedIn", link: contact.linkedin });
+  if (contact.github) out.push({ text: addresses ? displayUrl(contact.github) : "GitHub", link: contact.github });
+  if (contact.website) out.push({ text: addresses ? displayUrl(contact.website) : "Portfolio", link: contact.website });
+  return out;
+}
+
+// The contact line as text, for the line arithmetic (lib/quality agrees).
+export function contactRowText(pieces: ContactPiece[], render: RenderOptions): string {
+  return pieces.map((p) => p.text).join(render.contactSeparator);
+}
+
+// How many lines the contact row takes in the layout maths: one, as always,
+// with labels; printed addresses can wrap, so they are counted.
+export function contactRowLines(pieces: ContactPiece[], render: RenderOptions): number {
+  if (pieces.length === 0) return 0;
+  return render.contactLinks === "addresses" ? Math.max(1, wrappedLines(contactRowText(pieces, render))) : 1;
+}
+
 export function prepareCvDocument(input: CvDocumentInput): CvDocument {
   const { profile, summary, skills, experience, projects, projectsMeta, targetPages } = input;
+  const render = RENDER_OPTIONS[normalizeFormatStyle(input.formatStyle)];
 
   const email = profile.email;
   const linkedin = profile.linkedin ? ensureHttps(profile.linkedin) : "";
@@ -76,6 +116,7 @@ export function prepareCvDocument(input: CvDocumentInput): CvDocument {
     website,
     hasRow: !!(profile.location || profile.phone || email || linkedin || github || website),
   };
+  const pieces = contactPieces(contact, render);
 
   const education: CvEducationEntry[] = profile.education.map((e) => ({
     head: e.degree,
@@ -106,7 +147,7 @@ export function prepareCvDocument(input: CvDocumentInput): CvDocument {
     educationText, certs.join("\n"), rightToWork.join("\n"), extrasText,
   ].filter(Boolean).join("\n");
 
-  const contactLines = 1 + (contact.tagline ? 1 : 0) + (contact.hasRow ? 1 : 0);
+  const contactLines = 1 + (contact.tagline ? 1 : 0) + contactRowLines(pieces, render);
   const headingCount =
     (summary ? 1 : 0) + (skills ? 1 : 0) + (experience ? 1 : 0) +
     (education.length > 0 ? 1 : 0) + (certs.length > 0 ? 1 : 0) +
@@ -119,5 +160,5 @@ export function prepareCvDocument(input: CvDocumentInput): CvDocument {
     headings: headingCount,
   }, targetPages);
 
-  return { contact, education, certs, rightToWork, extraSections, density };
+  return { contact, render, contactPieces: pieces, education, certs, rightToWork, extraSections, density };
 }

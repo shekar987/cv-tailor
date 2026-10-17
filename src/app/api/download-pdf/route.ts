@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
       profile,
       sectionOrder: body.sectionOrder,
       targetPages: body.targetPages === 1 ? 1 : 2,
+      formatStyle: body.formatStyle,
     });
 
     // Text-layer check (lib/pdfTextCheck): read the text back out of the

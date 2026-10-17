@@ -159,6 +159,20 @@ export function rightToWorkStatement(e: RtwFacts): RtwStatement {
   return { formBlock: [rtwSentence, availabilitySentence].filter((x): x is string => !!x).join("\n"), rtwSentence, availabilitySentence };
 }
 
+// The availability sentence in the CV's own voice (no "I"), for a summary
+// that closes on it (the CareerSet style, lib/formatStyles): "Available
+// immediately for full-time employment.", "Available from January 2027."
+// Null when the Eligibility answer is not given — never the CV's own line,
+// which the summary strip removes first, and never the model's.
+export function availabilityCvSentence(e: RtwFacts): string | null {
+  const from = monthName(e.availability.from);
+  const start = e.availability.status === "now" ? "Available immediately" : e.availability.status === "from" && from ? `Available from ${from}` : null;
+  if (!start) return null;
+  if (e.canWorkFullTime === "yes") return `${start} for full-time employment.`;
+  if (e.canWorkFullTime === "no") return `${start} for part-time employment.`;
+  return `${start}.`;
+}
+
 // ── What the master CV's own wording says ────────────────────────────────────
 // Conservative: exactly one reading, or null. "No sponsorship required" and
 // "right to work in the UK" alone say nothing about permanence; a time-limited
@@ -255,4 +269,7 @@ export type RightToWorkReport = {
   availability: { replaced: { from: string; to: string }[]; removed: string[] };
   // A sentence went with no Eligibility answer to put in its place.
   asked: ("status" | "availability")[];
+  // The CV-voice availability sentence a style appended to the summary
+  // (CareerSet, availabilityCvSentence), or null.
+  appended?: string | null;
 };

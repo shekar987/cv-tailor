@@ -30,6 +30,7 @@ import type { RightToWorkReport } from "@/lib/rightToWorkText";
 import type { HeaderLock, ChronologyReport } from "@/lib/bulletIds";
 import { normalizeVariants, pickVariant, leadSkillsNotice, type VariantsConfig, type LeadSkillDrop } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTargetFor, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
+import { normalizeFormatStyle } from "@/lib/formatStyles/ids";
 import { attachProjectLinks, linksForProject, projectKey } from "@/lib/projectLinks";
 import type { SkillLinesFix } from "@/lib/formatRules";
 import type { SeniorityFit } from "@/lib/seniority";
@@ -168,6 +169,9 @@ type Result = {
   // The header line under the name for this run (lib/headline); replaces the
   // extracted tagline in the display profile when present.
   headline?: string;
+  // The format style this run was made with (lib/formatStyles): UKJI or
+  // CareerSet. The preview and both downloads draw the contact line by it.
+  formatStyle?: string;
   // "Changes vs master CV" (lib/bulletIds): the finished bullets against the
   // master's own — kept, edited (which words), reverted, dropped, new.
   bulletChanges?: { protocol: boolean; headers?: HeaderLock | null; chronology?: ChronologyReport | null; experience: BulletChanges | null; projects: RoleChanges[] };
@@ -3097,6 +3101,7 @@ export default function Home() {
                 ref={previewRef}
                 data={cvData}
                 profile={displayProfile}
+                formatStyle={normalizeFormatStyle(result.formatStyle)}
                 rightToWorkForForms={rtwForForms}
                 rightToWorkUnset={!!eligibility && !rtwForForms}
                 targetPages={onePageTarget}

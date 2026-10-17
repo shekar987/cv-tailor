@@ -13,7 +13,7 @@
 
 import { DENSITIES, PAGE_HEIGHT, TARGET_PAGES, wrappedLines, chooseDensity, estimatedHeight, capacity } from "./cvDensity.ts";
 import { extractFigures } from "./claims.ts";
-import { linksText } from "./projectLinks.ts";
+import { linksText, displayUrl } from "./projectLinks.ts";
 import { placeholderHits } from "./placeholders.ts";
 import { inflationHits, isTooLong, bulletLines, repeatedStem, MAX_BULLET_LINES } from "./bulletShape.ts";
 
@@ -62,9 +62,30 @@ export type PageEstimate = {
   density: string;
 };
 
+// The contact row's pieces as text, the way the renderers print them (one
+// formula with lib/cvDocument contactRowText).
+export type ContactRender = { contactLinks: "labels" | "addresses"; contactSeparator: string };
+function contactRowTextOf(p: NonNullable<ProfileLike>, render: ContactRender): string {
+  const addresses = render.contactLinks === "addresses";
+  const https = (a: string) => (a.startsWith("http") ? a : `https://${a}`);
+  return [
+    p.location || "",
+    p.phone || "",
+    p.email || "",
+    p.linkedin ? (addresses ? displayUrl(https(p.linkedin)) : "LinkedIn") : "",
+    p.github ? (addresses ? displayUrl(https(p.github)) : "GitHub") : "",
+    p.website ? (addresses ? displayUrl(https(p.website)) : "Portfolio") : "",
+  ]
+    .filter(Boolean)
+    .join(render.contactSeparator);
+}
+
 // targetPages: the layout the downloads will pick — 2 by default, 1 when the
 // user chose a one-page CV (Preferences.onePageCv). `pages` is read against it.
-export function estimatePages(sections: Sections, profile: ProfileLike, targetPages: number = TARGET_PAGES): PageEstimate {
+// render (lib/formatStyles RenderOptions): with printed addresses (CareerSet)
+// the contact row can wrap and is counted; with labels it is one line, as
+// lib/cvDocument counts it.
+export function estimatePages(sections: Sections, profile: ProfileLike, targetPages: number = TARGET_PAGES, render?: ContactRender): PageEstimate {
   const p = profile ?? {};
   const summary = str(sections.summary);
   const skills = str(sections.skills);
@@ -84,7 +105,8 @@ export function estimatePages(sections: Sections, profile: ProfileLike, targetPa
     .filter(Boolean)
     .join("\n");
   const hasContactRow = !!(p.location || p.phone || p.email || p.linkedin || p.github || p.website);
-  const contactLines = 1 + (p.tagline ? 1 : 0) + (hasContactRow ? 1 : 0);
+  const contactRowLines = !hasContactRow ? 0 : render?.contactLinks === "addresses" ? Math.max(1, wrappedLines(contactRowTextOf(p, render))) : 1;
+  const contactLines = 1 + (p.tagline ? 1 : 0) + contactRowLines;
   const headings =
     (summary ? 1 : 0) + (skills ? 1 : 0) + (experience ? 1 : 0) +
     (education.length > 0 ? 1 : 0) + (certs.length > 0 ? 1 : 0) + (rtw.length > 0 ? 1 : 0) + extras.length + (projectMetaText ? 1 : 0);

@@ -20,6 +20,7 @@
 // Imports only ./atsMatch.ts (the same matcher that scores the CV), so it
 // runs under node:test.
 import { matchAtsKeywords } from "./atsMatch.ts";
+import type { RenderOptions } from "./formatStyles/ids.ts";
 
 export type HeadlineEducation = { degree?: string; dates?: string; note?: string };
 export type HeadlineClaims = { skills: { name: string; level: string }[] } | null | undefined;
@@ -31,6 +32,9 @@ export type HeadlineInput = {
   keywords: unknown;
   yearsExperience: number | null | undefined;
   positioning: string | null | undefined;
+  // CareerSet only: the role family in the user's own words when no variant is
+  // picked — the first role their saved tagline names (lib/roleTitle).
+  roleFamily?: string | null;
 };
 
 export type HeadlineParts = { qualification: string; skill: string; years: string; positioning: string };
@@ -98,16 +102,25 @@ function termList(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((t): t is string => typeof t === "string" && t.trim() !== "") : [];
 }
 
+// The first `max` posting terms that name a production-level registry
+// skill, in posting order, each registry name once; the registry's own
+// spelling is used. Empty when there is no registry or no match.
+export function topProductionSkills(claims: HeadlineClaims, requiredSkills: unknown, keywords: unknown, max = 1): string[] {
+  const production = (claims?.skills ?? []).filter((s) => s.level === "production" && s.name.trim());
+  if (production.length === 0) return [];
+  const out: string[] = [];
+  for (const term of [...termList(requiredSkills), ...termList(keywords)]) {
+    if (out.length >= max) break;
+    const hit = production.find((s) => matchAtsKeywords(s.name, [term]).matched > 0);
+    if (hit && !out.includes(hit.name.trim())) out.push(hit.name.trim());
+  }
+  return out;
+}
+
 // The first posting term that names a production-level registry skill; the
 // registry's own spelling is used. null when there is no registry or no match.
 export function topProductionSkill(claims: HeadlineClaims, requiredSkills: unknown, keywords: unknown): string | null {
-  const production = (claims?.skills ?? []).filter((s) => s.level === "production" && s.name.trim());
-  if (production.length === 0) return null;
-  for (const term of [...termList(requiredSkills), ...termList(keywords)]) {
-    const hit = production.find((s) => matchAtsKeywords(s.name, [term]).matched > 0);
-    if (hit) return hit.name.trim();
-  }
-  return null;
+  return topProductionSkills(claims, requiredSkills, keywords, 1)[0] ?? null;
 }
 
 export function yearsLabel(years: number | null | undefined): string {
@@ -117,13 +130,37 @@ export function yearsLabel(years: number | null | undefined): string {
   return `${n} year${n === 1 ? "" : "s"}' experience`;
 }
 
-export function buildHeadline(input: HeadlineInput): { headline: string; parts: HeadlineParts } {
+// CareerSet's tools slot: up to this many posting terms the registry holds at
+// production level.
+export const CAREERSET_HEADLINE_TOOLS = 5;
+
+// `render` (lib/formatStyles RenderOptions): the separator, and the slots.
+// UKJI: qualification · skill · years · positioning, as always. CareerSet:
+// "<positioning> | <years> | <tool · tool · …>" — the positioning is the
+// variant's own headline, else the role family the user's saved tagline
+// names (lib/roleTitle taglineRoles, read by the route; decided 17 Oct 2026),
+// never the posting's title; the years are the stated years in the one
+// wording the app uses (never "2+", never "production" — the answer does
+// not say so); the tools are posting terms at PRODUCTION level, registry
+// spelling. A slot with nothing is left out.
+export function buildHeadline(input: HeadlineInput, render?: Pick<RenderOptions, "headlineSeparator" | "headlineShape">): { headline: string; parts: HeadlineParts } {
+  const positioning = typeof input.positioning === "string" ? input.positioning.trim().replace(/\s+/g, " ").slice(0, MAX_POSITIONING) : "";
+  if (render?.headlineShape === "careerset") {
+    const family = typeof input.roleFamily === "string" ? input.roleFamily.trim().replace(/\s+/g, " ").slice(0, MAX_POSITIONING) : "";
+    const parts: HeadlineParts = {
+      qualification: "",
+      skill: topProductionSkills(input.claims, input.requiredSkills, input.keywords, CAREERSET_HEADLINE_TOOLS).join(" · "),
+      years: yearsLabel(input.yearsExperience),
+      positioning: positioning || family,
+    };
+    return { headline: [parts.positioning, parts.years, parts.skill].filter(Boolean).join(render.headlineSeparator), parts };
+  }
   const parts: HeadlineParts = {
     qualification: qualificationLabel(input.education?.[0]),
     skill: topProductionSkill(input.claims, input.requiredSkills, input.keywords) ?? "",
     years: yearsLabel(input.yearsExperience),
-    positioning: typeof input.positioning === "string" ? input.positioning.trim().replace(/\s+/g, " ").slice(0, MAX_POSITIONING) : "",
+    positioning,
   };
-  const headline = [parts.qualification, parts.skill, parts.years, parts.positioning].filter(Boolean).join(HEADLINE_SEP);
+  const headline = [parts.qualification, parts.skill, parts.years, parts.positioning].filter(Boolean).join(render?.headlineSeparator ?? HEADLINE_SEP);
   return { headline, parts };
 }

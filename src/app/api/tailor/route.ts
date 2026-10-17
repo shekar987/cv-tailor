@@ -16,6 +16,7 @@ import {
   mentionsRightToWork,
   reconcileRightToWorkSentences,
   reconcileAvailabilitySentences,
+  availabilityCvSentence,
   type RightToWorkReport,
 } from "@/lib/rightToWorkText";
 import {
@@ -40,7 +41,7 @@ import { fitLetterToOnePage, type LetterFitReport } from "@/lib/letterFit";
 import { buildHeadline, degreesInProgress } from "@/lib/headline";
 import { normalizeEligibility, type Eligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
-import { coreTitle, titleInText, titleAsIdentity } from "@/lib/roleTitle";
+import { coreTitle, titleInText, titleAsIdentity, taglineRoles } from "@/lib/roleTitle";
 import { unsupportedProperNouns, sentencesNaming, dropSentences } from "@/lib/properNouns";
 import { experienceBudget, onePageExperienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
 import { parseMasterExperience, renderIdBlock, reconcileExperience, lockRoleHeaders, sortRolesByDate, diffAgainstMaster, diffProjects, type HeaderLock, type ChronologyReport } from "@/lib/bulletIds";
@@ -201,8 +202,12 @@ async function runPipeline(opts: {
   // skipped ones are reported so the user can fix the variant or the level.
   const leadSkills = variant ? productionLeadSkills(variant.leadSkills, claims) : { kept: [] as string[], dropped: [] };
   const variantBlock = renderVariantBlock(variant ? { ...variant, leadSkills: leadSkills.kept } : null);
-  // The style's FORM line for the summary (lib/formatStyles).
-  const summaryForm = style.prompts.summaryForm({ availabilityAppended: false });
+  // CareerSet closes the summary on the Eligibility availability sentence
+  // (lib/rightToWorkText availabilityCvSentence) — appended in code after the
+  // strip below, never written by the model — so the style's FORM line asks
+  // for one sentence fewer when one will be appended.
+  const availabilityLine = style.summary.appendAvailability ? availabilityCvSentence(eligibility) : null;
+  const summaryForm = style.prompts.summaryForm({ availabilityAppended: availabilityLine !== null });
 
   // Step 0 — JD analysis. Reused from the pre-tailoring gate when available and
   // well-formed; otherwise run fresh (this is also the fallback for a caller
@@ -511,13 +516,20 @@ async function runPipeline(opts: {
   // carry the Eligibility statement instead — the model's wording and the
   // master CV's free text are never the source.
   const rtwStripped = { cv: [] as string[], letter: [] as string[] };
-  const rightToWork: RightToWorkReport = { statement: null, inserted: false, availability: { replaced: [], removed: [] }, asked: [] };
+  const rightToWork: RightToWorkReport = { statement: null, inserted: false, availability: { replaced: [], removed: [] }, asked: [], appended: null };
   if (typeof summary === "string") {
     const r = stripRightToWorkSentences(summary);
     rtwStripped.cv.push(...r.removed);
     const a = reconcileAvailabilitySentences(r.text, { ...eligibility, availability: { status: "unknown", from: null }, canWorkFullTime: "unknown" });
     summary = a.text;
     rightToWork.availability.removed.push(...a.removed);
+  }
+  // The style's closing availability sentence (CareerSet), from Eligibility
+  // alone, once every model-written one has gone; the fact check skips it as
+  // furniture and the page fit protects it.
+  if (availabilityLine && typeof summary === "string" && summary.trim()) {
+    summary = `${summary.replace(/\s+$/, "")}\n${availabilityLine}`;
+    rightToWork.appended = availabilityLine;
   }
   if (omitRightToWork) {
     if (typeof skillsFinal === "string") {
@@ -542,6 +554,23 @@ async function runPipeline(opts: {
   // claims registry in its section and by the Right-to-Work switch, so a
   // restored bullet can never bring back what the passes above removed.
   // One page (the user's opt-in): trimmed by relevance to one page.
+  // The header line under the name (lib/headline): built BEFORE the page fit
+  // so a style that measures the real page count with it (CareerSet, whose
+  // header and printed addresses can wrap) counts the run's own header.
+  const headlineTerms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
+  const headline = buildHeadline(
+    {
+      education: (profile as { education?: { degree?: string; dates?: string; note?: string }[] } | null)?.education,
+      claims,
+      requiredSkills: headlineTerms.required_skills,
+      keywords: headlineTerms.top_15_ats_keywords,
+      yearsExperience,
+      positioning: variant?.headline ?? null,
+      // CareerSet with no variant: the first role the user's own saved tagline names.
+      roleFamily: taglineRoles((profile as { tagline?: unknown } | null)?.tagline)[0] ?? null,
+    },
+    style.render
+  ).headline;
   let pageFitReport: PageFitReport | null = null;
   {
     const t = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
@@ -593,8 +622,10 @@ async function runPipeline(opts: {
         experience: typeof s.experience === "string" ? s.experience : "",
         projects: (s.projects ?? {}) as Record<string, string[]>,
         projectsMeta: metas as unknown[],
-        profile,
+        // CareerSet measures with the run's own headline and its printed addresses; UKJI as before.
+        profile: style.render.measureRunHeader && profile && typeof profile === "object" ? { ...(profile as Record<string, unknown>), tagline: headline } : profile,
         targetPages: target,
+        formatStyle: style.id,
       }).pages;
     try {
       const real = fitToRealPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal }, fitProfile, fitTerms, target, countPages, PAGE_LIMIT_MAX_DROPS);
@@ -740,7 +771,12 @@ async function runPipeline(opts: {
   const safeOpening = roleTitle ? `I am applying for the ${roleTitle} role${company ? ` at ${company}` : ""}.` : "";
   // Each project's own facts: one project's work told as another's is a
   // problem the fact check must fix, and no rewrite may do it (rule 7).
-  const facts: SupportFacts = { ...projectFacts(cv, projectsPool), extraLint: (s, section) => jdCopyProblems(s, section, copyTerms) };
+  const facts: SupportFacts = {
+    ...projectFacts(cv, projectsPool),
+    extraLint: (s, section) => jdCopyProblems(s, section, copyTerms),
+    // The style's fixed sentences, and the availability sentence the app appended: never claims.
+    furniture: [...style.letter.furniture, ...(availabilityLine ? [new RegExp(`^${availabilityLine.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)] : [])],
+  };
   {
     const sentences = supportSentences(typeof summary === "string" ? summary : "", typeof coverLetter === "string" ? coverLetter : "", facts);
     if (sentences.length > 0) {
@@ -958,20 +994,10 @@ async function runPipeline(opts: {
       experience: typeof sections.experience === "string" ? diffAgainstMaster(sections.experience, masterRoles) : null,
       projects: projectsPool ? [] : diffProjects(sections.projects, (profile as { projects?: { name?: string; originalBullets?: string[] }[] } | null)?.projects),
     },
-    // The header line under the name (lib/headline): qualification with its
-    // stated status · the top production-level skill this posting asks for ·
-    // the stated years · the positioning variant's own headline — never the
-    // posting's title. Replaces the extracted tagline for this run; the
-    // preview, both downloads and the Applied snapshot all read it through
-    // the display profile.
-    headline: buildHeadline({
-      education: (profile as { education?: { degree?: string; dates?: string; note?: string }[] } | null)?.education,
-      claims,
-      requiredSkills: terms.required_skills,
-      keywords: terms.top_15_ats_keywords,
-      yearsExperience,
-      positioning: variant?.headline ?? null,
-    }).headline,
+    // The header line under the name (lib/headline), built above: replaces the
+    // extracted tagline for this run; the preview, both downloads and the
+    // Applied snapshot all read it through the display profile.
+    headline,
     ...(projectsPool ? { selectedProjects: selectedFinal } : {}),
   };
 }

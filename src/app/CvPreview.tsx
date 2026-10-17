@@ -23,9 +23,10 @@ import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
 import { splitTrailingDate } from "@/lib/projectDate";
 import { pastePlainText } from "@/lib/pastePlainText";
 import { parseBoldSegments, stripBoldMarkers } from "@/lib/markdownText";
-import { linkParts } from "@/lib/projectLinks";
+import { linkParts, displayUrl } from "@/lib/projectLinks";
 import { cleanTagline } from "@/lib/profile";
 import { ensureHttps } from "@/lib/cvDocument";
+import { RENDER_OPTIONS, normalizeFormatStyle, type FormatStyleId } from "@/lib/formatStyles/ids";
 
 // **span** → <strong> — the render half of the bold contract (see
 // lib/markdownText). readInline() below is its exact inverse, used by
@@ -96,6 +97,11 @@ type CvPreviewProps = {
   // The page estimate, as the toolbar's right-hand note.
   pagesNote?: string;
   pagesWarn?: boolean;
+  // The run's format style (lib/formatStyles ids): UKJI prints LinkedIn /
+  // GitHub / Portfolio labels on the contact line, CareerSet the addresses
+  // themselves. Plain data, memo-safe; echoed in collectPayload so both
+  // downloads draw the same line.
+  formatStyle?: FormatStyleId;
 };
 
 // What collectPayload() hands back: the document as currently on screen,
@@ -112,13 +118,14 @@ export type CvPreviewHandle = {
     fileBaseName: string;
     sectionOrder: SectionId[];
     targetPages: 1 | 2;
+    formatStyle: FormatStyleId;
   } | null;
   // The editable root, for the page's claim-check highlights.
   getRoot: () => HTMLDivElement | null;
 };
 
 const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvPreview(
-  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "", rightToWorkUnset = false, targetPages = 2, fixClaimsAvailable = false, fixingClaims = false, appliedLabel, appliedDisabled = false, appliedTitle, showTrackerLink = false, pagesNote, pagesWarn = false },
+  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "", rightToWorkUnset = false, targetPages = 2, fixClaimsAvailable = false, fixingClaims = false, appliedLabel, appliedDisabled = false, appliedTitle, showTrackerLink = false, pagesNote, pagesWarn = false, formatStyle = "ukji" },
   fwdRef
 ) {
   const order = resolveSectionOrder(sectionOrder);
@@ -145,6 +152,8 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
   const github = p?.github || "";
   const website = p?.website || "";
   const hasContactRow = !!(location || phone || email || linkedin || github || website);
+  const render = RENDER_OPTIONS[normalizeFormatStyle(formatStyle)];
+  const linkText = (label: string, address: string) => (render.contactLinks === "addresses" ? displayUrl(ensureHttps(address)) : label);
   const ref = useRef<HTMLDivElement>(null);
   // Download UX state — one flag for both formats, so the button reads
   // "Generating…" for a Word build as well as a PDF one.
@@ -516,6 +525,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
       // exactly the sequence the user is looking at on screen.
       sectionOrder: order,
       targetPages,
+      formatStyle: normalizeFormatStyle(formatStyle),
     };
   }
 
@@ -756,19 +766,19 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
                 <a key="email" href={`mailto:${email}`} className="cvLink">{email}</a>
               ) : null,
               linkedin ? (
-                <a key="li" href={ensureHttps(linkedin)} className="cvLink" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+                <a key="li" href={ensureHttps(linkedin)} className="cvLink" target="_blank" rel="noopener noreferrer">{linkText("LinkedIn", linkedin)}</a>
               ) : null,
               github ? (
-                <a key="gh" href={ensureHttps(github)} className="cvLink" target="_blank" rel="noopener noreferrer">GitHub</a>
+                <a key="gh" href={ensureHttps(github)} className="cvLink" target="_blank" rel="noopener noreferrer">{linkText("GitHub", github)}</a>
               ) : null,
               website ? (
-                <a key="web" href={ensureHttps(website)} className="cvLink" target="_blank" rel="noopener noreferrer">Portfolio</a>
+                <a key="web" href={ensureHttps(website)} className="cvLink" target="_blank" rel="noopener noreferrer">{linkText("Portfolio", website)}</a>
               ) : null,
             ]
               .filter((piece) => piece !== null && piece !== "")
               .map((piece, i) => (
                 <React.Fragment key={i}>
-                  {i > 0 && " · "}
+                  {i > 0 && render.contactSeparator}
                   {piece}
                 </React.Fragment>
               ))}

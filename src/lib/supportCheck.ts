@@ -107,7 +107,10 @@ function sentencesOfLine(line: string): string[] {
 // `facts.extraLint` is the caller's own deterministic lint (the JD-copy
 // guard, lib/jdCopyGuard): its problems ride with the sentence like the
 // others, and a JD-copy problem is a must-go one.
-export type SupportFacts = { projects: ProjectFacts[]; paidWork: string; extraLint?: (sentence: string, section: SupportSection) => string[] };
+// `facts.furniture`: a style's own fixed sentences (lib/formatStyles — the
+// CareerSet letter's fixed line and interest opening, the availability
+// sentence the app appended to the summary): never a claim, never sent.
+export type SupportFacts = { projects: ProjectFacts[]; paidWork: string; extraLint?: (sentence: string, section: SupportSection) => string[]; furniture?: readonly RegExp[] };
 export function supportSentences(summary: string, letter: string, facts?: SupportFacts): SupportSentence[] {
   const out: SupportSentence[] = [];
   const problems = (sentence: string, section: SupportSection) => {
@@ -122,9 +125,14 @@ export function supportSentences(summary: string, letter: string, facts?: Suppor
       ...extra,
     ];
   };
+  const furniture = facts?.furniture ?? [];
+  const isFurniture = (sentence: string) => furniture.some((re) => re.test(sentence));
   let s = 0;
   for (const line of (summary || "").split(/\n+/)) {
-    for (const sentence of sentencesOfLine(line.trim())) out.push({ id: `s${++s}`, section: "summary", sentence, problems: problems(sentence, "summary") });
+    for (const sentence of sentencesOfLine(line.trim())) {
+      if (isFurniture(sentence)) continue;
+      out.push({ id: `s${++s}`, section: "summary", sentence, problems: problems(sentence, "summary") });
+    }
   }
   const lines = (letter || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
   const signoff = lines.findIndex((l) => SIGNOFF_RE.test(l));
@@ -133,7 +141,7 @@ export function supportSentences(summary: string, letter: string, facts?: Suppor
     if (SALUTATION_RE.test(line) || SIGNOFF_RE.test(line) || DATE_LINE_RE.test(line)) return;
     if (signoff !== -1 && i > signoff) return; // the name under the sign-off
     for (const sentence of sentencesOfLine(line)) {
-      if (COURTESY_RE.test(sentence) || INTENT_RE.test(sentence)) continue;
+      if (COURTESY_RE.test(sentence) || INTENT_RE.test(sentence) || isFurniture(sentence)) continue;
       out.push({ id: `l${++l}`, section: "coverLetter", sentence, problems: problems(sentence, "coverLetter") });
     }
   });

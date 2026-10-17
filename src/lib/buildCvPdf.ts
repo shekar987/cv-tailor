@@ -207,6 +207,9 @@ export type CvPdfPayload = {
   sectionOrder?: unknown;
   // 1 for a candidate with under three years (lib/onePage), 2 otherwise.
   targetPages?: number;
+  // The run's format style (lib/formatStyles ids): labels or printed
+  // addresses on the contact line. Anything but "careerset" is UKJI.
+  formatStyle?: unknown;
 };
 
 export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
@@ -217,18 +220,19 @@ export function buildCvPdf(payload: CvPdfPayload): Uint8Array {
 // finished CV with (lib/onePage fitToRealPages): the download's own layout,
 // not the estimate.
 export function buildCvPdfWithPages(payload: CvPdfPayload): { bytes: Uint8Array; pages: number } {
-  const { summary = "", skills = "", experience = "", projects = {}, projectsMeta = [], profile, sectionOrder, targetPages = 2 } = payload;
+  const { summary = "", skills = "", experience = "", projects = {}, projectsMeta = [], profile, sectionOrder, targetPages = 2, formatStyle } = payload;
 
   // One pass shared with the docx route (lib/cvDocument): the contact pieces,
   // the profile's lists and the density for the target page count. The
   // profile is normalised here too, so a missing field renders blank —
   // never owner data.
-  const { contact, education, certs, rightToWork, extraSections, density } = prepareCvDocument({
+  const { contact, render, contactPieces, education, certs, rightToWork, extraSections, density } = prepareCvDocument({
     profile: normalizeProfile(profile),
     summary, skills, experience,
     projects: projects as Record<string, unknown>,
     projectsMeta,
     targetPages: targetPages === 1 ? 1 : 2,
+    formatStyle,
   });
 
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
@@ -254,20 +258,17 @@ export function buildCvPdfWithPages(payload: CvPdfPayload): { bytes: Uint8Array;
     cursor.advance(2);
   }
   if (contact.hasRow) {
-    // One line: location · phone · email (mailto) · LinkedIn · GitHub — only
-    // the pieces that exist, each separated by "·", never a dangling
-    // separator for a missing piece.
+    // One line of the pieces that exist (lib/cvDocument contactPieces — the
+    // style decides whether a link prints its label or its address), each
+    // separated by the style's separator, never a dangling one. Explicit
+    // Word objects, never parseWords: an address would otherwise self-link
+    // through the URL regex.
     const contactWords: Word[] = [];
     const addPiece = (piece: Word) => {
-      if (contactWords.length > 0) contactWords.push({ text: "·" });
+      if (contactWords.length > 0) contactWords.push({ text: render.contactSeparator.trim() });
       contactWords.push(piece);
     };
-    if (contact.location) addPiece({ text: contact.location });
-    if (contact.phone) addPiece({ text: contact.phone });
-    if (contact.email) addPiece({ text: contact.email, link: "mailto:" + contact.email });
-    if (contact.linkedin) addPiece({ text: "LinkedIn", link: contact.linkedin });
-    if (contact.github) addPiece({ text: "GitHub", link: contact.github });
-    if (contact.website) addPiece({ text: "Portfolio", link: contact.website });
+    for (const p of contactPieces) addPiece(p.link ? { text: p.text, link: p.link } : { text: p.text });
     drawWrapped(doc, cursor, contactWords, 10, lineOf(10), { align: "center", linkColor: LINK });
     cursor.advance(2);
   }
