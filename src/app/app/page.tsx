@@ -30,7 +30,9 @@ import type { RightToWorkReport } from "@/lib/rightToWorkText";
 import type { HeaderLock, ChronologyReport } from "@/lib/bulletIds";
 import { normalizeVariants, pickVariant, leadSkillsNotice, type VariantsConfig, type LeadSkillDrop } from "@/lib/variants";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTargetFor, DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
-import { normalizeFormatStyle } from "@/lib/formatStyles/ids";
+import { normalizeFormatStyle, STYLE_RULES, FORMAT_STYLE_LABELS, type FormatStyleId } from "@/lib/formatStyles/ids";
+import { checkStyle, summarizeStyleCheck, type StyleCheckItem } from "@/lib/styleCheck";
+import type { MasterCvNote } from "@/lib/stylePass";
 import { attachProjectLinks, linksForProject, projectKey } from "@/lib/projectLinks";
 import type { SkillLinesFix } from "@/lib/formatRules";
 import type { SeniorityFit } from "@/lib/seniority";
@@ -127,6 +129,9 @@ type Result = {
   // (lib/formatRules): tools cut from the Technical Tools line, sentences
   // cut from the summary. Null entries mean the rule had nothing to do.
   formatFixes?: {
+    // The style pass (lib/stylePass, CareerSet): bold, highlight prefixes and
+    // trailing full stops removed, banned words swapped or dropped.
+    style?: { debolded: number; highlightsStripped: number; fullStopsStripped: number; swapped: { where: string; from: string; to: string; bullet: string }[] } | null;
     tools?: { kept: string[]; dropped: string[] } | null;
     summary?: { sentences: number; kept: number; words?: number } | null;
     // Technical Tools the master CV never names, and Functional
@@ -161,6 +166,9 @@ type Result = {
     lint?: { secondPerson: string[]; restatedJd: string[] };
     honestGap?: { expected: boolean; stated: boolean; gaps: string[] };
     pageFit?: { target: 1; pagesBefore: number; pagesAfter: number; removed: string[]; fits: boolean };
+    // CareerSet (lib/letterStyle): the interest line's fate and the numbered points that stand.
+    interestLine?: { status: "kept" | "removed" | "missing"; line: string | null };
+    points?: { found: number; expected: number; bareRemoved: number; renumbered: boolean };
   } | null;
   // What the route did with the letter's right-to-work and availability
   // sentences: the Eligibility statement placed, a model sentence replaced
@@ -172,6 +180,10 @@ type Result = {
   // The format style this run was made with (lib/formatStyles): UKJI or
   // CareerSet. The preview and both downloads draw the contact line by it.
   formatStyle?: string;
+  // The style's own format check and the notes only the master CV can answer
+  // (lib/styleCheck, lib/stylePass) — a style that has them (CareerSet).
+  styleCheck?: StyleCheckItem[] | null;
+  masterCvNotes?: MasterCvNote[];
   // "Changes vs master CV" (lib/bulletIds): the finished bullets against the
   // master's own — kept, edited (which words), reverted, dropped, new.
   bulletChanges?: { protocol: boolean; headers?: HeaderLock | null; chronology?: ChronologyReport | null; experience: BulletChanges | null; projects: RoleChanges[] };
@@ -447,6 +459,13 @@ export default function Home() {
   // Document preferences (lib/preferences): Right to Work off the CV unless switched on.
   const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES);
   const [variantOverride, setVariantOverride] = useState<string | null>(null);
+  // The format style for the NEXT run (lib/formatStyles): the owner's pick on
+  // this page, else the saved default; session-only, like variantOverride.
+  // A result keeps the style it was made with (result.formatStyle).
+  const [styleOverride, setStyleOverride] = useState<FormatStyleId | null>(null);
+  const runStyle: FormatStyleId = styleOverride ?? preferences.formatStyle;
+  // The style's format check re-run on the preview as edited (lib/styleCheck).
+  const [liveStyleCheck, setLiveStyleCheck] = useState<StyleCheckItem[] | null>(null);
 
   // Stage 3 — company research + Fit Score. Self-contained error state: the
   // server's limit messages are shown verbatim inside the research card, so
@@ -1054,6 +1073,9 @@ export default function Home() {
           // Document switches: Right to Work off the CV (default) also keeps
           // visa / sponsorship sentences out of the generated text.
           preferences,
+          // The format style for this run (the server honours it for the owner's
+          // account only; every other account runs UKJI).
+          formatStyle: runStyle,
           // The eligibility answers (years → the header line) and the document
           // profile (education, certifications… for the server's page fit).
           ...(eligibility ? { eligibility } : {}),
@@ -1090,6 +1112,7 @@ export default function Home() {
       endGame("done");
       setLiveCheck(null);
       setLiveQuality(null);
+      setLiveStyleCheck(null);
       setClaimFixReport(null);
       setClaimFixError("");
       setPreFixResult(null);
@@ -1168,13 +1191,15 @@ export default function Home() {
     if (!result) return;
     const payload = previewRef.current?.collectPayload();
     const letter = coverRef.current?.collectText();
+    // The run's style (lib/formatStyles): how the skills block is read.
+    const rules = STYLE_RULES[normalizeFormatStyle(result.formatStyle)];
     const cvText = payload
-      ? tailoredSectionsText({ summary: payload.summary, skills: payload.skills, experience: payload.experience, projects: payload.projects })
-      : tailoredSectionsText({ summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects });
+      ? tailoredSectionsText({ summary: payload.summary, skills: payload.skills, experience: payload.experience, projects: payload.projects }, rules.skills)
+      : tailoredSectionsText({ summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects }, rules.skills);
     setLiveCheck(
       checkClaims(
         [
-          { where: "cv", text: cvText, experience: payload ? payload.experience : result.experience, skills: payload ? payload.skills : result.skills },
+          { where: "cv", text: cvText, experience: payload ? payload.experience : result.experience, skills: payload ? payload.skills : result.skills, skillsShape: rules.skills },
           // The letter may quote the posting's facts about the company.
           { where: "coverLetter", text: letter ?? result.coverLetter ?? "", extraSources: [resultJd ?? jobDescription] },
         ],
@@ -1184,14 +1209,21 @@ export default function Home() {
       )
     );
     if (payload) {
-      setLiveQuality(
-        qualityReport(
-          { summary: payload.summary, skills: payload.skills, experience: payload.experience, projects: payload.projects },
-          payload.profile ? { ...payload.profile, projects: payload.projectsMeta } : null,
-          letter ?? result.coverLetter ?? "",
-          companyOf(result.analysis),
-          payload.targetPages
-        )
+      const sections = { summary: payload.summary, skills: payload.skills, experience: payload.experience, projects: payload.projects };
+      const profileLike = payload.profile ? { ...payload.profile, projects: payload.projectsMeta } : null;
+      const q = qualityReport(sections, profileLike, letter ?? result.coverLetter ?? "", companyOf(result.analysis), payload.targetPages);
+      setLiveQuality(q);
+      // The style's own format check on the preview as edited (lib/styleCheck),
+      // for a style that has one; the page count is the estimate's honest read.
+      setLiveStyleCheck(
+        rules.check
+          ? checkStyle(rules, {
+              sections,
+              profile: profileLike,
+              coverLetter: letter ?? result.coverLetter ?? "",
+              pages: q.pages.overBudget ? Math.max(3, Math.round(q.pages.pages)) : Math.min(2, Math.max(1, Math.round(q.pages.pages))),
+            })
+          : null
       );
     }
   }
@@ -1199,9 +1231,11 @@ export default function Home() {
   // The claims check of a set of sections, exactly as recheckClaims() runs it
   // on the preview: the CV part and the letter (which may quote the posting).
   function claimCheckOf(sec: { summary: string; skills: string; experience: string; projects: unknown; coverLetter: string }): ClaimCheck {
+    // The run's style decides how the skills block is read (lib/formatStyles).
+    const shape = STYLE_RULES[normalizeFormatStyle(result?.formatStyle)].skills;
     return checkClaims(
       [
-        { where: "cv", text: tailoredSectionsText(sec), experience: sec.experience, skills: sec.skills },
+        { where: "cv", text: tailoredSectionsText(sec, shape), experience: sec.experience, skills: sec.skills, skillsShape: shape },
         { where: "coverLetter", text: sec.coverLetter, extraSources: [resultJd ?? jobDescription] },
       ],
       claims,
@@ -1251,6 +1285,8 @@ export default function Home() {
           claims,
           jobDescription: resultJd ?? jobDescription,
           analysis: result.analysis,
+          // The run's format style: the repair reads the skills block by it.
+          formatStyle: normalizeFormatStyle(result.formatStyle),
           ...(isUnlimited ? { provider } : {}),
         }),
       });
@@ -1275,6 +1311,7 @@ export default function Home() {
       setResult({ ...result, ...next, coverLetter: result.coverLetter ? next.coverLetter : result.coverLetter, claimCheck: check });
       setLiveCheck(null);
       setLiveQuality(null);
+      setLiveStyleCheck(null);
       setPreviewKey((k) => k + 1);
       setClaimFixReport({
         changes: Array.isArray(data.changes) ? (data.changes as RepairChange[]) : [],
@@ -1470,6 +1507,10 @@ export default function Home() {
             // The eligibility read this run was made under, for the
             // tracker's "what's working" view.
             ...(result.gatesSummary ? { gates: result.gatesSummary } : {}),
+            // The format style this run was made with, and its format check as
+            // the page last ran it on the edited preview (lib/styleCheck).
+            ...(result.formatStyle ? { formatStyle: normalizeFormatStyle(result.formatStyle) } : {}),
+            ...((liveStyleCheck ?? result.styleCheck) ? { styleCheck: liveStyleCheck ?? result.styleCheck } : {}),
           },
         }),
       });
@@ -1613,6 +1654,9 @@ export default function Home() {
   useEffect(() => {
     pagesRef.current = quality ? quality.pages.pages : null;
   }, [quality]);
+  // The style's format check to show: the preview's re-run, else the run's own.
+  const styleCheck: StyleCheckItem[] | null = result ? (liveStyleCheck ?? result.styleCheck ?? null) : null;
+  const styleLabel = result ? FORMAT_STYLE_LABELS[normalizeFormatStyle(result.formatStyle)] : FORMAT_STYLE_LABELS.ukji;
   // The user chose one page and the edited document runs over it.
   const overOnePage = !!quality && onePageTarget === 1 && quality.pages.pages > 1;
   const qualityIssues = quality
@@ -1794,6 +1838,17 @@ export default function Home() {
                       <option value="anthropic">Claude</option>
                       <option value="gemini" disabled title={GEMINI_UNAVAILABLE}>Gemini — {GEMINI_UNAVAILABLE}</option>
                       <option value="openrouter">OpenRouter</option>
+                    </select>
+                  </span>
+                )}
+                {/* The format style for the next run (lib/formatStyles) — the owner's
+                    account only, while the two styles are compared. */}
+                {isUnlimited && (
+                  <span className="providerPick" data-style-pick={runStyle}>
+                    <label htmlFor="styleSelect">Style</label>
+                    <select id="styleSelect" value={runStyle} onChange={(e) => setStyleOverride(normalizeFormatStyle(e.target.value))} disabled={gateLoading || loading}>
+                      <option value="ukji">{FORMAT_STYLE_LABELS.ukji}</option>
+                      <option value="careerset">{FORMAT_STYLE_LABELS.careerset}</option>
                     </select>
                   </span>
                 )}
@@ -2880,6 +2935,58 @@ export default function Home() {
                   </div>
                 </div>
               )}
+            {/* The style's own format check (lib/styleCheck) — our read of the
+                rules, never a score, never a lock; the owner's account only. */}
+            {isUnlimited && result && styleCheck && STYLE_RULES[normalizeFormatStyle(result.formatStyle)].check && (
+              <div className="limitNotice" role="status" data-style-check={summarizeStyleCheck(styleCheck).fail}>
+                <div className="limitNotice__title">{styleLabel} format check</div>
+                <div className="limitNotice__body">
+                  <p className="fitEvidence">
+                    Our own check of the {styleLabel} style&apos;s rules on the document as it stands — not a score from anywhere, and it never
+                    holds a download.
+                  </p>
+                  <ul className="atsList">
+                    {styleCheck.map((item) => (
+                      <li key={item.key} data-style-item={item.key} data-style-status={item.status}>
+                        <Badge variant="dot" tone={item.status === "fail" ? "miss" : item.status === "pass" ? "hit" : "rec"}>
+                          {item.status === "fail" ? "✕" : item.status === "pass" ? "✓" : "–"}
+                        </Badge>
+                        <span>
+                          <strong>{item.label}</strong> — {item.detail}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="fitEvidence">Edit the preview below; this read updates when you click away or re-check.</p>
+                </div>
+                <div className="limitNotice__cta">
+                  <Button variant="secondary" onClick={recheckClaims} data-style-recheck>Re-check now</Button>
+                </div>
+              </div>
+            )}
+            {/* What only the master CV can fix for this style (lib/stylePass): the
+                tailoring never rewrites a master bullet beyond two words. */}
+            {isUnlimited && result?.masterCvNotes && result.masterCvNotes.length > 0 && (
+              <div className="limitNotice" role="status" data-master-cv-notes={result.masterCvNotes.length}>
+                <div className="limitNotice__title">Your master CV</div>
+                <div className="limitNotice__body">
+                  <p className="fitEvidence">
+                    These bullets break a rule of the {styleLabel} style that the tailoring may not fix for you — it never changes a master
+                    CV bullet by more than two words. Edit them on <Link href="/customize">Customize</Link>.
+                  </p>
+                  <ul className="atsList">
+                    {result.masterCvNotes.map((n, i) => (
+                      <li key={i} data-master-note={n.where}>
+                        <Badge variant="dot" tone="rec">?</Badge>
+                        <span>
+                          <strong>{clip(n.bullet, 90)}</strong> ({n.owner}) — {n.problem}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
             {quality && qualityIssues > 0 && (
               <div className="limitNotice" role="status" data-quality-check>
                 <div className="limitNotice__title">Before you send</div>

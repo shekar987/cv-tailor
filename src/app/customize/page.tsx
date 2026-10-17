@@ -59,6 +59,8 @@ import {
   leadSkillsNotice,
 } from "@/lib/variants";
 import { normalizePreferences, DEFAULT_PREFERENCES, type Preferences, type CvLength } from "@/lib/preferences";
+import { FORMAT_STYLE_LABELS, type FormatStyleId } from "@/lib/formatStyles/ids";
+import { getUsage } from "@/lib/usage";
 import {
   autoProjectLinks,
   cleanUrl,
@@ -282,7 +284,10 @@ export default function CustomizePage() {
   const [prefsMsg, setPrefsMsg] = useState("");
   const [prefsError, setPrefsError] = useState("");
   // Which section the last preference save message belongs to.
-  const [prefsMsgAt, setPrefsMsgAt] = useState<"rtw" | "length" | "links">("rtw");
+  const [prefsMsgAt, setPrefsMsgAt] = useState<"rtw" | "length" | "links" | "style">("rtw");
+  // The format-style default is the owner's for now (profiles.is_unlimited,
+  // read fail-soft through lib/usage): everyone else sees nothing of it.
+  const [isOwner, setIsOwner] = useState(false);
   // Project links (lib/projectLinks): addresses typed here, keyed by
   // projectKey, until they are saved into prefs.projectLinks.
   const [linkDrafts, setLinkDrafts] = useState<Record<string, LinkPair>>({});
@@ -338,7 +343,7 @@ export default function CustomizePage() {
     // grows downward, so its own top doesn't move.
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  async function updatePrefs(patch: Partial<Omit<Preferences, "version">>, at: "rtw" | "length" | "links", okMsg: string): Promise<boolean> {
+  async function updatePrefs(patch: Partial<Omit<Preferences, "version">>, at: "rtw" | "length" | "links" | "style", okMsg: string): Promise<boolean> {
     const previous = prefs;
     const updated: Preferences = { ...prefs, ...patch };
     setPrefs(updated);
@@ -363,6 +368,17 @@ export default function CustomizePage() {
       { includeRightToWorkOnCv: next },
       "rtw",
       next ? "Saved — Right to Work will appear on the CV document." : "Saved — Right to Work stays off the CV document."
+    );
+  }
+  // The format style every tailor runs in by default (lib/formatStyles); the
+  // tailoring page may override it per run.
+  function setFormatStyle(formatStyle: FormatStyleId) {
+    void updatePrefs(
+      { formatStyle },
+      "style",
+      formatStyle === "careerset"
+        ? "Saved — every CV you tailor from now on uses the CareerSet style unless you switch it per run."
+        : "Saved — every CV you tailor from now on uses the UKJI style."
     );
   }
   function setCvLength(cvLength: CvLength) {
@@ -477,6 +493,9 @@ export default function CustomizePage() {
         setProfile(p);
         setProfileLoading(false);
       }
+
+      const usage = await getUsage();
+      if (active) setIsOwner(!!usage?.unlimited);
 
       const settings = await getUserSettings();
       if (active) {
@@ -1861,7 +1880,7 @@ export default function CustomizePage() {
           title="CV length"
           open={openSections.has("cv-length")}
           onToggle={toggleSection}
-          summary={prefs.cvLength === "one" ? "One page" : "Two pages, filled"}
+          summary={`${prefs.cvLength === "one" ? "One page" : "Two pages, filled"}${isOwner ? ` · ${FORMAT_STYLE_LABELS[prefs.formatStyle]} style` : ""}`}
         >
           <p className="cvHelp">
             Two pages is the default: the tailored CV keeps your master CV&apos;s content, and when the tailoring leaves a
@@ -1888,6 +1907,30 @@ export default function CustomizePage() {
           </div>
           {prefsMsgAt === "length" && prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
           {prefsMsgAt === "length" && prefsError && <StatusText as="span" role="alert">{prefsError}</StatusText>}
+          {/* The format style (lib/formatStyles) — the owner's account only while
+              the two styles are compared by reply rate. */}
+          {isOwner && (
+            <>
+              <p className="cvHelp" data-pref-style-help>
+                Format style. UKJI is the shape every CV has had. CareerSet is the shape tuned by hand in the university&apos;s CV
+                tool: printed contact addresses, grouped tool lines, no bold and no full stops on bullets, a four-point letter.
+                Both run the same honesty checks and cost the same credit. This is the default; the Style control on the
+                tailoring page overrides it per run.
+              </p>
+              <div className="eligChecks" role="radiogroup" aria-label="Format style">
+                <label className="eligCheck">
+                  <input type="radio" name="formatStyle" checked={prefs.formatStyle !== "careerset"} onChange={() => setFormatStyle("ukji")} data-pref-style="ukji" />
+                  {FORMAT_STYLE_LABELS.ukji} (default)
+                </label>
+                <label className="eligCheck">
+                  <input type="radio" name="formatStyle" checked={prefs.formatStyle === "careerset"} onChange={() => setFormatStyle("careerset")} data-pref-style="careerset" />
+                  {FORMAT_STYLE_LABELS.careerset}
+                </label>
+              </div>
+              {prefsMsgAt === "style" && prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
+              {prefsMsgAt === "style" && prefsError && <StatusText as="span" role="alert">{prefsError}</StatusText>}
+            </>
+          )}
         </CollapsibleSection>
 
         {/* Right to Work stays off the CV document by default: a reviewer who
