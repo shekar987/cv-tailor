@@ -42,7 +42,9 @@ const SIGNOFF_RE = /^(?:kind|best|warm|warmest)\s+regards,?$|^regards,?$|^yours\
 
 const fold = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
-export function normalizeLetter(letter: unknown, opts: { company?: string | null; name?: string | null } = {}): { letter: unknown; fixes: LetterFixes } {
+// `teamSuffix` (lib/formatStyles): the word after the company in a rewritten
+// salutation — "team" (UKJI, as always) or "Hiring Team" (CareerSet).
+export function normalizeLetter(letter: unknown, opts: { company?: string | null; name?: string | null; teamSuffix?: string } = {}): { letter: unknown; fixes: LetterFixes } {
   const fixes: LetterFixes = { salutation: null, signOff: false, dateLine: false };
   if (typeof letter !== "string" || !letter.trim()) return { letter, fixes };
   const lines = letter.replace(/\r/g, "").split("\n");
@@ -61,7 +63,7 @@ export function normalizeLetter(letter: unknown, opts: { company?: string | null
   if (i !== -1) {
     const m = SALUTATION_RE.exec(lines[i].trim());
     if (m && company && companyNamesMatch(m[1], company) && !/\bteam\b|\bhiring\b|\bmanager\b/i.test(m[1])) {
-      lines[i] = `Dear ${m[1].trim()} team,`;
+      lines[i] = `Dear ${m[1].trim()} ${opts.teamSuffix ?? "team"},`;
       fixes.salutation = lines[i];
     }
   }

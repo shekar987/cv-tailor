@@ -74,5 +74,10 @@ export type FormatStyle = {
     statementPlacement: "own_paragraph" | "close_paragraph";
     // Remove a bare "N." line a removal left behind and renumber the points.
     renumberPoints: boolean;
+    // The prompt gets the evidence map's eligible requirements for its points
+    // (lib/letterStyle eligiblePointsBlock).
+    pointsFromEvidence: boolean;
+    // The page fit never trims the fixed lines or the close paragraph.
+    protectFurnitureInFit: boolean;
   };
 };

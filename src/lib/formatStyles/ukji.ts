@@ -62,5 +62,7 @@ export const UKJI: FormatStyle = {
     teamSuffix: "team",
     statementPlacement: "own_paragraph",
     renumberPoints: false,
+    pointsFromEvidence: false,
+    protectFurnitureInFit: false,
   },
 };

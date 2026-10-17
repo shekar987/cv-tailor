@@ -77,6 +77,7 @@ import {
 } from "@/lib/supportCheck";
 import { jdCopyTerms, jdCopyProblems, jdCopyHits } from "@/lib/jdCopyGuard";
 import { normalizeLetter, capEmDashes, insertBeforeSignoff } from "@/lib/letterFormat";
+import { eligiblePointsBlock, checkInterestLine, tidyNumberedPoints, countNumberedPoints, insertIntoClose, protectedLetterLines } from "@/lib/letterStyle";
 import { reconcileAtsScore, renderBandBlock } from "@/lib/visibilityVerdict";
 import { applyFormatRules, formatRulesFor } from "@/lib/formatRules";
 import { applyBulletStyle, type MasterCvNote, type StylePassReport } from "@/lib/stylePass";
@@ -714,7 +715,7 @@ async function runPipeline(opts: {
   });
 
   const [coverLetterRaw, atsAnnotation] = await Promise.all([
-    callLLM({ provider, apiKeyOverride, system: style.prompts.coverLetter(cv, claimsBlock, omitRightToWork, evidenceBlock, ""), userInput: coverLetterInput, maxTokens: 1200 })
+    callLLM({ provider, apiKeyOverride, system: style.prompts.coverLetter(cv, claimsBlock, omitRightToWork, evidenceBlock, style.letter.pointsFromEvidence ? eligiblePointsBlock(evidence) : ""), userInput: coverLetterInput, maxTokens: 1200 })
       .catch(swallowStep("")),
     coverage.total > 0
       ? callLLM({ provider, apiKeyOverride, system: atsScoringPrompt(renderBandBlock(coverage, required)), userInput: atsInput, expectJson: true })
@@ -730,6 +731,7 @@ async function runPipeline(opts: {
   const letterNormalized = normalizeLetter(dropRefusal(coverLetterRaw), {
     company: company || null,
     name: (profile as { name?: string } | null)?.name ?? null,
+    teamSuffix: style.letter.teamSuffix,
   });
   // The letter's shape (lib/letterLint): a sentence about the reader's needs
   // or benefit, or the posting told back to them, goes; the opening stays.
@@ -740,7 +742,19 @@ async function runPipeline(opts: {
   // technology, domain or qualification): the letter should say so in one
   // plain sentence; whether it does is reported, never invented.
   const essentialGaps = evidence.items.filter((i) => i.status === "gap" && i.importance === "required" && i.kind !== "soft").map((i) => i.term);
-  const letterCheck: { unsupported: string[]; rewritten: boolean; dropped: number; lint: LetterLint; honestGap: { expected: boolean; stated: boolean; gaps: string[] }; pageFit?: LetterFitReport } = {
+  // interestLine / points (lib/letterStyle, CareerSet): whether the interest
+  // line's reason came from the posting or the research, and how many
+  // numbered points stand after every pass.
+  const letterCheck: {
+    unsupported: string[];
+    rewritten: boolean;
+    dropped: number;
+    lint: LetterLint;
+    honestGap: { expected: boolean; stated: boolean; gaps: string[] };
+    pageFit?: LetterFitReport;
+    interestLine?: { status: "kept" | "removed" | "missing"; line: string | null };
+    points?: { found: number; expected: number; bareRemoved: number; renumbered: boolean };
+  } = {
     unsupported: [],
     rewritten: false,
     dropped: 0,
@@ -766,6 +780,14 @@ async function runPipeline(opts: {
         letterCheck.dropped = offending.length;
       }
     }
+  }
+  // The interest line's reason must come from the posting or the research
+  // (lib/letterStyle): the "because" clause's content words against them —
+  // never the CV, never invented; an unsupported reason goes.
+  if (typeof coverLetter === "string" && style.letter.interestOpening) {
+    const r = checkInterestLine(coverLetter, style.letter.interestOpening, [jd, JSON.stringify(research ?? {}), JSON.stringify(analysis ?? {})]);
+    coverLetter = r.text;
+    letterCheck.interestLine = { status: r.line === null ? "missing" : r.kept ? "kept" : "removed", line: r.line };
   }
   // The letter's right-to-work and availability sentences come from the
   // Eligibility answers (lib/rightToWorkText): the model's visa sentence
@@ -930,8 +952,20 @@ async function runPipeline(opts: {
   }
   // The Eligibility statement closes the letter now that the fact check has
   // run (it is the user's own answer, never a claim to check).
+  // A numbered point whose sentence went leaves a bare "N." (lib/letterStyle):
+  // the holes close and the points renumber, in the styles that number them.
+  let pointsTidy = { bareRemoved: 0, renumbered: false };
+  const tidyPoints = () => {
+    if (typeof coverLetter !== "string" || !style.letter.renumberPoints) return;
+    const t = tidyNumberedPoints(coverLetter);
+    coverLetter = t.text;
+    pointsTidy = { bareRemoved: pointsTidy.bareRemoved + t.bareRemoved, renumbered: pointsTidy.renumbered || t.renumbered };
+  };
+  tidyPoints();
   if (typeof coverLetter === "string" && rightToWork.statement) {
-    coverLetter = insertBeforeSignoff(coverLetter, rightToWork.statement);
+    // CareerSet opens the close paragraph with it; UKJI gives it a paragraph of its own above the sign-off.
+    const inClose = style.letter.statementPlacement === "close_paragraph" ? insertIntoClose(coverLetter, rightToWork.statement, style.letter.thanksLine) : null;
+    coverLetter = inClose ?? insertBeforeSignoff(coverLetter, rightToWork.statement);
     rightToWork.inserted = true;
   }
   // The fact check's fixes may bring dashes back: the letter's one-dash rule
@@ -971,9 +1005,12 @@ async function runPipeline(opts: {
   if (typeof coverLetter === "string" && coverLetter.trim()) {
     try {
       const dateLine = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-      const fit = fitLetterToOnePage(coverLetter, (text) => buildCoverLetterPdfWithPages(`${dateLine}\n\n${text}`).pages, { protect: [rightToWork.statement] });
+      // CareerSet's fixed line and its close paragraph are never trimmed; UKJI protects the statement alone, as before.
+      const protect = [rightToWork.statement, ...(style.letter.protectFurnitureInFit ? protectedLetterLines(coverLetter, style.letter.furniture, style.letter.thanksLine) : [])];
+      const fit = fitLetterToOnePage(coverLetter, (text) => buildCoverLetterPdfWithPages(`${dateLine}\n\n${text}`).pages, { protect });
       coverLetter = fit.text;
       letterCheck.pageFit = fit.report;
+      tidyPoints();
     } catch (e) {
       console.error("Letter page fit failed:", e instanceof Error ? e.message : String(e));
     }
@@ -984,6 +1021,9 @@ async function runPipeline(opts: {
     formatFixes.spelling = { count: spellingChanges.length, examples: [...seen.values()].slice(0, 6) };
   }
   letterCheck.honestGap.stated = typeof coverLetter === "string" && hasHonestGap(coverLetter);
+  if (style.letter.renumberPoints && typeof coverLetter === "string") {
+    letterCheck.points = { found: countNumberedPoints(coverLetter), expected: style.letter.points, ...pointsTidy };
+  }
   const finalSections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
   const finalText = tailoredSectionsText(finalSections, style.skills);
   const finalCoverage = matchAtsKeywords(finalText, terms.top_15_ats_keywords);

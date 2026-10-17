@@ -102,6 +102,8 @@ export const CAREERSET: FormatStyle = {
     teamSuffix: "Hiring Team",
     statementPlacement: "close_paragraph",
     renumberPoints: true,
+    pointsFromEvidence: true,
+    protectFurnitureInFit: true,
   },
 };
 
