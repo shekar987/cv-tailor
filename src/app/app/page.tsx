@@ -2758,7 +2758,7 @@ export default function Home() {
                           ]
                             .filter(Boolean)
                             .join("; ")}
-                          . Every swap stays within the two-word budget a master bullet allows.
+                          .{result.formatFixes.style.swapped.length > 0 ? " Every swap stays within the two-word budget a master bullet allows." : ""}
                         </span>
                       </li>
                     )}
@@ -2965,7 +2965,7 @@ export default function Home() {
                 <div className="limitNotice__title">{styleLabel} format check</div>
                 <div className="limitNotice__body">
                   <p className="fitEvidence">
-                    Our own check of the {styleLabel} style&apos;s rules on the document as it stands — not a score from anywhere, and it never
+                    Our own check of the {styleLabel}{" "}style&apos;s rules on the document as it stands — not a score from anywhere, and it never
                     holds a download.
                   </p>
                   <ul className="atsList">
