@@ -26,7 +26,7 @@ const BASE = process.env.EVAL_BASE || "http://localhost:3000";
 const argv = process.argv.slice(2);
 const styleAt = argv.indexOf("--style");
 const style = styleAt >= 0 ? argv[styleAt + 1] : "ukji";
-const label = argv.filter((a, i) => i !== styleAt && i !== styleAt + 1)[0];
+const label = argv.filter((a, i) => styleAt < 0 || (i !== styleAt && i !== styleAt + 1))[0];
 if (!label || !/^[\w-]+$/.test(label) || (style !== "ukji" && style !== "careerset")) {
   console.log("usage: node eval/run.mjs <label> [--style ukji|careerset]");
   process.exit(2);
