@@ -4,7 +4,15 @@
 // 80 model calls on the owner's key — run it on purpose, not in a loop.
 //
 //   node eval/run.mjs <label>          (server on http://localhost:3000)
+//   node eval/run.mjs <label> --style careerset   (the CareerSet style, lib/formatStyles)
 //   node eval/assert.mjs <label>       (free: the assertions)
+//
+// --style sends formatStyle in the tailor body. The route honours a style
+// other than UKJI for the owner's account only (profiles.is_unlimited), so
+// for a CareerSet label each throwaway user is flagged unlimited through the
+// admin API right after it is created (the service role bypasses the
+// column grant that keeps users from flagging themselves); a UKJI label
+// leaves the users exactly as before.
 //
 // Needs .env.local with SUPABASE_SECRET_KEY (throwaway users, one per CV,
 // deleted afterwards; each has 3 free tailors a day, each CV needs 2).
@@ -15,8 +23,14 @@ import { dirname, join } from "node:path";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PROJ = join(HERE, "..");
 const BASE = process.env.EVAL_BASE || "http://localhost:3000";
-const label = process.argv[2];
-if (!label || !/^[\w-]+$/.test(label)) { console.log("usage: node eval/run.mjs <label>"); process.exit(2); }
+const argv = process.argv.slice(2);
+const styleAt = argv.indexOf("--style");
+const style = styleAt >= 0 ? argv[styleAt + 1] : "ukji";
+const label = argv.filter((a, i) => i !== styleAt && i !== styleAt + 1)[0];
+if (!label || !/^[\w-]+$/.test(label) || (style !== "ukji" && style !== "careerset")) {
+  console.log("usage: node eval/run.mjs <label> [--style ukji|careerset]");
+  process.exit(2);
+}
 
 const env = {};
 for (const line of readFileSync(join(PROJ, ".env.local"), "utf8").split(/\r?\n/)) {
@@ -32,6 +46,19 @@ async function throwaway(tag) {
   const email = `eval-${tag}-${Date.now()}@example.com`, password = "Eval-test-9911!";
   const u = await (await fetch(`${SB_URL}/auth/v1/admin/users`, { method: "POST", headers: admin, body: JSON.stringify({ email, password, email_confirm: true }) })).json();
   if (!u.id) throw new Error("admin create user failed: " + JSON.stringify(u));
+  if (style !== "ukji") {
+    // The signup trigger has made the profiles row; flag it unlimited so the
+    // tailor route honours the requested style (see the header).
+    const p = await fetch(`${SB_URL}/rest/v1/profiles?id=eq.${u.id}`, {
+      method: "PATCH",
+      headers: { ...admin, Prefer: "return=representation" },
+      body: JSON.stringify({ is_unlimited: true }),
+    });
+    const rows = await p.json().catch(() => null);
+    if (!p.ok || !Array.isArray(rows) || rows.length !== 1 || rows[0].is_unlimited !== true) {
+      throw new Error("could not flag the throwaway user unlimited: " + p.status + " " + JSON.stringify(rows));
+    }
+  }
   const s = await (await fetch(`${SB_URL}/auth/v1/token?grant_type=password`, { method: "POST", headers: { apikey: PUB, "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) })).json();
   const b64 = "base64-" + Buffer.from(JSON.stringify(s)).toString("base64url");
   const name = `sb-${REF}-auth-token`;
@@ -60,12 +87,15 @@ for (const cv of pairs.cvs) {
       const r = await fetch(`${BASE}/api/tailor`, {
         method: "POST",
         headers: { Cookie: user.cookie, "Content-Type": "application/json" },
-        body: JSON.stringify({ jobDescription: jd.text, cvText: cv.text, projectNames: [] }),
+        body: JSON.stringify({ jobDescription: jd.text, cvText: cv.text, projectNames: [], formatStyle: style }),
       });
       const text = await r.text();
       let json = null; try { json = JSON.parse(text); } catch {}
       const file = join(outDir, `${cv.id}--${jd.id}.json`);
-      writeFileSync(file, JSON.stringify({ cv: cv.id, jd: jd.id, status: r.status, ms: Date.now() - t0, result: json ?? text }, null, 2));
+      writeFileSync(file, JSON.stringify({ cv: cv.id, jd: jd.id, style, status: r.status, ms: Date.now() - t0, result: json ?? text }, null, 2));
+      if (r.status === 200 && json && json.formatStyle !== style) {
+        console.log(`  WARN the server ran ${json.formatStyle} for a ${style} request (is the user unlimited?)`);
+      }
       if (r.status === 200) ok++; else failed++;
       console.log(`${r.status === 200 ? " ok " : "FAIL"} ${cv.id} × ${jd.id}  ${r.status}  ${Date.now() - t0} ms`);
     }
@@ -73,5 +103,5 @@ for (const cv of pairs.cvs) {
     await user.remove();
   }
 }
-console.log(`\n${ok} runs stored under eval/out/${label}, ${failed} failed`);
+console.log(`\n${ok} runs stored under eval/out/${label} (${style} style), ${failed} failed`);
 process.exit(failed ? 1 : 0);

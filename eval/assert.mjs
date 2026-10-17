@@ -8,6 +8,13 @@
 // plus metrics that don't fail the run: learning skills present, weak
 // bullets, inflation words, cover-letter words, run time.
 //
+// A CareerSet run (result.formatStyle, lib/formatStyles) is also held to the
+// style's own format check (lib/styleCheck): two of its rules are what the
+// code guarantees and fail hard — no bold / "Highlight:" on a bullet and no
+// bullet ending in a full stop — the rest (bullet count, words, verbs,
+// banned words, the letter's four points, interest and thanks lines) are
+// reported as styleFails with the keys per row.
+//
 //   node eval/assert.mjs <label> [<label2>]   (a second label prints a comparison)
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -17,7 +24,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PROJ = join(HERE, "..");
 const { checkClaims } = await import(pathToFileURL(join(PROJ, "src/lib/claims.ts")));
 const { matchAtsKeywords, tailoredSectionsText } = await import(pathToFileURL(join(PROJ, "src/lib/atsMatch.ts")));
-const { SKILLS_SHAPE } = await import(pathToFileURL(join(PROJ, "src/lib/formatStyles/ids.ts")));
+const { SKILLS_SHAPE, STYLE_RULES } = await import(pathToFileURL(join(PROJ, "src/lib/formatStyles/ids.ts")));
+const { checkStyle } = await import(pathToFileURL(join(PROJ, "src/lib/styleCheck.ts")));
 const { parseSkillsBlock, toolItems: groupedToolItems } = await import(pathToFileURL(join(PROJ, "src/lib/skillsLines.ts")));
 const { estimatePages, weakBullets, inflationHits, orderingDiffers, findDuplicateContent, relevanceBoltOns } = await import(pathToFileURL(join(PROJ, "src/lib/quality.ts")));
 const { coreTitle, titleInText } = await import(pathToFileURL(join(PROJ, "src/lib/roleTitle.ts")));
@@ -88,7 +96,20 @@ function evaluate(label) {
       const letterLint = applyLetterLint(String(d.coverLetter || "")).lint;
       const essentialGaps = Array.isArray(d.evidence?.items) ? d.evidence.items.filter((i) => i.status === "gap" && i.importance === "required" && i.kind !== "soft").length : 0;
       const honestGapMissing = essentialGaps > 0 && !hasHonestGap(String(d.coverLetter || "")) ? 1 : 0;
+      // The CareerSet format check on the stored result (the eval sends no
+      // profile, so the contact item reads as not applicable).
+      const careerset = d.formatStyle === "careerset";
+      const styleItems = careerset
+        ? checkStyle(STYLE_RULES.careerset, { sections, profile: null, coverLetter: String(d.coverLetter || ""), pages: pages.pages })
+        : [];
+      const styleFailKeys = styleItems.filter((i) => i.status === "fail").map((i) => i.key);
+      const bulletLines = [
+        ...String(d.experience || "").split("\n").filter((l) => /^\s*[•\-*]\s+/.test(l)),
+        ...Object.values(d.projects && typeof d.projects === "object" ? d.projects : {}).flat().filter((b) => typeof b === "string"),
+      ];
+      const styledBold = careerset ? bulletLines.filter((l) => /\*\*/.test(l) || /^\s*[•\-*]?\s*highlight\s*:/i.test(l)).length : 0;
       rows.push({
+        styleFailKeys, styleFails: styleFailKeys.length, styledBold, careerset,
         cv: cv.id, jd: jd.id, ms: run.ms,
         absentFigures: absentFigures.map((n) => n.figure),
         absentTools,
@@ -116,6 +137,8 @@ function summarize(label, rows) {
     if (r.absentTools.length) hardFails.push(`${r.cv}×${r.jd}: tools not in the CV: ${r.absentTools.join(", ")}`);
     if (r.overBudget) hardFails.push(`${r.cv}×${r.jd}: over two pages (${r.pages})`);
     if (r.titleMissing) hardFails.push(`${r.cv}×${r.jd}: role title "${r.title}" absent from the summary`);
+    if (r.careerset && r.styledBold) hardFails.push(`${r.cv}×${r.jd}: CareerSet bullets carry bold or a Highlight prefix (${r.styledBold})`);
+    if (r.careerset && r.styleFailKeys.includes("fullStops")) hardFails.push(`${r.cv}×${r.jd}: CareerSet bullets end in a full stop`);
     // reported per CV below; the run-level rule is two or more identical CVs
   }
   const sameCvs = [...new Set(present.filter((r) => r.orderingDiffers === false).map((r) => r.cv))];
@@ -143,6 +166,8 @@ function summarize(label, rows) {
     letterSecondPerson: sum("secondPerson"),
     letterRestatedJd: sum("restatedJd"),
     letterHonestGapMissing: sum("honestGapMissing"),
+    careersetRuns: present.filter((r) => r.careerset).length,
+    styleFails: sum("styleFails"),
     avgMs: present.length ? Math.round(sum("ms") / present.length) : 0,
   };
   return { hardFails, metrics };
@@ -156,7 +181,8 @@ for (const r of results) {
     console.log(
       `  ${row.cv} × ${row.jd}: figures✗${row.absentFigures.length} tools✗${row.absentTools.length} pages ${row.pages}${row.overBudget ? " OVER" : ""} ` +
         `order ${row.orderingDiffers === undefined ? "?" : row.orderingDiffers ? "differs" : "SAME"} learning ${row.learningPresent.length ? row.learningPresent.join("/") : "-"} ` +
-        `weak ${row.weak}/${row.bullets} filler ${row.inflation} boltons ${row.boltOns} retried ${row.retried} dup ${row.duplicates} letter ${row.letterWords}w 2p${row.secondPerson} jd${row.restatedJd}${row.honestGapMissing ? " GAP-UNSAID" : ""} ${row.ms}ms`
+        `weak ${row.weak}/${row.bullets} filler ${row.inflation} boltons ${row.boltOns} retried ${row.retried} dup ${row.duplicates} letter ${row.letterWords}w 2p${row.secondPerson} jd${row.restatedJd}${row.honestGapMissing ? " GAP-UNSAID" : ""}` +
+        `${row.careerset ? ` careerset✗${row.styleFails}${row.styleFailKeys.length ? ` (${row.styleFailKeys.join(",")})` : ""}` : ""} ${row.ms}ms`
     );
   }
   console.log("  metrics:", JSON.stringify(r.metrics));
