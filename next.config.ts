@@ -7,6 +7,10 @@ import { securityHeaders } from "./src/lib/securityHeaders";
 // land on it after a stale link, and it should bounce straight to the real
 // domain, path and query preserved. permanent: true (308) so browsers and
 // search engines cache the redirect rather than re-checking it forever.
+// Production deployments only (VERCEL_ENV, set by Vercel at build time): a
+// preview deployment's own *.vercel.app URL must serve its own build, or no
+// branch can be checked before it merges — until 24 Oct every preview
+// forwarded to www.jobhuntz.app, i.e. to the code already in production.
 const nextConfig: NextConfig = {
   // src/lib/pdfText.ts reads these at runtime (fs.readFileSync) to embed a
   // Unicode font in generated PDFs. That call isn't statically traceable by
@@ -24,6 +28,7 @@ const nextConfig: NextConfig = {
     return securityHeaders({ supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL, dev: process.env.NODE_ENV !== "production" });
   },
   async redirects() {
+    if (process.env.VERCEL_ENV !== "production") return [];
     return [
       {
         source: "/:path*",
