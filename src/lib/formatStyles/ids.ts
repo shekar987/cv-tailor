@@ -39,7 +39,10 @@ export const ROW_STYLE_LABELS: Record<RowStyle, string> = { ukji: "UKJI", career
 // How the document is drawn. contactLinks: "labels" prints LinkedIn / GitHub
 // / Portfolio with the address behind the link; "addresses" prints the
 // address itself (linkedin.com/in/…), still hyperlinked — CareerSet's parser
-// could not find the owner's contact details behind the labels. bold: whether
+// could not find the owner's contact details behind the labels. Both styles
+// print addresses since 24 Oct 2026: a parser that keeps only a CV's text
+// loses every address behind a label (the same loss put "Gmail" in the
+// header, lib/contactCheck), and tests/cvRoundTrip holds the text. bold: whether
 // a bullet may carry ** spans. highlightLine: whether a role's "Highlight:"
 // line is kept as such. trailingFullStop: whether a bullet keeps its final
 // full stop. measureRunHeader: whether the real page count is measured with
@@ -58,7 +61,7 @@ export type RenderOptions = {
   headlineShape: "ukji" | "careerset";
 };
 export const RENDER_OPTIONS: Record<FormatStyleId, RenderOptions> = {
-  ukji: { contactLinks: "labels", contactSeparator: " · ", headlineSeparator: " · ", bold: true, highlightLine: true, trailingFullStop: true, measureRunHeader: false, headlineShape: "ukji" },
+  ukji: { contactLinks: "addresses", contactSeparator: " · ", headlineSeparator: " · ", bold: true, highlightLine: true, trailingFullStop: true, measureRunHeader: false, headlineShape: "ukji" },
   careerset: { contactLinks: "addresses", contactSeparator: " | ", headlineSeparator: " | ", bold: false, highlightLine: false, trailingFullStop: false, measureRunHeader: true, headlineShape: "careerset" },
 };
 

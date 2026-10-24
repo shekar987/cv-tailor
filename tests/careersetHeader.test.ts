@@ -81,19 +81,25 @@ const profile = normalizeProfile({
 });
 const input = { profile, summary: "S.", skills: "", experience: "", projects: {}, projectsMeta: [], targetPages: 2 as const };
 
-test("contact pieces: UKJI prints labels, CareerSet the addresses, both still linked; the separators follow the style", () => {
+// The label mode is still code (contactPieces honours it); since 24 Oct no
+// style uses it — both print addresses (lib/formatStyles ids).
+const LABELS = { ...RENDER_OPTIONS.ukji, contactLinks: "labels" as const };
+
+test("contact pieces: both styles print the addresses, still linked; the separators follow the style", () => {
   const u = prepareCvDocument(input);
   assert.equal(u.render, RENDER_OPTIONS.ukji);
   assert.deepEqual(u.contactPieces, [
     { text: "London, UK", link: null },
     { text: "+44 7000 000000", link: null },
     { text: "jane@example.com", link: "mailto:jane@example.com" },
-    { text: "LinkedIn", link: "https://linkedin.com/in/jane" },
-    { text: "GitHub", link: "https://github.com/jane" },
-    { text: "Portfolio", link: "https://jane.dev" },
+    { text: "linkedin.com/in/jane", link: "https://linkedin.com/in/jane" },
+    { text: "github.com/jane", link: "https://github.com/jane" },
+    { text: "jane.dev", link: "https://jane.dev" },
   ]);
-  assert.equal(contactRowText(u.contactPieces, u.render), "London, UK · +44 7000 000000 · jane@example.com · LinkedIn · GitHub · Portfolio");
-  assert.equal(contactRowLines(u.contactPieces, u.render), 1);
+  assert.equal(contactRowText(u.contactPieces, u.render), "London, UK · +44 7000 000000 · jane@example.com · linkedin.com/in/jane · github.com/jane · jane.dev");
+  assert.equal(contactRowLines(u.contactPieces, u.render), 2, "printed addresses run to a second line in UKJI too");
+  assert.deepEqual(contactPieces(u.contact, LABELS).slice(3).map((p) => p.text), ["LinkedIn", "GitHub", "Portfolio"], "the label mode, unused, still works");
+  assert.equal(contactRowLines(contactPieces(u.contact, LABELS), LABELS), 1);
   const c = prepareCvDocument({ ...input, formatStyle: "careerset" });
   assert.equal(c.render, RENDER_OPTIONS.careerset);
   assert.deepEqual(c.contactPieces.slice(3), [
@@ -110,7 +116,7 @@ test("contact pieces: UKJI prints labels, CareerSet the addresses, both still li
   const longProfile = normalizeProfile({ ...profile, linkedin: "linkedin.com/in/jane-doe-the-very-long-handle-for-a-test", website: "jane-doe-portfolio-site-with-a-long-name.vercel.app" });
   const long = prepareCvDocument({ ...input, profile: longProfile, formatStyle: "careerset" });
   assert.equal(contactRowLines(long.contactPieces, long.render), 2, "printed addresses that run past a line are counted");
-  assert.equal(contactRowLines(prepareCvDocument({ ...input, profile: longProfile }).contactPieces, RENDER_OPTIONS.ukji), 1, "labels: one line, as always");
+  assert.equal(contactRowLines(contactPieces(prepareCvDocument({ ...input, profile: longProfile }).contact, LABELS), LABELS), 1, "labels: one line, as always");
   assert.deepEqual(contactPieces({ ...u.contact, location: "", phone: "", email: "", linkedin: "", github: "", website: "", hasRow: false }, RENDER_OPTIONS.careerset), []);
   assert.deepEqual(prepareCvDocument({ ...input, formatStyle: "nope" }).render, RENDER_OPTIONS.ukji, "an unknown style is UKJI");
 });
@@ -118,10 +124,11 @@ test("contact pieces: UKJI prints labels, CareerSet the addresses, both still li
 test("estimatePages counts the printed contact row the same way", () => {
   const longProfile = { ...profile, linkedin: "linkedin.com/in/jane-doe-the-very-long-handle-for-a-test", website: "jane-doe-portfolio-site-with-a-long-name.vercel.app" };
   const sections = { summary: "S.", skills: "", experience: "", projects: {} };
-  const labels = estimatePages(sections, longProfile, 2);
+  const labels = estimatePages(sections, longProfile, 2, LABELS);
   const addresses = estimatePages(sections, longProfile, 2, RENDER_OPTIONS.careerset);
   assert.equal(addresses.bodyLines, labels.bodyLines + 1);
-  assert.equal(estimatePages(sections, longProfile, 2, RENDER_OPTIONS.ukji).bodyLines, labels.bodyLines, "labels: as before");
+  assert.equal(estimatePages(sections, longProfile, 2, RENDER_OPTIONS.ukji).bodyLines, addresses.bodyLines, "UKJI prints addresses too");
+  assert.equal(estimatePages(sections, longProfile, 2).bodyLines, addresses.bodyLines, "the default is UKJI's");
 });
 
 test("supportSentences skips a style's furniture in the summary and the letter, and nothing else", () => {

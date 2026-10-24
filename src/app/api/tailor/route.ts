@@ -41,6 +41,7 @@ import { fitLetterToOnePage, type LetterFitReport } from "@/lib/letterFit";
 import { buildHeadline, degreesInProgress } from "@/lib/headline";
 import { normalizeEligibility, type Eligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
+import { contactRefusal } from "@/lib/contactRefusal";
 import { coreTitle, titleInText, titleAsIdentity, taglineRoles } from "@/lib/roleTitle";
 import { unsupportedProperNouns, sentencesNaming, dropSentences } from "@/lib/properNouns";
 import { experienceBudget, onePageExperienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
@@ -1186,6 +1187,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Profile is too large." }, { status: 400 });
     }
     const bodyProfile = body.profile && typeof body.profile === "object" ? normalizeProfile(body.profile) : null;
+    // A CV whose email is "Gmail" is refused before any credit is spent
+    // (lib/contactCheck; /app stops it first, this is the backstop).
+    if (bodyProfile) {
+      const refused = contactRefusal(bodyProfile);
+      if (refused) return refused;
+    }
     // One variant, bounded like a stored one; anything malformed = none.
     const bodyVariant = body.variant ? (normalizeVariants({ variants: [body.variant] })?.variants[0] ?? null) : null;
 

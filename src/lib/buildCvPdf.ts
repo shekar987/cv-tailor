@@ -5,15 +5,15 @@
 // rasterization pipeline that produced image-only, ATS-invisible PDFs.
 
 import { jsPDF } from "jspdf";
-import { normalizeProfile } from "@/lib/profile";
-import { prepareCvDocument } from "@/lib/cvDocument";
-import { type Density } from "@/lib/cvDensity";
-import { resolveSectionOrder, type SectionId } from "@/lib/sectionOrder";
-import { PdfCursor, parseWords, drawWrapped, drawBullet, drawHeaderLine, hexToRgb, registerFonts, FONT, type Word } from "@/lib/pdfText";
-import { SECTION_HEADING_LINE_RE } from "@/lib/sections";
-import { stripBoldMarkers } from "@/lib/markdownText";
-import { splitTrailingDate } from "@/lib/projectDate";
-import { linkParts, type LinkPart } from "@/lib/projectLinks";
+import { normalizeProfile } from "./profile.ts";
+import { prepareCvDocument } from "./cvDocument.ts";
+import { type Density } from "./cvDensity.ts";
+import { resolveSectionOrder, type SectionId } from "./sectionOrder.ts";
+import { PdfCursor, parseWords, drawWrapped, drawBullet, drawHeaderLine, hexToRgb, registerFonts, FONT, type Word } from "./pdfText.ts";
+import { SECTION_HEADING_LINE_RE } from "./sections.ts";
+import { stripBoldMarkers } from "./markdownText.ts";
+import { splitTrailingDate } from "./projectDate.ts";
+import { linkParts, type LinkPart } from "./projectLinks.ts";
 
 const NAVY = hexToRgb("1F3864");
 const GREY = hexToRgb("595959");

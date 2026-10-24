@@ -92,7 +92,8 @@ test("each rule fails on its own evidence", () => {
 test("UKJI's rules have no check of their own, and the items still compute without crashing", () => {
   assert.equal(STYLE_RULES.ukji.check, false);
   const items = checkStyle(STYLE_RULES.ukji, good);
-  assert.deepEqual(items.map((i) => i.key), ["pages", "letterWords"], "nothing else is a UKJI rule");
+  // "contact" since 24 Oct: UKJI prints the addresses too (lib/contactCheck).
+  assert.deepEqual(items.map((i) => i.key), ["pages", "contact", "letterWords"], "nothing else is a UKJI rule");
 });
 
 test("normalizeStyleCheck re-bounds a stored check", () => {

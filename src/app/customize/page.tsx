@@ -46,6 +46,7 @@ const NEXT_LEVEL: Record<ClaimLevel, ClaimLevel> = { production: "project", proj
 import { splitTrailingDate } from "@/lib/projectDate";
 import { stripMarkdown } from "@/lib/markdownText";
 import { extractionFlags, mergeProfileEdits } from "@/lib/extractionCheck";
+import { checkContact, type ContactField } from "@/lib/contactCheck";
 import {
   normalizeVariants,
   newVariantId,
@@ -184,6 +185,17 @@ const NAV_GROUPS: { group: string; items: { id: string; icon: IconName; label: s
 // numeral and the section's own numeral can never disagree.
 const FOLIO: Record<string, number> = Object.fromEntries(NAV_GROUPS.flatMap((g) => g.items).map((it, i) => [it.id, i + 1]));
 
+// /api/extract-profile's contactFixes as one line: what extraction took from
+// the CV's own text in place of a label ("Gmail").
+const CONTACT_FIX_LABELS: Record<string, string> = { email: "email", linkedin: "LinkedIn link", github: "GitHub link" };
+function contactFixText(raw: unknown): string {
+  if (!Array.isArray(raw)) return "";
+  const lines = raw
+    .filter((f): f is { field: string; from: unknown; to: string } => !!f && typeof f === "object" && typeof (f as { to?: unknown }).to === "string")
+    .map((f) => `your ${CONTACT_FIX_LABELS[f.field] ?? f.field} as ${f.to}${typeof f.from === "string" && f.from ? ` (the CV showed '${f.from}')` : ""}`);
+  return lines.length ? `Read ${lines.join(", ")}. Check it is right.` : "";
+}
+
 // Reorder the CV's standard sections. Section ORDER only — bullet counts and
 // content are untouched and still come from the tailoring run.
 //
@@ -231,6 +243,12 @@ export default function CustomizePage() {
   // Extraction can fail while the CV itself saved fine; the user needs to
   // know, because a missing profile means a CV headed "YOUR NAME".
   const [profileError, setProfileError] = useState("");
+  // The contact field being typed into: its error waits for the save (the
+  // debounce below), so "jane@" mid-word is not called wrong.
+  const [typingField, setTypingField] = useState<keyof Profile | null>(null);
+  // What extraction recovered from the CV's own text (a link labelled "Gmail"
+  // read as the email — /api/extract-profile contactFixes).
+  const [contactFixNote, setContactFixNote] = useState("");
 
   // Advanced customization — the full project pool (master_cvs.projects_pool).
   // When saved, every tailor run selects the 2 most relevant pool projects
@@ -426,6 +444,14 @@ export default function CustomizePage() {
     return [...seen];
   }, [masterCvText]);
   const claimsStale = !!claims?.seededFrom && !!masterCvText && claims.seededFrom !== cvFingerprint(masterCvText);
+  // Contact details that are not addresses (lib/contactCheck) — each shown
+  // under its field once typing pauses; /app refuses to tailor until fixed.
+  const contactProblems = profile ? checkContact(profile) : [];
+  const contactError = (field: ContactField) => {
+    const p = contactProblems.find((x) => x.field === field);
+    if (!p || typingField === field) return null;
+    return <span className="fitEvidence" data-warn data-contact-error={field} role="alert">{p.message}</span>;
+  };
   // Sections the CV seems to list more of than extraction returned - shown
   // for the user to check, never auto-corrected.
   const extractionIssues =
@@ -547,8 +573,13 @@ export default function CustomizePage() {
     if (!profile) return;
     const updated = { ...profile, [field]: value };
     setProfile(updated);
+    setTypingField(field);
     if (profileSaveTimer.current) clearTimeout(profileSaveTimer.current);
     profileSaveTimer.current = setTimeout(() => {
+      // Saved as typed (a refused value would vanish on reload); a contact
+      // detail that is not an address shows its error from here on, and
+      // /app holds every CV until it is fixed (lib/contactCheck).
+      setTypingField(null);
       saveProfile(updated).then((ok) => {
         setProfileError(ok ? "" : "Couldn't save that change. Check your connection and try again.");
       });
@@ -849,6 +880,7 @@ export default function CustomizePage() {
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.profile) {
           setProfile(data.profile);
+          setContactFixNote(contactFixText(data.contactFixes));
           const persisted = await saveProfile(data.profile);
           await reseedClaims(rec.text, data.skills);
           if (!persisted) {
@@ -921,6 +953,7 @@ export default function CustomizePage() {
         // fresh read.
         const merged = mergeProfileEdits(profile, data.profile as Profile);
         setProfile(merged);
+        setContactFixNote(contactFixText(data.contactFixes));
         const persisted = await saveProfile(merged);
         await reseedClaims(masterCvText, data.skills);
         if (persisted) {
@@ -1134,12 +1167,16 @@ export default function CustomizePage() {
                   )}
                 </label>
                 <label>Location<Input value={profile.location} onChange={(e) => updateProfileField("location", e.target.value)} /></label>
-                <label>Phone<Input value={profile.phone} onChange={(e) => updateProfileField("phone", e.target.value)} /></label>
-                <label>Email<Input value={profile.email} onChange={(e) => updateProfileField("email", e.target.value)} /></label>
-                <label>LinkedIn<Input value={profile.linkedin} onChange={(e) => updateProfileField("linkedin", e.target.value)} /></label>
-                <label>GitHub<Input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} /></label>
-                <label>Website<Input value={profile.website} onChange={(e) => updateProfileField("website", e.target.value)} /></label>
+                <label>Phone<Input value={profile.phone} onChange={(e) => updateProfileField("phone", e.target.value)} aria-invalid={!!contactError("phone")} />{contactError("phone")}</label>
+                <label>Email<Input value={profile.email} onChange={(e) => updateProfileField("email", e.target.value)} aria-invalid={!!contactError("email")} />{contactError("email")}</label>
+                <label>LinkedIn<Input value={profile.linkedin} onChange={(e) => updateProfileField("linkedin", e.target.value)} aria-invalid={!!contactError("linkedin")} />{contactError("linkedin")}</label>
+                <label>GitHub<Input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} aria-invalid={!!contactError("github")} />{contactError("github")}</label>
+                <label>Website<Input value={profile.website} onChange={(e) => updateProfileField("website", e.target.value)} aria-invalid={!!contactError("website")} />{contactError("website")}</label>
               </div>
+
+              {contactFixNote && (
+                <StatusText className="msgBelow" role="status" data-contact-fixed>{contactFixNote}</StatusText>
+              )}
 
               {extractionIssues.map((f) => (
                 <StatusText key={f.section} className="msgBelow" role="alert" data-extraction-flag={f.section}>

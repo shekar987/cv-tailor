@@ -17,6 +17,7 @@ import { linksText, displayUrl } from "./projectLinks.ts";
 import { placeholderHits } from "./placeholders.ts";
 import { inflationHits, isTooLong, bulletLines, repeatedStem, MAX_BULLET_LINES } from "./bulletShape.ts";
 import { bannedWordsIn, openingVerb } from "./stylePass.ts";
+import { RENDER_OPTIONS } from "./formatStyles/ids.ts";
 
 export type ProfileLike = {
   name?: string;
@@ -67,6 +68,8 @@ export type PageEstimate = {
 // The contact row's pieces as text, the way the renderers print them (one
 // formula with lib/cvDocument contactRowText).
 export type ContactRender = { contactLinks: "labels" | "addresses"; contactSeparator: string };
+// No render given = UKJI's, the default style (printed addresses since 24 Oct).
+const DEFAULT_RENDER: ContactRender = RENDER_OPTIONS.ukji;
 function contactRowTextOf(p: NonNullable<ProfileLike>, render: ContactRender): string {
   const addresses = render.contactLinks === "addresses";
   const https = (a: string) => (a.startsWith("http") ? a : `https://${a}`);
@@ -110,7 +113,7 @@ function documentParts(sections: Sections, p: NonNullable<ProfileLike>) {
 // body (lib/formatStyles: CareerSet caps the CV at 900).
 export function cvWordCount(sections: Sections, profile: ProfileLike, render?: ContactRender): number {
   const p = profile ?? {};
-  const row = contactRowTextOf(p, render ?? { contactLinks: "labels", contactSeparator: " · " });
+  const row = contactRowTextOf(p, render ?? DEFAULT_RENDER);
   const text = [str(p.name), str(p.tagline), row, documentParts(sections, p).bodyText].join("\n");
   // A bare separator ("|", "·") between items is not a word.
   return text.replace(/\*\*/g, "").split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)).length;
@@ -121,11 +124,11 @@ export function cvWordCount(sections: Sections, profile: ProfileLike, render?: C
 // render (lib/formatStyles RenderOptions): with printed addresses (CareerSet)
 // the contact row can wrap and is counted; with labels it is one line, as
 // lib/cvDocument counts it.
-export function estimatePages(sections: Sections, profile: ProfileLike, targetPages: number = TARGET_PAGES, render?: ContactRender): PageEstimate {
+export function estimatePages(sections: Sections, profile: ProfileLike, targetPages: number = TARGET_PAGES, render: ContactRender = DEFAULT_RENDER): PageEstimate {
   const p = profile ?? {};
   const { summary, skills, experience, projectMetaText, education, certs, rtw, extras, bodyText } = documentParts(sections, p);
   const hasContactRow = !!(p.location || p.phone || p.email || p.linkedin || p.github || p.website);
-  const contactRowLines = !hasContactRow ? 0 : render?.contactLinks === "addresses" ? Math.max(1, wrappedLines(contactRowTextOf(p, render))) : 1;
+  const contactRowLines = !hasContactRow ? 0 : render.contactLinks === "addresses" ? Math.max(1, wrappedLines(contactRowTextOf(p, render))) : 1;
   const contactLines = 1 + (p.tagline ? 1 : 0) + contactRowLines;
   const headings =
     (summary ? 1 : 0) + (skills ? 1 : 0) + (experience ? 1 : 0) +

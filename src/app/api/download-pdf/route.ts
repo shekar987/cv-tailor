@@ -4,6 +4,7 @@ import { buildCvPdf } from "@/lib/buildCvPdf";
 import { normalizeProfile } from "@/lib/profile";
 import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
 import { extractPdfText, checkPdfTextLayer, countWords } from "@/lib/pdfTextCheck";
+import { contactRefusal } from "@/lib/contactRefusal";
 
 // 'nodejs' is already the Next 16 default; pinned because src/lib/pdfText.ts
 // reads the embedded font files with fs at import time.
@@ -27,6 +28,9 @@ export async function POST(req: NextRequest) {
 
     const text = (v: unknown) => (typeof v === "string" ? v : "");
     const profile = normalizeProfile(body.profile);
+    // A CV whose email is "Gmail" is never built (lib/contactCheck).
+    const refused = contactRefusal(profile);
+    if (refused) return refused;
     const projects = body.projects && typeof body.projects === "object" ? (body.projects as Record<string, string[]>) : {};
     const bytes = buildCvPdf({
       summary: text(body.summary),

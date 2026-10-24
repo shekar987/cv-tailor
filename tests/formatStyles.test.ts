@@ -47,7 +47,7 @@ test("the UKJI style is today's constants, by import", () => {
   assert.equal(UKJI.limits.cv.maxWords, null);
   assert.deepEqual(UKJI.limits.letter, { minWords: 230, maxWords: 330 });
   assert.equal(UKJI.render.headlineSeparator, HEADLINE_SEP);
-  assert.equal(UKJI.render.contactLinks, "labels");
+  assert.equal(UKJI.render.contactLinks, "addresses"); // since 24 Oct: printed, like CareerSet (lib/contactCheck)
   assert.equal(UKJI.render.contactSeparator, " · ");
   assert.equal(UKJI.render.bold, true);
   assert.equal(UKJI.render.highlightLine, true);
