@@ -11,6 +11,22 @@ export const MODELS = {
   quality: "claude-sonnet-4-6",
 };
 
+// Until the promotional API credit runs out (granted 17 Oct 2026, expires
+// 29 Oct UTC), every Anthropic call runs on Opus 5.5 — the owner's call:
+// better output, slower runs. After OPUS_UNTIL the models above take over by
+// themselves, so nothing lands on the card at Opus prices.
+export const OPUS_MODEL = "claude-opus-5-5";
+export const OPUS_UNTIL = Date.parse("2026-10-28T23:00:00Z");
+// Opus 5.5 always thinks, and the thinking counts against max_tokens: a step
+// budgeted for its answer alone (an interview reaction at 500) came back
+// with no text. The headroom goes on top of each step's own budget.
+const OPUS_THINKING_HEADROOM = 16_000;
+const OPUS_EFFORT = "medium" as const;
+
+export function opusActive(now = Date.now()): boolean {
+  return now < OPUS_UNTIL;
+}
+
 // OpenRouter's free-model catalog rotates (models get added/retired without notice).
 // "openrouter/free" is OpenRouter's own auto-router alias that always resolves to
 // some currently-live free model, so this never hard-breaks. Set OPENROUTER_MODEL
@@ -171,14 +187,25 @@ async function anthropicRaw(options: BaseCallOptions): Promise<{ text: string; t
     maxTokens = 2000,
   } = options;
 
+  const opus = opusActive();
   let message;
   try {
-    message = await anthropic.messages.create({
-      model,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: "user", content: userInput }],
-    });
+    message = opus
+      // Streamed: the thinking headroom puts max_tokens past what the SDK
+      // allows on a plain request.
+      ? await anthropic.messages.stream({
+          model: OPUS_MODEL,
+          max_tokens: maxTokens + OPUS_THINKING_HEADROOM,
+          output_config: { effort: OPUS_EFFORT },
+          system,
+          messages: [{ role: "user", content: userInput }],
+        }).finalMessage()
+      : await anthropic.messages.create({
+          model,
+          max_tokens: maxTokens,
+          system,
+          messages: [{ role: "user", content: userInput }],
+        });
   } catch (err) {
     // Anthropic reports an exhausted balance as a 400 invalid_request_error,
     // which would otherwise read as "our request was malformed".

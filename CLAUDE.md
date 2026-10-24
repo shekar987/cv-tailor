@@ -408,6 +408,7 @@ The avatar is TalkingHead (MIT, vendored in `src/vendor/talkinghead`) wearing tw
 - Default: `claude-haiku-4-5-20251001` (fast, cheap — used for all steps)
 - Available: `claude-sonnet-4-6` (higher quality — override per step via `model` option in `callClaude`)
 - Change the model in `callClaude()` options, not in `lib/claude.ts` defaults, unless the change should apply globally
+- **Opus window (24–28 Oct 2026, owner's call):** until `OPUS_UNTIL` (2026-10-28 23:00 UTC, just before the $100 promotional API credit expires) every Anthropic call — every step, the Sonnet fact check included — runs on `claude-opus-5-5` at effort `OPUS_EFFORT`, streamed, with `OPUS_THINKING_HEADROOM` added to the step's `max_tokens` (Opus 5.5 always thinks and the thinking counts against the cap: a 500-token interview reaction would come back empty). After the cutoff the Haiku/Sonnet defaults return by themselves. Delete the Opus block from `lib/claude.ts` once the date has passed. OpenRouter / Gemini calls are untouched
 
 ---
 
