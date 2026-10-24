@@ -21,7 +21,7 @@ export const OPUS_UNTIL = Date.parse("2026-10-28T23:00:00Z");
 // budgeted for its answer alone (an interview reaction at 500) came back
 // with no text. The headroom goes on top of each step's own budget.
 const OPUS_THINKING_HEADROOM = 16_000;
-const OPUS_EFFORT = "medium" as const;
+const OPUS_EFFORT = "high" as const;
 
 export function opusActive(now = Date.now()): boolean {
   return now < OPUS_UNTIL;
