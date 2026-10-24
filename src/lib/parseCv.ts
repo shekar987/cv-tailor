@@ -7,8 +7,11 @@
 //
 // Nothing here ever logs file bytes or extracted text.
 
-import { MAX_CV_CHARS, MAX_UPLOAD_BYTES, UPLOAD_TOO_LARGE } from "@/lib/limits";
-import { needsSpace } from "@/lib/textRuns";
+// Relative .ts paths, not "@/": tests/cvRoundTrip runs this module under
+// node:test, which resolves no alias.
+import { MAX_CV_CHARS, MAX_UPLOAD_BYTES, UPLOAD_TOO_LARGE } from "./limits.ts";
+import { needsSpace } from "./textRuns.ts";
+import { applyLinkTargets, type LinkTarget } from "./linkTargets.ts";
 
 export const MAX_FILE_BYTES = MAX_UPLOAD_BYTES;
 export { MAX_CV_CHARS };
@@ -167,12 +170,49 @@ function itemsToLines(items: TextItem[]): string[] {
     .filter((line) => line !== "");
 }
 
-async function parsePdf(bytes: Uint8Array): Promise<string> {
-  const { extractTextItems } = await import("unpdf");
+type PdfLinkAnnotation = { subtype?: string; url?: string; rect?: number[] };
+
+// A link's visible label: the words drawn inside its rectangle, left to
+// right. Only the target is in the annotation; the words are in the page
+// text — and pdf.js often merges a whole row into one item ("London | Gmail
+// | GitHub"), so each word's place is estimated from its character offset
+// across the item's width, and a word counts when its centre is inside.
+function labelInRect(items: TextItem[], rect: number[]): string {
+  const [x1, y1, x2, y2] = rect;
+  const left = Math.min(x1, x2) - 1, right = Math.max(x1, x2) + 1;
+  const bottom = Math.min(y1, y2) - 2, top = Math.max(y1, y2) + 2;
+  const words: { x: number; word: string }[] = [];
+  for (const item of items) {
+    if (!item.str.trim() || item.y < bottom || item.y > top) continue;
+    const perChar = (item.width || 0) / Math.max(1, item.str.length);
+    for (const m of item.str.matchAll(/\S+/g)) {
+      const centre = item.x + (m.index + m[0].length / 2) * perChar;
+      if (centre >= left && centre <= right) words.push({ x: centre, word: m[0] });
+    }
+  }
+  return words.sort((a, b) => a.x - b.x).map((w) => w.word).join(" ");
+}
+
+async function parsePdf(bytes: Uint8Array): Promise<{ text: string; links: LinkTarget[] }> {
+  const { extractTextItems, getDocumentProxy } = await import("unpdf");
   let pages: TextItem[][];
+  const links: LinkTarget[] = [];
   try {
-    const result = await extractTextItems(bytes);
+    // pdf.js detaches the buffer it reads: parse a copy (CLAUDE.md, "pdf.js
+    // empties the buffer it reads").
+    const doc = await getDocumentProxy(bytes.slice());
+    const result = await extractTextItems(doc);
     pages = result.items as unknown as TextItem[][];
+    // The link targets (lib/linkTargets): a mailto: behind "Gmail" is the
+    // email, and the page text alone never carries it.
+    for (let i = 0; i < pages.length; i++) {
+      const annotations = (await (await doc.getPage(i + 1)).getAnnotations()) as PdfLinkAnnotation[];
+      for (const a of annotations) {
+        if (a.subtype !== "Link" || typeof a.url !== "string" || !Array.isArray(a.rect)) continue;
+        const label = labelInRect(pages[i], a.rect);
+        if (label) links.push({ label, href: a.url });
+      }
+    }
   } catch {
     throw new CvParseError(
       "That PDF couldn't be read. It may be corrupted or password-protected.",
@@ -181,10 +221,45 @@ async function parsePdf(bytes: Uint8Array): Promise<string> {
   }
 
   const pageTexts = pages.map((items) => itemsToLines(items).join("\n"));
-  return pageTexts.filter((page) => page.trim() !== "").join("\n\n");
+  return { text: pageTexts.filter((page) => page.trim() !== "").join("\n\n"), links };
 }
 
 // ── DOCX ─────────────────────────────────────────────────────────────────────
+
+type DocxElement = { type?: string; value?: string; href?: string; children?: DocxElement[] };
+
+function docxText(el: DocxElement): string {
+  if (el.type === "text") return el.value ?? "";
+  return (el.children ?? []).map(docxText).join("");
+}
+
+function docxHyperlinks(el: DocxElement, out: LinkTarget[]): void {
+  if (el.type === "hyperlink" && typeof el.href === "string") {
+    const label = docxText(el).trim();
+    if (label) out.push({ label, href: el.href });
+    return;
+  }
+  for (const child of el.children ?? []) docxHyperlinks(child, out);
+}
+
+// The document's hyperlinks (label + target) in reading order. extractRawText
+// drops every target and ignores transformDocument, so the HTML conversion
+// runs once only to walk the document model; its HTML is discarded.
+async function docxLinks(bytes: Uint8Array): Promise<LinkTarget[]> {
+  const mammoth = (await import("mammoth")).default;
+  const links: LinkTarget[] = [];
+  try {
+    await mammoth.convertToHtml(
+      { buffer: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length) },
+      { transformDocument: (doc: DocxElement) => { docxHyperlinks(doc, links); return doc; } }
+    );
+  } catch {
+    // The text is what matters: a document whose links cannot be read keeps
+    // its labels as written.
+    return [];
+  }
+  return links;
+}
 
 async function parseDocx(bytes: Uint8Array): Promise<string> {
   const mammoth = (await import("mammoth")).default;
@@ -249,15 +324,19 @@ export async function parseCvFile(
   const kind = detectFileKind(bytes, filename);
 
   let raw: string;
+  let links: LinkTarget[] = [];
   if (kind === "pdf") {
-    raw = await parsePdf(bytes);
+    ({ text: raw, links } = await parsePdf(bytes));
   } else if (kind === "docx") {
     raw = await parseDocx(bytes);
+    links = await docxLinks(bytes);
   } else {
     raw = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length).toString("utf8");
   }
 
-  const text = tidy(raw);
+  // A link's target written over its label where the label is not the
+  // address ("Gmail" → the address behind it) — lib/linkTargets.
+  const text = tidy(applyLinkTargets(raw, links).text);
 
   if (kind === "pdf" && looksLikeScannedImage(text)) {
     throw new CvParseError(

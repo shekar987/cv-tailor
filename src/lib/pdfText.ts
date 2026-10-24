@@ -11,7 +11,7 @@
 import type { jsPDF } from "jspdf";
 import fs from "node:fs";
 import path from "node:path";
-import { parseBoldSegments } from "@/lib/markdownText";
+import { parseBoldSegments } from "./markdownText.ts";
 
 export type Word = { text: string; bold?: boolean; link?: string; glued?: boolean };
 
@@ -87,11 +87,15 @@ export class PdfCursor {
   readonly marginRight: number;
   readonly marginTop: number;
   readonly marginBottom: number;
+  // A plain field, not a `private doc` constructor parameter: node:test's
+  // type stripping cannot run parameter properties (tests/cvRoundTrip).
+  private doc: jsPDF;
 
   constructor(
-    private doc: jsPDF,
+    doc: jsPDF,
     margins: { top: number; right: number; bottom: number; left: number }
   ) {
+    this.doc = doc;
     this.pageWidth = doc.internal.pageSize.getWidth();
     this.pageHeight = doc.internal.pageSize.getHeight();
     this.marginTop = margins.top;

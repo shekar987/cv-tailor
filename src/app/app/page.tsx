@@ -21,6 +21,7 @@ import TailorGamePopup, { type TailorGameStatus } from "../TailorGamePopup";
 import { gameForTailorCount, nextTailorCount } from "@/lib/games/pick";
 import type { GameKind } from "@/lib/games/core";
 import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
+import { checkContact, contactBlockMessage } from "@/lib/contactCheck";
 import { normalizeClaims, checkClaims, seedClaimsFromCv, SKILL_RULE_TEXT, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
 import { qualityReport, type QualityReport } from "@/lib/quality";
 import { REPAIR_SECTION_LABEL, type RepairChange } from "@/lib/claimRepair";
@@ -69,6 +70,7 @@ const PROVIDER_LABELS: Record<TailorProvider, string> = {
 // twice. Kept as ONE list because it was previously duplicated across two
 // conditions, which meant adding an errorType silently double-rendered it.
 const ERROR_TYPES_WITH_OWN_NOTICE = new Set([
+  "contact_invalid",
   "user_limit",
   "provider_limit",
   "claude_limit_reached",
@@ -405,6 +407,9 @@ export default function Home() {
   // /customize; this page only needs to know whether one exists.
   const [masterCvText, setMasterCvText] = useState("");
   const [profile, setProfile] = useState<Profile | null>(null);
+  // The contact details every generated CV prints, checked (lib/contactCheck):
+  // a problem stops the pre-check, the tailor and the CV downloads.
+  const contactBlock = useMemo(() => (profile ? contactBlockMessage(checkContact(profile)) : ""), [profile]);
   const [cvLoading, setCvLoading] = useState(true);  // true while initial DB fetch is in-flight
   // Advanced customization (saved on /customize): the user's full project
   // pool. Non-empty = every tailor run sends it, and the pipeline selects the
@@ -837,6 +842,13 @@ export default function Home() {
       setErrorType(null);
       return;
     }
+    // A CV whose email is "Gmail" is never generated (lib/contactCheck):
+    // stopped here, before the pre-check and any credit.
+    if (contactBlock) {
+      setError(contactBlock);
+      setErrorType("contact_invalid");
+      return;
+    }
     if (!jobDescription.trim()) {
       setError("Paste a job description to get started.");
       setErrorType(null);
@@ -1021,6 +1033,11 @@ export default function Home() {
   // run without reading this closure's stale `result` state.
   async function executeTailor(jdText: string, source: "jd" | "outreach"): Promise<Result | null> {
     if (loading) return null;
+    if (contactBlock) {
+      setError(contactBlock);
+      setErrorType("contact_invalid");
+      return null;
+    }
     if (jdText.length > MAX_JD_CHARS) {
       setError(JD_TOO_LONG);
       setErrorType(null);
@@ -2101,6 +2118,21 @@ export default function Home() {
                 has an answer: their own free OpenRouter key runs tailoring
                 instead. Found by the first real paid run on 2026-09-24, when
                 every tailor returned a bare "Tailoring failed". */}
+            {/* ── A contact detail that is not an address ("Gmail" printed as
+                the email on every CV, 17–22 Oct 2026): shown as soon as the
+                profile loads, and what a refused click points at. */}
+            {(contactBlock || errorType === "contact_invalid") && (
+              <div className="limitNotice" role="alert" data-contact-block>
+                <div className="limitNotice__title">Fix your contact details before tailoring.</div>
+                <div className="limitNotice__body">
+                  {contactBlock || error} Every CV and download is held until it is fixed.
+                </div>
+                <Button href="/customize" className="limitNotice__cta">
+                  Open Your details →
+                </Button>
+              </div>
+            )}
+
             {errorType === "provider_credit" && (
               <div className="limitNotice" role="alert" data-provider-credit>
                 <div className="limitNotice__title">{errorStep === "pre-check" ? "The pre-check" : "Tailoring"} is temporarily unavailable.</div>
@@ -3249,10 +3281,10 @@ export default function Home() {
                 rightToWorkForForms={rtwForForms}
                 rightToWorkUnset={!!eligibility && !rtwForForms}
                 targetPages={onePageTarget}
-                downloadsDisabledReason={downloadReason ?? (staleRun ? STALE_REASON : undefined)}
+                downloadsDisabledReason={contactBlock || downloadReason || (staleRun ? STALE_REASON : undefined)}
                 sectionOrder={runSectionOrder}
                 fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}
-                downloadsDisabled={blocked || staleRun}
+                downloadsDisabled={blocked || staleRun || !!contactBlock}
                 fixClaimsAvailable={blocked && fixable}
                 fixingClaims={fixingClaims}
               />

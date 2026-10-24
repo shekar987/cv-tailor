@@ -5,7 +5,8 @@
 // model extracted. A shortfall is flagged for the user to confirm or fix;
 // nothing is auto-corrected. Heuristic by nature (CV layouts vary), so every
 // unrecognised layout answers null ("couldn't tell") rather than a number.
-// Import-free, unit-tested.
+// Unit-tested; imports only its sibling lib/contactCheck (a relative .ts path).
+import { checkContact } from "./contactCheck.ts";
 
 export type SectionKey = "projects" | "education" | "certifications";
 export type ExpectedCounts = Record<SectionKey, number | null>;
@@ -135,14 +136,21 @@ export function extractionFlags(cvText: string, got: { projects: number; educati
 }
 
 // Re-running extraction must not wipe what the user typed into the eight
-// editable fields: the current non-empty value wins over the fresh read.
+// editable fields: the current non-empty value wins over the fresh read —
+// unless it is a contact detail that fails lib/contactCheck and the fresh
+// read passes (a stored "Gmail" gives way to the address the link held).
 export function mergeProfileEdits<T extends Record<string, unknown>>(current: T | null, fresh: T): T {
   if (!current) return fresh;
   const keep = ["name", "tagline", "location", "phone", "email", "linkedin", "github", "website"] as const;
   const out: Record<string, unknown> = { ...fresh };
+  const failing = (p: Record<string, unknown>) => new Set(checkContact(p).map((x) => x.field as string));
+  const curBad = failing(current);
+  const freshBad = failing(fresh);
   for (const k of keep) {
     const cur = current[k];
-    if (typeof cur === "string" && cur.trim()) out[k] = cur;
+    if (typeof cur !== "string" || !cur.trim()) continue;
+    if (curBad.has(k) && !freshBad.has(k) && typeof fresh[k] === "string" && (fresh[k] as string).trim()) continue;
+    out[k] = cur;
   }
   return out as T;
 }
