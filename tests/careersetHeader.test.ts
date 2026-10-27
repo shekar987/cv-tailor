@@ -1,10 +1,9 @@
-// The CareerSet header (lib/formatStyles): the headline's slots and
-// separator, the CV-voice availability sentence, the contact line's pieces
+// The CareerSet header (lib/formatStyles): the headline's separator, the CV-voice availability sentence, the contact line's pieces
 // as the three renderers draw them, and the fact check's furniture hook.
 // Each test also pins the UKJI path to what it always was.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildHeadline, topProductionSkills, topProductionSkill, CAREERSET_HEADLINE_TOOLS, HEADLINE_SEP } from "../src/lib/headline.ts";
+import { buildHeadline, topProductionSkills, HEADLINE_SEP } from "../src/lib/headline.ts";
 import { availabilityCvSentence, type RtwFacts } from "../src/lib/rightToWorkText.ts";
 import { prepareCvDocument, contactPieces, contactRowText, contactRowLines } from "../src/lib/cvDocument.ts";
 import { normalizeProfile } from "../src/lib/profile.ts";
@@ -27,36 +26,37 @@ const claims = {
   ],
 };
 const base = {
-  education: [{ degree: "MSc Computer Science", dates: "Jan 2025 – Jan 2027" }],
   claims,
   requiredSkills: ["Python", "LangChain", "FastAPI", "Kubernetes", "React"],
   keywords: ["TypeScript", "AWS", "PostgreSQL", "Docker"],
   yearsExperience: 2,
+  identityTitle: null,
   positioning: null,
-  roleFamily: "Full Stack & AI Engineer",
+  savedTagline: "Full Stack & AI Engineer",
+  heldTitles: ["Full Stack Engineer"],
 };
 
-test("CareerSet headline: positioning | years | up to five production tools in posting order, ' | ' between slots", () => {
+// Since 24 Oct (Chunk 2) both styles build the same three slots — role ·
+// years · one stack phrase (lib/headline; tests/taglineSnapshot holds five
+// postings). The style gives only the separator.
+test("CareerSet headline: the same three slots as UKJI, ' | ' between them", () => {
   const { headline, parts } = buildHeadline(base, CAREERSET.render);
-  assert.equal(headline, "Full Stack & AI Engineer | 2 years' experience | Python · FastAPI · React · TypeScript · AWS");
-  assert.equal(parts.qualification, "", "no qualification slot in this style");
-  assert.deepEqual(topProductionSkills(claims, base.requiredSkills, base.keywords, CAREERSET_HEADLINE_TOOLS), ["Python", "FastAPI", "React", "TypeScript", "AWS"], "LangChain (project) and Kubernetes (learning) never headline; the sixth production term is cut");
-  // The variant's own headline outranks the tagline's role family.
-  assert.equal(buildHeadline({ ...base, positioning: "Backend engineer (Python, FastAPI)" }, CAREERSET.render).headline.split(" | ")[0], "Backend engineer (Python, FastAPI)");
+  assert.equal(headline, "Full Stack & AI Engineer | 2 years' experience | Python, FastAPI, React");
+  assert.deepEqual(parts, { role: "Full Stack & AI Engineer", years: "2 years' experience", stack: "Python, FastAPI, React" });
+  assert.deepEqual(topProductionSkills(claims, base.requiredSkills, base.keywords, 5), ["Python", "FastAPI", "React", "TypeScript", "AWS"], "LangChain (project) and Kubernetes (learning) never headline");
+  // The variant's role outranks the saved tagline's; its tool bracket goes — the stack slot says the tools.
+  assert.equal(buildHeadline({ ...base, positioning: "Backend engineer (Python, FastAPI)" }, CAREERSET.render).headline, "Backend engineer | 2 years' experience | Python, FastAPI, React");
   // Empty slots are left out, never a dangling separator.
-  assert.equal(buildHeadline({ ...base, yearsExperience: null }, CAREERSET.render).headline, "Full Stack & AI Engineer | Python · FastAPI · React · TypeScript · AWS");
+  assert.equal(buildHeadline({ ...base, yearsExperience: null }, CAREERSET.render).headline, "Full Stack & AI Engineer | Python, FastAPI, React");
   assert.equal(buildHeadline({ ...base, claims: null, yearsExperience: 0 }, CAREERSET.render).headline, "Full Stack & AI Engineer");
-  assert.equal(buildHeadline({ ...base, roleFamily: null, claims: null, yearsExperience: null }, CAREERSET.render).headline, "");
-  assert.equal(buildHeadline({ ...base, roleFamily: "  Full  Stack   Engineer " }, CAREERSET.render).headline.split(" | ")[0], "Full Stack Engineer");
+  assert.equal(buildHeadline({ ...base, savedTagline: null, heldTitles: [], claims: null, yearsExperience: null }, CAREERSET.render).headline, "");
 });
 
-test("UKJI headline is untouched: the same slots, ' · ', the role family ignored", () => {
+test("UKJI headline: the same slots with ' · '; no render = UKJI", () => {
   const u = buildHeadline(base, UKJI.render);
-  assert.equal(u.headline, "MSc Computer Science (in progress, expected 2027) · Python · 2 years' experience");
+  assert.equal(u.headline, "Full Stack & AI Engineer · 2 years' experience · Python, FastAPI, React");
   assert.equal(buildHeadline(base).headline, u.headline, "no render = UKJI");
   assert.equal(UKJI.render.headlineSeparator, HEADLINE_SEP);
-  assert.equal(topProductionSkill(claims, base.requiredSkills, base.keywords), "Python");
-  assert.equal(topProductionSkill(null, base.requiredSkills, base.keywords), null);
 });
 
 const elig = (availability: RtwFacts["availability"], canWorkFullTime: RtwFacts["canWorkFullTime"]): RtwFacts => ({

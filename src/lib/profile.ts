@@ -7,6 +7,7 @@
 // at the boundary — on extraction and again when a document is built — makes
 // every field the type the renderers assume. Project positions are preserved
 // (never filtered) because tailored bullets are keyed by project index.
+import { CAREERSET_TOOL_GROUPS } from "./formatStyles/ids.ts";
 
 export type Education = { degree: string; dates: string; institution: string; note: string };
 export type ProjectLink = { label: string; url: string; text: string };
@@ -22,14 +23,48 @@ export type Profile = {
   extraSections?: ExtraSection[];
 };
 
+// A skills block's group labels ("Languages & Frameworks:", "Technical
+// Tools:") belong to the skills section, never the header line: a tagline
+// that carries one was copied from a skills line (24 Oct, Chunk 2). The label
+// and its colon go; the words after it stay for the caller to judge.
+const SKILL_GROUP_LABELS = [
+  ...CAREERSET_TOOL_GROUPS,
+  "Technical Tools", "Functional Competencies", "Core Competencies", "Competencies",
+  "Technical Skills", "Core Skills", "Key Skills", "Skills", "Tech Stack", "Stack",
+  "Programming Languages", "Languages", "Frameworks", "Libraries", "Tools", "Platforms",
+];
+const LABEL_ALTERNATION = [...SKILL_GROUP_LABELS]
+  .sort((a, b) => b.length - a.length)
+  .map((l) => l.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&").replace(/\s+/g, "\\s+"))
+  .join("|");
+const SKILL_GROUP_LABEL_RE = new RegExp("(?<![\\p{L}\\p{N}])(?:" + LABEL_ALTERNATION + ")\\s*:\\s*", "giu");
+export function stripSkillGroupLabels(s: string): string {
+  return s.replace(SKILL_GROUP_LABEL_RE, " ");
+}
+
+// A bracketed aside said once: "Engineer (Python, FastAPI) (Python, FastAPI)"
+// keeps the first; compared case-, spacing- and order-blind, so "(FastAPI,
+// Python)" repeats "(Python, FastAPI)".
+export function dedupeParentheticals(s: string): string {
+  const seen = new Set<string>();
+  return s.replace(/\s*\(([^()]*)\)/g, (whole, inner: string) => {
+    const key = inner.toLowerCase().split(/[,;/·]|\s+and\s+/).map((p) => p.replace(/\s+/g, " ").trim()).filter(Boolean).sort().join("|");
+    if (!key) return "";
+    if (seen.has(key)) return "";
+    seen.add(key);
+    return whole;
+  });
+}
+
 // A professional headline never carries contact/social URLs. When the extractor
 // mis-files the CV's contact line into the tagline, the GitHub/LinkedIn URL
 // would render as the headline AND again as the link under it — the "GitHub
 // twice" bug. Strips URL/social forms only: bare words like "GitHub Actions"
-// stay. One function for the preview, the .docx and the PDF (each used to
+// stay. Nor does it carry a skills group label, or the same bracketed aside
+// twice. One function for the preview, the .docx and the PDF (each used to
 // carry its own copy).
 export function cleanTagline(tagline: string): string {
-  let t = (tagline || "")
+  let t = dedupeParentheticals(stripSkillGroupLabels(tagline || ""))
     .replace(/https?:\/\/\S+/gi, " ")
     .replace(/\b(?:www\.)?(?:linkedin|github)\.com\/?\S*/gi, " ")
     .replace(/\b(?:LinkedIn|GitHub)\s*:/gi, " ")

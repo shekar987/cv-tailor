@@ -56,13 +56,10 @@ export type RenderOptions = {
   highlightLine: boolean;
   trailingFullStop: boolean;
   measureRunHeader: boolean;
-  // The headline's slots (lib/headline): UKJI "qualification · skill · years ·
-  // positioning"; CareerSet "positioning | years | tools".
-  headlineShape: "ukji" | "careerset";
 };
 export const RENDER_OPTIONS: Record<FormatStyleId, RenderOptions> = {
-  ukji: { contactLinks: "addresses", contactSeparator: " · ", headlineSeparator: " · ", bold: true, highlightLine: true, trailingFullStop: true, measureRunHeader: false, headlineShape: "ukji" },
-  careerset: { contactLinks: "addresses", contactSeparator: " | ", headlineSeparator: " | ", bold: false, highlightLine: false, trailingFullStop: false, measureRunHeader: true, headlineShape: "careerset" },
+  ukji: { contactLinks: "addresses", contactSeparator: " · ", headlineSeparator: " · ", bold: true, highlightLine: true, trailingFullStop: true, measureRunHeader: false },
+  careerset: { contactLinks: "addresses", contactSeparator: " | ", headlineSeparator: " | ", bold: false, highlightLine: false, trailingFullStop: false, measureRunHeader: true },
 };
 
 // The skills block's shape. UKJI: one "Technical Tools:" line, items split

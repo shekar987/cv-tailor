@@ -42,7 +42,7 @@ import { buildHeadline, degreesInProgress } from "@/lib/headline";
 import { normalizeEligibility, type Eligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
 import { contactRefusal } from "@/lib/contactRefusal";
-import { coreTitle, titleInText, titleAsIdentity, taglineRoles } from "@/lib/roleTitle";
+import { coreTitle, titleInText, titleAsIdentity } from "@/lib/roleTitle";
 import { unsupportedProperNouns, sentencesNaming, dropSentences } from "@/lib/properNouns";
 import { experienceBudget, onePageExperienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
 import { parseMasterExperience, renderIdBlock, reconcileExperience, lockRoleHeaders, sortRolesByDate, diffAgainstMaster, diffProjects, type HeaderLock, type ChronologyReport } from "@/lib/bulletIds";
@@ -579,14 +579,16 @@ async function runPipeline(opts: {
   const headlineTerms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
   const headline = buildHeadline(
     {
-      education: (profile as { education?: { degree?: string; dates?: string; note?: string }[] } | null)?.education,
       claims,
       requiredSkills: headlineTerms.required_skills,
       keywords: headlineTerms.top_15_ats_keywords,
       yearsExperience,
+      // The posting's core title only when it plainly describes the candidate
+      // (the same test the summary uses); else their own role, below.
+      identityTitle: asIdentity ? roleTitle : null,
       positioning: variant?.headline ?? null,
-      // CareerSet with no variant: the first role the user's own saved tagline names.
-      roleFamily: taglineRoles((profile as { tagline?: unknown } | null)?.tagline)[0] ?? null,
+      savedTagline: typeof (profile as { tagline?: unknown } | null)?.tagline === "string" ? (profile as { tagline: string }).tagline : null,
+      heldTitles: masterRoles.map((r) => r.header.split(/\s[—–|]\s/)[0]),
     },
     style.render
   ).headline;
