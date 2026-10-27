@@ -1,61 +1,70 @@
 // The header line under the candidate's name, built deterministically per run
-// in the UKJI shape a recruiter scans in two seconds:
+// from a whitelist of three slots — nothing else can reach it:
 //
-//   MSc Computer Science (in progress, expected 2026) · React · 2 years' experience · Backend engineer (Java, Spring Boot)
+//   Software Engineer · 2 years' experience · Python, FastAPI, React
 //
-// Every piece comes from something the user stated, or is omitted:
-// - qualification: the profile's first education entry, with its status read
-//   off the entry's own dates/note ("Present", "expected", a completion year)
-// - skill: the first of the posting's required skills, then its keywords,
-//   that the claims registry holds at PRODUCTION level — a project-level or
-//   learning skill never headlines
-// - years: the user's own eligibility answer, never inferred from dates
-// - positioning: the headline of the positioning variant picked for this
-//   run (lib/variants) — the user's own words. Until 30 Sep 2026 the last
-//   slot was the posting's title, literally, which put "Python Developer -
-//   Data & Analytics Team - Options Market Making" under a candidate's name
-//   as if it were their identity; the summary carries the title for search,
-//   the header never does
+// - role: the posting's core title ONLY when it plainly describes the
+//   candidate (lib/roleTitle titleAsIdentity — the route decides and passes
+//   `identityTitle`); otherwise the candidate's own role, the first found in
+//   the positioning variant's headline, the saved tagline, then their most
+//   recent job title on the master CV. Never the posting's full title: until
+//   30 Sep 2026 it printed "Python Developer - Data & Analytics Team - Options
+//   Market Making" under a name as if it were the candidate's identity. A
+//   candidate role must name a role noun; a bracket that lists tools goes (the
+//   stack has its own slot) and a repeated bracket is said once
+// - years: the user's own eligibility answer, "N years' experience", never
+//   inferred from dates and never "production" (the answer does not say so)
+// - stack: ONE phrase of up to TAGLINE_STACK_ITEMS posting terms the claims
+//   registry holds at PRODUCTION level, in posting order, registry spelling,
+//   none the role already names — a project-level or learning skill never
+//   headlines
 //
-// Imports only ./atsMatch.ts (the same matcher that scores the CV), so it
-// runs under node:test.
+// The line is one printed line: past MAX_TAGLINE_CHARS the stack gives up its
+// last items, then the years (tests/taglineSnapshot builds the real PDF and
+// checks the row). Until 24 Oct (Chunk 2) UKJI led with the degree and
+// CareerSet carried up to five tools beside a variant headline that already
+// listed them in brackets ("Full stack engineer (Python, FastAPI, React,
+// TypeScript) | … | Python · FastAPI · React · TypeScript"); the degree now
+// lives in Education, and a skills group label ("Languages & Frameworks:")
+// can never print (lib/profile cleanTagline, the renderers' last guard too).
+//
+// Imports only its import-free siblings (relative .ts paths), so it runs
+// under node:test.
 import { matchAtsKeywords } from "./atsMatch.ts";
+import { ROLE_NOUN_RE } from "./roleTitle.ts";
+import { cleanTagline, dedupeParentheticals, stripSkillGroupLabels } from "./profile.ts";
 import type { RenderOptions } from "./formatStyles/ids.ts";
 
 export type HeadlineEducation = { degree?: string; dates?: string; note?: string };
 export type HeadlineClaims = { skills: { name: string; level: string }[] } | null | undefined;
 
 export type HeadlineInput = {
-  education: HeadlineEducation[] | undefined;
   claims: HeadlineClaims;
   requiredSkills: unknown;
   keywords: unknown;
   yearsExperience: number | null | undefined;
-  positioning: string | null | undefined;
-  // CareerSet only: the role family in the user's own words when no variant is
-  // picked — the first role their saved tagline names (lib/roleTitle).
-  roleFamily?: string | null;
+  // The posting's core title, passed only when it plainly describes the
+  // candidate (lib/roleTitle titleAsIdentity); null otherwise.
+  identityTitle?: string | null;
+  // The picked positioning variant's headline (lib/variants), the user's words.
+  positioning?: string | null;
+  // The tagline saved on Customize (the extracted one, as edited).
+  savedTagline?: string | null;
+  // The master CV's job titles, most recent first (lib/bulletIds headers).
+  heldTitles?: string[];
 };
 
-export type HeadlineParts = { qualification: string; skill: string; years: string; positioning: string };
+export type HeadlineParts = { role: string; years: string; stack: string };
 
 export const HEADLINE_SEP = " · ";
-const MAX_POSITIONING = 70;
-const MAX_DEGREE = 60;
+export const TAGLINE_STACK_ITEMS = 3;
+// One printed line at the header's 10 pt across the narrowest text column
+// (lib/cvDensity's roomiest margins), with room to spare.
+export const MAX_TAGLINE_CHARS = 90;
+const MAX_ROLE = 60;
 
 const IN_PROGRESS_RE = /\b(?:present|current(?:ly)?|expected|ongoing|in progress|anticipated|due)\b/i;
-const EXPECTED_YEAR_RE = /\b(?:expected|anticipated|due|graduat\w*)\b\D{0,16}((?:19|20)\d{2})\b/i;
 
-function lastYear(s: string): string | null {
-  const years = s.match(/\b(?:19|20)\d{2}\b/g);
-  return years ? years[years.length - 1] : null;
-}
-
-// "MSc Computer Science (in progress, expected 2026)" / "BSc Computing (2023)" /
-// "MSc Computer Science (in progress)" / "MSc Computer Science". In progress =
-// the entry says so ("Present", "expected"…) or its end year has not passed;
-// the expected year is only one the entry states as such, or that end year.
-// A start year before "Present" is never called the expected year.
 // The degrees still in progress, by the entries' own dates to the month
 // ("Jan 2025 – Jan 2027" is in progress in September 2026; "Sep 2025 – Jun
 // 2026" is not): what a summary or letter must never state as held
@@ -82,31 +91,16 @@ export function degreesInProgress(education: HeadlineEducation[] | undefined, no
     .map((e) => (e.degree ?? "").trim());
 }
 
-export function qualificationLabel(e: HeadlineEducation | undefined, now: number = new Date().getFullYear()): string {
-  const degree = (e?.degree ?? "").trim().replace(/\s+/g, " ").slice(0, MAX_DEGREE);
-  if (!degree) return "";
-  const dates = (e?.dates ?? "").trim();
-  const note = (e?.note ?? "").trim();
-  const endYear = lastYear(dates);
-  const explicit = EXPECTED_YEAR_RE.exec(dates)?.[1] ?? EXPECTED_YEAR_RE.exec(note)?.[1] ?? null;
-  const saysSo = IN_PROGRESS_RE.test(dates) || IN_PROGRESS_RE.test(note);
-  const inProgress = saysSo || (endYear !== null && Number(endYear) >= now);
-  if (inProgress) {
-    const expected = explicit ?? (endYear !== null && Number(endYear) >= now ? endYear : null);
-    return expected ? `${degree} (in progress, expected ${expected})` : `${degree} (in progress)`;
-  }
-  return endYear ? `${degree} (${endYear})` : degree;
-}
-
 function termList(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((t): t is string => typeof t === "string" && t.trim() !== "") : [];
 }
 
 // The first `max` posting terms that name a production-level registry
 // skill, in posting order, each registry name once; the registry's own
-// spelling is used. Empty when there is no registry or no match.
+// spelling is used. Empty when there is no registry or no match. A registry
+// name that is a label ("Languages & Frameworks:") is never a skill.
 export function topProductionSkills(claims: HeadlineClaims, requiredSkills: unknown, keywords: unknown, max = 1): string[] {
-  const production = (claims?.skills ?? []).filter((s) => s.level === "production" && s.name.trim());
+  const production = (claims?.skills ?? []).filter((s) => s.level === "production" && s.name.trim() && !s.name.includes(":"));
   if (production.length === 0) return [];
   const out: string[] = [];
   for (const term of [...termList(requiredSkills), ...termList(keywords)]) {
@@ -117,12 +111,6 @@ export function topProductionSkills(claims: HeadlineClaims, requiredSkills: unkn
   return out;
 }
 
-// The first posting term that names a production-level registry skill; the
-// registry's own spelling is used. null when there is no registry or no match.
-export function topProductionSkill(claims: HeadlineClaims, requiredSkills: unknown, keywords: unknown): string | null {
-  return topProductionSkills(claims, requiredSkills, keywords, 1)[0] ?? null;
-}
-
 export function yearsLabel(years: number | null | undefined): string {
   if (typeof years !== "number" || !Number.isFinite(years) || years < 0) return "";
   const n = Math.round(years);
@@ -130,37 +118,59 @@ export function yearsLabel(years: number | null | undefined): string {
   return `${n} year${n === 1 ? "" : "s"}' experience`;
 }
 
-// CareerSet's tools slot: up to this many posting terms the registry holds at
-// production level.
-export const CAREERSET_HEADLINE_TOOLS = 5;
+// A bracket kept on a role is a short qualifier ("Product Engineer (Full
+// Stack)"): no list, no figure, three words at most. Anything else — a tool
+// list, "(2027 intake)" — goes; the stack slot says the tools.
+function keepsBracket(inner: string): boolean {
+  const s = inner.trim();
+  return !!s && !/[,;/·&+]|\d/.test(s) && s.split(/\s+/).length <= 3;
+}
 
-// `render` (lib/formatStyles RenderOptions): the separator, and the slots.
-// UKJI: qualification · skill · years · positioning, as always. CareerSet:
-// "<positioning> | <years> | <tool · tool · …>" — the positioning is the
-// variant's own headline, else the role family the user's saved tagline
-// names (lib/roleTitle taglineRoles, read by the route; decided 17 Oct 2026),
-// never the posting's title; the years are the stated years in the one
-// wording the app uses (never "2+", never "production" — the answer does
-// not say so); the tools are posting terms at PRODUCTION level, registry
-// spelling. A slot with nothing is left out.
-export function buildHeadline(input: HeadlineInput, render?: Pick<RenderOptions, "headlineSeparator" | "headlineShape">): { headline: string; parts: HeadlineParts } {
-  const positioning = typeof input.positioning === "string" ? input.positioning.trim().replace(/\s+/g, " ").slice(0, MAX_POSITIONING) : "";
-  if (render?.headlineShape === "careerset") {
-    const family = typeof input.roleFamily === "string" ? input.roleFamily.trim().replace(/\s+/g, " ").slice(0, MAX_POSITIONING) : "";
-    const parts: HeadlineParts = {
-      qualification: "",
-      skill: topProductionSkills(input.claims, input.requiredSkills, input.keywords, CAREERSET_HEADLINE_TOOLS).join(" · "),
-      years: yearsLabel(input.yearsExperience),
-      positioning: positioning || family,
-    };
-    return { headline: [parts.positioning, parts.years, parts.skill].filter(Boolean).join(render.headlineSeparator), parts };
+// The role in a free-text line (a variant headline, a saved tagline, a job
+// title): the first segment that names a role noun once its labels and
+// tool brackets are gone, at most one short bracket kept. "" when none.
+export function rolePhrase(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const segments = stripSkillGroupLabels(raw)
+    .split(/\s*[|·•;]\s*|\s+[/—–-]\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const seg of segments) {
+    let kept = 0;
+    let role = dedupeParentheticals(seg).replace(/\s*\(([^()]*)\)/g, (whole, inner: string) => (keepsBracket(inner) && kept++ === 0 ? whole : ""));
+    // An unmatched bracket left by a nested or cut-off aside goes; a kept pair stays.
+    if ((role.match(/\(/g) ?? []).length !== (role.match(/\)/g) ?? []).length) role = role.replace(/[()]/g, " ");
+    role = role.replace(/\s+/g, " ").trim();
+    if (!role || !ROLE_NOUN_RE.test(role) || role.split(/\s+/).length > 8) continue;
+    if (role.length <= MAX_ROLE) return role;
+    const cut = role.slice(0, MAX_ROLE);
+    return cut.slice(0, cut.lastIndexOf(" ") > 0 ? cut.lastIndexOf(" ") : MAX_ROLE).trim();
   }
-  const parts: HeadlineParts = {
-    qualification: qualificationLabel(input.education?.[0]),
-    skill: topProductionSkill(input.claims, input.requiredSkills, input.keywords) ?? "",
-    years: yearsLabel(input.yearsExperience),
-    positioning,
-  };
-  const headline = [parts.qualification, parts.skill, parts.years, parts.positioning].filter(Boolean).join(render?.headlineSeparator ?? HEADLINE_SEP);
-  return { headline, parts };
+  return "";
+}
+
+// `render` (lib/formatStyles RenderOptions) gives only the separator: UKJI
+// " · ", CareerSet " | " — the same three slots in both. A slot with nothing
+// is left out, never a dangling separator.
+export function buildHeadline(input: HeadlineInput, render?: Pick<RenderOptions, "headlineSeparator">): { headline: string; parts: HeadlineParts } {
+  const sep = render?.headlineSeparator ?? HEADLINE_SEP;
+  const role =
+    [input.identityTitle, input.positioning, input.savedTagline, ...(input.heldTitles ?? [])]
+      .map(rolePhrase)
+      .find(Boolean) ?? "";
+  const years = yearsLabel(input.yearsExperience);
+  const roleWords = role.toLowerCase();
+  const stackItems = topProductionSkills(input.claims, input.requiredSkills, input.keywords, TAGLINE_STACK_ITEMS + 4)
+    .filter((name) => !roleWords.includes(name.toLowerCase()) && !matchAtsKeywords(role, [name]).matched)
+    .slice(0, TAGLINE_STACK_ITEMS);
+
+  const line = (items: string[], withYears: boolean) =>
+    cleanTagline([role, withYears ? years : "", items.join(", ")].filter(Boolean).join(sep));
+  let items = stackItems;
+  let withYears = true;
+  while (line(items, withYears).length > MAX_TAGLINE_CHARS && items.length > 0) items = items.slice(0, -1);
+  if (line(items, withYears).length > MAX_TAGLINE_CHARS) withYears = false;
+
+  const parts: HeadlineParts = { role, years: withYears ? years : "", stack: items.join(", ") };
+  return { headline: line(items, withYears), parts };
 }

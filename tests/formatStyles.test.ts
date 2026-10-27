@@ -73,8 +73,7 @@ test("the CareerSet style: the owner's rules, every number as specified", () => 
   assert.deepEqual([...CAREERSET_BANNED_WORDS], ["contributed", "supported", "assisted", "helped", "worked on", "work in", "responsible for", "successfully", "used"]);
   assert.equal(CAREERSET.lint.verbCap, 2);
   assert.deepEqual([...CAREERSET.lint.letterBanned], ["used", "assisted", "contribute", "contributed", "also", "kind of"]);
-  assert.deepEqual(CAREERSET.render, { contactLinks: "addresses", contactSeparator: " | ", headlineSeparator: " | ", bold: false, highlightLine: false, trailingFullStop: false, measureRunHeader: true, headlineShape: "careerset" });
-  assert.equal(UKJI.render.headlineShape, "ukji");
+  assert.deepEqual(CAREERSET.render, { contactLinks: "addresses", contactSeparator: " | ", headlineSeparator: " | ", bold: false, highlightLine: false, trailingFullStop: false, measureRunHeader: true });
   assert.equal(CAREERSET.summary.appendAvailability, true);
   assert.equal(CAREERSET.letter.points, 4);
   assert.equal(CAREERSET.letter.teamSuffix, "Hiring Team");
