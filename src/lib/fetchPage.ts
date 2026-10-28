@@ -456,13 +456,22 @@ async function fetchOnce(url: URL, timeoutMs: number, trust: string[], repaired:
 
 // Fetch one page with the SSRF guard applied to the URL AND to every redirect
 // hop (fetch's automatic redirect following would sidestep the guard).
+// `allowHost` narrows it further for a caller that may only ever reach a fixed
+// set of hosts (/api/import-job): checked on the first URL and every hop.
 export async function fetchPage(
   rawUrl: string,
-  opts: { timeoutMs?: number; maxBytes?: number } = {}
+  opts: { timeoutMs?: number; maxBytes?: number; allowHost?: (hostname: string) => boolean } = {}
 ): Promise<FetchedPage> {
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const maxBytes = opts.maxBytes ?? 1_500_000;
-  let url = await assertSafeUrl(rawUrl);
+  const guard = async (raw: string): Promise<URL> => {
+    const safe = await assertSafeUrl(raw);
+    if (opts.allowHost && !opts.allowHost(safe.hostname.toLowerCase())) {
+      throw new UnsafeUrlError("That address is not one this feature may read.");
+    }
+    return safe;
+  };
+  let url = await guard(rawUrl);
   let res: Response | null = null;
   // Intermediates fetched for this call's hosts (a redirect may change host).
   const trust: string[] = [];
@@ -475,7 +484,7 @@ export async function fetchPage(
         const loc = res.headers.get("location");
         if (!loc) break;
         await res.body?.cancel().catch(() => {});
-        url = await assertSafeUrl(new URL(loc, url).toString());
+        url = await guard(new URL(loc, url).toString());
         continue;
       }
       break;
