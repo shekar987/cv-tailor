@@ -45,6 +45,7 @@ import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { bandFor, parseCoverage, combineWithFit, type VisibilityBand, type CombinedVerdict } from "@/lib/visibilityVerdict";
 import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
+import { SOURCE_LABELS, type JobSource } from "@/lib/importJob/parse";
 import { getUsage, type Usage } from "@/lib/usage";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -390,8 +391,18 @@ function buildFileBaseName(profile: Profile | null, analysis: Result["analysis"]
   return [first, cn, rt, suffix].filter(Boolean).join("_");
 }
 
+// What "Import job from link" (/api/import-job) read for the posting now in
+// the JD box. Applied falls back to its company and title when the analysis
+// named none — only while the box still holds the imported text.
+type ImportedJob = { company: string; title: string; location: string; description: string; applyUrl: string; source: string };
+const IMPORT_FAILED = "We couldn't read that link — paste the description instead.";
+
 export default function Home() {
   const [jobDescription, setJobDescription] = useState("");
+  const [importUrl, setImportUrl] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<{ message: string; detail: string } | null>(null);
+  const [importedJob, setImportedJob] = useState<ImportedJob | null>(null);
   const [loading, setLoading] = useState(false);
   // The waiting-room popup for the current tailor (TailorGamePopup): the
   // game this run gets, when the run started and how it ended. Closing it
@@ -1413,6 +1424,60 @@ export default function Home() {
     return () => registry.delete("claimViolation");
   }, [activeCheck, result]);
 
+  // Every change to the JD box goes through here, typed or imported. The
+  // gate's analysis was computed for the PREVIOUS JD text — reusing it against
+  // an edited JD would show a stale keyword match and let /api/tailor skip
+  // Step 1 for the wrong job.
+  function changeJobDescription(text: string) {
+    setJobDescription(text);
+    if (preCheck || gateAnalysis) {
+      setPreCheck(null);
+      setGateAnalysis(null);
+      setGateExtras(null);
+      setGateError("");
+    }
+  }
+
+  // "Import": the link → /api/import-job → the posting into the JD box. A
+  // failure says so and leaves the box exactly as it was.
+  async function handleImport() {
+    const url = importUrl.trim();
+    if (!url || importing) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      const res = await fetch("/api/import-job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      // A platform error page is HTML, not JSON — read it defensively.
+      const data = (await res.json().catch(() => null)) as (Partial<ImportedJob> & { error?: string }) | null;
+      if (!res.ok || !data || typeof data.description !== "string" || !data.description.trim()) {
+        const detail = typeof data?.error === "string" ? data.error : "";
+        setImportError(res.status === 429 && detail ? { message: detail, detail: "" } : { message: IMPORT_FAILED, detail });
+        return;
+      }
+      const job: ImportedJob = {
+        company: typeof data.company === "string" ? data.company : "",
+        title: typeof data.title === "string" ? data.title : "",
+        location: typeof data.location === "string" ? data.location : "",
+        description: data.description.slice(0, MAX_JD_CHARS),
+        applyUrl: typeof data.applyUrl === "string" ? data.applyUrl : "",
+        source: typeof data.source === "string" && data.source in SOURCE_LABELS ? SOURCE_LABELS[data.source as JobSource] : "the link",
+      };
+      if (jobDescription.trim() && jobDescription.trim() !== job.description.trim() && !window.confirm("Replace the job description in the box with the imported posting?")) {
+        return;
+      }
+      changeJobDescription(job.description);
+      setImportedJob(job);
+    } catch {
+      setImportError({ message: IMPORT_FAILED, detail: "" });
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function handleApplied(force = false) {
     if (blocked) return;
     if (!result) return;
@@ -1451,6 +1516,8 @@ export default function Home() {
     // What the run was actually tailored from (the research brief for an
     // outreach run), not whatever is sitting in the JD box right now.
     const jdForRow = resultJd ?? jobDescription;
+    // The import's company and title stand in only for the posting it read.
+    const importedFor = importedJob && importedJob.description.trim() === jdForRow.trim() ? importedJob : null;
 
     // Snapshot the document AS EDITED in the preview — the tracker should hold
     // the CV that was actually sent, not the raw pipeline output. The @@JOB@@
@@ -1474,8 +1541,8 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          company_name: realValue(analysis?.company_name) || "Unknown company",
-          role: realValue(analysis?.role_title) || "Unknown role",
+          company_name: realValue(analysis?.company_name) || importedFor?.company || "Unknown company",
+          role: realValue(analysis?.role_title) || importedFor?.title || "Unknown role",
           cv_reference: buildFileBaseName(displayProfile, analysis, "CV"),
           tailor_session_id: sid,
           status: "Applied",
@@ -1799,22 +1866,56 @@ export default function Home() {
                 </div>
               </div>
             )}
+            <div className="importJob">
+              <FormField
+                label="Paste a job link"
+                htmlFor="importUrl"
+                help="Lever, Ashby, Greenhouse or LinkedIn. We read the posting into the box below; check it before you tailor."
+              >
+                <form
+                  className="researchRow"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void handleImport();
+                  }}
+                >
+                  <Input
+                    id="importUrl"
+                    type="text"
+                    inputMode="url"
+                    value={importUrl}
+                    onChange={(e) => {
+                      setImportUrl(e.target.value);
+                      if (importError) setImportError(null);
+                    }}
+                    placeholder="e.g. https://jobs.lever.co/company/…"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <Button type="submit" variant="secondary" disabled={importing || loading || !importUrl.trim()}>
+                    {importing ? "Importing…" : "Import"}
+                  </Button>
+                </form>
+              </FormField>
+              {importError && (
+                <StatusText role="alert" data-import-error className="importJob__note">
+                  {importError.message}
+                  {importError.detail && importError.detail !== importError.message ? ` ${importError.detail}` : ""}
+                </StatusText>
+              )}
+              {importedJob && !importError && importedJob.description === jobDescription && (
+                <p className="importJob__note importJob__note--done" role="status" data-import-done>
+                  Imported from {importedJob.source}
+                  {importedJob.title ? `: ${importedJob.title}` : ""}
+                  {importedJob.company ? ` at ${importedJob.company}` : ""}.
+                </p>
+              )}
+            </div>
             <FormField label="Job description" htmlFor="jd">
               <Textarea
                 id="jd"
                 value={jobDescription}
-                onChange={(e) => {
-                  setJobDescription(e.target.value);
-                  // The gate's analysis was computed for the PREVIOUS JD text —
-                  // reusing it against an edited JD would show a stale keyword
-                  // match and let /api/tailor skip Step 1 for the wrong job.
-                  if (preCheck || gateAnalysis) {
-                    setPreCheck(null);
-                    setGateAnalysis(null);
-                    setGateExtras(null);
-                    setGateError("");
-                  }
-                }}
+                onChange={(e) => changeJobDescription(e.target.value)}
                 placeholder="Paste the job description for the role you're applying to…"
                 rows={8}
               />

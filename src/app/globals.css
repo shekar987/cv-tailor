@@ -2708,6 +2708,11 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 @media (max-width: 640px) {
   .researchRow { flex-direction: column; }
 }
+/* "Import job from link" above the JD box (/app): the same input + button
+   row as research, one short line under it for the outcome. */
+.importJob { margin-bottom: var(--space-5); }
+.importJob__note { margin-top: var(--space-2); }
+.importJob__note--done { font-size: var(--text-sm); color: var(--muted); }
 .researchHead {
   display: flex;
   justify-content: space-between;
