@@ -24,19 +24,30 @@ const YEAR = String.raw`(?:\d{1,2}\/)?(?:19|20)\d{2}`;
 const ROLE_HEADER = new RegExp(String.raw`${YEAR}\s*(?:[–—-]|to)\s*(?:(?:[A-Za-z]{3,9}\.?\s+)?${YEAR}|present)`, "i");
 const BULLET = /^\s*[-•*]\s+/;
 const HIGHLIGHT = /^\s*highlight\s*:/i;
-export const BULLET_ID_RE = /^\s*(?:[•\-*]\s*)?\[(R\d+\.\d+)\]\s*/i;
+export const BULLET_ID_RE = /^\s*(?:[•\-*]\s*)?(?:\[(R\d+\.\d+)\]\s*|(R\d+\.\d+)[:.)]?\s+)/i;
 // The same id inside bold the model opened before it: "• **[R1.1] Rebuilt
 // the order service …**" or "• **[R1.1]** Rebuilt …". Missed until 29 Sep,
 // when a paid eval run shipped six bullets starting "[R1.1]": the line fell
 // through to closest-match, which kept the marker as a one-word "edit".
-const BOLD_ID_RE = /^\s*(?:[•\-]\s*|\*\s+)?\*\*\s*\[(R\d+\.\d+)\]\s*(\*\*)?\s*/i;
+const BOLD_ID_RE = /^\s*(?:[•\-]\s*|\*\s+)?\*\*\s*\[?(R\d+\.\d+)\]?[:.)]?\s*(\*\*)?\s*/i;
 // Any marker left anywhere in a bullet: never CV text.
 const STRAY_ID_RE = /\s*\[R\d+\.\d+\]\s*/gi;
+// A bare id at the start of any line, after an optional bullet glyph.
+const LEADING_BARE_ID_RE = /^(\s*(?:[•\-*]\s*)?(?:\*\*)?)\[?R\d+\.\d+\]?[:.)]?\s+/gim;
+
+// Last line of defence: no bullet id ([R1.1] or bare R1.1) ever reaches CV
+// text, whatever path the experience took (29 Oct, OpenRouter + CareerSet).
+export function stripBulletIds(text: string): string {
+  if (typeof text !== "string") return text;
+  return text.replace(/\*\*\s*\[?R\d+\.\d+\]?[:.)]?\s*\*\*\s*/gi, "").replace(LEADING_BARE_ID_RE, "$1").replace(STRAY_ID_RE, " ").replace(/(\S)[ \t]{2,}/g, "$1 ");
+}
 const OUTPUT_HEADER = /^[^•\-*\s].*\|.*\|/;
 
 function idLine(line: string): { id: string; text: string } | null {
   const m = BULLET_ID_RE.exec(line);
-  if (m) return { id: m[1], text: line.slice(m[0].length) };
+  // Bracketed "[R1.1]" or bare "R1.1" (29 Oct: an OpenRouter + CareerSet run
+  // shipped every bullet as "R1.1 Analysed …", without brackets).
+  if (m) return { id: m[1] ?? m[2], text: line.slice(m[0].length) };
   const b = BOLD_ID_RE.exec(line);
   if (!b) return null;
   // "**[R1.1] Rebuilt …**": the bold goes on past the id, so it reopens.
@@ -268,7 +279,7 @@ export function reconcileExperience(output: string, roles: MasterRole[]): { expe
     void _seen;
     return rest;
   });
-  return { experience: out.join("\n"), changes: summarise(ordered) };
+  return { experience: stripBulletIds(out.join("\n")), changes: summarise(ordered) };
 }
 
 // The finished experience text against the master, by closest bullet — the
