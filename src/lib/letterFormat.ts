@@ -68,15 +68,15 @@ export function normalizeLetter(letter: unknown, opts: { company?: string | null
     }
   }
 
-  // A sign-off, then the name ("SOMA SHEKAR KEESARI" on a CV header signs as
-  // "Soma Shekar Keesari").
+  // A sign-off, then the name ("ALEX MORGAN" on a CV header signs as
+  // "Alex Morgan").
   const raw = (opts.name ?? "").replace(/\s+/g, " ").trim();
   const name = raw && raw === raw.toUpperCase() ? raw.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase()) : raw;
   const nonEmpty = lines.map((l, idx) => ({ l: l.trim(), idx })).filter((x) => x.l !== "");
   const signoff = nonEmpty.findIndex((x) => SIGNOFF_RE.test(x.l));
   if (signoff === -1) {
     const last = nonEmpty[nonEmpty.length - 1];
-    // The model copies a CV header's capitals ("SOMA SHEKAR KEESARI").
+    // The model copies a CV header's capitals ("ALEX MORGAN").
     if (last && name && fold(last.l) === fold(name) && last.l === last.l.toUpperCase() && last.l !== name) {
       lines[last.idx] = name;
     }

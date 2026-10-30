@@ -73,8 +73,8 @@ function clip(s: string): string {
 
 // "Full Stack Engineer — Northgate Systems | Jul 2023 – Sep 2024" → "Full Stack
 // Engineer, Northgate Systems"; "Research Assistant — AI & Full-Stack Development
-// | University of East London — AssetGuard+ · London, UK" → "Research
-// Assistant, University of East London"; "Backend Engineer | Acme | 2022 –
+// | University of Hartwell — AssetGuard+ · London, UK" → "Research
+// Assistant, University of Hartwell"; "Backend Engineer | Acme | 2022 –
 // Present" → "Backend Engineer, Acme".
 export function roleLabel(header: string): string {
   const noDates = header
