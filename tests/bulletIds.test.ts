@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseMasterExperience, renderIdBlock, substitutions, reconcileExperience, lockRoleHeaders, canonicalHeader, sortRolesByDate, headerSpan, diffAgainstMaster, diffProjects, MAX_SUBSTITUTIONS } from "../src/lib/bulletIds.ts";
+import { parseMasterExperience, renderIdBlock, substitutions, reconcileExperience, lockRoleHeaders, canonicalHeader, sortRolesByDate, headerSpan, diffAgainstMaster, diffProjects, stripBulletIds, MAX_SUBSTITUTIONS } from "../src/lib/bulletIds.ts";
 
 const master = `SOMA SHEKAR
 Full Stack Engineer
@@ -298,4 +298,39 @@ test("canonicalHeader reads 'at' and comma headers and bracketed dates; an unspl
   const roles = parseMasterExperience("EXPERIENCE\nEngineer, Data Platform, Growth, Jan 2020 – Dec 2021\n- Did the thing");
   const r = lockRoleHeaders("Engineer | Growth Co | Jan 2020 – Dec 2020\n• Did the thing", roles);
   assert.equal(r.experience.split("\n")[0], "Engineer | Growth Co | Jan 2020 – Dec 2021", "the output's own title and employer stay; only the dates are the master's");
+});
+
+// 29 Oct 2026: an OpenRouter + CareerSet run shipped every experience bullet
+// as "R1.1 Analysed …" (bare ids, no brackets) and the CV went out with them.
+test("reconcileExperience: bare ids (no brackets) resolve like bracketed ones and never reach the text", () => {
+  const roles = parseMasterExperience(master);
+  const output = [
+    "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024",
+    "• R1.2 Built AI-enabled services with FastAPI and React for 3,000 users.",
+    "R1.3 Cut frontend load time by 20% with code splitting.",
+    "• **R1.1** Highlight: Shipped 20+ API modules across 2 product lines.",
+  ].join("\n");
+  const { experience, changes } = reconcileExperience(output, roles);
+  assert.ok(changes);
+  assert.doesNotMatch(experience, /\bR\d+\.\d+\b/);
+  assert.match(experience, /• Built AI-enabled services with FastAPI and React for 3,000 users\./);
+  assert.deepEqual(changes.roles[0].bullets.map((b) => b.id).sort(), ["R1.1", "R1.2", "R1.3"]);
+});
+
+test("stripBulletIds: removes bracketed and bare leading ids, keeps glyphs, bold and real text", () => {
+  const text = [
+    "EXPERIENCE",
+    "• R1.1 Analysed 11 platforms for AssetGuard+",
+    "R2.3: Optimised PostgreSQL queries by 30%",
+    "• **[R2.4]** Automated CI/CD, cutting deployment time by 40%",
+    "  • [R3.1] Designed a layered Java system",
+    "• Kept R2 roadmap items on track",
+  ].join("\n");
+  const out = stripBulletIds(text);
+  assert.doesNotMatch(out, /\bR\d+\.\d+\b/);
+  assert.match(out, /^• Analysed 11 platforms/m);
+  assert.match(out, /^Optimised PostgreSQL/m);
+  assert.match(out, /^• Automated CI\/CD/m);
+  assert.match(out, /^ {2}• Designed a layered Java system/m);
+  assert.match(out, /Kept R2 roadmap items/);
 });

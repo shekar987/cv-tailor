@@ -1,3 +1,4 @@
+import { fixDegreeLabels } from "@/lib/factGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { callClaude, callLLM, ProviderCreditError } from "@/lib/claude";
@@ -93,11 +94,20 @@ export async function POST(req: NextRequest) {
       const found = profileUrlFromText(cvText, field);
       if (found) { contactFixes.push({ field, from: profile[field], to: found }); profile[field] = found; }
     }
+    // A degree label the CV never uses ("BSc" for a CV that says "BTech",
+    // 29 Oct 2026) goes back to the CV's own label (lib/factGuard).
+    const degreeFixes: string[] = [];
+    profile.education = profile.education.map((e) => {
+      if (!e || typeof e.degree !== "string") return e;
+      const d = fixDegreeLabels(e.degree, cvText);
+      degreeFixes.push(...d.fixed);
+      return { ...e, degree: d.text };
+    });
     // The claims-registry seed: the model's read of each skill's level from
     // where the CV shows it used. The client seeds/merges the registry with
     // it; the CV's own "currently studying" framing still overrides there.
     const skills = normalizeSkillGuesses((raw as { skills?: unknown } | null)?.skills);
-    return NextResponse.json({ profile, skills, qualifiersRestored: qualifiers.restored, droppedProjects, contactFixes });
+    return NextResponse.json({ profile, skills, qualifiersRestored: qualifiers.restored, droppedProjects, contactFixes, degreeFixes });
   } catch (error) {
     if (error instanceof ProviderCreditError) {
       console.error("Provider credit exhausted:", error.provider);

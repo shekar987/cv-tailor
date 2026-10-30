@@ -1,3 +1,4 @@
+import { guardFacts } from "@/lib/factGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { callLLM, Provider, ProviderRateLimitError, ProviderCreditError, MODELS } from "@/lib/claude";
@@ -45,7 +46,7 @@ import { contactRefusal } from "@/lib/contactRefusal";
 import { coreTitle, titleInText, titleAsIdentity } from "@/lib/roleTitle";
 import { unsupportedProperNouns, sentencesNaming, dropSentences } from "@/lib/properNouns";
 import { experienceBudget, onePageExperienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
-import { parseMasterExperience, renderIdBlock, reconcileExperience, lockRoleHeaders, sortRolesByDate, diffAgainstMaster, diffProjects, type HeaderLock, type ChronologyReport } from "@/lib/bulletIds";
+import { parseMasterExperience, renderIdBlock, reconcileExperience, stripBulletIds, lockRoleHeaders, sortRolesByDate, diffAgainstMaster, diffProjects, type HeaderLock, type ChronologyReport } from "@/lib/bulletIds";
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { stripLinkText } from "@/lib/projectLinks";
@@ -699,7 +700,13 @@ async function runPipeline(opts: {
     formatFixes.style = { debolded: stylePass.debolded, highlightsStripped: stylePass.highlightsStripped, fullStopsStripped: stylePass.fullStopsStripped, swapped: stylePass.swapped };
   }
 
-  const sections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
+  // stripBulletIds: a leaked "R1.1" never reaches the CV, even when the
+  // id protocol failed and the text skipped reconciliation (29 Oct).
+  // guardFacts (lib/factGuard): a degree label the master never uses goes
+  // back to the master's own, an over-claimed tool the master never names
+  // leaves the skills, and summary phrases lifted from the JD are reported.
+  const factGuard = guardFacts({ summary, skills: skillsFinal }, cv, jd);
+  const sections = { summary: factGuard.summary, skills: factGuard.skills, experience: typeof experienceFinal === "string" ? stripBulletIds(experienceFinal) : experienceFinal, projects: projectsFinal };
   const tailoredText = tailoredSectionsText(sections, style.skills);
   const terms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
   const coverage = matchAtsKeywords(tailoredText, terms.top_15_ats_keywords);
@@ -1097,6 +1104,8 @@ async function runPipeline(opts: {
     // bullet over the word cap, a banned word with no honest equivalent, an
     // opening verb past the cap. Empty for UKJI.
     masterCvNotes,
+    // lib/factGuard: degree labels fixed, tools dropped, JD phrases in the summary.
+    factGuard: factGuard.report,
     // "Changes vs master CV": the finished text against the master's own
     // bullets (lib/bulletIds) — kept, edited (which words), dropped, new.
     bulletChanges: {
