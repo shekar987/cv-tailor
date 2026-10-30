@@ -52,7 +52,7 @@ import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProje
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { stripLinkText } from "@/lib/projectLinks";
 import { toBritish, toBritishDeep, type SpellingChange } from "@/lib/britishSpelling";
-import { applyLetterLint, hasHonestGap, type LetterLint, type LetterRules } from "@/lib/letterLint";
+import { applyLetterLint, hasHonestGap, tidyFinishedLetter, type LetterLint, type LetterRules, type LetterTidy } from "@/lib/letterLint";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 import {
   surgicalUntilStable,
@@ -788,6 +788,8 @@ async function runPipeline(opts: {
     pageFit?: LetterFitReport;
     interestLine?: { status: "kept" | "removed" | "missing"; line: string | null };
     points?: { found: number; expected: number; bareRemoved: number; renumbered: boolean };
+    // lib/letterLint tidyFinishedLetter: the list's count, modules kept with their degree, "Inc.." (31 Oct).
+    tidy?: LetterTidy;
   } = {
     unsupported: [],
     rewritten: false,
@@ -1071,6 +1073,14 @@ async function runPipeline(opts: {
     const seen = new Map<string, string>();
     for (const c of spellingChanges) if (!seen.has(c.from.toLowerCase())) seen.set(c.from.toLowerCase(), `${c.from} → ${c.to}`);
     formatFixes.spelling = { count: spellingChanges.length, examples: [...seen.values()].slice(0, 6) };
+  }
+  // The finished letter's last rules (lib/letterLint): "these are the four
+  // areas" says how many points are really there, modules stay with the
+  // degree the sentence names, and "Inc.." loses its second stop.
+  if (typeof coverLetter === "string" && coverLetter.trim()) {
+    const t = tidyFinishedLetter(coverLetter, cv);
+    coverLetter = t.text;
+    if (t.tidy.areasCount || t.tidy.otherDegreeModules.length > 0 || t.tidy.doubleStops > 0) letterCheck.tidy = t.tidy;
   }
   letterCheck.honestGap.stated = typeof coverLetter === "string" && hasHonestGap(coverLetter);
   if (style.letter.renumberPoints && typeof coverLetter === "string") {
