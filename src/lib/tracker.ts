@@ -144,3 +144,54 @@ export function sendConfirmReasons(input: SendConfirmInput): string[] {
   }
   return reasons;
 }
+
+// ── Reply owed (30 Oct 2026) ─────────────────────────────────────────────────
+// Who spoke last on an application, and when (applications.last_contact_from
+// / last_contact_at, migration 20261030120000). When it was THEM and more
+// than a day ago, a reply is owed: the sheet marks the row and puts it first.
+// The 29–30 Oct sweep found a contact who had answered on 26 Sep and had not
+// been replied to for a month. A closed row (Rejected / Withdrawn) owes none.
+
+export const LAST_CONTACT_FROM = ["me", "them"] as const;
+export type LastContactFrom = (typeof LAST_CONTACT_FROM)[number];
+export const REPLY_OWED_AFTER_MS = 24 * 60 * 60 * 1000;
+// A clock a little ahead of the server's is not "the future".
+const CONTACT_CLOCK_SKEW_MS = 60 * 60 * 1000;
+
+export function isLastContactFrom(value: unknown): value is LastContactFrom {
+  return typeof value === "string" && (LAST_CONTACT_FROM as readonly string[]).includes(value);
+}
+
+export type ContactFields = { last_contact_from?: string | null; last_contact_at?: string | null; status?: string };
+
+export function isReplyOwed(row: ContactFields, now: Date | number = Date.now()): boolean {
+  if (row.last_contact_from !== "them" || !row.last_contact_at) return false;
+  if (row.status && CLOSED_STATUSES.has(row.status)) return false;
+  const at = Date.parse(row.last_contact_at);
+  if (!Number.isFinite(at)) return false;
+  return (typeof now === "number" ? now : now.getTime()) - at > REPLY_OWED_AFTER_MS;
+}
+
+/** The rows that owe a reply first, everything else after; each group keeps its order. */
+export function replyOwedFirst<T extends ContactFields>(rows: readonly T[], now: Date | number = Date.now()): T[] {
+  const owed: T[] = [];
+  const rest: T[] = [];
+  for (const row of rows) (isReplyOwed(row, now) ? owed : rest).push(row);
+  return [...owed, ...rest];
+}
+
+/**
+ * A last-contact time from a request: a date (YYYY-MM-DD, read as midnight
+ * UTC) or a full ISO timestamp, not in the future — as an ISO string. Empty
+ * or null clears it (null); anything else is invalid (undefined).
+ */
+export function parseContactAt(value: unknown, now: Date | number = Date.now()): string | null | undefined {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string") return undefined;
+  const s = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(s)) return undefined;
+  const at = Date.parse(s.length === 10 ? `${s}T00:00:00Z` : s.replace(" ", "T"));
+  if (!Number.isFinite(at)) return undefined;
+  if (at > (typeof now === "number" ? now : now.getTime()) + CONTACT_CLOCK_SKEW_MS) return undefined;
+  return new Date(at).toISOString();
+}

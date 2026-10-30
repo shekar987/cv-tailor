@@ -18,6 +18,11 @@ import {
   pageSlice,
   PAGE_SIZE,
   sendConfirmReasons,
+  isReplyOwed,
+  replyOwedFirst,
+  parseContactAt,
+  isLastContactFrom,
+  REPLY_OWED_AFTER_MS,
 } from "../src/lib/tracker.ts";
 
 test("the status list carries Ready to submit first and validates strictly", () => {
@@ -127,4 +132,42 @@ test("sendConfirmReasons lists weak / skip / long shot / duplicate as sentences 
   const dup = sendConfirmReasons({ duplicate: { company_name: "Monzo", role: "Software Engineer", date_applied: "2026-09-20", status: "Rejected" } });
   assert.equal(dup[0], "You already have Monzo — Software Engineer on 2026-09-20 (Rejected) in the tracker.");
   assert.equal(sendConfirmReasons({ band: "weak", read: "skip", duplicate: { company_name: "A", role: "B" } }).length, 3);
+});
+
+// ── Reply owed (30 Oct 2026) ────────────────────────────────────────────────
+
+const NOW = Date.parse("2026-10-30T12:00:00Z");
+
+test("isReplyOwed: they spoke last, more than a day ago, on an open row", () => {
+  assert.equal(isReplyOwed({ last_contact_from: "them", last_contact_at: "2026-09-26T09:00:00Z", status: "Screening" }, NOW), true, "the Kainos case: a month unanswered");
+  assert.equal(isReplyOwed({ last_contact_from: "them", last_contact_at: new Date(NOW - REPLY_OWED_AFTER_MS + 60_000).toISOString() }, NOW), false, "under 24 hours: not yet");
+  assert.equal(isReplyOwed({ last_contact_from: "them", last_contact_at: new Date(NOW - REPLY_OWED_AFTER_MS - 60_000).toISOString() }, NOW), true, "just over 24 hours");
+  assert.equal(isReplyOwed({ last_contact_from: "me", last_contact_at: "2026-09-26T09:00:00Z" }, NOW), false, "I spoke last");
+  assert.equal(isReplyOwed({ last_contact_from: "them", last_contact_at: null }, NOW), false);
+  assert.equal(isReplyOwed({ last_contact_from: "them", last_contact_at: "nonsense" }, NOW), false);
+  assert.equal(isReplyOwed({ last_contact_from: "them", last_contact_at: "2026-09-26T09:00:00Z", status: "Rejected" }, NOW), false, "a closed row owes nothing");
+  assert.equal(isReplyOwed({}, NOW), false, "a row from before the migration");
+});
+
+test("replyOwedFirst puts owed rows on top and keeps every group's order", () => {
+  const rows = [
+    { id: "a", last_contact_from: null, last_contact_at: null },
+    { id: "b", last_contact_from: "them", last_contact_at: "2026-10-01T00:00:00Z" },
+    { id: "c", last_contact_from: "me", last_contact_at: "2026-10-01T00:00:00Z" },
+    { id: "d", last_contact_from: "them", last_contact_at: "2026-10-20T00:00:00Z" },
+  ];
+  assert.deepEqual(replyOwedFirst(rows, NOW).map((r) => r.id), ["b", "d", "a", "c"]);
+});
+
+test("parseContactAt: a date or an ISO time, never the future; empty clears", () => {
+  assert.equal(parseContactAt("2026-09-26", NOW), "2026-09-26T00:00:00.000Z");
+  assert.equal(parseContactAt("2026-09-26T09:15:00Z", NOW), "2026-09-26T09:15:00.000Z");
+  assert.equal(parseContactAt("2026-09-26T10:15:00+01:00", NOW), "2026-09-26T09:15:00.000Z");
+  assert.equal(parseContactAt("", NOW), null);
+  assert.equal(parseContactAt(null, NOW), null);
+  assert.equal(parseContactAt("2026-11-30", NOW), undefined, "the future");
+  assert.equal(parseContactAt("yesterday", NOW), undefined);
+  assert.equal(parseContactAt(20260926, NOW), undefined);
+  assert.equal(isLastContactFrom("them"), true);
+  assert.equal(isLastContactFrom("recruiter"), false);
 });

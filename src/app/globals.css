@@ -835,6 +835,12 @@ textarea { resize: vertical; min-height: 96px; }
 .limitNotice__body:last-child { margin-bottom: 0; }
 .limitNotice__body + .limitNotice__cta { margin-top: var(--space-2); }
 .limitNotice__cta { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); }
+/* The fact-guard notice above "Download CV" (lib/factGuard, 30 Oct): one
+   group per list, each item on its own line with its OK. */
+.factGuardNotice__group + .factGuardNotice__group { margin-top: var(--space-3); }
+.factGuardNotice__group .limitNotice__body { margin-bottom: var(--space-1); }
+.factGuardNotice__list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-1); }
+.factGuardNotice__list li { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); font-size: var(--text-sm); }
 
 .keyError {
   margin-top: var(--space-3);
@@ -2474,6 +2480,22 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   background: var(--surface-3);
 }
 .appsActionBtn.danger { color: var(--danger); }
+/* "Reply owed" (lib/tracker isReplyOwed, 30 Oct): under the company name,
+   a red stamp and the one action that clears it. */
+.replyOwed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 0 var(--space-3) var(--space-2); font-size: var(--text-xs); }
+.replyOwed__badge {
+  display: inline-block;
+  padding: 1px var(--space-2);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-pill);
+  background: var(--danger-dim);
+  color: var(--danger);
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* The Notes panel's last-contact line: what is recorded, and the two answers. */
+.appsContact { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); font-size: var(--text-sm); }
+.appsContact__state { color: var(--muted); margin-right: auto; }
 .appsActionBtn.danger:hover:not(:disabled) { border-color: var(--danger-border); background: var(--danger-dim); color: var(--danger); }
 .appsActionBtn.primary { color: var(--amber); border-color: var(--amber-border); }
 .appsConfirm { font-size: var(--text-xs); color: var(--danger); margin-right: var(--space-1); }
@@ -3213,6 +3235,40 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 /* The panel is the game's keyboard surface, not a control; every button in
    it keeps the focus ring. */
 .gamePopup__panel:focus { outline: none; }
+/* The in-page confirm (components/ConfirmDialog, 30 Oct): the popup's
+   backdrop and panel, narrower, a question and two buttons. */
+.confirmDialog {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+}
+.confirmDialog__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-glass);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  animation: gameFade var(--duration) var(--ease) both;
+}
+.confirmDialog__panel {
+  position: relative;
+  width: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: gamePop var(--duration) var(--ease) both;
+}
+.confirmDialog__title { margin: 0; font-size: var(--text-lg); font-weight: 600; letter-spacing: var(--tracking-tight); line-height: var(--leading-tight); }
+.confirmDialog__message { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: var(--leading-normal); }
+.confirmDialog__actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
 .gamePopup__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .gamePopup__title { margin: 0; font-size: var(--text-lg); font-weight: 600; letter-spacing: var(--tracking-tight); line-height: var(--leading-tight); }
 .gamePopup__close {

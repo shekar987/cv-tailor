@@ -6,7 +6,10 @@ import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 import { seniorityOf } from "@/lib/insights";
 import { GATE_CATEGORIES } from "@/lib/knockouts";
 import { SENT_CV_BUCKET, normalizeSentCv, publicSentCv, ownsPath } from "@/lib/sentCv";
-import { isStatus, READY_TO_SUBMIT, clearsFollowup, followupClearedNote, appendNoteLine, type Status } from "@/lib/tracker";
+import {
+  isStatus, READY_TO_SUBMIT, clearsFollowup, followupClearedNote, appendNoteLine, isLastContactFrom, parseContactAt,
+  type Status, type LastContactFrom,
+} from "@/lib/tracker";
 import { isFormatStyleId, type FormatStyleId } from "@/lib/formatStyles/ids";
 import { normalizeStyleCheck } from "@/lib/styleCheck";
 
@@ -53,6 +56,11 @@ const LIST_COLUMNS = `${SELECT_COLUMNS}, prep_generated_at:prep_pack->>generated
 // sent_cv_name: the file name of the CV the user uploaded for the row
 // (lib/sentCv, migration 20260927120000), so the sheet can mark it.
 const LIST_COLUMNS_SENT = `${LIST_COLUMNS}, sent_cv_name:sent_cv->>fileName`;
+// Who spoke last and when (migration 20261030120000): the "Reply owed" badge
+// (lib/tracker isReplyOwed). The newest optional columns, so the first rung.
+const LIST_COLUMNS_CONTACT = `${LIST_COLUMNS_SENT}, last_contact_from, last_contact_at`;
+const CONTACT_MIGRATION_HINT =
+  "Recording who spoke last needs the database migration supabase/migrations/20261030120000_applications_last_contact.sql. Run it in the Supabase SQL editor, then try again.";
 const DETAIL_COLUMNS_NO_PREP = `${SELECT_COLUMNS}, tailored_cv`;
 const DETAIL_COLUMNS = `${DETAIL_COLUMNS_NO_PREP}, prep_pack`;
 const DETAIL_COLUMNS_SENT = `${DETAIL_COLUMNS}, sent_cv`;
@@ -218,6 +226,8 @@ type Editable = {
   followup_date?: string | null;
   notes?: string | null;
   job_description?: string | null;
+  last_contact_from?: LastContactFrom | null;
+  last_contact_at?: string | null;
 };
 
 type Validation = { fields: Editable } | { error: string };
@@ -297,6 +307,22 @@ function validateEditable(body: Record<string, unknown>, partial: boolean): Vali
     fields.job_description = jd || null;
   }
 
+  // Who spoke last and when ("Reply owed", lib/tracker). Update only. "from"
+  // without a time means now; clearing "from" clears the time too.
+  if (partial && "last_contact_from" in body) {
+    if (body.last_contact_from == null || body.last_contact_from === "") fields.last_contact_from = null;
+    else if (isLastContactFrom(body.last_contact_from)) fields.last_contact_from = body.last_contact_from;
+    else return { error: 'Last contact must be "me" or "them".' };
+  }
+  if (partial && "last_contact_at" in body) {
+    const at = parseContactAt(body.last_contact_at);
+    if (at === undefined) return { error: "Enter a valid last-contact date (YYYY-MM-DD or an ISO time), not in the future." };
+    fields.last_contact_at = at;
+  }
+  if ("last_contact_from" in fields && !("last_contact_at" in fields)) {
+    fields.last_contact_at = fields.last_contact_from ? new Date().toISOString() : null;
+  }
+
   return { fields };
 }
 
@@ -362,7 +388,7 @@ export async function GET(req: NextRequest) {
     // and the upload route name the migration when it matters.
     let rows: Record<string, unknown>[] | null = null;
     let readError: { code?: string; message: string } | null = null;
-    const listLadder = [LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
+    const listLadder = [LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
     for (let rung = 0; rung < listLadder.length; rung++) {
       const res = await supabase
         .from("applications")
@@ -640,6 +666,9 @@ export async function PUT(req: NextRequest) {
     if (updateError) {
       if (isStatusCheckViolation(updateError, fields.status)) {
         return NextResponse.json({ error: STATUS_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+      }
+      if (isMissingColumn(updateError) && ("last_contact_from" in fields || "last_contact_at" in fields)) {
+        return NextResponse.json({ error: CONTACT_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
       }
       console.error("applications update error:", updateError.message);
       return NextResponse.json({ error: "Could not save that application" }, { status: 500 });

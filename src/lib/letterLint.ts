@@ -9,9 +9,38 @@
 //   the master CV, one plain sentence should say so ("I have not yet worked
 //   with exchange market data or options pricing, and I would expect to
 //   learn that domain from your team.") — reported, never invented.
-// The opening sentence (the role by name) is never removed. Import-free.
+// The opening sentence (the role by name) is never removed.
+//
+// Four more rules since 30 Oct 2026 (Chunk 5), reported in `rules`:
+// - banned phrases: "I am writing to express my interest in" → "I am
+//   applying for", "passionate about" → "interested in", "at your company"
+//   removed; a sentence with "eager to learn", "contribute to its
+//   development" or "I believe I would be a great fit" goes;
+// - at most ONE gap sentence, and only one naming an essential gap the
+//   route found (`essentialGaps`): any other "I have not …" / "although I
+//   have not …" sentence goes ("Although I have not used X, I built Y" keeps
+//   "I built Y");
+// - no fact twice: a figure (lib/claims extractFigures) or a project name
+//   that an earlier paragraph already gave — the later sentence goes;
+// - a project the master CV names with a bracketed description ("RideX
+//   (personal portfolio project modelled on a real-world brief)") is written
+//   with that description at its first mention, whatever the model wrote.
+//
+// Imports only its import-free siblings (relative .ts paths): runs under
+// node:test.
+import { matchAtsKeywords } from "./atsMatch.ts";
+import { extractFigures } from "./claims.ts";
 
 export type LetterLint = { secondPerson: string[]; restatedJd: string[] };
+// The 30 Oct rules, apart from LetterLint so its shape (and its readers)
+// stay as they were.
+export type LetterRules = { bannedPhrases: string[]; extraGaps: string[]; repeatedFacts: string[]; projectDescriptors: string[] };
+export type LetterLintOptions = {
+  /** The essential requirements the master CV never shows: the only terms a gap sentence may name. Absent = the gap rule is off. */
+  essentialGaps?: string[];
+  /** Project names as the master CV writes them, a bracketed description included. */
+  projects?: string[];
+};
 
 const SECOND_PERSON_RE =
   /\b(?:prepares?|prepared|equips?|equipped|positions?|positioned|gives?|offers?|brings?|allows?|helps?|enables?|makes?|sets?)\s+(?:me\s+)?(?:up\s+)?(?:for\s+)?you\b|\byou(?:r\s+(?:team|company|organi[sz]ation|business|role|platform|product|customers|clients|engineers|stack))?\s+(?:need|needs|require|requires|want|wants|will\s+(?:get|find|have|benefit)|would\s+(?:get|find|have|benefit)|can\s+(?:rely|count|expect)|are\s+looking\s+for|is\s+looking\s+for|deserve|deserves)\b|\bwhat\s+you(?:'re|\s+are)\s+(?:looking\s+for|after|seeking)\b/i;
@@ -19,9 +48,26 @@ const RESTATES_JD_RE =
   /^(?:your|the)\s+(?:job\s+description|job\s+(?:posting|advert|listing|spec|specification)|job|role|posting|advert|advertisement|description|listing|vacancy|opening|position|team)\s+(?:builds?|involves?|requires?|asks?|mentions?|says?|states?|describes?|calls?|needs?|is|will|focuses|seeks?|emphasi[sz]es?|lists?)\b|^you(?:'re|\s+are)\s+(?:looking\s+for|hiring|seeking|after|building|recruiting)\b|\bas\s+(?:the|your)\s+(?:posting|job\s+description|advert|listing)\s+(?:says|states|mentions|notes|describes|makes\s+clear)\b/i;
 const HONEST_GAP_RE =
   /\bI\s+(?:have\s+not|haven't|haven’t|have\s+never|do\s+not\s+yet\s+have|don't\s+yet\s+have|have\s+no)\s+(?:yet\s+)?(?:worked\s+(?:with|on|in)|used|built|had|done|direct\s+experience|experience|hands-on\s+experience|delivered|shipped|run|managed)\b|\bI\s+would\s+(?:expect|need|have)\s+to\s+learn\b|\bnot\s+(?:something|a\s+technology|a\s+domain|an\s+area)\s+I\s+have\s+(?:worked|used)\b/i;
+const ALTHOUGH_GAP_RE = /\b(?:although|though|while)\s+I\s+(?:have\s+not|haven't|haven’t|have\s+never|do\s+not|don't|don’t|lack)\b/i;
+// "Although I have not used X, I built Y." — the candidate's own clause.
+const ALTHOUGH_CLAUSE_RE = /^(?:although|though|while)\b[^,]*,\s*((?:I|I've|I’ve|my)\b.*)$/i;
 
 const SALUTATION_RE = /^dear\b/i;
 const SIGNOFF_RE = /^(?:kind|best|warm|warmest)\s+regards,?$|^regards,?$|^yours\s+(?:sincerely|faithfully|truly),?$|^sincerely,?$/i;
+
+// [pattern, replacement, reported as]. A rewrite keeps the sentence.
+const BANNED_REWRITES: [RegExp, string, string][] = [
+  [/\bI am writing to express (?:my )?(?:(?:strong|keen|sincere|great|genuine|deep) )?interest in\b/i, "I am applying for", "I am writing to express"],
+  [/\bpassionate about\b/i, "interested in", "passionate about"],
+  [/\s*\bat your company\b/i, "", "at your company"],
+];
+// A sentence carrying one of these goes (the opening loses only the clause).
+const BANNED_DROPS: [RegExp, string][] = [
+  [/\beager to learn\b/i, "eager to learn"],
+  [/\bcontribute to its development\b/i, "contribute to its development"],
+  [/\bI believe I would be a great fit\b/i, "I believe I would be a great fit"],
+  [/\bI am writing to express\b/i, "I am writing to express"],
+];
 
 function sentencesOf(line: string): string[] {
   return line
@@ -39,16 +85,101 @@ export function restatesJd(sentence: string): boolean {
 export function hasHonestGap(letter: string): boolean {
   return HONEST_GAP_RE.test(letter || "");
 }
+export function isGapSentence(sentence: string): boolean {
+  return HONEST_GAP_RE.test(sentence) || ALTHOUGH_GAP_RE.test(sentence);
+}
+
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+function rewriteKeepingCase(s: string, re: RegExp, to: string): string {
+  return s.replace(re, (m) => (to && /^[A-Z]/.test(m.trim()) ? capitalise(to) : to)).replace(/\s+([,.;:!?])/g, "$1");
+}
+
+// The opening sentence is never removed: a banned clause in it goes alone,
+// when another clause is left to carry the sentence.
+function trimOpeningClauses(s: string, report: string[]): string {
+  const hit = BANNED_DROPS.find(([re]) => re.test(s));
+  if (!hit) return s;
+  const end = /[.!?]$/.exec(s)?.[0] ?? ".";
+  const clauses = s.replace(/[.!?]$/, "").split(/,\s+(?:and\s+)?/);
+  const kept = clauses.filter((c) => !BANNED_DROPS.some(([re]) => re.test(c)));
+  if (kept.length === 0 || kept.length === clauses.length) return s;
+  report.push(hit[1]);
+  return kept.join(", ") + end;
+}
+
+/** A project's name as the letter writes it: the master CV's bracketed description and any " | date" tail removed. */
+export function coreProjectName(fullName: string): string {
+  return fullName.split("|")[0].replace(/\s*\([^()]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * A project's description from the master CV's own name line ("RideX
+ * (personal portfolio project modelled on a real-world brief)" → "a personal
+ * portfolio project modelled on a real-world brief"). Three words at least,
+ * and not a stack list; null otherwise.
+ */
+export function projectDescriptor(fullName: string): { name: string; descriptor: string } | null {
+  const m = /^(.+?)\s*\(([^()]+)\)/.exec(fullName.split("|")[0].trim());
+  if (!m) return null;
+  const q = m[2].trim().replace(/\s+/g, " ");
+  if (q.split(" ").length < 3 || q.includes(",")) return null;
+  const descriptor = /^(?:a|an|the|my)\s/i.test(q) ? q : `${/^[aeiou]/i.test(q) ? "an" : "a"} ${q}`;
+  return { name: m[1].trim(), descriptor };
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function nameRe(name: string, flags = "i"): RegExp {
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(name)}(?![\\p{L}\\p{N}])`, `${flags}u`);
+}
+
+// The facts a sentence states: its figures, and the projects it names.
+function factsOf(sentence: string, projectNames: string[]): string[] {
+  const keys = extractFigures(sentence).map((f) => `figure:${f.key}`);
+  for (const name of projectNames) if (nameRe(name).test(sentence)) keys.push(`project:${name.toLowerCase()}`);
+  return keys;
+}
+
+// At the first mention of each described project in the body, the master
+// CV's description replaces whatever the model wrote after the name (an
+// appositive starting with an article, or a bracket) or is added.
+function describeProjects(body: string, projects: { name: string; descriptor: string }[], report: string[]): string {
+  let out = body;
+  for (const { name, descriptor } of projects) {
+    const m = nameRe(name).exec(out);
+    if (!m) continue;
+    const at = m.index + m[0].length;
+    const after = out.slice(at);
+    if (after.toLowerCase().startsWith(`, ${descriptor.toLowerCase()}`)) continue;
+    const span = /^\s*\([^()]{1,160}\)|^,\s+(?:a|an|the|my|our)\s+[^,.;!?\n]{1,120}?,/i.exec(after);
+    const rest = span ? after.slice(span[0].length) : after;
+    const closes = /^\s*(?:[.!?;:]|$)/.test(rest) || rest.startsWith(",");
+    out = out.slice(0, at) + `, ${descriptor}` + (closes ? "" : ",") + rest;
+    report.push(name);
+  }
+  return out;
+}
 
 // The letter with the offending sentences removed (paragraphs kept, an
-// emptied one dropped), and what went. The first body sentence — the role
-// by name — is never removed, nor anything after the sign-off.
-export function applyLetterLint(letter: string): { text: string; lint: LetterLint } {
+// emptied one dropped), the 30 Oct rules applied, and what changed. The
+// first body sentence — the role by name — is never removed, nor anything
+// after the sign-off.
+export function applyLetterLint(letter: string, opts: LetterLintOptions = {}): { text: string; lint: LetterLint; rules: LetterRules } {
   const lint: LetterLint = { secondPerson: [], restatedJd: [] };
-  if (!letter || !letter.trim()) return { text: letter, lint };
+  const rules: LetterRules = { bannedPhrases: [], extraGaps: [], repeatedFacts: [], projectDescriptors: [] };
+  if (!letter || !letter.trim()) return { text: letter, lint, rules };
+  const projectNames = [...new Set((opts.projects ?? []).map(coreProjectName).filter((n) => n.length >= 3))];
+  const described = (opts.projects ?? []).map(projectDescriptor).filter((p): p is { name: string; descriptor: string } => !!p);
+  const gapTerms = opts.essentialGaps;
+  let gapKept = false;
+  const factFirstParagraph = new Map<string, number>();
+
   const lines = letter.replace(/\r/g, "").split("\n");
   let bodySeen = false;
   let afterSignoff = false;
+  let paragraph = -1;
   const out = lines.map((line) => {
     const t = line.trim();
     if (!t || afterSignoff) return line;
@@ -57,26 +188,74 @@ export function applyLetterLint(letter: string): { text: string; lint: LetterLin
       return line;
     }
     if (SALUTATION_RE.test(t)) return line;
-    const kept = sentencesOf(t).flatMap((s) => {
+    paragraph++;
+    const kept = sentencesOf(t).flatMap((original) => {
       const first = !bodySeen;
       bodySeen = true;
-      if (first) return [s];
+      let s = original;
+      for (const [re, to, label] of BANNED_REWRITES) {
+        if (!re.test(s)) continue;
+        s = rewriteKeepingCase(s, re, to);
+        rules.bannedPhrases.push(label);
+      }
+      const remember = (sentence: string) => {
+        for (const k of factsOf(sentence, projectNames)) if (!factFirstParagraph.has(k)) factFirstParagraph.set(k, paragraph);
+      };
+      if (first) {
+        s = trimOpeningClauses(s, rules.bannedPhrases);
+        remember(s);
+        return [s];
+      }
       if (restatesJd(s)) {
         // "The team is building X, and I built Y." — the posting's half goes,
         // the candidate's own clause stays (review, 1 Oct).
         const own = /,\s*(?:and\s+|but\s+|while\s+|so\s+)?((?:I|I've|I’ve|I'm|I’m|I'd|I’d|my|we|we've|we’ve)\b.*)$/.exec(s);
         lint.restatedJd.push(s);
-        if (own) return [own[1].charAt(0).toUpperCase() + own[1].slice(1)];
+        if (own) return [capitalise(own[1])];
         return [];
       }
       if (isSecondPerson(s)) {
         lint.secondPerson.push(s);
         return [];
       }
+      const drop = BANNED_DROPS.find(([re]) => re.test(s));
+      if (drop) {
+        rules.bannedPhrases.push(drop[1]);
+        return [];
+      }
+      if (gapTerms && isGapSentence(s)) {
+        const namesEssential = gapTerms.some((term) => term.trim() && matchAtsKeywords(s, [term]).matched > 0);
+        if (!gapKept && namesEssential) {
+          gapKept = true;
+        } else {
+          rules.extraGaps.push(s);
+          const own = ALTHOUGH_CLAUSE_RE.exec(s);
+          if (!own) return [];
+          s = capitalise(own[1]);
+        }
+      }
+      // A fact an earlier paragraph already gave: the later telling goes.
+      if (factsOf(s, projectNames).some((k) => (factFirstParagraph.get(k) ?? paragraph) < paragraph)) {
+        rules.repeatedFacts.push(s);
+        return [];
+      }
+      remember(s);
       return [s];
     });
-    return kept.join(" ");
+    // A paragraph every sentence left goes with them (null, filtered below).
+    return kept.length > 0 ? kept.join(" ") : null;
   });
-  const changed = lint.secondPerson.length + lint.restatedJd.length > 0;
-  return { text: changed ? out.join("\n").replace(/\n{3,}/g, "\n\n").trim() : letter, lint };
+
+  const changes = lint.secondPerson.length + lint.restatedJd.length + rules.bannedPhrases.length + rules.extraGaps.length + rules.repeatedFacts.length;
+  let text = changes > 0 ? out.filter((l): l is string => l !== null).join("\n").replace(/\n{3,}/g, "\n\n").trim() : letter;
+  if (described.length > 0) {
+    // Only the body: never the salutation or anything after the sign-off.
+    const all = text.split("\n");
+    const start = all.findIndex((l) => SALUTATION_RE.test(l.trim())) + 1;
+    let end = all.findIndex((l) => SIGNOFF_RE.test(l.trim()));
+    if (end < 0) end = all.length;
+    const body = describeProjects(all.slice(start, end).join("\n"), described, rules.projectDescriptors);
+    if (rules.projectDescriptors.length > 0) text = [...all.slice(0, start), body, ...all.slice(end)].join("\n");
+  }
+  return { text, lint, rules };
 }

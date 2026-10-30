@@ -51,7 +51,7 @@ import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProje
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { stripLinkText } from "@/lib/projectLinks";
 import { toBritish, toBritishDeep, type SpellingChange } from "@/lib/britishSpelling";
-import { applyLetterLint, hasHonestGap, type LetterLint } from "@/lib/letterLint";
+import { applyLetterLint, hasHonestGap, type LetterLint, type LetterRules } from "@/lib/letterLint";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 import {
   surgicalUntilStable,
@@ -747,15 +747,21 @@ async function runPipeline(opts: {
     name: (profile as { name?: string } | null)?.name ?? null,
     teamSuffix: style.letter.teamSuffix,
   });
-  // The letter's shape (lib/letterLint): a sentence about the reader's needs
-  // or benefit, or the posting told back to them, goes; the opening stays.
-  const letterLinted = typeof letterNormalized.letter === "string" ? applyLetterLint(letterNormalized.letter) : null;
-  const letterDraft: unknown = letterLinted ? letterLinted.text : letterNormalized.letter;
-  const letterSources = [jd, cv, projectsPool, JSON.stringify(research ?? {}), JSON.stringify(analysis ?? {})];
   // The essential requirements the master CV never shows (a named
   // technology, domain or qualification): the letter should say so in one
   // plain sentence; whether it does is reported, never invented.
   const essentialGaps = evidence.items.filter((i) => i.status === "gap" && i.importance === "required" && i.kind !== "soft").map((i) => i.term);
+  // The letter's shape (lib/letterLint): a sentence about the reader's needs
+  // or benefit, or the posting told back to them, goes; the opening stays.
+  // Since 30 Oct also: banned phrases, one gap sentence and only for an
+  // essential gap, no fact twice across paragraphs, and a project the master
+  // CV describes in brackets written with that description.
+  const letterLinted =
+    typeof letterNormalized.letter === "string"
+      ? applyLetterLint(letterNormalized.letter, { essentialGaps, projects: [...projectNames, ...selectedFinal.map((p) => p.name)] })
+      : null;
+  const letterDraft: unknown = letterLinted ? letterLinted.text : letterNormalized.letter;
+  const letterSources = [jd, cv, projectsPool, JSON.stringify(research ?? {}), JSON.stringify(analysis ?? {})];
   // interestLine / points (lib/letterStyle, CareerSet): whether the interest
   // line's reason came from the posting or the research, and how many
   // numbered points stand after every pass.
@@ -764,6 +770,7 @@ async function runPipeline(opts: {
     rewritten: boolean;
     dropped: number;
     lint: LetterLint;
+    rules: LetterRules;
     honestGap: { expected: boolean; stated: boolean; gaps: string[] };
     pageFit?: LetterFitReport;
     interestLine?: { status: "kept" | "removed" | "missing"; line: string | null };
@@ -773,6 +780,7 @@ async function runPipeline(opts: {
     rewritten: false,
     dropped: 0,
     lint: letterLinted?.lint ?? { secondPerson: [], restatedJd: [] },
+    rules: letterLinted?.rules ?? { bannedPhrases: [], extraGaps: [], repeatedFacts: [], projectDescriptors: [] },
     honestGap: { expected: essentialGaps.length > 0, stated: false, gaps: essentialGaps },
   };
   let coverLetter: unknown = letterDraft;
