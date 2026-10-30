@@ -16,6 +16,7 @@ import { findDuplicateApplication, sendConfirmReasons } from "@/lib/tracker";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
+import FormAnswers from "../FormAnswers";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
 import TailorGamePopup, { type TailorGameStatus } from "../TailorGamePopup";
 import { gameForTailorCount, nextTailorCount } from "@/lib/games/pick";
@@ -3454,6 +3455,8 @@ export default function Home() {
                 fixClaimsAvailable={blocked && fixable}
                 fixingClaims={fixingClaims}
               />
+              {/* The answer bank for the application form (lib/answerBank), from the Eligibility answers. */}
+              <FormAnswers facts={eligibility} />
               {result.bulletChanges && (result.bulletChanges.experience || result.bulletChanges.projects.length > 0) && (
                 <details className="changesView" data-bullet-changes>
                   <summary>

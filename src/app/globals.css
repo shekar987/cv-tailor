@@ -2512,6 +2512,23 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .referralEditor__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-2) var(--space-3); }
 .referralEditor__fields label { display: flex; flex-direction: column; gap: var(--space-1); color: var(--muted); }
 .referralEditor__actions { display: flex; align-items: center; gap: var(--space-3); }
+
+/* "Form answers" on /app (31 Oct, Chunk 6): the answer bank to copy into a form. */
+.formAnswers { margin-top: var(--space-6); font-size: var(--text-sm); }
+.formAnswers__intro, .formAnswers__empty { margin: var(--space-2) 0 var(--space-3); color: var(--muted); }
+.formAnswers__list { list-style: none; margin: 0 0 var(--space-4); padding: 0; }
+.formAnswers__item { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto; align-items: baseline; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+.formAnswers__q { color: var(--muted); }
+.formAnswers__a { color: var(--text); }
+.formAnswers__a--unset { color: var(--text-subtle); }
+.formAnswers__ask { display: flex; flex-direction: column; gap: var(--space-1); color: var(--muted); }
+.formAnswers__match { margin-top: var(--space-2); }
+.formAnswers__match p { margin: 0 0 var(--space-1); }
+.formAnswers__note { color: var(--amber-bright); }
+@media (max-width: 640px) {
+  .formAnswers__item { grid-template-columns: 1fr auto; }
+  .formAnswers__q { grid-column: 1 / -1; }
+}
 .appsActionBtn.danger:hover:not(:disabled) { border-color: var(--danger-border); background: var(--danger-dim); color: var(--danger); }
 .appsActionBtn.primary { color: var(--amber); border-color: var(--amber-border); }
 .appsConfirm { font-size: var(--text-xs); color: var(--danger); margin-right: var(--space-1); }
