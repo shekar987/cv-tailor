@@ -52,6 +52,12 @@ export type HeadlineInput = {
   savedTagline?: string | null;
   // The master CV's job titles, most recent first (lib/bulletIds headers).
   heldTitles?: string[];
+  // The master CV's top languages (lib/summaryFallback topLanguages), passed
+  // by a style whose stack must lead with one (CareerSet, 31 Oct): the first
+  // the registry holds at PRODUCTION level leads the stack — moved to the
+  // front when the posting already put it there, else added first. Absent →
+  // the stack is the posting's order alone (UKJI).
+  leadLanguages?: string[];
 };
 
 export type HeadlineParts = { role: string; years: string; stack: string };
@@ -149,6 +155,19 @@ export function rolePhrase(raw: unknown): string {
   return "";
 }
 
+// The first of the master CV's top languages the registry holds at PRODUCTION
+// level, in the registry's spelling; null when none is (a project-level or
+// learning skill never headlines).
+export function leadLanguage(claims: HeadlineClaims, languages: string[] | undefined): string | null {
+  if (!languages?.length) return null;
+  const production = (claims?.skills ?? []).filter((s) => s.level === "production" && s.name.trim() && !s.name.includes(":"));
+  for (const lang of languages) {
+    const hit = production.find((s) => s.name.trim().toLowerCase() === lang.trim().toLowerCase());
+    if (hit) return hit.name.trim();
+  }
+  return null;
+}
+
 // `render` (lib/formatStyles RenderOptions) gives only the separator: UKJI
 // " · ", CareerSet " | " — the same three slots in both. A slot with nothing
 // is left out, never a dangling separator.
@@ -160,9 +179,15 @@ export function buildHeadline(input: HeadlineInput, render?: Pick<RenderOptions,
       .find(Boolean) ?? "";
   const years = yearsLabel(input.yearsExperience);
   const roleWords = role.toLowerCase();
-  const stackItems = topProductionSkills(input.claims, input.requiredSkills, input.keywords, TAGLINE_STACK_ITEMS + 4)
-    .filter((name) => !roleWords.includes(name.toLowerCase()) && !matchAtsKeywords(role, [name]).matched)
+  const inRole = (name: string) => roleWords.includes(name.toLowerCase()) || matchAtsKeywords(role, [name]).matched > 0;
+  let stackItems = topProductionSkills(input.claims, input.requiredSkills, input.keywords, TAGLINE_STACK_ITEMS + 4)
+    .filter((name) => !inRole(name))
     .slice(0, TAGLINE_STACK_ITEMS);
+  const lead = leadLanguage(input.claims, input.leadLanguages);
+  if (lead && !inRole(lead)) {
+    const same = (n: string) => n.toLowerCase() === lead.toLowerCase();
+    stackItems = [lead, ...stackItems.filter((n) => !same(n))].slice(0, TAGLINE_STACK_ITEMS);
+  }
 
   const line = (items: string[], withYears: boolean) =>
     cleanTagline([role, withYears ? years : "", items.join(", ")].filter(Boolean).join(sep));

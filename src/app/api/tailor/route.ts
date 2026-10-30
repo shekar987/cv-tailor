@@ -40,6 +40,7 @@ import { buildCvPdfWithPages } from "@/lib/buildCvPdf";
 import { buildCoverLetterPdfWithPages } from "@/lib/buildCoverLetterPdf";
 import { fitLetterToOnePage, type LetterFitReport } from "@/lib/letterFit";
 import { buildHeadline, degreesInProgress } from "@/lib/headline";
+import { ensureSummary, topLanguages, type EnsureSummaryReport } from "@/lib/summaryFallback";
 import { normalizeEligibility, type Eligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
 import { contactRefusal } from "@/lib/contactRefusal";
@@ -590,6 +591,8 @@ async function runPipeline(opts: {
       positioning: variant?.headline ?? null,
       savedTagline: typeof (profile as { tagline?: unknown } | null)?.tagline === "string" ? (profile as { tagline: string }).tagline : null,
       heldTitles: masterRoles.map((r) => r.header.split(/\s[—–|]\s/)[0]),
+      // CareerSet: the stack leads with one of the master CV's top three languages.
+      leadLanguages: style.headline.leadLanguage ? topLanguages(cv) : undefined,
     },
     style.render
   ).headline;
@@ -1009,6 +1012,23 @@ async function runPipeline(opts: {
   // Rule 8 holds through the spelling pass: role headers are skipped by the
   // converter, and every word of the master's headers, the company's name
   // and the candidate's name is protected wherever it appears.
+  // A style that never sends a CV without a summary (CareerSet): when the
+  // passes above left none — the fact check can remove every sentence of a
+  // thin run — it is rebuilt from the master CV's own summary, else its most
+  // recent role and top languages (lib/summaryFallback), never written.
+  let summaryRebuild: EnsureSummaryReport | null = null;
+  if (style.summary.ensureFromMaster) {
+    const e = ensureSummary(summary, {
+      cv,
+      availabilityLine,
+      recentRoleHeader: masterRoles[0]?.header ?? null,
+      maxSentences: style.limits.summary.maxSentences,
+      maxWords: style.limits.summary.maxWords,
+    });
+    summary = e.summary;
+    summaryRebuild = e.report;
+    if (e.report.rebuilt && availabilityLine) rightToWork.appended = availabilityLine;
+  }
   const spellingChanges: SpellingChange[] = [];
   const protect = new Set<string>();
   for (const r of masterRoles) for (const w of r.header.split(/[\s|—–,()]+/)) if (w) protect.add(w);
@@ -1114,6 +1134,8 @@ async function runPipeline(opts: {
     masterCvNotes,
     // lib/factGuard: degree labels fixed, tools dropped, JD phrases in the summary.
     factGuard: factGuard.report,
+    // lib/summaryFallback: the summary rebuilt from the master CV (CareerSet), or null.
+    summaryRebuild,
     // "Changes vs master CV": the finished text against the master's own
     // bullets (lib/bulletIds) — kept, edited (which words), dropped, new.
     bulletChanges: {
