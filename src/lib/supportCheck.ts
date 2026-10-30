@@ -368,7 +368,7 @@ export function decideSupport(
   const source = sources.filter((x): x is string => typeof x === "string" && x.trim() !== "").join("\n");
   // A fix that restates another sentence of its own section, or mostly
   // repeats what the rest of the section already says, is no fix: the Somak
-  // letter's opening was rewritten into Brane facts the next paragraph told
+  // letter's opening was rewritten into Northgate facts the next paragraph told
   // again.
   const repeats = (s: SupportSentence, fix: string) => {
     const others = sentences.filter((o) => o.id !== s.id && o.section === s.section).map((o) => o.sentence);

@@ -71,8 +71,8 @@ function clip(s: string): string {
   return t.length > MAX_EVIDENCE_CHARS ? `${t.slice(0, MAX_EVIDENCE_CHARS - 1)}…` : t;
 }
 
-// "Full Stack Engineer — Brane Group | Jul 2023 – Sep 2024" → "Full Stack
-// Engineer, Brane Group"; "Research Assistant — AI & Full-Stack Development
+// "Full Stack Engineer — Northgate Systems | Jul 2023 – Sep 2024" → "Full Stack
+// Engineer, Northgate Systems"; "Research Assistant — AI & Full-Stack Development
 // | University of East London — AssetGuard+ · London, UK" → "Research
 // Assistant, University of East London"; "Backend Engineer | Acme | 2022 –
 // Present" → "Backend Engineer, Acme".

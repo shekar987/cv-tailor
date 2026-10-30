@@ -89,7 +89,7 @@ export function parseMasterExperience(cvText: string): MasterRole[] {
       if (prev && prev.lines.length === 0 && !ROLE_HEADER.test(prev.header)) prev.header = `${prev.header} | ${line}`;
       else if (prev && lastPlain !== null && prev.lines[prev.lines.length - 1] === lastPlain) {
         // This role's title sits directly above its dates line, after the
-        // previous role's bullets ("Full Stack Engineer — Brane Group", then
+        // previous role's bullets ("Full Stack Engineer — Northgate Systems", then
         // "Jul 2023 – Sep 2024"): it was read as that role's last line.
         prev.lines.pop();
         roles.push({ header: `${lastPlain} | ${line}`, lines: [], marked: 0 });
@@ -362,7 +362,7 @@ export function diffProjects(
 //
 // The replacement is the master's CONTENT in the output's own shape,
 // "Title | Employer | Dates" (canonicalHeader): the master CV writes its
-// headers as it likes ("Full Stack Engineer — Brane Group<tab>Jul 2022 –
+// headers as it likes ("Full Stack Engineer — Northgate Systems<tab>Jul 2022 –
 // Sep 2024" on the owner's, 30 Sep), and the preview, the .docx and the PDF
 // only read a pipe-separated line as a job header. Measured over the
 // owner's 174 stored runs before this shape rule, 350 "restorations" were
@@ -370,8 +370,8 @@ export function diffProjects(
 
 export type HeaderLock = { locked: { output: string; master: string }[]; unmatched: string[]; droppedEmpty: string[] };
 
-// "Full Stack Engineer — Brane Group  Jul 2022 – Sep 2024" → "Full Stack
-// Engineer | Brane Group | Jul 2022 – Sep 2024"; a header already in that
+// "Full Stack Engineer — Northgate Systems  Jul 2022 – Sep 2024" → "Full Stack
+// Engineer | Northgate Systems | Jul 2022 – Sep 2024"; a header already in that
 // shape comes back as it is (whitespace collapsed).
 export function canonicalHeader(header: string): string {
   const h = header.replace(/\s+/g, " ").trim();

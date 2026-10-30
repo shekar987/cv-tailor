@@ -75,7 +75,7 @@ export function properNounRuns(text: string): string[] {
     RUN_RE.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = RUN_RE.exec(s)) !== null) {
-      // "At Brane Group": a sentence-initial function word is capitalised by
+      // "At Northgate Systems": a sentence-initial function word is capitalised by
       // grammar and must not be glued onto the name that follows it.
       const words = m[0].replace(/[.,;:]+$/, "").split(/\s+/);
       while (words.length > 1 && FURNITURE.has(fold(words[0]))) words.shift();

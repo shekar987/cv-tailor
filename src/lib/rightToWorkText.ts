@@ -214,7 +214,7 @@ export function rightToWorkDisagrees(lines: string[], status: RtwStatus | "unkno
 // or part-time work — never "available for hybrid work" or a role described
 // as full-time.
 // The full/part-time half needs an availability verb: "I spent two years
-// working full-time at Brane" and "I was able to balance a full-time role"
+// working full-time at Northgate" and "I was able to balance a full-time role"
 // are career facts, not availability (review, 1 Oct).
 const AVAILABILITY_RE =
   /\b(?:available|ready|able|free)\s+to\s+(?:start|begin|join)\b|\bavailable\s+(?:immediately|now|from\s+\w+)\b|\b(?:can|could)\s+(?:start|begin)\b|\bstart(?:ing)?\s+(?:immediately|straight\s+away|from\s+(?:january|february|march|april|may|june|july|august|september|october|november|december|\d))\b|\bnotice period\b|\b(?:I|I'm|I’m|I am|we)\b[^.]{0,40}\b(?:available|free|ready|able\s+to\s+(?:work|start)|(?:can|could|would)\s+work)\b[^.]{0,25}\b(?:full|part)[- ]time\b|\bavailable\s+(?:for\s+)?(?:full|part)[- ]time\b/i;
