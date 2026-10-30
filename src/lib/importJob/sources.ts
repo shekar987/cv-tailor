@@ -154,7 +154,69 @@ export function fromLinkedIn(ref: JobRef, html: unknown): ImportedJob | null {
   });
 }
 
-/** The extractor for a source: JSON for the three boards, HTML for LinkedIn. */
+const placeOf = (...parts: unknown[]): string => [...new Set(parts.map((p) => str(p)).filter(Boolean))].join(", ");
+
+/** Workable (api/v2 accounts/<account>/jobs/<code>): description, requirements and benefits, each HTML. */
+export function fromWorkable(ref: JobRef, data: unknown): ImportedJob | null {
+  const job = obj(data);
+  if (!job) return null;
+  const sections = [
+    htmlToPlainText(str(job.description, MAX_HTML)),
+    str(job.requirements, MAX_HTML) ? `Requirements\n${htmlToPlainText(str(job.requirements, MAX_HTML))}` : "",
+    str(job.benefits, MAX_HTML) ? `Benefits\n${htmlToPlainText(str(job.benefits, MAX_HTML))}` : "",
+  ];
+  const loc = obj(job.location);
+  const remote = job.remote === true ? "Remote" : "";
+  return finish(ref, {
+    title: str(job.title),
+    company: boardDisplayName(ref.board),
+    location: placeOf(loc?.city, loc?.region, loc?.country) || remote,
+    body: sections.filter((s) => s.trim()).join("\n\n"),
+    applyUrl: postingPageUrl(ref),
+  });
+}
+
+/** SmartRecruiters (v1 companies/<company>/postings/<id>): the job ad's sections, each a title and HTML text. */
+export function fromSmartRecruiters(ref: JobRef, data: unknown): ImportedJob | null {
+  const job = obj(data);
+  if (!job) return null;
+  const sections = obj(obj(job.jobAd)?.sections);
+  const order = ["companyDescription", "jobDescription", "qualifications", "additionalInformation"];
+  const body = order
+    .map((k) => obj(sections?.[k]))
+    .filter((s): s is Raw => !!s)
+    .map((s) => {
+      const text = htmlToPlainText(str(s.text, MAX_HTML));
+      const heading = oneLine(decodeEntities(str(s.title)));
+      return text ? [heading, text].filter(Boolean).join("\n") : "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+  const loc = obj(job.location);
+  return finish(ref, {
+    title: decodeEntities(str(job.name)),
+    company: decodeEntities(str(obj(job.company)?.name)) || boardDisplayName(ref.board),
+    location: str(loc?.fullLocation) || placeOf(loc?.city, loc?.region, loc?.country),
+    body,
+    applyUrl: cleanLink(job.postingUrl) || cleanLink(job.applyUrl),
+  });
+}
+
+/** BambooHR (<company>.bamboohr.com/careers/<id>/detail): result.jobOpening. */
+export function fromBambooHr(ref: JobRef, data: unknown): ImportedJob | null {
+  const job = obj(obj(obj(data)?.result)?.jobOpening);
+  if (!job) return null;
+  const loc = obj(job.location);
+  return finish(ref, {
+    title: decodeEntities(str(job.jobOpeningName)),
+    company: boardDisplayName(ref.board),
+    location: placeOf(loc?.city, loc?.state, loc?.addressCountry),
+    body: htmlToPlainText(str(job.description, MAX_HTML)),
+    applyUrl: cleanLink(job.jobOpeningShareUrl),
+  });
+}
+
+/** The extractor for a source: JSON for the boards, HTML for LinkedIn. */
 export function extractJob(ref: JobRef, body: string): ImportedJob | null {
   if (ref.source === "linkedin") return fromLinkedIn(ref, body);
   let data: unknown;
@@ -163,7 +225,18 @@ export function extractJob(ref: JobRef, body: string): ImportedJob | null {
   } catch {
     return null;
   }
-  if (ref.source === "lever") return fromLever(ref, data);
-  if (ref.source === "ashby") return fromAshby(ref, data);
-  return fromGreenhouse(ref, data);
+  switch (ref.source) {
+    case "lever":
+      return fromLever(ref, data);
+    case "ashby":
+      return fromAshby(ref, data);
+    case "greenhouse":
+      return fromGreenhouse(ref, data);
+    case "workable":
+      return fromWorkable(ref, data);
+    case "smartrecruiters":
+      return fromSmartRecruiters(ref, data);
+    case "bamboohr":
+      return fromBambooHr(ref, data);
+  }
 }

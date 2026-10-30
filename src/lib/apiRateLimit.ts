@@ -32,7 +32,7 @@ const LIMIT = 10;
 const WINDOW_MS = 60_000;
 
 // A limit other than the default burst: `limit` requests per `windowSeconds`
-// (/api/import-job: 20 an hour). Each distinct pair gets its own limiter.
+// (/api/jd/fetch: 20 an hour). Each distinct pair gets its own limiter.
 export type LimitOptions = { limit: number; windowSeconds: number };
 const DEFAULT_LIMIT: LimitOptions = { limit: LIMIT, windowSeconds: WINDOW_MS / 1000 };
 

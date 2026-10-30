@@ -397,7 +397,7 @@ function buildFileBaseName(profile: Profile | null, analysis: Result["analysis"]
   return [first, cn, rt, suffix].filter(Boolean).join("_");
 }
 
-// What "Import job from link" (/api/import-job) read for the posting now in
+// What "Import job from link" (/api/jd/fetch) read for the posting now in
 // the JD box. Applied falls back to its company and title when the analysis
 // named none — only while the box still holds the imported text.
 type ImportedJob = { company: string; title: string; location: string; description: string; applyUrl: string; source: string };
@@ -1456,7 +1456,7 @@ export default function Home() {
     }
   }
 
-  // "Import": the link → /api/import-job → the posting into the JD box. A
+  // "Import": the link → /api/jd/fetch (read server side, never the clipboard) → the posting into the JD box. A
   // failure says so and leaves the box exactly as it was.
   async function handleImport() {
     const url = importUrl.trim();
@@ -1464,7 +1464,7 @@ export default function Home() {
     setImporting(true);
     setImportError(null);
     try {
-      const res = await fetch("/api/import-job", {
+      const res = await fetch("/api/jd/fetch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
@@ -1897,7 +1897,7 @@ export default function Home() {
               <FormField
                 label="Paste a job link"
                 htmlFor="importUrl"
-                help="Lever, Ashby, Greenhouse or LinkedIn. We read the posting into the box below; check it before you tailor."
+                help="Lever, Ashby, Greenhouse, Workable, SmartRecruiters, BambooHR or LinkedIn. We read the posting into the box below; check it before you tailor."
               >
                 <form
                   className="researchRow"
