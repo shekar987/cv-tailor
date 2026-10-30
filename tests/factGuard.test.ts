@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fixDegreeLabels, dropUnbackedTools, liftedSummaryPhrases, guardFacts, masterUndergrad } from "../src/lib/factGuard.ts";
+import {
+  fixDegreeLabels, dropUnbackedTools, liftedSummaryPhrases, guardFacts, masterUndergrad,
+  factGuardNotices, factGuardItemKey, normalizeFactGuard, FACT_GUARD_LABELS,
+} from "../src/lib/factGuard.ts";
 
 const master = `SOMA SHEKAR KEESARI
 EDUCATION
@@ -50,4 +53,36 @@ test("guardFacts: runs all three on the finished sections", () => {
   assert.equal(g.summary, "Engineer with a BTech and production FastAPI.");
   assert.equal(g.skills, "Python, FastAPI");
   assert.deepEqual(g.report.droppedTools, ["OpenAI API"]);
+});
+
+// ── The notice on /app (30 Oct) ────────────────────────────────────────────
+
+test("factGuardNotices: one line per non-empty list, lifted phrases first; a clean run shows nothing", () => {
+  const report = { degrees: ["BSc → BTech"], droppedTools: ["Kafka", "Azure"], liftedPhrases: ["live translation ai"] };
+  const notices = factGuardNotices(report);
+  assert.deepEqual(notices.map((n) => n.kind), ["liftedPhrases", "droppedTools", "degrees"]);
+  assert.equal(notices[0].label, "Summary lines copied from the job ad, check they are true:");
+  assert.equal(notices[1].label, FACT_GUARD_LABELS.droppedTools);
+  assert.deepEqual(notices[1].items, ["Kafka", "Azure"]);
+  assert.deepEqual(factGuardNotices({ degrees: [], droppedTools: [], liftedPhrases: [] }), [], "a clean tailor: no notice");
+  assert.deepEqual(factGuardNotices(null), [], "an older result with no report");
+});
+
+test("factGuardNotices: an OK'd item leaves; a list with every item OK'd leaves", () => {
+  const report = { degrees: ["BSc → BTech"], droppedTools: ["Kafka", "Azure"], liftedPhrases: [] };
+  const ok = new Set([factGuardItemKey("droppedTools", "Kafka")]);
+  assert.deepEqual(factGuardNotices(report, ok).find((n) => n.kind === "droppedTools")?.items, ["Azure"]);
+  ok.add(factGuardItemKey("droppedTools", "Azure"));
+  ok.add(factGuardItemKey("degrees", "BSc → BTech"));
+  assert.deepEqual(factGuardNotices(report, ok), []);
+});
+
+test("normalizeFactGuard re-bounds what the response or a stored workspace holds", () => {
+  assert.equal(normalizeFactGuard(null), null);
+  assert.equal(normalizeFactGuard("nope"), null);
+  assert.deepEqual(normalizeFactGuard({ degrees: ["BSc → BTech", 3, " "], droppedTools: "Kafka", liftedPhrases: ["x".repeat(400)] }), {
+    degrees: ["BSc → BTech"],
+    droppedTools: [],
+    liftedPhrases: ["x".repeat(160)],
+  });
 });

@@ -27,6 +27,8 @@ import {
   notesSayNotSubmitted,
   pageSlice,
   PAGE_SIZE,
+  isReplyOwed,
+  replyOwedFirst,
   type Status,
 } from "@/lib/tracker";
 import AppHeader from "@/components/ui/AppHeader";
@@ -66,6 +68,10 @@ type Application = {
   // The file name of the CV the user uploaded for this row (lib/sentCv; a
   // JSON-path alias in the list query), absent until that migration is applied.
   sent_cv_name?: string | null;
+  // Who spoke last and when (migration 20261030120000; absent before it):
+  // "them" more than a day ago = "Reply owed" (lib/tracker isReplyOwed).
+  last_contact_from?: "me" | "them" | null;
+  last_contact_at?: string | null;
   // The format style the CV was made with, or the one picked by hand for a
   // manual row (lib/formatStyles; a JSON-path alias in the list query);
   // absent or null = not recorded.
@@ -606,6 +612,9 @@ export default function ApplicationsPage() {
   const [jdDraft, setJdDraft] = useState("");
   const [jdEditing, setJdEditing] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
+  // The moment "Reply owed" is judged against, fixed for the page's life so
+  // the order doesn't shift under the user while they work.
+  const [now] = useState(() => Date.now());
   const [panelError, setPanelError] = useState("");
 
   const [newRow, setNewRow] = useState<NewRow | null>(null);
@@ -725,7 +734,7 @@ export default function ApplicationsPage() {
     // in between £45k and £90k.
     const isEmpty = (r: Application) =>
       sortKey === "salary" ? salaryNumber(r.salary) === null : !(r[sortKey] ?? "");
-    return [...filtered].sort((a, b) => {
+    const sorted = [...filtered].sort((a, b) => {
       const aEmpty = isEmpty(a);
       const bEmpty = isEmpty(b);
       if (aEmpty && bEmpty) return 0;
@@ -735,7 +744,9 @@ export default function ApplicationsPage() {
       if (cmp !== 0) return sortDir === "asc" ? cmp : -cmp;
       return b.created_at.localeCompare(a.created_at);
     });
-  }, [rows, statusFilter, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, searchTerm]);
+    // A reply owed outranks any sort: those rows come first, in sort order.
+    return replyOwedFirst(sorted, now);
+  }, [rows, statusFilter, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, searchTerm, now]);
 
   // Only PAGE_SIZE rows are painted at a time; search, filters, counts and the
   // export cover the whole set. A different filter/sort state starts at page 1.
@@ -1042,6 +1053,16 @@ export default function ApplicationsPage() {
     }
     setPanel(null);
     showFlash("Saved.");
+  }
+
+  // "They wrote" / "I replied": who spoke last, now (lib/tracker isReplyOwed).
+  async function recordContact(row: Application, from: "me" | "them") {
+    const message = await patchRow(row.id, { last_contact_from: from, last_contact_at: new Date().toISOString() });
+    if (message) {
+      showFlash(message);
+      return;
+    }
+    showFlash(from === "me" ? "Reply recorded." : "Recorded: they wrote. It shows as Reply owed after a day without your reply.");
   }
 
   // Download through fetch rather than a plain link: a failed export (expired
@@ -1403,6 +1424,21 @@ export default function ApplicationsPage() {
           </Button>
           <Button variant="ghost" onClick={() => setPanel(null)} disabled={panelBusy}>Cancel</Button>
           {panelError && <StatusText as="span" role="alert">{panelError}</StatusText>}
+        </div>
+        {/* Who spoke last: "them" a day ago or more marks the row Reply owed. */}
+        <div className="appsContact" data-last-contact={row.last_contact_from ?? "none"}>
+          <span className="appsContact__state">
+            Last contact:{" "}
+            {row.last_contact_from && row.last_contact_at
+              ? `${row.last_contact_from === "them" ? "they wrote" : "you replied"} on ${formatDate(row.last_contact_at.slice(0, 10))}`
+              : "not recorded"}
+          </span>
+          <button type="button" className="appsActionBtn" onClick={() => void recordContact(row, "them")} data-contact-them>
+            They wrote
+          </button>
+          <button type="button" className="appsActionBtn" onClick={() => void recordContact(row, "me")} data-contact-me>
+            I replied
+          </button>
         </div>
       </div>
     );
@@ -1808,7 +1844,28 @@ export default function ApplicationsPage() {
                   return (
                     <RowGroup key={row.id}>
                       <tr className={"appsRow" + (open ? " open" : "") + (flashRowId === row.id ? " flashSave" : "")}>
-                        <td data-label="Company Name">{textCell(row, "company_name")}</td>
+                        <td data-label="Company Name">
+                          {textCell(row, "company_name")}
+                          {isReplyOwed(row, now) && (
+                            <span className="replyOwed" data-reply-owed>
+                              <span
+                                className="replyOwed__badge"
+                                title={`They wrote on ${formatDate(row.last_contact_at?.slice(0, 10) ?? null)} and no reply is recorded since.`}
+                              >
+                                Reply owed
+                              </span>
+                              <button
+                                type="button"
+                                className="inlineLink"
+                                onClick={() => void recordContact(row, "me")}
+                                aria-label={`I replied to ${row.company_name}`}
+                                data-reply-done
+                              >
+                                I replied
+                              </button>
+                            </span>
+                          )}
+                        </td>
                         <td data-label="Role">{textCell(row, "role")}</td>
                         <td data-label="CV">
                           {/* A row added by hand has no tailored CV; its CV

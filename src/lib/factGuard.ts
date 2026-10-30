@@ -123,4 +123,45 @@ export function guardFacts(
   return { summary, skills, report };
 }
 
+// ── The notice on /app (30 Oct) ─────────────────────────────────────────────
+// What the guard did, said above "Download CV" before anyone sends it: one
+// line per non-empty list, each item with its own OK. Never blocks the
+// download — a flag, not a lock.
+
+export type FactGuardKind = keyof FactGuardReport;
+export type FactGuardNotice = { kind: FactGuardKind; label: string; items: string[] };
+
+// Lifted phrases first: they are the ones that need the user's own check.
+export const FACT_GUARD_LABELS: Record<FactGuardKind, string> = {
+  liftedPhrases: "Summary lines copied from the job ad, check they are true:",
+  droppedTools: "Removed tools not in your master CV:",
+  degrees: "Degree name corrected to your master CV:",
+};
+const NOTICE_ORDER: FactGuardKind[] = ["liftedPhrases", "droppedTools", "degrees"];
+const MAX_NOTICE_ITEMS = 10;
+
+/** A report from the response (or a stored workspace) re-bounded: strings only. */
+export function normalizeFactGuard(raw: unknown): FactGuardReport | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const list = (v: unknown) =>
+    Array.isArray(v) ? v.filter((s): s is string => typeof s === "string" && s.trim() !== "").map((s) => s.trim().slice(0, 160)).slice(0, MAX_NOTICE_ITEMS) : [];
+  return { degrees: list(r.degrees), droppedTools: list(r.droppedTools), liftedPhrases: list(r.liftedPhrases) };
+}
+
+/** The key an item's OK is remembered by. */
+export function factGuardItemKey(kind: FactGuardKind, item: string): string {
+  return `${kind}:${item}`;
+}
+
+/** The notice's lines: the non-empty lists, items already OK'd left out. */
+export function factGuardNotices(report: FactGuardReport | null, acknowledged: ReadonlySet<string> = new Set()): FactGuardNotice[] {
+  if (!report) return [];
+  return NOTICE_ORDER.map((kind) => ({
+    kind,
+    label: FACT_GUARD_LABELS[kind],
+    items: report[kind].filter((item) => !acknowledged.has(factGuardItemKey(kind, item))),
+  })).filter((n) => n.items.length > 0);
+}
+
 export { DEGREES };

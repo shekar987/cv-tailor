@@ -22,6 +22,7 @@ import { gameForTailorCount, nextTailorCount } from "@/lib/games/pick";
 import type { GameKind } from "@/lib/games/core";
 import { tailoredSectionsText, type AtsMatchResult } from "@/lib/atsMatch";
 import { checkContact, contactBlockMessage } from "@/lib/contactCheck";
+import { factGuardNotices, factGuardItemKey, normalizeFactGuard, type FactGuardReport } from "@/lib/factGuard";
 import { normalizeClaims, checkClaims, seedClaimsFromCv, SKILL_RULE_TEXT, type ClaimsRegistry, type ClaimCheck, type ClaimWhere } from "@/lib/claims";
 import { qualityReport, type QualityReport } from "@/lib/quality";
 import { REPAIR_SECTION_LABEL, type RepairChange } from "@/lib/claimRepair";
@@ -48,6 +49,7 @@ import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@
 import { SOURCE_LABELS, type JobSource } from "@/lib/importJob/parse";
 import { getUsage, type Usage } from "@/lib/usage";
 import AppHeader from "@/components/ui/AppHeader";
+import { useConfirm } from "@/components/ConfirmDialog";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import EmptyState from "@/components/ui/EmptyState";
@@ -190,6 +192,8 @@ type Result = {
   // (lib/styleCheck, lib/stylePass) — a style that has them (CareerSet).
   styleCheck?: StyleCheckItem[] | null;
   masterCvNotes?: MasterCvNote[];
+  // lib/factGuard: degree labels fixed, tools dropped, JD phrases in the summary.
+  factGuard?: FactGuardReport;
   // "Changes vs master CV" (lib/bulletIds): the finished bullets against the
   // master's own — kept, edited (which words), reverted, dropped, new.
   bulletChanges?: { protocol: boolean; headers?: HeaderLock | null; chronology?: ChronologyReport | null; experience: BulletChanges | null; projects: RoleChanges[] };
@@ -403,12 +407,16 @@ export default function Home() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<{ message: string; detail: string } | null>(null);
   const [importedJob, setImportedJob] = useState<ImportedJob | null>(null);
+  // The in-page confirm (components/ConfirmDialog) — never window.confirm.
+  const [confirm, confirmDialog] = useConfirm();
   const [loading, setLoading] = useState(false);
   // The waiting-room popup for the current tailor (TailorGamePopup): the
   // game this run gets, when the run started and how it ended. Closing it
   // never cancels the run, and a closed popup stays closed.
   const [gameRun, setGameRun] = useState<{ id: number; game: GameKind; startedAt: number; status: TailorGameStatus; error: string; open: boolean } | null>(null);
   const [result, setResult] = useState<Result | null>(null);
+  // Fact-guard items the user has OK'd, as "<run>|<kind>:<item>".
+  const [factGuardOk, setFactGuardOk] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [errorType, setErrorType] = useState<string | null>(null); // "user_limit" | "provider_limit" | null
   // Which step raised the provider notice, so its title tells the truth.
@@ -1011,6 +1019,14 @@ export default function Home() {
   // figure absent from the master CV (context warnings never block).
   const fixable = !!activeCheck && (activeCheck.skillViolations.length > 0 || activeCheck.numberViolations.some((n) => n.kind === "absent"));
 
+  // What the fact guard changed or found (lib/factGuard), said above
+  // "Download CV" until each item is OK'd. A flag, never a lock.
+  const factGuardRun = tailorSessionId ?? "run";
+  const factGuardList = factGuardNotices(
+    normalizeFactGuard(result?.factGuard),
+    new Set(factGuardOk.filter((k) => k.startsWith(`${factGuardRun}|`)).map((k) => k.slice(factGuardRun.length + 1)))
+  );
+
   // The positioning variant for this run: the override, else the one whose
   // role types include the posting's role_type. Declared above executeTailor
   // for the same reason as gateInfo.
@@ -1466,7 +1482,16 @@ export default function Home() {
         applyUrl: typeof data.applyUrl === "string" ? data.applyUrl : "",
         source: typeof data.source === "string" && data.source in SOURCE_LABELS ? SOURCE_LABELS[data.source as JobSource] : "the link",
       };
-      if (jobDescription.trim() && jobDescription.trim() !== job.description.trim() && !window.confirm("Replace the job description in the box with the imported posting?")) {
+      if (
+        jobDescription.trim() &&
+        jobDescription.trim() !== job.description.trim() &&
+        !(await confirm({
+          title: "Replace the job description?",
+          message: `The box already holds a job description. Replace it with the posting imported from ${job.source}?`,
+          confirmLabel: "Replace",
+          cancelLabel: "Keep mine",
+        }))
+      ) {
         return;
       }
       changeJobDescription(job.description);
@@ -1892,7 +1917,10 @@ export default function Home() {
                     autoComplete="off"
                     spellCheck={false}
                   />
-                  <Button type="submit" variant="secondary" disabled={importing || loading || !importUrl.trim()}>
+                  {/* Busy, not disabled, while importing: a disabled button drops
+                      focus to the page, and the replace dialog then has nowhere
+                      to hand it back (handleImport ignores a second press). */}
+                  <Button type="submit" variant="secondary" disabled={loading || !importUrl.trim()} aria-disabled={importing || undefined} aria-busy={importing || undefined}>
                     {importing ? "Importing…" : "Import"}
                   </Button>
                 </form>
@@ -3346,6 +3374,32 @@ export default function Home() {
             {appliedNotice && (
               <div className="limitNotice" role="status">{appliedNotice}</div>
             )}
+            {factGuardList.length > 0 && (
+              <div className="limitNotice factGuardNotice" role="status" data-fact-guard>
+                <div className="limitNotice__title">Check these before you download</div>
+                {factGuardList.map((notice) => (
+                  <div key={notice.kind} className="factGuardNotice__group" data-fact-guard-kind={notice.kind}>
+                    <p className="limitNotice__body">{notice.label}</p>
+                    <ul className="factGuardNotice__list">
+                      {notice.items.map((item) => (
+                        <li key={item}>
+                          <span>{notice.kind === "liftedPhrases" ? `“${item}”` : item}</span>
+                          <button
+                            type="button"
+                            className="inlineLink"
+                            onClick={() => setFactGuardOk((ok) => [...ok, `${factGuardRun}|${factGuardItemKey(notice.kind, item)}`])}
+                            aria-label={`OK: ${item}`}
+                            data-fact-guard-ok
+                          >
+                            OK
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Focus leaving either editable preview re-runs the claim check
                 on the edited text (focusout bubbles; the previews stay memo'd
@@ -3560,6 +3614,7 @@ export default function Home() {
           onViewResult={() => closeGame(true)}
         />
       )}
+      {confirmDialog}
     </main>
   );
 }
