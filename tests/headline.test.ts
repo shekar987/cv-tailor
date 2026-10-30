@@ -33,7 +33,7 @@ test("rolePhrase: the first segment naming a role, labels and tool brackets gone
   assert.equal(rolePhrase("Product Engineer (Full Stack) (Full Stack)"), "Product Engineer (Full Stack)", "said once");
   assert.equal(rolePhrase("Software Engineering Graduate Scheme (2027 intake)"), "", "no role noun");
   assert.equal(rolePhrase("Java Software Engineer - Associate"), "Java Software Engineer");
-  assert.equal(rolePhrase("MSc Computer Science, University of East London | 2+ YoE | Full Stack Engineer | AI Engineer"), "Full Stack Engineer");
+  assert.equal(rolePhrase("MSc Computer Science, University of Hartwell | 2+ YoE | Full Stack Engineer | AI Engineer"), "Full Stack Engineer");
   assert.equal(rolePhrase("Technical Tools: Python, React"), "");
   assert.equal(rolePhrase(undefined), "");
 });

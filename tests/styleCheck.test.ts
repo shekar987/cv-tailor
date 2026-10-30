@@ -20,7 +20,7 @@ const letter = [
   "2. Testing: I wrote 192 unit tests for CampaignPulse, a personal project.",
   "3. PostgreSQL: I tuned queries at Brane, making them 30% faster.",
   "4. AWS: I provisioned a London-region stack with Terraform for CampaignPulse.",
-  "I am completing an MSc in Computer Science at the University of East London, expected January 2027.",
+  "I am completing an MSc in Computer Science at the University of Hartwell, expected January 2027.",
   "Thank you for considering my application. I would welcome a conversation about the role.",
   "Kind regards,",
   "Jane Doe",

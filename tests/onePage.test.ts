@@ -107,7 +107,7 @@ const masterCv = [
   "EXPERIENCE",
   "",
   "Research Assistant — AI & Full-Stack Development",
-  "University of East London — AssetGuard+ · London, UK · Jun 2026 – Present",
+  "University of Hartwell — AssetGuard+ · London, UK · Jun 2026 – Present",
   "",
   "- Develop features for AssetGuard+ in React and Node.js used by 40 analysts.",
   "- Analysed 11 industry asset-management platforms from verified user reviews.",
@@ -130,7 +130,7 @@ const masterCv = [
 ].join("\n");
 
 const tailoredExp = [
-  "Research Assistant | University of East London | Jun 2026 – Present",
+  "Research Assistant | University of Hartwell | Jun 2026 – Present",
   "• Develop features for AssetGuard+ in React and Node.js used by 40 analysts.",
   "",
   "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024",

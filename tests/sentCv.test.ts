@@ -19,7 +19,7 @@ const USER = "1d4274a9-8a87-4a6e-8545-46ab8f680578";
 const APP = "0b6f2c7e-3a51-4c1d-9d2e-5f0a1b2c3d4e";
 
 test("displayFileName: the user's own name, with the extension its content has", () => {
-  assert.equal(displayFileName("Shekar Keesari CV.pdf", "pdf"), "Shekar Keesari CV.pdf");
+  assert.equal(displayFileName("Alex Morgan CV.pdf", "pdf"), "Alex Morgan CV.pdf");
   assert.equal(displayFileName("CV (Monzo).PDF", "pdf"), "CV (Monzo).pdf");
   assert.equal(displayFileName("resume.docx", "docx"), "resume.docx");
   assert.equal(displayFileName("resume.pdf", "docx"), "resume.docx", "named .pdf but really a Word file");
@@ -31,7 +31,7 @@ test("displayFileName: the user's own name, with the extension its content has",
 });
 
 test("storageFileName: a plain key — no spaces, accents or separators", () => {
-  assert.equal(storageFileName("Shekar Keesari CV.pdf", "pdf"), "Shekar-Keesari-CV.pdf");
+  assert.equal(storageFileName("Alex Morgan CV.pdf", "pdf"), "Alex-Morgan-CV.pdf");
   assert.equal(storageFileName("Résumé – Zoë.docx", "docx"), "Resume-Zoe.docx");
   assert.equal(storageFileName("../../secret", "pdf"), "secret.pdf");
   assert.equal(storageFileName("简历.pdf", "pdf"), "cv.pdf");

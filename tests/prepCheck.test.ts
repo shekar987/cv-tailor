@@ -20,7 +20,7 @@ AssetGuard+ (personal portfolio project modelled on a real-world brief) — Next
 - Built a gap-analysis dashboard comparing 11 asset-management platforms
 
 EDUCATION
-MSc Computer Science | University of East London | Sep 2025 – Jan 2027
+MSc Computer Science | University of Hartwell | Sep 2025 – Jan 2027
 
 Skills
 Technical Tools: Python | FastAPI | PostgreSQL | Redis | Next.js | Supabase`;

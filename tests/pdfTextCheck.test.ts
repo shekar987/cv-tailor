@@ -29,7 +29,7 @@ test("name and email are compared ignoring spacing and case; a missing one is na
 });
 
 test("a short source document is judged against itself, not against 150 words", () => {
-  const letter = "Dear Hiring Manager, I am applying for the role. Kind regards, Soma";
+  const letter = "Dear Hiring Manager, I am applying for the role. Kind regards, Alex";
   const r = checkPdfTextLayer(letter, { sourceWords: countWords(letter) });
   assert.equal(r.ok, true, r.problems.join("; "));
   // Losing most of it still fails.

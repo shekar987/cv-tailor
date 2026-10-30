@@ -47,10 +47,10 @@ test("stripRightToWorkSentences: the offending sentence goes, the line keeps the
 
   // A cover-letter paragraph that is only the status disappears whole; the
   // blank line between the neighbours does not double up.
-  const letter = "Dear Hiring Manager,\n\nI am applying for the Software Engineer role.\n\nI hold a Student visa with full-time work rights and will not need sponsorship until 2027.\n\nAt Brane Group I shipped 20+ API modules.\n\nKind regards,\nSoma";
+  const letter = "Dear Hiring Manager,\n\nI am applying for the Software Engineer role.\n\nI hold a Student visa with full-time work rights and will not need sponsorship until 2027.\n\nAt Brane Group I shipped 20+ API modules.\n\nKind regards,\nAlex";
   const l = stripRightToWorkSentences(letter);
   assert.equal(l.removed.length, 1);
-  assert.equal(l.text, "Dear Hiring Manager,\n\nI am applying for the Software Engineer role.\n\nAt Brane Group I shipped 20+ API modules.\n\nKind regards,\nSoma");
+  assert.equal(l.text, "Dear Hiring Manager,\n\nI am applying for the Software Engineer role.\n\nAt Brane Group I shipped 20+ API modules.\n\nKind regards,\nAlex");
 });
 
 test("stripRightToWorkSentences: nothing to strip returns the text unchanged", () => {
@@ -60,10 +60,10 @@ test("stripRightToWorkSentences: nothing to strip returns the text unchanged", (
 });
 
 test("stripRightToWorkLines and stripRightToWorkBullets: whole bullets go", () => {
-  const exp = "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Shipped 20+ API modules.\n• Right to work in the UK, no sponsorship required.\n\nResearch Assistant | UEL | 2026 – Present\n• Analysed 11 platforms.";
+  const exp = "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Shipped 20+ API modules.\n• Right to work in the UK, no sponsorship required.\n\nResearch Assistant | Hartwell | 2026 – Present\n• Analysed 11 platforms.";
   const r = stripRightToWorkLines(exp);
   assert.deepEqual(r.removed, ["• Right to work in the UK, no sponsorship required."]);
-  assert.equal(r.text, "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Shipped 20+ API modules.\n\nResearch Assistant | UEL | 2026 – Present\n• Analysed 11 platforms.");
+  assert.equal(r.text, "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Shipped 20+ API modules.\n\nResearch Assistant | Hartwell | 2026 – Present\n• Analysed 11 platforms.");
   const p = stripRightToWorkBullets({ "0": ["Built a RAG pipeline.", "Available immediately with full working rights."], "1": ["Deployed on Vercel."] });
   assert.deepEqual(p.removed, ["Available immediately with full working rights."]);
   assert.deepEqual(p.projects, { "0": ["Built a RAG pipeline."], "1": ["Deployed on Vercel."] });

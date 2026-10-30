@@ -138,7 +138,7 @@ test("a fact-check fix that restates a neighbouring sentence is refused; the sen
 
 test("dropRepeatedSentences: the later telling of the same fact goes, different facts stay", () => {
   const text =
-    "Dear Hiring Manager,\nIn my role as Research Assistant at the University of East London, I analysed 11 industry asset-management platforms and produced a comparative gap analysis. In my Research Assistant role I analysed 11 industry asset-management platforms and produced a comparative gap analysis identifying gaps across those platforms. I hold a BSc Computer Science with Distinction.\n\nAt Northwind Labs I built REST services in Python and FastAPI. At Northwind Labs I optimised PostgreSQL queries with indexing and caching.\nKind regards,\nAlex Example";
+    "Dear Hiring Manager,\nIn my role as Research Assistant at the University of Hartwell, I analysed 11 industry asset-management platforms and produced a comparative gap analysis. In my Research Assistant role I analysed 11 industry asset-management platforms and produced a comparative gap analysis identifying gaps across those platforms. I hold a BSc Computer Science with Distinction.\n\nAt Northwind Labs I built REST services in Python and FastAPI. At Northwind Labs I optimised PostgreSQL queries with indexing and caching.\nKind regards,\nAlex Example";
   const r = dropRepeatedSentences(text);
   assert.equal(r.dropped.length, 1);
   assert.match(r.dropped[0], /^In my Research Assistant role/);
@@ -157,9 +157,9 @@ test("a degree still in progress is never stated as held; a completed one is lef
     new Date("2026-09-26T12:00:00Z")
   );
   assert.deepEqual(inProgress, ["MSc Computer Science"], "month precision: June 2026 has passed, January 2027 has not");
-  const letter = fixHeldDegrees("I hold an MSc in Computer Science (Industrial Placement) from the University of East London, graduating January 2027.", inProgress);
-  assert.equal(letter.text, "I am completing an MSc in Computer Science (Industrial Placement) from the University of East London, graduating January 2027.");
-  const summary = fixHeldDegrees("Research Assistant at the University of East London, and hold an MSc Computer Science (Industrial Placement) expected Jan 2027.", inProgress);
+  const letter = fixHeldDegrees("I hold an MSc in Computer Science (Industrial Placement) from the University of Hartwell, graduating January 2027.", inProgress);
+  assert.equal(letter.text, "I am completing an MSc in Computer Science (Industrial Placement) from the University of Hartwell, graduating January 2027.");
+  const summary = fixHeldDegrees("Research Assistant at the University of Hartwell, and hold an MSc Computer Science (Industrial Placement) expected Jan 2027.", inProgress);
   assert.match(summary.text, /and am completing an MSc Computer Science/);
   // The completed BSc stays held; a Master's-level phrase and a possessive are not degrees held.
   assert.equal(fixHeldDegrees("I hold a BSc Computer Science with Distinction.", inProgress).changed.length, 0);

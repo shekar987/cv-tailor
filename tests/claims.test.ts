@@ -248,7 +248,7 @@ test("figures: a count noun in an achievement sentence is not a skill claim, and
   const c = checkClaims([{ where: "cv", text: "Evaluated 11 tools across the cyber asset-management market." }], null, [cv]);
   assert.deepEqual(c.numberViolations, []);
   // And the skills seed never reads that sentence: no skill named "platforms" or "tools".
-  const seeded = seedClaimsFromCv(`SKILLS\nPython, FastAPI\nEXPERIENCE\nResearch Assistant | UEL | 2026 – Present\n${cv}`);
+  const seeded = seedClaimsFromCv(`SKILLS\nPython, FastAPI\nEXPERIENCE\nResearch Assistant | Hartwell | 2026 – Present\n${cv}`);
   assert.deepEqual(seeded.skills.map((s) => s.name), ["Python", "FastAPI"]);
 });
 
@@ -263,7 +263,7 @@ test("seed: a group label is not a skill, its items are; slashes split; versions
 });
 
 test("seedClaimsFromCv: every skill in the skills section and tech lines, levels from where the CV shows them used", () => {
-  const cv = `SOMA SHEKAR
+  const cv = `ALEX MORGAN
 Full-Stack Engineer
 
 SKILLS
@@ -287,7 +287,7 @@ React 19, Firebase, Stripe
 - Built a three-portal marketplace.
 
 EDUCATION
-MSc Computer Science — University of East London`;
+MSc Computer Science — University of Hartwell`;
   const seed = seedClaimsFromCv(cv);
   const level = Object.fromEntries(seed.skills.map((s) => [s.name, s.level]));
   assert.equal(level["Python"], "production");

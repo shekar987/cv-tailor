@@ -24,7 +24,7 @@ Portfolio Site
 - Static site.
 
 EDUCATION
-MSc Computer Science | University of East London
+MSc Computer Science | University of Hartwell
 2025 – 2027
 BSc Computer Science
 Osmania University, 2018 – 2022

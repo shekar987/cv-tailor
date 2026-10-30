@@ -30,7 +30,7 @@ Full Stack Engineer | Brane Group | Jul 2022 – Sep 2024
 - Built REST APIs in FastAPI serving 3,000 users.
 - Cut page load time by 20% with code splitting.
 - Wrote 90+ Jest tests for the checkout flow.`;
-const ctx = { firstName: "Soma", company: "Acme", role: "Software Engineer", cvText: CV };
+const ctx = { firstName: "Alex", company: "Acme", role: "Software Engineer", cvText: CV };
 const turnCtx = { cvText: CV, companySources: "Acme builds payroll software. Hybrid, 3 days a week in London." };
 
 test("Equality Act: unlawful questions are caught, engineering words are not", () => {
@@ -70,7 +70,7 @@ test("rounds: six UK rounds, the screening call asks right to work, notice, sala
   const s = ROUNDS.screening.fixedAfter.map((q) => q.rubric);
   assert.deepEqual(s, ["logistics_rtw", "logistics_notice", "logistics_salary", "logistics_location"]);
   assert.equal(ROUNDS.screening.fixedAfter[0].text, RTW_QUESTION);
-  assert.equal(openingLine("hiring_manager", "Soma", "Acme"), "Hi Soma, thanks for joining. I'm Daniel, the Engineering Manager for this team at Acme. This should take about 30 minutes.");
+  assert.equal(openingLine("hiring_manager", "Alex", "Acme"), "Hi Alex, thanks for joining. I'm Daniel, the Engineering Manager for this team at Acme. This should take about 30 minutes.");
   for (const t of INTERVIEW_TYPES) for (const q of [...ROUNDS[t].fixedBefore, ...ROUNDS[t].fixedAfter, ...ROUNDS[t].stock]) assert.equal(equalityViolation(q.text), null, q.text);
 });
 
@@ -94,7 +94,7 @@ test("plan: the model's questions are cleaned, logistics and unlawful ones dropp
   assert.equal(plan.questions[1].cvAnchor, "Built REST APIs in FastAPI serving 3,000 users.");
   assert.equal(plan.questions[2].cvAnchor, "", "an anchor not in the CV is blanked");
   assert.deepEqual(plan.questions.map((q) => q.id), ["q1", "q2", "q3", "q4", "q5"]);
-  assert.match(plan.opening, /^Hi Soma, thanks for joining\. I'm Emma, an HR Business Partner at Acme\./);
+  assert.match(plan.opening, /^Hi Alex, thanks for joining\. I'm Emma, an HR Business Partner at Acme\./);
   // Nothing usable from the model: the stock bank fills the round.
   const empty = normalizePlan({}, "screening", ctx);
   assert.equal(empty.fromModel, 0);

@@ -5,10 +5,10 @@ import {
   factGuardNotices, factGuardItemKey, normalizeFactGuard, FACT_GUARD_LABELS,
 } from "../src/lib/factGuard.ts";
 
-const master = `SOMA SHEKAR KEESARI
+const master = `ALEX MORGAN
 EDUCATION
-MSc Computer Science (with Industrial Placement) — University of East London Jan 2025 – Jan 2027
-BTech Computer Science — Keshav Memorial Institute of Technology Jul 2019 – Jul 2023
+MSc Computer Science (with Industrial Placement) — University of Hartwell Jan 2025 – Jan 2027
+BTech Computer Science — Riverside Institute of Technology Jul 2019 – Jul 2023
 SKILLS
 AI & LLM: Anthropic Claude API, LangChain, LlamaIndex, RAG
 Cloud & DevOps: AWS (Lambda, SQS), Terraform, Docker

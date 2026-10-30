@@ -22,7 +22,7 @@ const profile = {
   tagline: "Backend Engineer",
   location: "London",
   email: "x@example.com",
-  education: [{ degree: "MSc Computer Science", institution: "UEL", note: "Dissertation: Widget Tracker service" }],
+  education: [{ degree: "MSc Computer Science", institution: "Hartwell", note: "Dissertation: Widget Tracker service" }],
   certifications: ["AWS Solutions Architect"],
   rightToWork: ["UK: full right to work"],
   projects: [{ name: "Widget Tracker | 2024", tech: "Go, Postgres" }, { name: "RideX | 2025", tech: "React" }],

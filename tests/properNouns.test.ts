@@ -5,7 +5,7 @@ import { properNounRuns, unsupportedProperNouns, sentencesNaming, dropSentences 
 
 const JD = "Forward Deployed Engineer at Seamflow. Location: London (hybrid). You will work with our customers in regulated industries.";
 const RESEARCH = JSON.stringify({ company_name: "Seamflow", what_they_build: "Certification workflow automation for regulated manufacturers", engineering_stack: ["Python", "PostgreSQL"] });
-const CV = "SOMA SHEKAR KEESARI\nLondon, UK\nFull Stack Engineer — Brane Group\nBuilt FastAPI services. Built Jobhuntz, an LLM product, and RideX, a ride-hailing platform.\nMSc Computer Science — University of East London";
+const CV = "ALEX MORGAN\nLondon, UK\nFull Stack Engineer — Brane Group\nBuilt FastAPI services. Built Jobhuntz, an LLM product, and RideX, a ride-hailing platform.\nMSc Computer Science — University of Hartwell";
 const LETTER = `Dear Hiring Manager,
 
 I am writing about the Forward Deployed Engineer role at Seamflow. At Brane Group I built FastAPI services for enterprise workflows. My own LLM product, Jobhuntz, is live today. RideX followed it.
@@ -13,11 +13,11 @@ I am writing about the Forward Deployed Engineer role at Seamflow. At Brane Grou
 I'm in London and available for on-site work in Shoreditch. Your work with regulated manufacturers is exactly the kind of problem I want to solve.
 
 Kind regards,
-Soma Shekar Keesari`;
+Alex Morgan`;
 
 test("properNounRuns: names, not letter furniture, acronyms or sentence-initial words", () => {
   const runs = properNounRuns(LETTER);
-  for (const expected of ["Forward Deployed Engineer", "Seamflow", "Brane Group", "Jobhuntz", "London", "Shoreditch", "Soma Shekar Keesari"]) {
+  for (const expected of ["Forward Deployed Engineer", "Seamflow", "Brane Group", "Jobhuntz", "London", "Shoreditch", "Alex Morgan"]) {
     assert.ok(runs.includes(expected), `${expected} in ${JSON.stringify(runs)}`);
   }
   for (const not of ["Dear Hiring Manager", "Kind", "Your", "At", "I'm", "LLM", "My"]) {
@@ -51,7 +51,7 @@ test("sentencesNaming and dropSentences: the offending sentence goes, the paragr
   assert.ok(!/Shoreditch/.test(fixed));
   assert.ok(/Your work with regulated manufacturers/.test(fixed));
   assert.ok(/^Dear Hiring Manager,\n\nI am writing/.test(fixed));
-  assert.ok(/Kind regards,\nSoma Shekar Keesari$/.test(fixed));
+  assert.ok(/Kind regards,\nAlex Morgan$/.test(fixed));
   assert.equal(dropSentences(LETTER, []), LETTER);
   // Dropping the only sentence of a paragraph drops the paragraph.
   const two = "First paragraph here.\n\nOnly Shoreditch here.\n\nLast paragraph.";
@@ -65,6 +65,6 @@ test("sentencesNaming: a possessive still names the noun (AssetGuard's platform)
 });
 
 test("a company name with digits is one name (Base360.ai)", () => {
-  const letter = "Dear Base360.ai team,\nI am applying for the Product Engineer role at Base360.ai. At Brane Group I built FastAPI services.\nKind regards,\nSoma Shekar Keesari";
+  const letter = "Dear Base360.ai team,\nI am applying for the Product Engineer role at Base360.ai. At Brane Group I built FastAPI services.\nKind regards,\nAlex Morgan";
   assert.deepEqual(unsupportedProperNouns(letter, ["Product Engineer at Base360.ai, London.", CV]), []);
 });
