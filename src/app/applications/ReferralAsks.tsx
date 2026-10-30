@@ -131,7 +131,7 @@ export function ReferralEditor({
           </label>
           <label>
             <span>Status</span>
-            <select value={status} onChange={(e) => setStatus(e.target.value as ReferralStatus)} disabled={busy} data-referral-status-select>
+            <select className="appsSelect" value={status} onChange={(e) => setStatus(e.target.value as ReferralStatus)} disabled={busy} data-referral-status-select>
               {REFERRAL_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {REFERRAL_STATUS_LABELS[s]}
