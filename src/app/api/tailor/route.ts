@@ -6,7 +6,7 @@ import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration, loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { chooseFallback, openRouterLimitMessage, fallbackExhaustedMessage, type FallbackReason } from "@/lib/fallbackRoute";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
-import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, type ClaimsRegistry } from "@/lib/claims";
+import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillsFromCv, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
 import { normalizePreferences, pageTargetFor, type CvLength } from "@/lib/preferences";
 import { isGraduateScheme } from "@/lib/graduateMode";
@@ -708,8 +708,18 @@ async function runPipeline(opts: {
   // guardFacts (lib/factGuard): a degree label the master never uses goes
   // back to the master's own, an over-claimed tool the master never names
   // leaves the skills, and summary phrases lifted from the JD are reported.
-  const factGuard = guardFacts({ summary, skills: skillsFinal }, cv, jd);
-  const sections = { summary: factGuard.summary, skills: factGuard.skills, experience: typeof experienceFinal === "string" ? stripBulletIds(experienceFinal) : experienceFinal, projects: projectsFinal };
+  // The user's own skills list decides "OpenAI API" (the registry's names —
+  // learning skills excluded — or the CV's skills section when the registry
+  // is empty), and "GitHub Actions" never holds a lead slot (31 Oct).
+  const registered = (claims?.skills ?? []).filter((s) => s.level !== "learning").map((s) => s.name);
+  const skillNames = registered.length > 0 ? registered : skillsFromCv(cv).map((s) => s.name);
+  const factGuard = guardFacts({ summary, skills: skillsFinal }, cv, jd, { skillNames, skillsShape: style.skills });
+  // The guard's text is the text from here on: until 31 Oct only the score
+  // read it, and the response carried the unguarded summary and skills.
+  summary = factGuard.summary;
+  skillsFinal = factGuard.skills;
+  if (factGuard.leadTools.moved.length + factGuard.leadTools.dropped.length > 0) formatFixes.leadTools = factGuard.leadTools;
+  const sections = { summary, skills: skillsFinal, experience: typeof experienceFinal === "string" ? stripBulletIds(experienceFinal) : experienceFinal, projects: projectsFinal };
   const tailoredText = tailoredSectionsText(sections, style.skills);
   const terms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
   const coverage = matchAtsKeywords(tailoredText, terms.top_15_ats_keywords);
