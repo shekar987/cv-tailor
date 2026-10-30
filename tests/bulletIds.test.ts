@@ -6,7 +6,7 @@ const master = `ALEX MORGAN
 Full Stack Engineer
 
 EXPERIENCE
-Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024
+Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024
 Highlight: Shipped 20+ API modules across 2 product lines.
 - Built AI-enabled services with FastAPI and React for 3,000 users.
 - Cut frontend load time by 20% with code splitting.
@@ -24,11 +24,11 @@ Jobhuntz | 2026
 test("parseMasterExperience numbers every role and bullet, highlight included", () => {
   const roles = parseMasterExperience(master);
   assert.equal(roles.length, 2);
-  assert.equal(roles[0].header, "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024");
+  assert.equal(roles[0].header, "Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024");
   assert.deepEqual(roles[0].bullets.map((b) => b.id), ["R1.1", "R1.2", "R1.3", "R1.4"]);
   assert.equal(roles[0].bullets[0].text, "Highlight: Shipped 20+ API modules across 2 product lines.");
   assert.deepEqual(roles[1].bullets.map((b) => b.id), ["R2.1", "R2.2"]);
-  assert.match(renderIdBlock(roles), /^ROLE 1: Full Stack Engineer \| Brane Group[^\n]*\n\[R1\.1\] Highlight/);
+  assert.match(renderIdBlock(roles), /^ROLE 1: Full Stack Engineer \| Northgate Systems[^\n]*\n\[R1\.1\] Highlight/);
   assert.deepEqual(parseMasterExperience("No experience heading here."), []);
 });
 
@@ -44,7 +44,7 @@ test("substitutions counts replaced words by longest common subsequence, ignorin
 test("reconcileExperience: ids resolve, ≤2 substitutions stand, more is reverted, no-id bullets match by overlap, unknown text is dropped, markers stripped", () => {
   const roles = parseMasterExperience(master);
   const output = [
-    "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024",
+    "Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024",
     "• [R1.2] Built AI-enabled services with FastAPI and React for **3,000 users**.",
     "• [R1.4] Wrote 90+ Jest tests covering the payment flow for merchants and partners.",
     "• [R1.1] Highlight: Shipped 20+ API modules across 2 product lines.",
@@ -70,14 +70,14 @@ test("reconcileExperience: ids resolve, ≤2 substitutions stand, more is revert
   assert.equal(changes.reverted, 1);
   assert.equal(changes.dropped, 1);
   // No ids anywhere: the protocol was not followed; text passes through untouched.
-  const plain = "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Something new entirely.";
+  const plain = "Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024\n• Something new entirely.";
   assert.deepEqual(reconcileExperience(plain, roles), { experience: plain, changes: null });
 });
 
 test("diffAgainstMaster reads the finished text by closest bullet: kept, edited, dropped, new", () => {
   const roles = parseMasterExperience(master);
   const finalText = [
-    "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024",
+    "Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024",
     "• Cut frontend load time by 20% with code splitting.",
     "• Built AI-enabled services with FastAPI and React for 3,000 customers.",
     "• Mentored three junior engineers on the payments team.",
@@ -118,7 +118,7 @@ test("parseMasterExperience: a title on the line above its dates belongs to the 
     "- Develop features for AssetGuard+ used by 40 analysts.",
     "- Analysed 11 industry asset-management platforms.",
     "",
-    "Full Stack Engineer — Brane Group",
+    "Full Stack Engineer — Northgate Systems",
     "Jul 2023 – Sep 2024 (full-time); part-time alongside final-year study Jul 2022 – Jul 2023",
     "",
     "- Engineered enterprise web applications delivering 20+ production API modules.",
@@ -134,10 +134,10 @@ test("parseMasterExperience: a title on the line above its dates belongs to the 
   const roles = parseMasterExperience(cv);
   assert.equal(roles.length, 3);
   assert.match(roles[0].header, /^Research Assistant — AI & Full-Stack Development \| University of Hartwell/);
-  assert.match(roles[1].header, /^Full Stack Engineer — Brane Group \| Jul 2023 – Sep 2024/);
+  assert.match(roles[1].header, /^Full Stack Engineer — Northgate Systems \| Jul 2023 – Sep 2024/);
   assert.match(roles[2].header, /^Full Stack Development Intern — CodSoft \| Jan 2022 – Jun 2022/);
   assert.deepEqual(roles.map((r) => r.bullets.length), [2, 2, 1]);
-  assert.ok(roles[0].bullets.every((b) => !/Brane Group/.test(b.text)), "the next title is not a bullet of the previous role");
+  assert.ok(roles[0].bullets.every((b) => !/Northgate Systems/.test(b.text)), "the next title is not a bullet of the previous role");
   // A bullet-less master (glyphs lost in PDF extraction): an achievement
   // line ending in a full stop is never taken for a title.
   const flat = "EXPERIENCE\nEngineer | Acme | 2020 – 2022\nShipped the billing service.\nCut costs by 20%.\nAnalyst | Globex | 2018 – 2020\nBuilt reports.\n\nPROJECTS";
@@ -179,11 +179,11 @@ Backend Engineer | Shopwell | Mar 2022 – Present
 
 test("lockRoleHeaders: a retitled role gets its master header back, matched by employer", () => {
   const roles = parseMasterExperience(master);
-  const out = "Research Assistant, AI & Full-Stack Development | University of Hartwell | Jan 2026 – Present\n• Analysed 11 industry asset-management platforms from verified user reviews.\n\nFull-Stack & AI Engineer (Industrial Placement) | Brane Group | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.";
+  const out = "Research Assistant, AI & Full-Stack Development | University of Hartwell | Jan 2026 – Present\n• Analysed 11 industry asset-management platforms from verified user reviews.\n\nFull-Stack & AI Engineer (Industrial Placement) | Northgate Systems | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.";
   const r = lockRoleHeaders(out, roles);
   assert.equal(
     r.experience,
-    "Research Assistant | University of Hartwell | Jan 2026 – Present\n• Analysed 11 industry asset-management platforms from verified user reviews.\n\nFull Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting."
+    "Research Assistant | University of Hartwell | Jan 2026 – Present\n• Analysed 11 industry asset-management platforms from verified user reviews.\n\nFull Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting."
   );
   assert.equal(r.report.locked.length, 2, "both restored, each to its own role — the output order is not the master's");
   assert.deepEqual(r.report.unmatched, []);
@@ -192,17 +192,17 @@ test("lockRoleHeaders: a retitled role gets its master header back, matched by e
 
 test("lockRoleHeaders: matched by dates when no part is shared; an already-verbatim header is not reported", () => {
   const roles = parseMasterExperience(master);
-  const r = lockRoleHeaders("Software Engineer | Brane | Jul 2023 – Sep 2024\n• Wrote 90+ Jest tests covering the checkout flow.\n\nResearch Assistant | University of Hartwell | Jan 2026 – Present\n• Built a gap-analysis dashboard in Next.js.", roles);
-  assert.match(r.experience, /^Full Stack Engineer \| Brane Group \| Jul 2023 – Sep 2024\n/);
-  assert.deepEqual(r.report.locked, [{ output: "Software Engineer | Brane | Jul 2023 – Sep 2024", master: "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024" }]);
+  const r = lockRoleHeaders("Software Engineer | Northgate | Jul 2023 – Sep 2024\n• Wrote 90+ Jest tests covering the checkout flow.\n\nResearch Assistant | University of Hartwell | Jan 2026 – Present\n• Built a gap-analysis dashboard in Next.js.", roles);
+  assert.match(r.experience, /^Full Stack Engineer \| Northgate Systems \| Jul 2023 – Sep 2024\n/);
+  assert.deepEqual(r.report.locked, [{ output: "Software Engineer | Northgate | Jul 2023 – Sep 2024", master: "Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024" }]);
 });
 
 test("lockRoleHeaders: an invented role goes when nothing survives under it, stays (reported) when bullets do", () => {
   const roles = parseMasterExperience(master);
-  const empty = lockRoleHeaders("Consultant | Acme Ltd | Jan 2020 – Dec 2021\n\nFull Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.", roles);
-  assert.equal(empty.experience, "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.");
+  const empty = lockRoleHeaders("Consultant | Acme Ltd | Jan 2020 – Dec 2021\n\nFull Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.", roles);
+  assert.equal(empty.experience, "Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.");
   assert.deepEqual(empty.report.droppedEmpty, ["Consultant | Acme Ltd | Jan 2020 – Dec 2021"]);
-  const withBullets = lockRoleHeaders("Consultant | Acme Ltd | Jan 2020 – Dec 2021\n• Advised three clients.\n\nFull Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.\n\nResearch Assistant | University of Hartwell | Jan 2026 – Present\n• Built a gap-analysis dashboard in Next.js.", roles);
+  const withBullets = lockRoleHeaders("Consultant | Acme Ltd | Jan 2020 – Dec 2021\n• Advised three clients.\n\nFull Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024\n• Cut frontend load time by 20% with code splitting.\n\nResearch Assistant | University of Hartwell | Jan 2026 – Present\n• Built a gap-analysis dashboard in Next.js.", roles);
   assert.deepEqual(withBullets.report.unmatched, ["Consultant | Acme Ltd | Jan 2020 – Dec 2021"], "three output roles, two master roles: never matched by position");
   assert.match(withBullets.experience, /^Consultant \| Acme Ltd/);
 });
@@ -213,26 +213,26 @@ test("lockRoleHeaders: the master's content in the output's shape — a dash-and
 Full-Stack & AI Engineer (Industrial Placement) | University of Hartwell | AssetGuard+ — London, UK\tJun 2026 – Present
 - Built a gap-analysis dashboard.
 
-Full Stack Engineer — Brane Group\tJul 2022 – Sep 2024
+Full Stack Engineer — Northgate Systems\tJul 2022 – Sep 2024
 - Built AI-enabled services with FastAPI and React for 3,000 users.
 `;
   const roles = parseMasterExperience(dashed);
-  assert.equal(canonicalHeader(roles[1].header), "Full Stack Engineer | Brane Group | Jul 2022 – Sep 2024");
+  assert.equal(canonicalHeader(roles[1].header), "Full Stack Engineer | Northgate Systems | Jul 2022 – Sep 2024");
   assert.equal(canonicalHeader(roles[0].header), "Full-Stack & AI Engineer (Industrial Placement) | University of Hartwell | AssetGuard+ — London, UK | Jun 2026 – Present");
   const same = lockRoleHeaders(
-    "Full-Stack & AI Engineer (Industrial Placement) | University of Hartwell | AssetGuard+ — London, UK | Jun 2026 – Present\n• Built a gap-analysis dashboard.\n\nFull Stack Engineer | Brane Group | Jul 2022 – Sep 2024\n• Built AI-enabled services with FastAPI and React for 3,000 users.",
+    "Full-Stack & AI Engineer (Industrial Placement) | University of Hartwell | AssetGuard+ — London, UK | Jun 2026 – Present\n• Built a gap-analysis dashboard.\n\nFull Stack Engineer | Northgate Systems | Jul 2022 – Sep 2024\n• Built AI-enabled services with FastAPI and React for 3,000 users.",
     roles
   );
   assert.deepEqual(same.report.locked, [], "the output already says what the master says");
-  const retitled = lockRoleHeaders("Software Developer | Brane Group | Jul 2022 – Sep 2024\n• Built AI-enabled services with FastAPI and React for 3,000 users.", roles);
-  assert.deepEqual(retitled.report.locked, [{ output: "Software Developer | Brane Group | Jul 2022 – Sep 2024", master: "Full Stack Engineer | Brane Group | Jul 2022 – Sep 2024" }]);
-  assert.match(retitled.experience, /^Full Stack Engineer \| Brane Group \| Jul 2022 – Sep 2024\n/, "the replacement keeps the shape every renderer parses");
+  const retitled = lockRoleHeaders("Software Developer | Northgate Systems | Jul 2022 – Sep 2024\n• Built AI-enabled services with FastAPI and React for 3,000 users.", roles);
+  assert.deepEqual(retitled.report.locked, [{ output: "Software Developer | Northgate Systems | Jul 2022 – Sep 2024", master: "Full Stack Engineer | Northgate Systems | Jul 2022 – Sep 2024" }]);
+  assert.match(retitled.experience, /^Full Stack Engineer \| Northgate Systems \| Jul 2022 – Sep 2024\n/, "the replacement keeps the shape every renderer parses");
 });
 
 test("lockRoleHeaders: by position only when the counts agree and nothing else matches", () => {
   const roles = parseMasterExperience(master);
   const r = lockRoleHeaders("Engineer | Somewhere | 2010 – 2011\n• A.\n\nAssistant | Elsewhere | 2012 – 2013\n• B.", roles);
-  assert.deepEqual(r.report.locked.map((l) => l.master), ["Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024", "Research Assistant | University of Hartwell | Jan 2026 – Present"]);
+  assert.deepEqual(r.report.locked.map((l) => l.master), ["Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024", "Research Assistant | University of Hartwell | Jan 2026 – Present"]);
   assert.deepEqual(lockRoleHeaders("", roles).report, { locked: [], unmatched: [], droppedEmpty: [] });
   assert.equal(lockRoleHeaders("• A bullet with no header.", roles).experience, "• A bullet with no header.");
 });
@@ -240,7 +240,7 @@ test("lockRoleHeaders: by position only when the counts agree and nothing else m
 // ── sortRolesByDate (30 Sep audit, Phase 2) ──────────────────────────────────
 
 test("headerSpan reads start and end months; a current role ends at infinity; no year is null", () => {
-  assert.deepEqual(headerSpan("Full Stack Engineer | Brane Group | Jul 2022 – Sep 2024"), [2022 * 12 + 6, 2024 * 12 + 8]);
+  assert.deepEqual(headerSpan("Full Stack Engineer | Northgate Systems | Jul 2022 – Sep 2024"), [2022 * 12 + 6, 2024 * 12 + 8]);
   assert.deepEqual(headerSpan("Research Assistant | Hartwell | Jun 2026 – Present"), [2026 * 12 + 5, Number.POSITIVE_INFINITY]);
   assert.deepEqual(headerSpan("Analyst | Acme | 2019 – 2021"), [2019 * 12, 2021 * 12]);
   assert.deepEqual(headerSpan("Intern | Acme | 07/2019 – 09/2019"), [2019 * 12 + 6, 2019 * 12 + 8]);
@@ -248,9 +248,9 @@ test("headerSpan reads start and end months; a current role ends at infinity; no
 });
 
 test("sortRolesByDate: a current role first, then by end month; undated roles keep their place last; the text is untouched when already ordered", () => {
-  const out = "Analyst | Acme | Jan 2019 – Dec 2021\n• A.\n\nFull Stack Engineer | Brane Group | Jul 2022 – Sep 2024\n• B.\n• C.\n\nVolunteer | Shelter | weekends\n• V.\n\nResearch Assistant | Hartwell | Jun 2026 – Present\n• D.";
+  const out = "Analyst | Acme | Jan 2019 – Dec 2021\n• A.\n\nFull Stack Engineer | Northgate Systems | Jul 2022 – Sep 2024\n• B.\n• C.\n\nVolunteer | Shelter | weekends\n• V.\n\nResearch Assistant | Hartwell | Jun 2026 – Present\n• D.";
   const r = sortRolesByDate(out);
-  assert.equal(r.experience, "Research Assistant | Hartwell | Jun 2026 – Present\n• D.\n\nFull Stack Engineer | Brane Group | Jul 2022 – Sep 2024\n• B.\n• C.\n\nAnalyst | Acme | Jan 2019 – Dec 2021\n• A.\n\nVolunteer | Shelter | weekends\n• V.");
+  assert.equal(r.experience, "Research Assistant | Hartwell | Jun 2026 – Present\n• D.\n\nFull Stack Engineer | Northgate Systems | Jul 2022 – Sep 2024\n• B.\n• C.\n\nAnalyst | Acme | Jan 2019 – Dec 2021\n• A.\n\nVolunteer | Shelter | weekends\n• V.");
   assert.equal(r.report.moved, true);
   assert.deepEqual(r.report.order.map((h) => h.split(" | ")[0]), ["Research Assistant", "Full Stack Engineer", "Analyst", "Volunteer"]);
   const same = sortRolesByDate(r.experience);
@@ -265,15 +265,15 @@ test("sortRolesByDate: a current role first, then by end month; undated roles ke
 test("reconcileExperience: an edit that adds a repeated word or a third printed line reverts to the master bullet", () => {
   const roles = parseMasterExperience(master);
   // "Cut frontend load time by 20% with code splitting." edited to repeat "splitting".
-  const repeat = reconcileExperience("Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• [R1.3] Cut frontend load time by 20% with splitting splitting.", roles);
+  const repeat = reconcileExperience("Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024\n• [R1.3] Cut frontend load time by 20% with splitting splitting.", roles);
   assert.equal(repeat.changes!.roles[0].bullets[0].status, "reverted");
   assert.match(repeat.experience, /Cut frontend load time by 20% with code splitting\./);
   // A two-word edit that pushes the bullet past two printed lines.
   const pad = "x".repeat(150);
-  const long = reconcileExperience(`Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• [R1.3] Cut frontend load time by 20% with code ${pad}.`, roles);
+  const long = reconcileExperience(`Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024\n• [R1.3] Cut frontend load time by 20% with code ${pad}.`, roles);
   assert.equal(long.changes!.roles[0].bullets[0].status, "reverted");
   // A clean two-word edit still stands.
-  const fine = reconcileExperience("Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• [R1.3] Cut front-end load time by 20% with code splitting.", roles);
+  const fine = reconcileExperience("Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024\n• [R1.3] Cut front-end load time by 20% with code splitting.", roles);
   assert.equal(fine.changes!.roles[0].bullets[0].status, "edited");
 });
 
@@ -305,7 +305,7 @@ test("canonicalHeader reads 'at' and comma headers and bracketed dates; an unspl
 test("reconcileExperience: bare ids (no brackets) resolve like bracketed ones and never reach the text", () => {
   const roles = parseMasterExperience(master);
   const output = [
-    "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024",
+    "Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024",
     "• R1.2 Built AI-enabled services with FastAPI and React for 3,000 users.",
     "R1.3 Cut frontend load time by 20% with code splitting.",
     "• **R1.1** Highlight: Shipped 20+ API modules across 2 product lines.",

@@ -13,12 +13,12 @@ const projects = { "0": [bullet(8), bullet(9)], "1": [bullet(10), bullet(11)] };
 const profile = { name: "Jane Doe", tagline: "Engineer | 2 years' experience | Python", email: "j@x.com", linkedin: "linkedin.com/in/jane", github: "github.com/jane", website: "" };
 const letter = [
   "Dear Acme Hiring Team,",
-  "I am applying for the Engineer role at Acme. I cut response times by 25% at Brane. I am particularly interested in this role because Acme builds payment rails for banks.",
+  "I am applying for the Engineer role at Acme. I cut response times by 25% at Northgate. I am particularly interested in this role because Acme builds payment rails for banks.",
   "In Jobhuntz, a personal project, I built an eight-step pipeline that cut untraceable sentences from 28% to 6%.",
   "Having read the job description, these are the four areas where I can add value from the start:",
-  "1. Python: I delivered 20+ API modules in Python at Brane.",
+  "1. Python: I delivered 20+ API modules in Python at Northgate.",
   "2. Testing: I wrote 192 unit tests for CampaignPulse, a personal project.",
-  "3. PostgreSQL: I tuned queries at Brane, making them 30% faster.",
+  "3. PostgreSQL: I tuned queries at Northgate, making them 30% faster.",
   "4. AWS: I provisioned a London-region stack with Terraform for CampaignPulse.",
   "I am completing an MSc in Computer Science at the University of Hartwell, expected January 2027.",
   "Thank you for considering my application. I would welcome a conversation about the role.",

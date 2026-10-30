@@ -26,7 +26,7 @@ import { ROUNDS, INTERVIEW_TYPES, RTW_QUESTION, CLOSE_QUESTION, MAX_ANSWERS, ope
 import { speakable, splitSentences, numberToWords, countFillers, isRepeatRequest, isThinkingRequest, isNoQuestions } from "../src/lib/speechText.ts";
 
 const CV = `EXPERIENCE
-Full Stack Engineer | Brane Group | Jul 2022 – Sep 2024
+Full Stack Engineer | Northgate Systems | Jul 2022 – Sep 2024
 - Built REST APIs in FastAPI serving 3,000 users.
 - Cut page load time by 20% with code splitting.
 - Wrote 90+ Jest tests for the checkout flow.`;
@@ -77,18 +77,18 @@ test("rounds: six UK rounds, the screening call asks right to work, notice, sala
 test("plan: the model's questions are cleaned, logistics and unlawful ones dropped, gaps filled, anchors traced", () => {
   const raw = {
     questions: [
-      { text: "1. Tell me about a time you had to deliver under pressure at Brane Group", rubric: "star", intent: "delivery", cvAnchor: "Built REST APIs in FastAPI serving 3,000 users." },
+      { text: "1. Tell me about a time you had to deliver under pressure at Northgate Systems", rubric: "star", intent: "delivery", cvAnchor: "Built REST APIs in FastAPI serving 3,000 users." },
       { text: "How old were you when you started coding?", rubric: "star" },
       { text: "What are your salary expectations?", rubric: "star" },
       { text: "Can you give me an example of explaining a technical problem to a non-technical colleague?", rubric: "star", cvAnchor: "Led a team of 12 engineers." },
-      { text: "Tell me about a time you had to deliver under pressure at Brane Group?", rubric: "star" },
+      { text: "Tell me about a time you had to deliver under pressure at Northgate Systems?", rubric: "star" },
     ],
   };
   const { plan, fromModel } = normalizePlan(raw, "competency", ctx);
   assert.equal(fromModel, 2);
   const texts = plan.questions.map((q) => q.text);
   assert.equal(texts[0], ROUNDS.competency.fixedBefore[0].text);
-  assert.equal(texts[1], "Tell me about a time you had to deliver under pressure at Brane Group.");
+  assert.equal(texts[1], "Tell me about a time you had to deliver under pressure at Northgate Systems.");
   assert.ok(!texts.some((t) => /old|salary/i.test(t)));
   assert.equal(plan.questions.length, 1 + ROUNDS.competency.modelQuestions);
   assert.equal(plan.questions[1].cvAnchor, "Built REST APIs in FastAPI serving 3,000 users.");
@@ -126,7 +126,7 @@ test("turn: one follow-up per question, then the next question; praise is scrubb
   assert.equal(a1.reply.kind, "probe");
   assert.equal(a1.reply.say, "Thanks. Which project was that, and what did you build yourself?");
   transcript.push(...a1.entries);
-  const a2 = decideTurn(plan, transcript, "At Brane Group I built the REST APIs.", model({ move: "probe", probe: "And what was the result?" }), turnCtx);
+  const a2 = decideTurn(plan, transcript, "At Northgate Systems I built the REST APIs.", model({ move: "probe", probe: "And what was the result?" }), turnCtx);
   assert.equal(a2.reply.kind, "next", "a second probe on the same question is refused");
   assert.equal(a2.reply.question!.id, "q2");
   assert.equal(a2.reply.say, `Thank you. ${plan.questions[1].text}`);
@@ -135,7 +135,7 @@ test("turn: one follow-up per question, then the next question; praise is scrubb
 test("turn: a question inside the reaction is dropped, so each turn asks one question (live run, 30 Sep)", () => {
   assert.equal(neutralReaction("Right, thanks. And how did the front-end work feed back into the back end?"), "Right, thanks.");
   const { plan, transcript } = play();
-  const r = decideTurn(plan, transcript, "At Brane Group I built the APIs myself.", model({ reaction: "Right, thanks. And how did that go?", move: "next" }), turnCtx);
+  const r = decideTurn(plan, transcript, "At Northgate Systems I built the APIs myself.", model({ reaction: "Right, thanks. And how did that go?", move: "next" }), turnCtx);
   assert.equal(r.reply.say, `Right, thanks. ${plan.questions[1].text}`);
   assert.ok(!/how did that go/.test(r.reply.say), "the smuggled question is gone");
 });
@@ -156,7 +156,7 @@ test("live competency run (30 Sep): wrong-kind questions dropped, one-question p
   assert.equal(neutralReaction("Thanks, that's helpful. So you've got solid full-stack experience and you're currently on placement."), "Thanks, that's helpful.");
   assert.equal(neutralReaction("That's solid experience."), "");
   const transcript = openingEntries(plan);
-  const r = decideTurn(plan, transcript, "I built the API at Brane Group.", model({ reaction: "Right, thanks. So you built the back-end API yourself.", move: "probe", probe: "What trade-offs did you make? And how did you know it was safe to ship?" }), turnCtx);
+  const r = decideTurn(plan, transcript, "I built the API at Northgate Systems.", model({ reaction: "Right, thanks. So you built the back-end API yourself.", move: "probe", probe: "What trade-offs did you make? And how did you know it was safe to ship?" }), turnCtx);
   assert.equal(r.reply.say, "Right, thanks. What trade-offs did you make?");
 });
 
@@ -177,7 +177,7 @@ test("turn: logistics questions get no follow-up; the close takes two candidate 
   const { plan, transcript } = play("screening");
   // Answer everything with no probes.
   for (let i = 0; i < plan.questions.length; i++) {
-    const r = decideTurn(plan, transcript, "A clear answer about my experience at Brane Group.", model({ move: "probe", probe: "Could you say more?" }), turnCtx);
+    const r = decideTurn(plan, transcript, "A clear answer about my experience at Northgate Systems.", model({ move: "probe", probe: "Could you say more?" }), turnCtx);
     const q = plan.questions[i];
     if (q.rubric.startsWith("logistics_")) assert.notEqual(r.reply.kind, "probe", q.text);
     transcript.push(...r.entries);
@@ -227,7 +227,7 @@ test("feedback: a pass needs its quote in the answer; figures the CV lacks are f
   const { plan } = normalizePlan({}, "screening", ctx);
   const transcript: TranscriptEntry[] = [
     ...openingEntries(plan),
-    { who: "candidate", kind: "answer", questionId: "q1", text: "I'm a full stack engineer. At Brane Group I built REST APIs in FastAPI for 3,000 users and cut load time by 45%.", seconds: 40 },
+    { who: "candidate", kind: "answer", questionId: "q1", text: "I'm a full stack engineer. At Northgate Systems I built REST APIs in FastAPI for 3,000 users and cut load time by 45%.", seconds: 40 },
     { who: "candidate", kind: "answer", questionId: plan.questions.find((q) => q.rubric === "logistics_rtw")!.id, text: "I'm on a Student visa and move to the Graduate Route in January 2027, so no sponsorship for two years." },
     { who: "candidate", kind: "answer", questionId: plan.questions.find((q) => q.rubric === "logistics_salary")!.id, text: "Um, I'm not sure, you know." },
   ];
@@ -241,13 +241,13 @@ test("feedback: a pass needs its quote in the answer; figures the CV lacks are f
   assert.equal(q1.cvLine, "Built REST APIs in FastAPI serving 3,000 users.");
   // A suggestion the CV does not support is kept but marked (30 Sep).
   const invented = reconcileFeedback(
-    { answers: [{ id: "q1", tryInstead: "Mention the Kubernetes migration you led for the platform team at Brane. Say you cut load time by 20%." }] },
+    { answers: [{ id: "q1", tryInstead: "Mention the Kubernetes migration you led for the platform team at Northgate. Say you cut load time by 20%." }] },
     plan,
     transcript,
     CV
   ).answers.find((a) => a.questionId === "q1")!;
-  assert.equal(invented.tryInstead, "Mention the Kubernetes migration you led for the platform team at Brane. Say you cut load time by 20%.");
-  assert.deepEqual(invented.tryInsteadFlags, ["Mention the Kubernetes migration you led for the platform team at Brane."]);
+  assert.equal(invented.tryInstead, "Mention the Kubernetes migration you led for the platform team at Northgate. Say you cut load time by 20%.");
+  assert.deepEqual(invented.tryInsteadFlags, ["Mention the Kubernetes migration you led for the platform team at Northgate."]);
   const rtw = fb.answers.find((a) => a.rubric === "logistics_rtw")!;
   assert.equal(rtw.checks[0].pass, true);
   const salary = fb.answers.find((a) => a.rubric === "logistics_salary")!;
@@ -256,7 +256,7 @@ test("feedback: a pass needs its quote in the answer; figures the CV lacks are f
 });
 
 test("readout: fixed labels from counts; 3 of 12 can never read 'Ready'; an early end is 'incomplete'", () => {
-  const mk = (pass: boolean[]) => ({ questionId: "q", question: "", rubric: "star" as const, answer: "", checks: pass.map((p) => ({ key: "answered" as const, pass: p, quote: "" })), metrics: answerMetrics("I built it at Brane Group and it worked well for the team over many months of steady use.", null, CV), tryInstead: "", cvLine: "" });
+  const mk = (pass: boolean[]) => ({ questionId: "q", question: "", rubric: "star" as const, answer: "", checks: pass.map((p) => ({ key: "answered" as const, pass: p, quote: "" })), metrics: answerMetrics("I built it at Northgate Systems and it worked well for the team over many months of steady use.", null, CV), tryInstead: "", cvLine: "" });
   const low = readout([mk([true, false, false, false]), mk([true, false, false, false]), mk([true, false, false, false])], 5);
   assert.equal(low.band, "not_ready");
   assert.notEqual(low.label, "Ready for this stage");

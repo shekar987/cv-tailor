@@ -13,7 +13,7 @@ SKILLS
 AI & LLM: Anthropic Claude API, LangChain, LlamaIndex, RAG
 Cloud & DevOps: AWS (Lambda, SQS), Terraform, Docker
 EXPERIENCE
-Full Stack Engineer | Brane Group | Jul 2022 – Oct 2024
+Full Stack Engineer | Northgate Systems | Jul 2022 – Oct 2024
 • Delivered 20+ production API modules using Python, FastAPI, React and TypeScript`;
 
 // 29 Oct 2026: the extracted profile and a CareerSet summary said "BSc".
@@ -42,10 +42,10 @@ test("dropUnbackedTools: an over-claimed tool the master never names leaves the 
 
 test("liftedSummaryPhrases: a JD phrase in the summary that the master never states is reported", () => {
   const jd = "Hike is representing a client building live translation technology. You'll do live translation AI development across the stack.";
-  const summary = "Full Stack Engineer with live translation AI development and full-stack production experience at Brane Group.";
+  const summary = "Full Stack Engineer with live translation AI development and full-stack production experience at Northgate Systems.";
   const hits = liftedSummaryPhrases(summary, master, jd);
   assert.ok(hits.some((h) => h.includes("live translation")), JSON.stringify(hits));
-  assert.deepEqual(liftedSummaryPhrases("Full Stack Engineer at Brane Group building Python services.", master, jd), []);
+  assert.deepEqual(liftedSummaryPhrases("Full Stack Engineer at Northgate Systems building Python services.", master, jd), []);
 });
 
 test("guardFacts: runs all three on the finished sections", () => {

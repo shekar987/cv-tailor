@@ -214,7 +214,7 @@ test("a fix that mostly repeats the rest of its section is refused", () => {
 
 test("capEmDashes: one em-dash at most — pairs become brackets, later singles commas", () => {
   const letter =
-    "Dear Base360.ai team,\nAt Brane Group I shipped 20+ production API modules that handled real workflows—dashboards, forms, automation services—across multiple resource categories. I optimised data access across PostgreSQL and Redis—indexing, query tuning, caching—which cut response times by 30%.\nI build features and ship them—and I like it. Then more—and more.\nKind regards,\nAlex Example";
+    "Dear Base360.ai team,\nAt Northgate Systems I shipped 20+ production API modules that handled real workflows—dashboards, forms, automation services—across multiple resource categories. I optimised data access across PostgreSQL and Redis—indexing, query tuning, caching—which cut response times by 30%.\nI build features and ship them—and I like it. Then more—and more.\nKind regards,\nAlex Example";
   const r = capEmDashes(letter);
   assert.equal((r.text.match(/—/g) || []).length, 1);
   assert.match(r.text, /real workflows \(dashboards, forms, automation services\) across multiple/);

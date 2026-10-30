@@ -28,7 +28,7 @@ test("bulletRelevance: required skill > keyword > evidence > nothing", () => {
 
 test("capSummaryWords keeps whole leading sentences within 60 words; the first always stays", () => {
   const s = [
-    "Full Stack Engineer with two years building AI-enabled services at Brane Group, shipping 20+ API modules for real customers.",
+    "Full Stack Engineer with two years building AI-enabled services at Northgate Systems, shipping 20+ API modules for real customers.",
     "Cut frontend load time by 20% and led the migration to Next.js across three product surfaces used by thousands of people every week, with zero regressions reported.",
     "Built Jobhuntz, a Next.js and Supabase CV tool with 90+ automated tests and a real PDF text layer.",
   ].join("\n");
@@ -112,7 +112,7 @@ const masterCv = [
   "- Develop features for AssetGuard+ in React and Node.js used by 40 analysts.",
   "- Analysed 11 industry asset-management platforms from verified user reviews.",
   "",
-  "Full Stack Engineer — Brane Group",
+  "Full Stack Engineer — Northgate Systems",
   "Jul 2023 – Sep 2024 (full-time)",
   "",
   "- Engineered enterprise web applications in Python, FastAPI, React and TypeScript, delivering 20+ production API modules.",
@@ -133,7 +133,7 @@ const tailoredExp = [
   "Research Assistant | University of Hartwell | Jun 2026 – Present",
   "• Develop features for AssetGuard+ in React and Node.js used by 40 analysts.",
   "",
-  "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024",
+  "Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024",
   "• Engineered enterprise web applications in Python, FastAPI, React and TypeScript, delivering 20+ production API modules.",
   "• Built secure FastAPI backend services with JWT authentication and RBAC.",
   "",
@@ -161,11 +161,11 @@ test("fitTwoPages: restores left-out master bullets under their own role, most r
   assert.deepEqual(report.leftOut.experience, []);
   // PostgreSQL is a keyword and the bullet carries a figure: it ranks first.
   assert.deepEqual(report.restored.map((r) => r.bullet.slice(0, 20)), ["Optimised data acces", "Analysed 11 industry"]);
-  assert.deepEqual(report.restored.map((r) => r.section), ["Full Stack Engineer — Brane Group", "Research Assistant — AI & Full-Stack Development"]);
+  assert.deepEqual(report.restored.map((r) => r.section), ["Full Stack Engineer — Northgate Systems", "Research Assistant — AI & Full-Stack Development"]);
   const lines = String(out.experience).split("\n");
   const at = (s: string) => lines.findIndex((l) => l.includes(s));
   assert.ok(at("Analysed 11") > at("Research Assistant |") && at("Analysed 11") < at("Full Stack Engineer |"), "under the Research Assistant role");
-  assert.ok(at("Optimised data access") > at("Built secure FastAPI") && at("Optimised data access") < at("Full Stack Development Intern |"), "last in the Brane role");
+  assert.ok(at("Optimised data access") > at("Built secure FastAPI") && at("Optimised data access") < at("Full Stack Development Intern |"), "last in the Northgate role");
   assert.ok(REFILL_DENSITIES.includes(estimatePages(out, profile, 2).density));
 });
 
@@ -173,8 +173,8 @@ test("fitTwoPages: never places a bullet under a role its master header does not
   const sections = { summary: "x", skills: "y", experience: tailoredExp, projects: {} };
   const candidates: RefillCandidate[] = [
     { where: "experience", role: 2, masterHeader: "Senior Engineer — Globex | 2019 – 2021", text: "Ran the Globex migration for 12 teams." },
-    { where: "experience", role: 2, masterHeader: "Full Stack Engineer — Brane Group | Jul 2023 – Sep 2024", text: "Built secure FastAPI backend services with JWT authentication and RBAC for 3 clients." },
-    { where: "experience", role: 2, masterHeader: "Full Stack Engineer — Brane Group | Jul 2023 – Sep 2024", text: "Highlight: Shipped 20+ API modules across 2 product lines." },
+    { where: "experience", role: 2, masterHeader: "Full Stack Engineer — Northgate Systems | Jul 2023 – Sep 2024", text: "Built secure FastAPI backend services with JWT authentication and RBAC for 3 clients." },
+    { where: "experience", role: 2, masterHeader: "Full Stack Engineer — Northgate Systems | Jul 2023 – Sep 2024", text: "Highlight: Shipped 20+ API modules across 2 product lines." },
   ];
   const { sections: out, report } = fitTwoPages(sections, profile, terms, candidates);
   assert.deepEqual(report.restored.map((r) => r.bullet), ["Highlight: Shipped 20+ API modules across 2 product lines."]);
@@ -197,7 +197,7 @@ test("fitTwoPages: stops restoring before the layout reaches the tightest spacin
   const candidates: RefillCandidate[] = Array.from({ length: 40 }, (_, i) => ({
     where: "experience" as const,
     role: 2,
-    masterHeader: "Full Stack Engineer — Brane Group | Jul 2023 – Sep 2024",
+    masterHeader: "Full Stack Engineer — Northgate Systems | Jul 2023 – Sep 2024",
     text: long(i),
   }));
   const { sections: out, report } = fitTwoPages({ summary: "x", skills: "y", experience: tailoredExp, projects: {} }, profile, terms, candidates);

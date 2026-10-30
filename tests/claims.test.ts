@@ -199,12 +199,12 @@ React 19, Firebase
   assert.equal(checkClaims([{ where: "cv", text: "Proficient in Python.", experience: "• Proficient in Python." }], registry, [cv]).skillViolations.length, 0);
 });
 
-test("levels are enforced per section even when the master CV's own bullet carries the phrase (RAG under Brane Group)", () => {
+test("levels are enforced per section even when the master CV's own bullet carries the phrase (RAG under Northgate Systems)", () => {
   // The production case: the master CV says "LLM/RAG knowledge solutions"
   // under a paid role, the registry says RAG is project-level, and 15 of 15
   // generated CVs on 23 Sep carried the phrase into Experience unflagged
   // because "RAG and knowledge retrieval" never matched "LLM/RAG".
-  const master = `SKILLS\nAI & LLM: Anthropic Claude API · RAG and knowledge retrieval · LangChain\nEXPERIENCE\nFull Stack Engineer — Brane Group\n- Built AI-enabled services, contributing to facial-recognition workflows and later LLM/RAG knowledge solutions that automated business-document generation.\nPROJECTS\nJobhuntz\n- Built a RAG pipeline with LangChain.`;
+  const master = `SKILLS\nAI & LLM: Anthropic Claude API · RAG and knowledge retrieval · LangChain\nEXPERIENCE\nFull Stack Engineer — Northgate Systems\n- Built AI-enabled services, contributing to facial-recognition workflows and later LLM/RAG knowledge solutions that automated business-document generation.\nPROJECTS\nJobhuntz\n- Built a RAG pipeline with LangChain.`;
   const registry: ClaimsRegistry = {
     version: 1,
     skills: [
@@ -221,7 +221,7 @@ test("levels are enforced per section even when the master CV's own bullet carri
   assert.equal(skillMentioned("knowledge of retrieval systems", "RAG and knowledge retrieval"), false, "generic words alone are not the skill");
   assert.deepEqual(distinctiveTokens("REST API design"), [], "generic acronyms and words carry no claim");
   assert.deepEqual(distinctiveTokens("RAG and knowledge retrieval"), ["RAG"]);
-  const experience = "Full Stack Engineer | Brane Group | Jul 2023 – Sep 2024\n• Built AI-enabled services across 2+ solution areas, contributing to facial-recognition workflows and later LLM/RAG knowledge solutions.";
+  const experience = "Full Stack Engineer | Northgate Systems | Jul 2023 – Sep 2024\n• Built AI-enabled services across 2+ solution areas, contributing to facial-recognition workflows and later LLM/RAG knowledge solutions.";
   const projects = { "0": ["Built a RAG pipeline with LangChain and LlamaIndex for Jobhuntz."] };
   const skills = "**Functional Competencies:** AI Integration | REST API Design\n**Technical Tools:** Python | FastAPI | LangChain | React | TypeScript | PostgreSQL | Docker | AWS | Redis | LlamaIndex";
   const text = [experience, projects["0"][0], skills].join("\n");
@@ -233,7 +233,7 @@ test("levels are enforced per section even when the master CV's own bullet carri
   assert.equal(byRule["LlamaIndex"], undefined, "tenth tool and under Projects is fine");
   assert.equal(c.blocking, true);
   // Under Projects alone, the same skills pass.
-  const ok = checkClaims([{ where: "cv", text: projects["0"][0], experience: "Full Stack Engineer | Brane Group | 2023\n• Shipped 20+ API modules.", skills: "**Technical Tools:** Python | FastAPI" }], registry, [master]);
+  const ok = checkClaims([{ where: "cv", text: projects["0"][0], experience: "Full Stack Engineer | Northgate Systems | 2023\n• Shipped 20+ API modules.", skills: "**Technical Tools:** Python | FastAPI" }], registry, [master]);
   assert.deepEqual(ok.skillViolations, []);
   // The lead-tool rule is satisfied deterministically: the tool moves to the end of the line.
   const demoted = demoteProjectTools(skills, ["LangChain", "LlamaIndex", "RAG and knowledge retrieval"]);
@@ -272,7 +272,7 @@ AI & LLM: Anthropic Claude API · LangChain
 Currently studying: Kubernetes
 
 EXPERIENCE
-Full Stack Engineer — Brane Group
+Full Stack Engineer — Northgate Systems
 Jul 2023 – Sep 2024 (full-time)
 - Engineered backend services in Python, FastAPI, React and TypeScript, delivering 20+ production API modules.
 - Optimised data access across PostgreSQL, MySQL and Redis using indexing and caching.
@@ -429,7 +429,7 @@ test("sentencesMentioning hands the rewrite the FULL sentence, not the 120-chara
   // excerpt's cut, so the rewrite was asked to remove a skill it never saw.
   const summary = [
     "AI Data Science Intern targeting roles in machine learning and LLM systems, with production Python and FastAPI experience building RAG pipelines and evaluation tooling.",
-    "Shipped 20+ production API modules at Brane Group.",
+    "Shipped 20+ production API modules at Northgate Systems.",
   ].join("\n");
   const registry: ClaimsRegistry = {
     version: 1,
@@ -444,7 +444,7 @@ test("sentencesMentioning hands the rewrite the FULL sentence, not the 120-chara
   assert.equal(full.length, 1);
   assert.match(full[0], /building RAG pipelines and evaluation tooling\.$/);
   assert.ok(full[0].length > 120);
-  assert.deepEqual(sentencesMentioning("Full Stack Engineer | Brane Group | 2023 – 2024\nShipped APIs.", "Brane"), [], "header lines are skipped");
+  assert.deepEqual(sentencesMentioning("Full Stack Engineer | Northgate Systems | 2023 – 2024\nShipped APIs.", "Northgate"), [], "header lines are skipped");
   // Spelling the acronym out does not get past the check.
   assert.equal(skillMentioned("building retrieval-augmented generation pipelines", "RAG and knowledge retrieval"), true);
   assert.equal(skillMentioned("building Retrieval Augmented Generation pipelines", "RAG and knowledge retrieval"), true);
@@ -498,7 +498,7 @@ test("two figures joined into a range the master CV never states are flagged (ru
   const flagged = checkClaims([{ where: "cv", text: "Improved response times by 25–30% across services." }], null, [cv]);
   assert.equal(flagged.numberViolations.find((n) => n.kind === "combined")?.figure, "25–30%");
   // A range the CV itself states is fine; a date range is never a figure.
-  const fine = checkClaims([{ where: "cv", text: "Latency fell 10–15% after caching. Brane Group, 2022 – 2024." }], null, [cv]);
+  const fine = checkClaims([{ where: "cv", text: "Latency fell 10–15% after caching. Northgate Systems, 2022 – 2024." }], null, [cv]);
   assert.equal(fine.numberViolations.filter((n) => n.kind === "combined").length, 0);
 });
 

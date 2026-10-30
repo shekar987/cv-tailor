@@ -5,10 +5,10 @@ import { properNounRuns, unsupportedProperNouns, sentencesNaming, dropSentences 
 
 const JD = "Forward Deployed Engineer at Seamflow. Location: London (hybrid). You will work with our customers in regulated industries.";
 const RESEARCH = JSON.stringify({ company_name: "Seamflow", what_they_build: "Certification workflow automation for regulated manufacturers", engineering_stack: ["Python", "PostgreSQL"] });
-const CV = "ALEX MORGAN\nLondon, UK\nFull Stack Engineer — Brane Group\nBuilt FastAPI services. Built Jobhuntz, an LLM product, and RideX, a ride-hailing platform.\nMSc Computer Science — University of Hartwell";
+const CV = "ALEX MORGAN\nLondon, UK\nFull Stack Engineer — Northgate Systems\nBuilt FastAPI services. Built Jobhuntz, an LLM product, and RideX, a ride-hailing platform.\nMSc Computer Science — University of Hartwell";
 const LETTER = `Dear Hiring Manager,
 
-I am writing about the Forward Deployed Engineer role at Seamflow. At Brane Group I built FastAPI services for enterprise workflows. My own LLM product, Jobhuntz, is live today. RideX followed it.
+I am writing about the Forward Deployed Engineer role at Seamflow. At Northgate Systems I built FastAPI services for enterprise workflows. My own LLM product, Jobhuntz, is live today. RideX followed it.
 
 I'm in London and available for on-site work in Shoreditch. Your work with regulated manufacturers is exactly the kind of problem I want to solve.
 
@@ -17,7 +17,7 @@ Alex Morgan`;
 
 test("properNounRuns: names, not letter furniture, acronyms or sentence-initial words", () => {
   const runs = properNounRuns(LETTER);
-  for (const expected of ["Forward Deployed Engineer", "Seamflow", "Brane Group", "Jobhuntz", "London", "Shoreditch", "Alex Morgan"]) {
+  for (const expected of ["Forward Deployed Engineer", "Seamflow", "Northgate Systems", "Jobhuntz", "London", "Shoreditch", "Alex Morgan"]) {
     assert.ok(runs.includes(expected), `${expected} in ${JSON.stringify(runs)}`);
   }
   for (const not of ["Dear Hiring Manager", "Kind", "Your", "At", "I'm", "LLM", "My"]) {
@@ -35,12 +35,12 @@ test("unsupportedProperNouns: Shoreditch is invented; everything else traces to 
   assert.deepEqual(unsupportedProperNouns(LETTER, [JD, CV]), ["Shoreditch"]);
   assert.ok(unsupportedProperNouns(LETTER, [JD, RESEARCH]).includes("Jobhuntz"));
   // Possessives and hyphenation do not matter.
-  assert.deepEqual(unsupportedProperNouns("Seamflow's customers trust Brane-Group tooling.", [JD, CV]), []);
+  assert.deepEqual(unsupportedProperNouns("Seamflow's customers trust Northgate-Systems tooling.", [JD, CV]), []);
   assert.deepEqual(unsupportedProperNouns("", [JD]), []);
 });
 
 test("unsupportedProperNouns: 'I've', 'I'm', 'I'd', 'I'll' mid-sentence are the pronoun, never a name", () => {
-  const letter = "At Brane Group I built 20+ API modules, and I've since shipped RideX, where I'm the sole engineer and I'd do it again; I'll keep going. That’s why I’ve applied.";
+  const letter = "At Northgate Systems I built 20+ API modules, and I've since shipped RideX, where I'm the sole engineer and I'd do it again; I'll keep going. That’s why I’ve applied.";
   assert.deepEqual(unsupportedProperNouns(letter, [CV]), []);
 });
 
@@ -59,12 +59,12 @@ test("sentencesNaming and dropSentences: the offending sentence goes, the paragr
 });
 
 test("sentencesNaming: a possessive still names the noun (AssetGuard's platform)", () => {
-  const letter = "I admire AssetGuard's platform.\n\nAt Brane Group I shipped 20+ API modules.";
+  const letter = "I admire AssetGuard's platform.\n\nAt Northgate Systems I shipped 20+ API modules.";
   assert.deepEqual(sentencesNaming(letter, ["AssetGuard"]), ["I admire AssetGuard's platform."]);
-  assert.equal(dropSentences(letter, sentencesNaming(letter, ["AssetGuard"])), "At Brane Group I shipped 20+ API modules.");
+  assert.equal(dropSentences(letter, sentencesNaming(letter, ["AssetGuard"])), "At Northgate Systems I shipped 20+ API modules.");
 });
 
 test("a company name with digits is one name (Base360.ai)", () => {
-  const letter = "Dear Base360.ai team,\nI am applying for the Product Engineer role at Base360.ai. At Brane Group I built FastAPI services.\nKind regards,\nAlex Morgan";
+  const letter = "Dear Base360.ai team,\nI am applying for the Product Engineer role at Base360.ai. At Northgate Systems I built FastAPI services.\nKind regards,\nAlex Morgan";
   assert.deepEqual(unsupportedProperNouns(letter, ["Product Engineer at Base360.ai, London.", CV]), []);
 });

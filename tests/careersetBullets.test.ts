@@ -18,7 +18,7 @@ const UK = rules(UKJI);
 
 const master = [
   "EXPERIENCE",
-  "Full Stack Engineer | Brane Group | Jul 2022 – Oct 2024",
+  "Full Stack Engineer | Northgate Systems | Jul 2022 – Oct 2024",
   "Highlight: Delivered 20+ production API modules for enterprise platforms using Python and FastAPI.",
   "• Used Python and FastAPI to secure services with JWT authentication, cutting typical API response times by 25%.",
   "• Successfully automated build and release through CI/CD pipelines, cutting deployment time by 40%.",
@@ -29,7 +29,7 @@ const master = [
 ].join("\n");
 const roles = parseMasterExperience(master);
 const experience = [
-  "Full Stack Engineer | Brane Group | Jul 2022 – Oct 2024",
+  "Full Stack Engineer | Northgate Systems | Jul 2022 – Oct 2024",
   "• Highlight: Delivered **20+ production API modules** for enterprise platforms using Python and FastAPI.",
   "• Used Python and FastAPI to secure services with JWT authentication, cutting typical API response times by **25%**.",
   "• Successfully automated build and release through CI/CD pipelines, cutting deployment time by 40%.",
@@ -49,7 +49,7 @@ test("UKJI rules: the style pass is the identity", () => {
 test("CareerSet rules: bold, the Highlight prefix and the trailing full stop go at zero substitutions; banned words swap inside the budget or are reported", () => {
   const r = applyBulletStyle({ experience, projects }, CS, roles, ["Jobhuntz"]);
   const lines = r.experience.split("\n");
-  assert.equal(lines[0], "Full Stack Engineer | Brane Group | Jul 2022 – Oct 2024", "the header passes through");
+  assert.equal(lines[0], "Full Stack Engineer | Northgate Systems | Jul 2022 – Oct 2024", "the header passes through");
   assert.equal(lines[1], "• Delivered 20+ production API modules for enterprise platforms using Python and FastAPI", "no Highlight:, no bold, no full stop");
   assert.equal(lines[2], "• Applied Python and FastAPI to secure services with JWT authentication, cutting typical API response times by 25%", "used → applied, capital kept");
   assert.equal(lines[3], "• Automated build and release through CI/CD pipelines, cutting deployment time by 40%", "successfully dropped, the next word capitalised");
@@ -84,7 +84,7 @@ test("CareerSet rules: bold, the Highlight prefix and the trailing full stop go 
 
 test("a swap that would take a master bullet past two changed words is reported, not applied", () => {
   // The bullet already differs from its master by two words ("services" → "endpoints", "typical" → "median").
-  const edited = "Full Stack Engineer | Brane Group | Jul 2022 – Oct 2024\n• Used Python and FastAPI to secure endpoints with JWT authentication, cutting median API response times by 25%.";
+  const edited = "Full Stack Engineer | Northgate Systems | Jul 2022 – Oct 2024\n• Used Python and FastAPI to secure endpoints with JWT authentication, cutting median API response times by 25%.";
   const r = applyBulletStyle({ experience: edited, projects: {} }, CS, roles);
   assert.match(r.experience, /^• Used Python/m, "kept as written");
   assert.deepEqual(r.report.swapped, []);
@@ -162,12 +162,12 @@ test("budgets: CareerSet's text carries the total, the word caps and the project
 });
 
 test("capSummaryWords keeps a protected sentence in place; without protect as before", () => {
-  const s = "Full stack engineer with two years at Brane building Python services and React apps for enterprise platforms.\nShipped twenty API modules and cut response times by a quarter across the FRMS platform.\nBuilt Jobhuntz, a live AI product with an eight-step pipeline across three model providers.\nAvailable immediately for full-time employment.";
+  const s = "Full stack engineer with two years at Northgate building Python services and React apps for enterprise platforms.\nShipped twenty API modules and cut response times by a quarter across the FRMS platform.\nBuilt Jobhuntz, a live AI product with an eight-step pipeline across three model providers.\nAvailable immediately for full-time employment.";
   const r = capSummaryWords(s, 30, ["Available immediately for full-time employment."]);
-  assert.equal(r.summary, "Full stack engineer with two years at Brane building Python services and React apps for enterprise platforms.\nAvailable immediately for full-time employment.");
+  assert.equal(r.summary, "Full stack engineer with two years at Northgate building Python services and React apps for enterprise platforms.\nAvailable immediately for full-time employment.");
   assert.equal(r.dropped.length, 2);
   const plain = capSummaryWords(s, 30);
-  assert.equal(plain.summary, "Full stack engineer with two years at Brane building Python services and React apps for enterprise platforms.");
+  assert.equal(plain.summary, "Full stack engineer with two years at Northgate building Python services and React apps for enterprise platforms.");
   assert.equal(plain.dropped.length, 3);
 });
 

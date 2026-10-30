@@ -132,15 +132,15 @@ test("estimatePages counts the printed contact row the same way", () => {
 });
 
 test("supportSentences skips a style's furniture in the summary and the letter, and nothing else", () => {
-  const summary = "Full stack engineer with two years at Brane.\nAvailable immediately for full-time employment.";
-  const letter = "Dear Acme Hiring Team,\nI am applying for the Engineer role at Acme. I am particularly interested in this role because Acme builds payment rails.\nHaving read the job description, these are the four areas where I can add value from the start:\n1. Python: I built services in Python at Brane.\nKind regards,\nJane";
+  const summary = "Full stack engineer with two years at Northgate.\nAvailable immediately for full-time employment.";
+  const letter = "Dear Acme Hiring Team,\nI am applying for the Engineer role at Acme. I am particularly interested in this role because Acme builds payment rails.\nHaving read the job description, these are the four areas where I can add value from the start:\n1. Python: I built services in Python at Northgate.\nKind regards,\nJane";
   const furniture = [...CAREERSET.letter.furniture, /^Available immediately for full-time employment\.$/];
   const got = supportSentences(summary, letter, { projects: [], paidWork: "", furniture });
   assert.deepEqual(got.map((s) => s.sentence), [
-    "Full stack engineer with two years at Brane.",
+    "Full stack engineer with two years at Northgate.",
     "I am applying for the Engineer role at Acme.",
     "1.",
-    "Python: I built services in Python at Brane.",
+    "Python: I built services in Python at Northgate.",
   ]);
   const plain = supportSentences(summary, letter, { projects: [], paidWork: "" });
   assert.equal(plain.length, got.length + 3, "without the hook every sentence is checked, as UKJI does");

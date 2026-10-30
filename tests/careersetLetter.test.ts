@@ -19,7 +19,7 @@ test("eligiblePointsBlock lists only requirements the master CV shows, required 
   const map: EvidenceMap = {
     items: [
       { term: "Kubernetes", importance: "required", kind: "technical", status: "gap", evidence: null, where: null },
-      { term: "Python", importance: "required", kind: "technical", status: "experience", evidence: "Delivered 20+ API modules in Python", where: "Full Stack Engineer, Brane Group" },
+      { term: "Python", importance: "required", kind: "technical", status: "experience", evidence: "Delivered 20+ API modules in Python", where: "Full Stack Engineer, Northgate Systems" },
       { term: "Terraform", importance: "keyword", kind: "technical", status: "project", evidence: "Provisioned with Terraform", where: "CampaignPulse" },
       { term: "AWS", importance: "preferred", kind: "technical", status: "listed", evidence: null, where: null },
       { term: "Rust", importance: "required", kind: "technical", status: "learning", evidence: null, where: null },
@@ -27,7 +27,7 @@ test("eligiblePointsBlock lists only requirements the master CV shows, required 
     ],
   };
   const block = eligiblePointsBlock(map);
-  assert.equal(block, "\nELIGIBLE REQUIREMENTS for the numbered points — the posting's own words, each one the master CV shows; a point on any other requirement is removed by a deterministic check:\n- Python (paid work shows it: Full Stack Engineer, Brane Group)\n- AWS (listed on the CV only — name it, never describe work done with it)\n- Terraform (only a personal project shows it: CampaignPulse — the point must name the project and say it is one)\n");
+  assert.equal(block, "\nELIGIBLE REQUIREMENTS for the numbered points — the posting's own words, each one the master CV shows; a point on any other requirement is removed by a deterministic check:\n- Python (paid work shows it: Full Stack Engineer, Northgate Systems)\n- AWS (listed on the CV only — name it, never describe work done with it)\n- Terraform (only a personal project shows it: CampaignPulse — the point must name the project and say it is one)\n");
   assert.doesNotMatch(block, /Kubernetes|Rust/, "a gap and a learning skill are never eligible");
   assert.equal(eligiblePointsBlock({ items: [] }), "");
   assert.equal(eligiblePointsBlock(null), "");
@@ -43,11 +43,11 @@ test("the interest line: the reason after the opening must share its content wor
   assert.equal(interestLineSupported("I built a thing.", OPENING, [JD]), true, "not an interest line: nothing to check");
   assert.equal(interestLineSupported(`${OPENING}.`, OPENING, [JD]), false, "no reason at all");
   assert.equal(INTEREST_MIN_OVERLAP, 0.5);
-  const letter = `Dear Enablis Hiring Team,\nI am applying for the Deployed AI Engineer role at Enablis. I delivered 20+ API modules at Brane. ${invented}\nHaving read the job description, these are the four areas where I can add value from the start:\n1. Python: I delivered 20+ API modules at Brane.\nKind regards,\nJane`;
+  const letter = `Dear Enablis Hiring Team,\nI am applying for the Deployed AI Engineer role at Enablis. I delivered 20+ API modules at Northgate. ${invented}\nHaving read the job description, these are the four areas where I can add value from the start:\n1. Python: I delivered 20+ API modules at Northgate.\nKind regards,\nJane`;
   const r = checkInterestLine(letter, OPENING, [JD]);
   assert.equal(r.kept, false);
   assert.equal(r.line, invented);
-  assert.equal(r.text.split("\n")[1], "I am applying for the Deployed AI Engineer role at Enablis. I delivered 20+ API modules at Brane.");
+  assert.equal(r.text.split("\n")[1], "I am applying for the Deployed AI Engineer role at Enablis. I delivered 20+ API modules at Northgate.");
   const kept = checkInterestLine(letter.replace(invented, good), OPENING, [JD]);
   assert.equal(kept.kept, true);
   assert.equal(kept.text, letter.replace(invented, good), "a supported reason leaves the letter as it was");
@@ -87,7 +87,7 @@ test("normalizeLetter: a company addressed as a person gets the style's suffix; 
 test("the page fit never trims the fixed line or the close paragraph when they are protected; unprotected (UKJI) it can", () => {
   const fixed = CAREERSET.letter.fixedLine!;
   const close = "Thank you for considering my application. I would welcome a conversation about the role.";
-  const letter = `Dear X,\nI am applying for the role at X. I built the thing.\n${fixed}\n1. Python: I built services in Python at Brane, cutting response times by 25%.\n2. Testing: I wrote 192 tests.\n${close}\nKind regards,\nJane`;
+  const letter = `Dear X,\nI am applying for the role at X. I built the thing.\n${fixed}\n1. Python: I built services in Python at Northgate, cutting response times by 25%.\n2. Testing: I wrote 192 tests.\n${close}\nKind regards,\nJane`;
   const protect = protectedLetterLines(letter, CAREERSET.letter.furniture, CAREERSET.letter.thanksLine);
   assert.deepEqual(protect, [fixed, close]);
   // A fake counter: two pages until two sentences have gone.

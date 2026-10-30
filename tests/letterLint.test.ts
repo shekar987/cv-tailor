@@ -69,9 +69,9 @@ Alex Example`
 });
 
 test("a sentence that restates the posting and then turns to the candidate keeps the candidate's clause (review, 1 Oct)", () => {
-  const letter = "Dear Acme team,\nI am applying for the Backend Engineer role at Acme.\nThe team is building a new payments platform, and I built Brane's LLM platform from the first commit.\nKind regards,\nAlex";
+  const letter = "Dear Acme team,\nI am applying for the Backend Engineer role at Acme.\nThe team is building a new payments platform, and I built Northgate's LLM platform from the first commit.\nKind regards,\nAlex";
   const r = applyLetterLint(letter);
-  assert.ok(r.text.includes("I built Brane's LLM platform from the first commit."), r.text);
+  assert.ok(r.text.includes("I built Northgate's LLM platform from the first commit."), r.text);
   assert.ok(!r.text.includes("The team is building"), r.text);
   assert.equal(r.lint.restatedJd.length, 1);
 });
