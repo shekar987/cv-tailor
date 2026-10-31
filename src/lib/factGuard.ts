@@ -103,12 +103,16 @@ export function dropUnbackedTools(skills: string, master: string, skillNames?: r
     const listOnly = skillNames !== undefined && (SKILLS_LIST_ONLY_TOOLS as readonly string[]).includes(tool);
     const backed = listOnly ? listNames(skillNames, tool) : mentions(master, tool);
     if (backed || !mentions(out, tool)) continue;
-    // "A, OpenAI API, B" / "OpenAI API, B" / "A, OpenAI API" / "A | OpenAI API"
+    // "A, OpenAI API, B" / "OpenAI API, B" / "A, OpenAI API" / "A | OpenAI API",
+    // and a line whose only item it is ("Languages: Java") — that line goes.
     const t = esc(tool);
+    const before = out;
     out = out
       .replace(new RegExp(`\\s*[,|;]\\s*${t}(?=\\s*(?:[,|;]|$|\\n))`, "gim"), "")
-      .replace(new RegExp(`(^|[:\\n]\\s*)${t}\\s*[,|;]\\s*`, "gim"), "$1");
-    if (!mentions(out, tool)) dropped.push(tool);
+      .replace(new RegExp(`(^|[:\\n]\\s*)${t}\\s*[,|;]\\s*`, "gim"), "$1")
+      .replace(new RegExp(`^[^:\\n]{1,60}:\\s*${t}\\s*(?:\\n|$)`, "gim"), "")
+      .replace(/\n+$/, before.endsWith("\n") ? "\n" : "");
+    if (out !== before) dropped.push(tool);
   }
   return { text: out, dropped };
 }

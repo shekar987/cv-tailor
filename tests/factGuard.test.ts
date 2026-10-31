@@ -186,3 +186,9 @@ test("guardFacts runs the tool guards with the skills list and shape it is given
   assert.deepEqual(g.leadTools.moved, ["GitHub Actions"]);
   assert.match(String(g.skills), /Redis \| GitHub Actions$/);
 });
+
+test("an unbacked tool that is a line's only item takes the line with it, and is reported", () => {
+  const r = dropUnbackedTools("Technical Tools: JavaScript, Java, Python\nLanguages: Java\nTesting: Jest", "Python JavaScript Jest");
+  assert.equal(r.text, "Technical Tools: JavaScript, Python\nTesting: Jest");
+  assert.deepEqual(r.dropped, ["Java"]);
+});

@@ -580,6 +580,7 @@ async function runPipeline(opts: {
   // header and printed addresses can wrap) counts the run's own header.
   const headlineTerms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
   const masterTagline = typeof (profile as { tagline?: unknown } | null)?.tagline === "string" ? (profile as { tagline: string }).tagline : null;
+  const cvTopLanguages = topLanguages(cv);
   const builtHeadline = buildHeadline(
     {
       claims,
@@ -592,6 +593,8 @@ async function runPipeline(opts: {
       positioning: variant?.headline ?? null,
       savedTagline: masterTagline,
       heldTitles: masterRoles.map((r) => r.header.split(/\s[—–|]\s/)[0]),
+      // CareerSet: the stack's first technology is one of the master CV's top three languages.
+      leadLanguages: style.headline.languageCheck ? cvTopLanguages : undefined,
     },
     style.render
   );
@@ -599,7 +602,7 @@ async function runPipeline(opts: {
   // top three languages, else the header is the master tagline (lib/headline
   // guardTaglineLanguage) — reported as `taglineFallback`.
   const taglineGuard = style.headline.languageCheck
-    ? guardTaglineLanguage(builtHeadline, topLanguages(cv), masterTagline)
+    ? guardTaglineLanguage(builtHeadline, cvTopLanguages, masterTagline)
     : { headline: builtHeadline.headline, replaced: null };
   const headline = taglineGuard.headline;
   let pageFitReport: PageFitReport | null = null;
@@ -724,7 +727,18 @@ async function runPipeline(opts: {
   // read it, and the response carried the unguarded summary and skills.
   summary = factGuard.summary;
   skillsFinal = factGuard.skills;
-  if (factGuard.leadTools.moved.length + factGuard.leadTools.dropped.length > 0) formatFixes.leadTools = factGuard.leadTools;
+  if (factGuard.leadTools.moved.length + factGuard.leadTools.dropped.length > 0) {
+    formatFixes.leadTools = factGuard.leadTools;
+    // Moving a tool out of the lead slots pulls the next one in: a
+    // project-level tool can land there, which the claims check would hold
+    // (project_lead_tool). Demote again, as the claims pass did.
+    const projectSkillNames = (claims?.skills ?? []).filter((s) => s.level === "project").map((s) => s.name);
+    if (projectSkillNames.length > 0) {
+      const again = demoteProjectTools(skillsFinal, projectSkillNames, style.skills);
+      skillsFinal = again.skills;
+      for (const t of again.demoted) if (!claimFix.toolsDemoted.includes(t)) claimFix.toolsDemoted.push(t);
+    }
+  }
   const sections = { summary, skills: skillsFinal, experience: typeof experienceFinal === "string" ? stripBulletIds(experienceFinal) : experienceFinal, projects: projectsFinal };
   const tailoredText = tailoredSectionsText(sections, style.skills);
   const terms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;

@@ -23,6 +23,7 @@
 // Imports only import-free siblings by relative .ts path, so it runs under
 // node:test.
 import { skillsFromCv } from "./claims.ts";
+import { canonicalHeader } from "./bulletIds.ts";
 import { mentionsAvailability, mentionsRightToWork } from "./rightToWorkText.ts";
 
 // Programming languages a skills list names. "Go", "C" and "R" only as a
@@ -37,9 +38,15 @@ const LANGUAGE_KEYS = new Map(LANGUAGE_NAMES.map((n) => [n.toLowerCase(), n]));
 const NOT_LEAD = new Set(["html", "css", "shell", "bash", "powershell"]);
 
 /** The master CV's first `max` programming languages, in the order its skills list names them. */
+// Only a language the work-experience section shows (skillsFromCv level
+// "production"): a "Currently learning: Go" line or a language only a
+// project used is never put beside the employer or at the head of the header
+// (review of PR #6, 31 Oct: "working with Python, SQL and Go" for a CV still
+// learning Go).
 export function topLanguages(cv: string, max = 3): string[] {
   const out: string[] = [];
-  for (const { name } of skillsFromCv(cv)) {
+  for (const { name, level } of skillsFromCv(cv)) {
+    if (level !== "production") continue;
     const k = name.trim().toLowerCase();
     if (!LANGUAGE_KEYS.has(k) || NOT_LEAD.has(k) || out.some((o) => o.toLowerCase() === k)) continue;
     out.push(name.trim());
@@ -70,8 +77,19 @@ export function masterSummary(cv: string): string {
   return body.join(" ").replace(/\s+/g, " ").trim();
 }
 
+// A sentence ends at a stop followed by a space and a capital (or a digit,
+// quote or bracket) — never inside "Node.js", "3.5 years" or "e.g. React".
 function sentences(text: string): string[] {
-  return (text.match(/[^.!?]+(?:[.!?]+|$)/g) ?? []).map((s) => s.trim()).filter(Boolean);
+  return text
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9"“(£$€])/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Whether a name is a programming language a skills list would name (lib/headline's stack check). */
+export function isLanguageName(name: string): boolean {
+  return LANGUAGE_KEYS.has(name.trim().toLowerCase());
 }
 
 function words(text: string): number {
@@ -94,11 +112,15 @@ function listOf(items: string[]): string {
 
 // "Title | Employer | Dates" (lib/bulletIds canonicalHeader), or the
 // master's own "Title — Employer  Dates" shape.
+// Read with lib/bulletIds canonicalHeader, the one header splitter: "Title at
+// Employer (dates)" and "Title, Employer, dates" come apart as they do for
+// the header lock, and the dates never stay in the title.
 function roleAndEmployer(header: string | null | undefined): { title: string; employer: string } | null {
   if (!header) return null;
-  const parts = header.split(/\s*\|\s*|\s+[—–]\s+|\t+/).map((p) => p.trim()).filter(Boolean);
-  const title = parts[0] ?? "";
-  const employer = parts.find((p, i) => i > 0 && !/\b(?:19|20)\d{2}\b|\bpresent\b/i.test(p)) ?? "";
+  const parts = canonicalHeader(header.replace(/\t+/g, " ")).split(" | ").map((p) => p.trim()).filter(Boolean);
+  const dated = (p: string) => /\b(?:19|20)\d{2}\b|\bpresent\b/i.test(p);
+  const title = parts[0] && !dated(parts[0]) ? parts[0] : "";
+  const employer = parts.find((p, i) => i > 0 && !dated(p)) ?? "";
   return title ? { title, employer } : null;
 }
 

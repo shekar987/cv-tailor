@@ -228,7 +228,9 @@ export function fixDoubleStops(text: string): { text: string; count: number } {
   return { text: out, count };
 }
 
-const DEGREE_RE = /\b(B\.?Tech|B\.?Sc|B\.?Eng|B\.?A|M\.?Sc|M\.?Eng|M\.?Tech|M\.?A|MBA|Ph\.?D|MRes|LLB|LLM)\b/g;
+// "LLM" is left out: in a tech CV it is a language model far more often than
+// a Master of Laws, and reading it as a degree hid the real one beside it.
+const DEGREE_RE = /\b(B\.?Tech|B\.?Sc|B\.?Eng|B\.?A|M\.?Sc|M\.?Eng|M\.?Tech|M\.?A|MBA|Ph\.?D|MRes|LLB)\b/g;
 const MODULES_LINE_RE = /^\s*(?:[•\-*]\s*)?(?:(?:key|relevant|core|selected|main|optional)\s+)?(?:modules?|coursework|courses?)(?:\s+(?:include|included|including|studied|taken))?\s*:?\s+(.+)$/i;
 
 const degreeKey = (d: string) => d.replace(/\./g, "").toLowerCase();
@@ -274,23 +276,38 @@ export function modulesByDegree(masterCv: string, education: readonly EducationE
   return out;
 }
 
-// Removes one module from a sentence's list, with its separator.
-function removeFromList(sentence: string, name: string): string {
-  const n = escapeRe(name);
-  const patterns = [
-    new RegExp(`,\\s*(?:and\\s+)?${n}(?![\\p{L}\\p{N}])`, "iu"),
-    new RegExp(`\\s+and\\s+${n}(?![\\p{L}\\p{N}])`, "iu"),
-    new RegExp(`(?<![\\p{L}\\p{N}])${n}\\s*,\\s*`, "iu"),
-    new RegExp(`(?<![\\p{L}\\p{N}])${n}\\s+and\\s+`, "iu"),
-  ];
-  for (const re of patterns) if (re.test(sentence)) return sentence.replace(re, "");
-  return sentence.replace(nameRe(name), "");
+// The words that open a module list: "modules", "my modules in", "coursework
+// such as", "courses including", "modules: …".
+const MODULE_LIST_RE = /\b(?:modules?|coursework|courses?)\b(?:\s+(?:in|on|such as|including|included|include|includes|like|covering|covered|were|was|are|cover)\b)*\s*:?\s*/gi;
+const LIST_SEP_RE = /^(?:\s*,\s*(?:and\s+)?|\s+and\s+|\s*&\s*)/i;
+
+// The module list right after its opening words: known module names (any
+// degree's), one after another with ", " / " and " between them; the list
+// ends at the first text that is not a known module. Nothing outside it —
+// "two years of production work with databases" — is ever read as a module
+// (review of PR #6, 31 Oct).
+function moduleListAt(s: string, from: number, known: string[]): { start: number; end: number; items: { name: string; text: string }[] } | null {
+  const items: { name: string; text: string }[] = [];
+  let pos = from;
+  let start = -1;
+  let end = -1;
+  for (;;) {
+    const rest = s.slice(pos);
+    const hit = known
+      .filter((m) => rest.toLowerCase().startsWith(m.toLowerCase()) && !/[\p{L}\p{N}]/u.test(rest.charAt(m.length)))
+      .sort((a, b) => b.length - a.length)[0];
+    if (!hit) break;
+    if (start < 0) start = pos;
+    items.push({ name: hit, text: rest.slice(0, hit.length) });
+    end = pos + hit.length;
+    const sep = LIST_SEP_RE.exec(s.slice(end));
+    if (!sep) break;
+    pos = end + sep[0].length;
+  }
+  return items.length > 0 ? { start, end, items } : null;
 }
 
-// A list left as "A, B" after a removal reads "A and B".
-function tidyList(s: string): string {
-  return s.replace(/\s{2,}/g, " ").replace(/\s+([,.;:])/g, "$1").replace(/,\s*,/g, ",");
-}
+const joinList = (names: string[]) => (names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
 
 /** Modules named next to a degree are that degree's own (see the header). */
 export function keepDegreeModules(letter: string, masterCv: string, education: readonly EducationEntry[] = []): { text: string; removed: string[] } {
@@ -298,23 +315,27 @@ export function keepDegreeModules(letter: string, masterCv: string, education: r
   const removed: string[] = [];
   if (byDegree.size === 0) return { text: letter, removed };
   const all = [...byDegree.entries()].flatMap(([deg, mods]) => mods.map((m) => ({ deg, m })));
+  const known = [...new Set(all.map((x) => x.m))];
   const lines = letter.replace(/\r/g, "").split("\n").map((line) => {
     if (!/\b(?:modules?|coursework|courses?)\b/i.test(line)) return line;
     const kept = sentencesOf(line).flatMap((s) => {
-      if (!/\b(?:modules?|coursework|courses?)\b/i.test(s)) return [s];
       const named = new Set([...s.matchAll(DEGREE_RE)].map((m) => degreeKey(m[1])));
       if (named.size === 0) return [s];
       const own = new Set(all.filter((x) => named.has(x.deg)).map((x) => x.m.toLowerCase()));
-      const mentioned = all.filter((x) => nameRe(x.m).test(s));
-      const foreign = [...new Set(mentioned.filter((x) => !own.has(x.m.toLowerCase())).map((x) => x.m))];
-      if (foreign.length === 0) return [s];
       let out = s;
-      for (const m of foreign) {
-        out = removeFromList(out, m);
-        removed.push(m);
+      let emptied = false;
+      // Each list, last first, so the earlier positions stay valid.
+      const lists = [...s.matchAll(MODULE_LIST_RE)].map((m) => moduleListAt(s, (m.index ?? 0) + m[0].length, known)).filter((l): l is NonNullable<typeof l> => !!l);
+      for (const list of lists.reverse()) {
+        const foreign = list.items.filter((i) => !own.has(i.name.toLowerCase()));
+        if (foreign.length === 0) continue;
+        removed.push(...foreign.map((i) => i.name));
+        const keep = list.items.filter((i) => own.has(i.name.toLowerCase())).map((i) => i.text);
+        if (keep.length === 0) emptied = true;
+        out = out.slice(0, list.start) + joinList(keep) + out.slice(list.end);
       }
-      const ownLeft = [...own].some((m) => nameRe(m).test(out));
-      return ownLeft ? [tidyList(out)] : [];
+      // No module of the named degree left: the sentence says nothing true about it.
+      return emptied ? [] : [out];
     });
     return kept.join(" ");
   });

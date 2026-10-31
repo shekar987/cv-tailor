@@ -240,3 +240,21 @@ test("modules from education[i] attach only to that degree (the extracted profil
   assert.deepEqual(r.tidy.otherDegreeModules, ["Compiler Design"]);
   assert.match(r.text, /My MSc modules included Machine Learning and Cloud Computing\./);
 });
+
+test("keepDegreeModules reads only the module list, never a work fact later in the sentence", () => {
+  const edu = "MSc Computer Science\nModules: Machine Learning, Cloud Computing\nBTech Computer Science\nModules: Databases, Operating Systems";
+  const letter = "Dear Acme team,\n\nMy MSc modules in Machine Learning complement two years of production work with databases and APIs.";
+  assert.equal(keepDegreeModules(letter, edu).text, letter, "'databases' here is work, not a module");
+  const listed = "Dear Acme team,\n\nMy MSc modules included Machine Learning, Databases and Cloud Computing, alongside work with databases.";
+  const r = keepDegreeModules(listed, edu);
+  assert.deepEqual(r.removed, ["Databases"]);
+  assert.match(r.text, /My MSc modules included Machine Learning and Cloud Computing, alongside work with databases\./);
+});
+
+test("'LLM' is not a degree: the MSc beside it still owns its modules", () => {
+  const edu = "MSc Artificial Intelligence\nModules: Natural Language Processing, Deep Learning\nBTech Computer Science\nModules: Compiler Design";
+  const letter = "Dear Acme team,\n\nMy MSc (LLM research) modules included Natural Language Processing and Compiler Design.";
+  const r = keepDegreeModules(letter, edu);
+  assert.deepEqual(r.removed, ["Compiler Design"]);
+  assert.match(r.text, /modules included Natural Language Processing\./);
+});
