@@ -1,7 +1,7 @@
 // Unit tests for the cover letter's shape rules (lib/letterLint). node:test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isSecondPerson, restatesJd, hasHonestGap, applyLetterLint, projectDescriptor, coreProjectName } from "../src/lib/letterLint.ts";
+import { isSecondPerson, restatesJd, hasHonestGap, applyLetterLint, projectDescriptor, coreProjectName, fixAreasCount, fixDoubleStops, modulesByDegree, keepDegreeModules, tidyFinishedLetter } from "../src/lib/letterLint.ts";
 
 test("isSecondPerson: the reader's needs or benefit, not 'your team' in a plain fact", () => {
   for (const s of [
@@ -138,4 +138,123 @@ test("projectDescriptor reads the master CV's bracketed description; a stack lis
   assert.equal(projectDescriptor("Jobhuntz (Next.js, Supabase, Claude)"), null);
   assert.equal(projectDescriptor("Ledgerly (2025)"), null);
   assert.equal(coreProjectName("RideX (personal portfolio project modelled on a real-world brief) | 2025"), "RideX");
+});
+
+// ── The final tidy (31 Oct, Chunk 6) ──────────────────────────────────────
+
+const FIXED = "Having read the job description, these are the four areas where I can add value from the start:";
+
+test("fixAreasCount: the intro line says how many numbered points there really are", () => {
+  const letter = `Dear Acme Hiring Team,\n\nI am applying for the Software Engineer role.\n\n${FIXED}\n1. Python services.\n2. React interfaces.\n3. Testing.\n\nKind regards,\nAlex Morgan`;
+  const r = fixAreasCount(letter);
+  assert.deepEqual(r.fixed, { from: "four", to: "three" });
+  assert.match(r.text, /these are the three areas where I can add value/);
+  // Four points under "four areas": untouched.
+  const four = letter.replace("3. Testing.", "3. Testing.\n4. Delivery.");
+  assert.equal(fixAreasCount(four).text, four);
+  // A count in the body is a fact, not the list's intro.
+  const body = "Dear Acme team,\n\nI worked in three areas of the platform.\n1. One.\n2. Two.";
+  assert.equal(fixAreasCount(body).fixed, null);
+  // No numbered points at all: nothing to count against.
+  assert.equal(fixAreasCount(`Dear Acme team,\n\n${FIXED}\nPython and React.`).fixed, null);
+});
+
+test("fixDoubleStops: 'Inc..' loses its second stop; an ellipsis stays", () => {
+  const r = fixDoubleStops("I am applying for the role at Acme Inc.. My work at Northgate Systems Ltd.. shipped… and then...");
+  assert.equal(r.text, "I am applying for the role at Acme Inc. My work at Northgate Systems Ltd. shipped… and then...");
+  assert.equal(r.count, 2);
+});
+
+const MASTER_EDU = `EDUCATION
+MSc Computer Science (with Industrial Placement) — University of Hartwell Jan 2025 – Jan 2027
+Modules: Machine Learning, Cloud Computing, Big Data Analytics
+BTech Computer Science — Riverside Institute of Technology Jul 2019 – Jul 2023
+Relevant modules: Compiler Design, Operating Systems, Data Structures`;
+
+test("modulesByDegree reads each degree's own module list", () => {
+  const m = modulesByDegree(MASTER_EDU);
+  assert.deepEqual(m.get("msc"), ["Machine Learning", "Cloud Computing", "Big Data Analytics"]);
+  assert.deepEqual(m.get("btech"), ["Compiler Design", "Operating Systems", "Data Structures"]);
+});
+
+test("keepDegreeModules: a module from the other degree leaves the MSc's list", () => {
+  const letter = "Dear Acme team,\n\nMy MSc modules include Machine Learning, Operating Systems and Cloud Computing.\n\nKind regards,\nAlex Morgan";
+  const r = keepDegreeModules(letter, MASTER_EDU);
+  assert.deepEqual(r.removed, ["Operating Systems"]);
+  assert.match(r.text, /My MSc modules include Machine Learning and Cloud Computing\./);
+});
+
+test("keepDegreeModules: no module of the named degree left — the sentence goes; other sentences stay", () => {
+  const letter = "Dear Acme team,\n\nI built APIs. My MSc coursework covered Compiler Design. I shipped 20+ modules.\n\nKind regards,\nAlex Morgan";
+  const r = keepDegreeModules(letter, MASTER_EDU);
+  assert.deepEqual(r.removed, ["Compiler Design"]);
+  assert.match(r.text, /I built APIs\. I shipped 20\+ modules\./);
+  assert.doesNotMatch(r.text, /coursework/);
+});
+
+test("keepDegreeModules: both degrees named, or none, or the right ones — left alone", () => {
+  const both = "Dear Acme team,\n\nMy BTech and MSc modules included Compiler Design and Machine Learning.";
+  assert.equal(keepDegreeModules(both, MASTER_EDU).text, both);
+  const none = "Dear Acme team,\n\nMy modules included Compiler Design and Machine Learning.";
+  assert.equal(keepDegreeModules(none, MASTER_EDU).text, none);
+  const right = "Dear Acme team,\n\nMy BTech modules included Compiler Design and Data Structures.";
+  assert.equal(keepDegreeModules(right, MASTER_EDU).text, right);
+  assert.equal(keepDegreeModules(right, "no education section").removed.length, 0);
+});
+
+test("tidyFinishedLetter runs all three and reports each", () => {
+  const letter = `Dear Acme Inc.. Hiring Team,\n\nI am applying for the Software Engineer role.\n\nMy MSc modules include Machine Learning and Operating Systems.\n\n${FIXED}\n1. Python.\n2. React.\n\nKind regards,\nAlex Morgan`;
+  const r = tidyFinishedLetter(letter, MASTER_EDU);
+  assert.deepEqual(r.tidy, { areasCount: { from: "four", to: "two" }, otherDegreeModules: ["Operating Systems"], doubleStops: 1 });
+  assert.match(r.text, /^Dear Acme Inc\. Hiring Team,/);
+  assert.match(r.text, /My MSc modules include Machine Learning\./);
+  assert.match(r.text, /these are the two areas/);
+  // A second pass changes nothing.
+  assert.deepEqual(tidyFinishedLetter(r.text, MASTER_EDU).tidy, { areasCount: null, otherDegreeModules: [], doubleStops: 0 });
+});
+
+test("fixAreasCount: 'four areas' over two LABELLED areas says two", () => {
+  const letter = `Dear Acme Hiring Team,\n\nI am applying for the Software Engineer role.\n\n${FIXED}\nBackend delivery: 20+ production API modules in Python.\nFrontend: React interfaces used daily by operations staff.\n\nThank you for considering my application.\n\nKind regards,\nAlex Morgan`;
+  const r = fixAreasCount(letter);
+  assert.deepEqual(r.fixed, { from: "four", to: "two" });
+  assert.match(r.text, /these are the two areas where I can add value/);
+  // Bullets count the same way.
+  const bullets = letter.replace("Backend delivery:", "• Backend delivery:").replace("Frontend:", "• Frontend:");
+  assert.equal(fixAreasCount(bullets).fixed?.to, "two");
+});
+
+test("fixDoubleStops: the Uncountable letter's 'Inc..'", () => {
+  assert.equal(fixDoubleStops("I am applying for the Software Engineer role at Uncountable Inc.. My work at Northgate Systems").text, "I am applying for the Software Engineer role at Uncountable Inc. My work at Northgate Systems");
+});
+
+test("modules from education[i] attach only to that degree (the extracted profile's entries)", () => {
+  const education = [
+    { degree: "MSc Computer Science (with Industrial Placement)", note: "Modules: Machine Learning, Cloud Computing" },
+    { degree: "BTech Computer Science", note: "Modules: Compiler Design, Operating Systems" },
+  ];
+  const m = modulesByDegree("", education);
+  assert.deepEqual(m.get("msc"), ["Machine Learning", "Cloud Computing"]);
+  assert.deepEqual(m.get("btech"), ["Compiler Design", "Operating Systems"]);
+  const letter = "Dear Acme team,\n\nMy MSc modules included Machine Learning, Compiler Design and Cloud Computing.\n\nKind regards,\nAlex Morgan";
+  const r = tidyFinishedLetter(letter, "no modules in the CV text", education);
+  assert.deepEqual(r.tidy.otherDegreeModules, ["Compiler Design"]);
+  assert.match(r.text, /My MSc modules included Machine Learning and Cloud Computing\./);
+});
+
+test("keepDegreeModules reads only the module list, never a work fact later in the sentence", () => {
+  const edu = "MSc Computer Science\nModules: Machine Learning, Cloud Computing\nBTech Computer Science\nModules: Databases, Operating Systems";
+  const letter = "Dear Acme team,\n\nMy MSc modules in Machine Learning complement two years of production work with databases and APIs.";
+  assert.equal(keepDegreeModules(letter, edu).text, letter, "'databases' here is work, not a module");
+  const listed = "Dear Acme team,\n\nMy MSc modules included Machine Learning, Databases and Cloud Computing, alongside work with databases.";
+  const r = keepDegreeModules(listed, edu);
+  assert.deepEqual(r.removed, ["Databases"]);
+  assert.match(r.text, /My MSc modules included Machine Learning and Cloud Computing, alongside work with databases\./);
+});
+
+test("'LLM' is not a degree: the MSc beside it still owns its modules", () => {
+  const edu = "MSc Artificial Intelligence\nModules: Natural Language Processing, Deep Learning\nBTech Computer Science\nModules: Compiler Design";
+  const letter = "Dear Acme team,\n\nMy MSc (LLM research) modules included Natural Language Processing and Compiler Design.";
+  const r = keepDegreeModules(letter, edu);
+  assert.deepEqual(r.removed, ["Compiler Design"]);
+  assert.match(r.text, /modules included Natural Language Processing\./);
 });

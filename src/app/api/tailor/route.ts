@@ -6,7 +6,7 @@ import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration, loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { chooseFallback, openRouterLimitMessage, fallbackExhaustedMessage, type FallbackReason } from "@/lib/fallbackRoute";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
-import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, type ClaimsRegistry } from "@/lib/claims";
+import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillsFromCv, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
 import { normalizePreferences, pageTargetFor, type CvLength } from "@/lib/preferences";
 import { isGraduateScheme } from "@/lib/graduateMode";
@@ -39,7 +39,8 @@ import { fitOnePage, fitTwoPages, fitToRealPages, experienceRefillCandidates, pr
 import { buildCvPdfWithPages } from "@/lib/buildCvPdf";
 import { buildCoverLetterPdfWithPages } from "@/lib/buildCoverLetterPdf";
 import { fitLetterToOnePage, type LetterFitReport } from "@/lib/letterFit";
-import { buildHeadline, degreesInProgress } from "@/lib/headline";
+import { buildHeadline, degreesInProgress, guardTaglineLanguage } from "@/lib/headline";
+import { ensureSummary, topLanguages, type EnsureSummaryReport } from "@/lib/summaryFallback";
 import { normalizeEligibility, type Eligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
 import { contactRefusal } from "@/lib/contactRefusal";
@@ -51,7 +52,7 @@ import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProje
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { stripLinkText } from "@/lib/projectLinks";
 import { toBritish, toBritishDeep, type SpellingChange } from "@/lib/britishSpelling";
-import { applyLetterLint, hasHonestGap, type LetterLint, type LetterRules } from "@/lib/letterLint";
+import { applyLetterLint, hasHonestGap, tidyFinishedLetter, type LetterLint, type LetterRules, type LetterTidy } from "@/lib/letterLint";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 import {
   surgicalUntilStable,
@@ -578,7 +579,9 @@ async function runPipeline(opts: {
   // so a style that measures the real page count with it (CareerSet, whose
   // header and printed addresses can wrap) counts the run's own header.
   const headlineTerms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
-  const headline = buildHeadline(
+  const masterTagline = typeof (profile as { tagline?: unknown } | null)?.tagline === "string" ? (profile as { tagline: string }).tagline : null;
+  const cvTopLanguages = topLanguages(cv);
+  const builtHeadline = buildHeadline(
     {
       claims,
       requiredSkills: headlineTerms.required_skills,
@@ -588,11 +591,20 @@ async function runPipeline(opts: {
       // (the same test the summary uses); else their own role, below.
       identityTitle: asIdentity ? roleTitle : null,
       positioning: variant?.headline ?? null,
-      savedTagline: typeof (profile as { tagline?: unknown } | null)?.tagline === "string" ? (profile as { tagline: string }).tagline : null,
+      savedTagline: masterTagline,
       heldTitles: masterRoles.map((r) => r.header.split(/\s[—–|]\s/)[0]),
+      // CareerSet: the stack's first technology is one of the master CV's top three languages.
+      leadLanguages: style.headline.languageCheck ? cvTopLanguages : undefined,
     },
     style.render
-  ).headline;
+  );
+  // CareerSet: the header's first technology must be one of the master CV's
+  // top three languages, else the header is the master tagline (lib/headline
+  // guardTaglineLanguage) — reported as `taglineFallback`.
+  const taglineGuard = style.headline.languageCheck
+    ? guardTaglineLanguage(builtHeadline, cvTopLanguages, masterTagline)
+    : { headline: builtHeadline.headline, replaced: null };
+  const headline = taglineGuard.headline;
   let pageFitReport: PageFitReport | null = null;
   // The built PDF's page count after the fit, for the style's format check.
   let realPages: number | null = null;
@@ -705,8 +717,29 @@ async function runPipeline(opts: {
   // guardFacts (lib/factGuard): a degree label the master never uses goes
   // back to the master's own, an over-claimed tool the master never names
   // leaves the skills, and summary phrases lifted from the JD are reported.
-  const factGuard = guardFacts({ summary, skills: skillsFinal }, cv, jd);
-  const sections = { summary: factGuard.summary, skills: factGuard.skills, experience: typeof experienceFinal === "string" ? stripBulletIds(experienceFinal) : experienceFinal, projects: projectsFinal };
+  // The user's own skills list decides "OpenAI API" (the registry's names —
+  // learning skills excluded — or the CV's skills section when the registry
+  // is empty), and "GitHub Actions" never holds a lead slot (31 Oct).
+  const registered = (claims?.skills ?? []).filter((s) => s.level !== "learning").map((s) => s.name);
+  const skillNames = registered.length > 0 ? registered : skillsFromCv(cv).map((s) => s.name);
+  const factGuard = guardFacts({ summary, skills: skillsFinal }, cv, jd, { skillNames, skillsShape: style.skills });
+  // The guard's text is the text from here on: until 31 Oct only the score
+  // read it, and the response carried the unguarded summary and skills.
+  summary = factGuard.summary;
+  skillsFinal = factGuard.skills;
+  if (factGuard.leadTools.moved.length + factGuard.leadTools.dropped.length > 0) {
+    formatFixes.leadTools = factGuard.leadTools;
+    // Moving a tool out of the lead slots pulls the next one in: a
+    // project-level tool can land there, which the claims check would hold
+    // (project_lead_tool). Demote again, as the claims pass did.
+    const projectSkillNames = (claims?.skills ?? []).filter((s) => s.level === "project").map((s) => s.name);
+    if (projectSkillNames.length > 0) {
+      const again = demoteProjectTools(skillsFinal, projectSkillNames, style.skills);
+      skillsFinal = again.skills;
+      for (const t of again.demoted) if (!claimFix.toolsDemoted.includes(t)) claimFix.toolsDemoted.push(t);
+    }
+  }
+  const sections = { summary, skills: skillsFinal, experience: typeof experienceFinal === "string" ? stripBulletIds(experienceFinal) : experienceFinal, projects: projectsFinal };
   const tailoredText = tailoredSectionsText(sections, style.skills);
   const terms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
   const coverage = matchAtsKeywords(tailoredText, terms.top_15_ats_keywords);
@@ -775,6 +808,8 @@ async function runPipeline(opts: {
     pageFit?: LetterFitReport;
     interestLine?: { status: "kept" | "removed" | "missing"; line: string | null };
     points?: { found: number; expected: number; bareRemoved: number; renumbered: boolean };
+    // lib/letterLint tidyFinishedLetter: the list's count, modules kept with their degree, "Inc.." (31 Oct).
+    tidy?: LetterTidy;
   } = {
     unsupported: [],
     rewritten: false,
@@ -1009,6 +1044,22 @@ async function runPipeline(opts: {
   // Rule 8 holds through the spelling pass: role headers are skipped by the
   // converter, and every word of the master's headers, the company's name
   // and the candidate's name is protected wherever it appears.
+  // A style that never sends a CV without a summary (CareerSet): when the
+  // passes above left none — the fact check can remove every sentence of a
+  // thin run — it is rebuilt from the master CV's own summary, else its most
+  // recent role and top languages (lib/summaryFallback), never written.
+  let summaryRebuild: EnsureSummaryReport | null = null;
+  if (style.summary.ensureFromMaster) {
+    const e = ensureSummary(summary, {
+      cv,
+      availabilityLine,
+      recentRoleHeader: masterRoles[0]?.header ?? null,
+      maxWords: style.limits.summary.maxWords,
+    });
+    summary = e.summary;
+    summaryRebuild = e.report;
+    if (e.report.rebuilt && availabilityLine) rightToWork.appended = availabilityLine;
+  }
   const spellingChanges: SpellingChange[] = [];
   const protect = new Set<string>();
   for (const r of masterRoles) for (const w of r.header.split(/[\s|—–,()]+/)) if (w) protect.add(w);
@@ -1041,6 +1092,14 @@ async function runPipeline(opts: {
     const seen = new Map<string, string>();
     for (const c of spellingChanges) if (!seen.has(c.from.toLowerCase())) seen.set(c.from.toLowerCase(), `${c.from} → ${c.to}`);
     formatFixes.spelling = { count: spellingChanges.length, examples: [...seen.values()].slice(0, 6) };
+  }
+  // The finished letter's last rules (lib/letterLint): "these are the four
+  // areas" says how many points are really there, modules stay with the
+  // degree the sentence names, and "Inc.." loses its second stop.
+  if (typeof coverLetter === "string" && coverLetter.trim()) {
+    const t = tidyFinishedLetter(coverLetter, cv, (profile as { education?: { degree?: string; note?: string }[] } | null)?.education ?? []);
+    coverLetter = t.text;
+    if (t.tidy.areasCount || t.tidy.otherDegreeModules.length > 0 || t.tidy.doubleStops > 0) letterCheck.tidy = t.tidy;
   }
   letterCheck.honestGap.stated = typeof coverLetter === "string" && hasHonestGap(coverLetter);
   if (style.letter.renumberPoints && typeof coverLetter === "string") {
@@ -1114,6 +1173,11 @@ async function runPipeline(opts: {
     masterCvNotes,
     // lib/factGuard: degree labels fixed, tools dropped, JD phrases in the summary.
     factGuard: factGuard.report,
+    // lib/summaryFallback: the summary rebuilt from the master CV (CareerSet), or null.
+    summaryRebuild,
+    // lib/headline guardTaglineLanguage: the built header led with a technology
+    // outside the master CV's top three languages, so the master tagline ran (CareerSet).
+    taglineFallback: taglineGuard.replaced,
     // "Changes vs master CV": the finished text against the master's own
     // bullets (lib/bulletIds) — kept, edited (which words), dropped, new.
     bulletChanges: {

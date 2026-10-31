@@ -16,6 +16,7 @@ import { findDuplicateApplication, sendConfirmReasons } from "@/lib/tracker";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
+import FormAnswers from "../FormAnswers";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
 import TailorGamePopup, { type TailorGameStatus } from "../TailorGamePopup";
 import { gameForTailorCount, nextTailorCount } from "@/lib/games/pick";
@@ -153,6 +154,8 @@ type Result = {
     skillLines?: SkillLinesFix | null;
     // A skills line written twice; the later copy dropped.
     duplicateLines?: string[] | null;
+    // A tool that never holds a lead slot (GitHub Actions), moved or dropped.
+    leadTools?: { moved: string[]; dropped: string[] } | null;
     // The British-English pass: how many words, and examples.
     spelling?: { count: number; examples: string[] } | null;
     // The real page count: bullets dropped to bring the built PDF inside the target.
@@ -395,7 +398,7 @@ function buildFileBaseName(profile: Profile | null, analysis: Result["analysis"]
   return [first, cn, rt, suffix].filter(Boolean).join("_");
 }
 
-// What "Import job from link" (/api/import-job) read for the posting now in
+// What "Import job from link" (/api/jd/fetch) read for the posting now in
 // the JD box. Applied falls back to its company and title when the analysis
 // named none — only while the box still holds the imported text.
 type ImportedJob = { company: string; title: string; location: string; description: string; applyUrl: string; source: string };
@@ -1454,7 +1457,7 @@ export default function Home() {
     }
   }
 
-  // "Import": the link → /api/import-job → the posting into the JD box. A
+  // "Import": the link → /api/jd/fetch (read server side, never the clipboard) → the posting into the JD box. A
   // failure says so and leaves the box exactly as it was.
   async function handleImport() {
     const url = importUrl.trim();
@@ -1462,7 +1465,7 @@ export default function Home() {
     setImporting(true);
     setImportError(null);
     try {
-      const res = await fetch("/api/import-job", {
+      const res = await fetch("/api/jd/fetch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
@@ -1895,7 +1898,7 @@ export default function Home() {
               <FormField
                 label="Paste a job link"
                 htmlFor="importUrl"
-                help="Lever, Ashby, Greenhouse or LinkedIn. We read the posting into the box below; check it before you tailor."
+                help="Lever, Ashby, Greenhouse, Workable, SmartRecruiters, BambooHR or LinkedIn. We read the posting into the box below; check it before you tailor."
               >
                 <form
                   className="researchRow"
@@ -2828,7 +2831,7 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines || result.formatFixes?.strayLines || result.formatFixes?.spelling || result.formatFixes?.pageOverflow || (isUnlimited && result.formatFixes?.style && (result.formatFixes.style.debolded + result.formatFixes.style.highlightsStripped + result.formatFixes.style.fullStopsStripped + result.formatFixes.style.swapped.length > 0))) && (
+            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.leadTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines || result.formatFixes?.strayLines || result.formatFixes?.spelling || result.formatFixes?.pageOverflow || (isUnlimited && result.formatFixes?.style && (result.formatFixes.style.debolded + result.formatFixes.style.highlightsStripped + result.formatFixes.style.fullStopsStripped + result.formatFixes.style.swapped.length > 0))) && (
               <div className="limitNotice" role="status" data-format-fixes>
                 <div className="limitNotice__title">Formatting rules applied</div>
                 <div className="limitNotice__body">
@@ -2875,6 +2878,15 @@ export default function Home() {
                         <Badge variant="dot" tone="hit">+</Badge>
                         <span>
                           Put back on Technical Tools because the posting asks for them and your master CV lists them: {result.formatFixes.restoredTools.join(", ")}.
+                        </span>
+                      </li>
+                    )}
+                    {result.formatFixes.leadTools && result.formatFixes.leadTools.moved.length + result.formatFixes.leadTools.dropped.length > 0 && (
+                      <li data-format-fix="lead-tools">
+                        <Badge variant="dot" tone="rec">→</Badge>
+                        <span>
+                          {result.formatFixes.leadTools.moved.length > 0 && <>Moved out of the first 8 Technical Tools: {result.formatFixes.leadTools.moved.join(", ")}. </>}
+                          {result.formatFixes.leadTools.dropped.length > 0 && <>Left off Technical Tools, which is too short to hold it after the first 8: {result.formatFixes.leadTools.dropped.join(", ")}.</>}
                         </span>
                       </li>
                     )}
@@ -3443,6 +3455,8 @@ export default function Home() {
                 fixClaimsAvailable={blocked && fixable}
                 fixingClaims={fixingClaims}
               />
+              {/* The answer bank for the application form (lib/answerBank), from the Eligibility answers. */}
+              <FormAnswers facts={eligibility} />
               {result.bulletChanges && (result.bulletChanges.experience || result.bulletChanges.projects.length > 0) && (
                 <details className="changesView" data-bullet-changes>
                   <summary>

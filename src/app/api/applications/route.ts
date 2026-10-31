@@ -12,6 +12,9 @@ import {
 } from "@/lib/tracker";
 import { isFormatStyleId, type FormatStyleId } from "@/lib/formatStyles/ids";
 import { normalizeStyleCheck } from "@/lib/styleCheck";
+import { validateReferralFields, REFERRAL_MIGRATION_HINT, type ReferralFields } from "@/lib/referrals";
+
+const REFERRAL_KEYS = ["referral", "referrer_name", "req_id", "referral_status"] as const;
 
 // CRUD for the application tracker. RLS ("auth.uid() = user_id") is the real
 // boundary; every write is additionally scoped by user id.
@@ -59,6 +62,8 @@ const LIST_COLUMNS_SENT = `${LIST_COLUMNS}, sent_cv_name:sent_cv->>fileName`;
 // Who spoke last and when (migration 20261030120000): the "Reply owed" badge
 // (lib/tracker isReplyOwed). The newest optional columns, so the first rung.
 const LIST_COLUMNS_CONTACT = `${LIST_COLUMNS_SENT}, last_contact_from, last_contact_at`;
+// The referral columns (lib/referrals, migration 20261031120000) on top.
+const LIST_COLUMNS_REFERRAL = `${LIST_COLUMNS_CONTACT}, referral, referrer_name, req_id, referral_status`;
 const CONTACT_MIGRATION_HINT =
   "Recording who spoke last needs the database migration supabase/migrations/20261030120000_applications_last_contact.sql. Run it in the Supabase SQL editor, then try again.";
 const DETAIL_COLUMNS_NO_PREP = `${SELECT_COLUMNS}, tailored_cv`;
@@ -228,7 +233,7 @@ type Editable = {
   job_description?: string | null;
   last_contact_from?: LastContactFrom | null;
   last_contact_at?: string | null;
-};
+} & ReferralFields;
 
 type Validation = { fields: Editable } | { error: string };
 
@@ -323,6 +328,13 @@ function validateEditable(body: Record<string, unknown>, partial: boolean): Vali
     fields.last_contact_at = fields.last_contact_from ? new Date().toISOString() : null;
   }
 
+  // Referral, referrer, req id and the ask's status (lib/referrals). Update only.
+  if (partial) {
+    const r = validateReferralFields(body);
+    if ("error" in r) return { error: r.error };
+    Object.assign(fields, r.fields);
+  }
+
   return { fields };
 }
 
@@ -388,7 +400,7 @@ export async function GET(req: NextRequest) {
     // and the upload route name the migration when it matters.
     let rows: Record<string, unknown>[] | null = null;
     let readError: { code?: string; message: string } | null = null;
-    const listLadder = [LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
+    const listLadder = [LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
     for (let rung = 0; rung < listLadder.length; rung++) {
       const res = await supabase
         .from("applications")
@@ -669,6 +681,9 @@ export async function PUT(req: NextRequest) {
       }
       if (isMissingColumn(updateError) && ("last_contact_from" in fields || "last_contact_at" in fields)) {
         return NextResponse.json({ error: CONTACT_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+      }
+      if (isMissingColumn(updateError) && REFERRAL_KEYS.some((k) => k in fields)) {
+        return NextResponse.json({ error: REFERRAL_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
       }
       console.error("applications update error:", updateError.message);
       return NextResponse.json({ error: "Could not save that application" }, { status: 500 });

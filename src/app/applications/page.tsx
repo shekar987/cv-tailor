@@ -5,6 +5,8 @@ import Link from "next/link";
 import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 import SentCvBlock from "./SentCvBlock";
+import { ReferralAsks, ReferralEditor } from "./ReferralAsks";
+import { REFERRAL_STATUS_LABELS, type ReferralFields, type ReferralRow, type ReferralStatus } from "@/lib/referrals";
 import type { SentCvInfo } from "@/lib/sentCv";
 import { getProfile, type Profile } from "@/lib/cvStore";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
@@ -72,6 +74,12 @@ type Application = {
   // "them" more than a day ago = "Reply owed" (lib/tracker isReplyOwed).
   last_contact_from?: "me" | "them" | null;
   last_contact_at?: string | null;
+  // A referral being sought (migration 20261031120000; absent before it):
+  // the open asks show in the "Referral asks" strip (lib/referrals).
+  referral?: boolean | null;
+  referrer_name?: string | null;
+  req_id?: string | null;
+  referral_status?: ReferralStatus | null;
   // The format style the CV was made with, or the one picked by hand for a
   // manual row (lib/formatStyles; a JSON-path alias in the list query);
   // absent or null = not recorded.
@@ -625,6 +633,8 @@ export default function ApplicationsPage() {
   // panel's Save button "Saving…".
   const [savingNew, setSavingNew] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // The row whose referral step is saving (the strip disables its links).
+  const [referralBusy, setReferralBusy] = useState<string | null>(null);
   const [panelBusy, setPanelBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -1065,6 +1075,21 @@ export default function ApplicationsPage() {
     showFlash(from === "me" ? "Reply recorded." : "Recorded: they wrote. It shows as Reply owed after a day without your reply.");
   }
 
+  // The "Referral asks" strip's next step for a row (lib/referrals).
+  async function stepReferral(row: ReferralRow, status: ReferralStatus) {
+    setReferralBusy(row.id);
+    const message = await patchRow(row.id, { referral_status: status });
+    setReferralBusy(null);
+    showFlash(message ?? `Referral: ${REFERRAL_STATUS_LABELS[status].toLowerCase()}.`);
+  }
+
+  // The Notes panel's referral editor.
+  async function saveReferral(row: Application, fields: ReferralFields): Promise<string | null> {
+    const message = await patchRow(row.id, fields as Partial<Application>);
+    if (!message) showFlash(fields.referral ? "Referral saved." : "Referral removed.");
+    return message;
+  }
+
   // Download through fetch rather than a plain link: a failed export (expired
   // session, server error) then shows inline instead of navigating the whole
   // tracker to a page of raw JSON.
@@ -1440,6 +1465,7 @@ export default function ApplicationsPage() {
             I replied
           </button>
         </div>
+        <ReferralEditor key={row.id} row={row} onSave={(fields) => saveReferral(row, fields)} />
       </div>
     );
   }
@@ -1512,6 +1538,8 @@ export default function ApplicationsPage() {
             )}
           </div>
         )}
+
+        <ReferralAsks rows={rows} onStep={(row, status) => void stepReferral(row, status)} busyId={referralBusy} />
 
         <div className="appsToolbar">
           <div className="appsToolbarGroup appsToolbarSearch">

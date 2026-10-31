@@ -162,6 +162,200 @@ function describeProjects(body: string, projects: { name: string; descriptor: st
   return out;
 }
 
+// ── The final tidy (31 Oct 2026, Chunk 6) ────────────────────────────────────
+// Three rules run once on the FINISHED letter (after the fact check, the
+// right-to-work insert and the page fit, any of which can move what they
+// read), reported as `tidy` — apart from LetterRules, whose shape is pinned:
+// - "N areas" says the number of numbered points the letter really has: a
+//   removal left three points under "these are the four areas" (CareerSet's
+//   fixed line; "reasons" the same);
+// - modules stay with their degree: a sentence about the MSc names only the
+//   MSc's modules as the master CV lists them; a module the master lists
+//   under another degree is taken out of the list (the sentence goes when no
+//   module of the named degree is left);
+// - one full stop: "Acme Inc.." (a company name ending in a stop, then the
+//   sentence's own) loses the second; an ellipsis is left alone.
+
+export type LetterTidy = {
+  areasCount: { from: string; to: string } | null;
+  otherDegreeModules: string[];
+  doubleStops: number;
+};
+
+const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+const AREAS_RE = /\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})(\s+)(areas|reasons|ways)\b/i;
+// The same numbered-point line lib/letterStyle counts.
+const POINT_RE = /^\s*\d{1,2}\.\s+\S/;
+
+// An item of the list under the intro line: numbered ("1. …"), a bullet
+// ("• …", "- …") or labelled ("Backend delivery: …" — a short label, then a
+// colon and the text).
+const LIST_ITEM_RE = /^\s*(?:\d{1,2}[.)]\s+\S|[•\-*]\s+\S|[A-Z][^:.!?]{1,60}:\s+\S)/;
+
+/** "these are the four areas" said with the number of areas the letter really lists. */
+export function fixAreasCount(letter: string): { text: string; fixed: { from: string; to: string } | null } {
+  const lines = letter.replace(/\r/g, "").split("\n");
+  // Only the line that introduces the list (it ends with a colon): "I worked
+  // in three areas of the platform" in the body is a fact, never a count.
+  const at = lines.findIndex((l) => AREAS_RE.test(l) && !POINT_RE.test(l) && /:\s*$/.test(l));
+  if (at < 0) return { text: letter, fixed: null };
+  // The items right under it (blank lines between them allowed); else every
+  // numbered point in the letter.
+  let points = 0;
+  for (const l of lines.slice(at + 1)) {
+    if (!l.trim()) continue;
+    if (!LIST_ITEM_RE.test(l)) break;
+    points++;
+  }
+  if (points === 0) points = lines.filter((l) => POINT_RE.test(l)).length;
+  if (points === 0) return { text: letter, fixed: null };
+  const m = AREAS_RE.exec(lines[at])!;
+  const stated = /^\d+$/.test(m[1]) ? Number(m[1]) : NUMBER_WORDS.indexOf(m[1].toLowerCase());
+  if (stated === points) return { text: letter, fixed: null };
+  let to = /^\d+$/.test(m[1]) || points > 10 ? String(points) : NUMBER_WORDS[points];
+  if (/^[A-Z]/.test(m[1])) to = capitalise(to);
+  lines[at] = lines[at].replace(AREAS_RE, `${to}$2$3`);
+  return { text: lines.join("\n"), fixed: { from: m[1], to } };
+}
+
+/** "Inc.." → "Inc."; an ellipsis ("...") is never touched. */
+export function fixDoubleStops(text: string): { text: string; count: number } {
+  let count = 0;
+  const out = text.replace(/(?<!\.)\.\.(?!\.)/g, () => {
+    count++;
+    return ".";
+  });
+  return { text: out, count };
+}
+
+// "LLM" is left out: in a tech CV it is a language model far more often than
+// a Master of Laws, and reading it as a degree hid the real one beside it.
+const DEGREE_RE = /\b(B\.?Tech|B\.?Sc|B\.?Eng|B\.?A|M\.?Sc|M\.?Eng|M\.?Tech|M\.?A|MBA|Ph\.?D|MRes|LLB)\b/g;
+const MODULES_LINE_RE = /^\s*(?:[•\-*]\s*)?(?:(?:key|relevant|core|selected|main|optional)\s+)?(?:modules?|coursework|courses?)(?:\s+(?:include|included|including|studied|taken))?\s*:?\s+(.+)$/i;
+
+const degreeKey = (d: string) => d.replace(/\./g, "").toLowerCase();
+
+// An education entry as the extracted profile stores it (lib/profile
+// Education): its degree line and the note that may carry its modules.
+export type EducationEntry = { degree?: string; note?: string };
+
+const splitModules = (list: string) => list.split(/\s*[,;|·]\s*|\s+and\s+/).map((s) => s.replace(/[.\s]+$/, "").trim()).filter((s) => s.length >= 3);
+
+/**
+ * The modules listed under each degree, keyed by the degree's abbreviation
+ * ("msc"): from the master CV's own lines, and from each education entry
+ * (education[i].note "Modules: …" belongs to education[i].degree only).
+ */
+export function modulesByDegree(masterCv: string, education: readonly EducationEntry[] = []): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const add = (deg: string, items: string[]) => {
+    const have = out.get(deg) ?? [];
+    out.set(deg, [...have, ...items.filter((m) => !have.some((h) => h.toLowerCase() === m.toLowerCase()))]);
+  };
+  for (const e of education) {
+    const degrees = [...(e?.degree ?? "").matchAll(DEGREE_RE)].map((m) => degreeKey(m[1]));
+    if (degrees.length !== 1) continue;
+    for (const part of (e?.note ?? "").split(/\n|(?<=\.)\s+(?=[A-Z])/)) {
+      const mods = MODULES_LINE_RE.exec(part.trim());
+      if (mods) add(degrees[0], splitModules(mods[1]));
+    }
+  }
+  let current: string | null = null;
+  for (const raw of (masterCv || "").replace(/\r/g, "").split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const mods = MODULES_LINE_RE.exec(line);
+    if (mods && current) {
+      add(current, splitModules(mods[1]));
+      continue;
+    }
+    const degrees = [...line.matchAll(DEGREE_RE)].map((m) => degreeKey(m[1]));
+    if (degrees.length === 1) current = degrees[0];
+    else if (degrees.length > 1) current = null;
+  }
+  return out;
+}
+
+// The words that open a module list: "modules", "my modules in", "coursework
+// such as", "courses including", "modules: …".
+const MODULE_LIST_RE = /\b(?:modules?|coursework|courses?)\b(?:\s+(?:in|on|such as|including|included|include|includes|like|covering|covered|were|was|are|cover)\b)*\s*:?\s*/gi;
+const LIST_SEP_RE = /^(?:\s*,\s*(?:and\s+)?|\s+and\s+|\s*&\s*)/i;
+
+// The module list right after its opening words: known module names (any
+// degree's), one after another with ", " / " and " between them; the list
+// ends at the first text that is not a known module. Nothing outside it —
+// "two years of production work with databases" — is ever read as a module
+// (review of PR #6, 31 Oct).
+function moduleListAt(s: string, from: number, known: string[]): { start: number; end: number; items: { name: string; text: string }[] } | null {
+  const items: { name: string; text: string }[] = [];
+  let pos = from;
+  let start = -1;
+  let end = -1;
+  for (;;) {
+    const rest = s.slice(pos);
+    const hit = known
+      .filter((m) => rest.toLowerCase().startsWith(m.toLowerCase()) && !/[\p{L}\p{N}]/u.test(rest.charAt(m.length)))
+      .sort((a, b) => b.length - a.length)[0];
+    if (!hit) break;
+    if (start < 0) start = pos;
+    items.push({ name: hit, text: rest.slice(0, hit.length) });
+    end = pos + hit.length;
+    const sep = LIST_SEP_RE.exec(s.slice(end));
+    if (!sep) break;
+    pos = end + sep[0].length;
+  }
+  return items.length > 0 ? { start, end, items } : null;
+}
+
+const joinList = (names: string[]) => (names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
+
+/** Modules named next to a degree are that degree's own (see the header). */
+export function keepDegreeModules(letter: string, masterCv: string, education: readonly EducationEntry[] = []): { text: string; removed: string[] } {
+  const byDegree = modulesByDegree(masterCv, education);
+  const removed: string[] = [];
+  if (byDegree.size === 0) return { text: letter, removed };
+  const all = [...byDegree.entries()].flatMap(([deg, mods]) => mods.map((m) => ({ deg, m })));
+  const known = [...new Set(all.map((x) => x.m))];
+  const lines = letter.replace(/\r/g, "").split("\n").map((line) => {
+    if (!/\b(?:modules?|coursework|courses?)\b/i.test(line)) return line;
+    const kept = sentencesOf(line).flatMap((s) => {
+      const named = new Set([...s.matchAll(DEGREE_RE)].map((m) => degreeKey(m[1])));
+      if (named.size === 0) return [s];
+      const own = new Set(all.filter((x) => named.has(x.deg)).map((x) => x.m.toLowerCase()));
+      let out = s;
+      let emptied = false;
+      // Each list, last first, so the earlier positions stay valid.
+      const lists = [...s.matchAll(MODULE_LIST_RE)].map((m) => moduleListAt(s, (m.index ?? 0) + m[0].length, known)).filter((l): l is NonNullable<typeof l> => !!l);
+      for (const list of lists.reverse()) {
+        const foreign = list.items.filter((i) => !own.has(i.name.toLowerCase()));
+        if (foreign.length === 0) continue;
+        removed.push(...foreign.map((i) => i.name));
+        const keep = list.items.filter((i) => own.has(i.name.toLowerCase())).map((i) => i.text);
+        if (keep.length === 0) emptied = true;
+        out = out.slice(0, list.start) + joinList(keep) + out.slice(list.end);
+      }
+      // No module of the named degree left: the sentence says nothing true about it.
+      return emptied ? [] : [out];
+    });
+    return kept.join(" ");
+  });
+  if (removed.length === 0) return { text: letter, removed };
+  return { text: lines.join("\n").replace(/\n{3,}/g, "\n\n"), removed };
+}
+
+/** The three final rules, in order: modules, the stop, then the count. */
+export function tidyFinishedLetter(letter: string, masterCv: string, education: readonly EducationEntry[] = []): { text: string; tidy: LetterTidy } {
+  const tidy: LetterTidy = { areasCount: null, otherDegreeModules: [], doubleStops: 0 };
+  if (!letter || !letter.trim()) return { text: letter, tidy };
+  const mods = keepDegreeModules(letter, masterCv, education);
+  tidy.otherDegreeModules = mods.removed;
+  const stops = fixDoubleStops(mods.text);
+  tidy.doubleStops = stops.count;
+  const areas = fixAreasCount(stops.text);
+  tidy.areasCount = areas.fixed;
+  return { text: areas.text, tidy };
+}
+
 // The letter with the offending sentences removed (paragraphs kept, an
 // emptied one dropped), the 30 Oct rules applied, and what changed. The
 // first body sentence — the role by name — is never removed, nor anything
