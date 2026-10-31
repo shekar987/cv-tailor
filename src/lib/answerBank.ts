@@ -3,7 +3,11 @@
 // time — answered once from the user's own Eligibility answers on Customize
 // (lib/knockouts), never guessed and never another user's. "Form answers" on
 // /app lists them to copy, and matchQuestion() reads a question pasted from a
-// form and says which stored answer fits.
+// form and says which stored answer fits: QUESTION_BANK holds the questions
+// as Workday, SmartRecruiters, Greenhouse and People First phrase them,
+// keyed by normalised text (normaliseQuestion) — an exact hit, else the
+// closest by shared content words (FUZZY_MIN), else the question's parts.
+// answersByQuestion() is the bank with this user's answers filled in.
 //
 // The wording is the confirmed one: a sponsorship Yes/No is "No" for anyone
 // who can work without sponsorship (permanent or time-limited permission)
@@ -96,6 +100,75 @@ const YES_NO_START_RE = /^(?:will|do|does|are|is|would|have|has|can|could|did|sh
 const TEXT_REQUEST_RE = /\bplease\s+(?:explain|provide|give|state|describe|outline|tell)\b|\bdescribe\b|\bexplain\b|\bdetails?\b|\bwhat\s+(?:is\s+your\s+)?(?:visa|type\s+of)\b/i;
 const FUTURE_RE = /\b(?:in\s+the\s+future|future|now\s+or\s+(?:at\s+any\s+(?:point|time)|later)|at\s+any\s+(?:point|time)|going\s+forward|later)\b/i;
 
+// ── The bank: questions as the forms ask them ──────────────────────────────
+// Workday, SmartRecruiters, Greenhouse and the Civil Service's People First
+// phrase the same few questions a few ways. Each is stored here normalised
+// (normaliseQuestion) and keyed to the answer it takes; the answer itself is
+// the user's own (buildAnswerBank), never stored here.
+
+/** Lower case, British spelling folded to one form, punctuation and asides gone. */
+export function normaliseQuestion(text: string): string {
+  return (text || "")
+    .toLowerCase()
+    .replace(/\([^()]*\)/g, " ") // "(e.g. H-1B visa status)", "(Yes/No)"
+    .replace(/authoris/g, "authoriz")
+    .replace(/[‘’']/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export const QUESTION_BANK: Readonly<Record<string, AnswerKey>> = Object.fromEntries(
+  (
+    [
+      // Sponsorship, Yes / No.
+      ["Will you now or in the future require sponsorship?", "sponsorship"],
+      ["Will you now or in the future require sponsorship for employment visa status?", "sponsorship"],
+      ["Do you require visa sponsorship?", "sponsorship"],
+      ["Do you require sponsorship to work in the UK?", "sponsorship"],
+      ["Will you require visa sponsorship to work in the UK?", "sponsorship"],
+      ["Would you need sponsorship to take up this role?", "sponsorship"],
+      ["Do you require a Certificate of Sponsorship?", "sponsorship"],
+      ["Do you need a work permit to work in the UK?", "sponsorship"],
+      ["Do you require a visa to work in the UK?", "sponsorship"],
+      // Right to work, Yes / No.
+      ["Do you have the right to work in the UK?", "right_to_work"],
+      ["Do you have the legal right to work in the United Kingdom?", "right_to_work"],
+      ["Are you legally authorised to work in the UK?", "right_to_work"],
+      ["Are you eligible to work in the UK?", "right_to_work"],
+      ["Are you legally entitled to work in the UK?", "right_to_work"],
+      ["Are you eligible to work in the country where this role is based?", "right_to_work"],
+      // Free text.
+      ["Please provide details of your visa status", "visa_details"],
+      ["Please describe your visa and sponsorship requirements", "visa_details"],
+      ["What is your current immigration status?", "visa_details"],
+      ["What is your right to work status?", "visa_details"],
+      ["What type of visa do you hold?", "visa_details"],
+      ["When can you start?", "start_date"],
+      ["When are you available to start?", "start_date"],
+      ["What is your notice period?", "start_date"],
+      ["What is your earliest start date?", "start_date"],
+      ["Are you able to work full time?", "full_time"],
+      ["Can you work full time?", "full_time"],
+      ["Are you available to work full time?", "full_time"],
+    ] as const
+  ).map(([q, key]) => [normaliseQuestion(q), key])
+);
+
+const STOP = new Set("a an the to in of for you your do does are is will would can could be this that or and now with on at by any".split(" "));
+const contentTokens = (normalised: string) => new Set(normalised.split(" ").filter((t) => t && !STOP.has(t)));
+
+// Dice coefficient over content words: 1 = the same words.
+function similarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let shared = 0;
+  for (const t of a) if (b.has(t)) shared++;
+  return (2 * shared) / (a.size + b.size);
+}
+
+// A fuzzy hit needs this much of the content words in common.
+export const FUZZY_MIN = 0.6;
+
 /** Which stored answer a form's question asks for; consent and conviction questions are blocked, never answered. */
 export function matchQuestion(question: string): QuestionMatch {
   const q = (question || "").replace(/\s+/g, " ").trim();
@@ -104,6 +177,19 @@ export function matchQuestion(question: string): QuestionMatch {
   if (CONVICTIONS_RE.test(q)) return { ...none, blocked: "convictions" };
   if (CONSENT_RE.test(q)) return { ...none, blocked: "consent" };
   const asksFuture = FUTURE_RE.test(q);
+
+  // 1. The bank, exactly, then fuzzily (the closest bank question).
+  const norm = normaliseQuestion(q);
+  if (QUESTION_BANK[norm]) return { key: QUESTION_BANK[norm], blocked: null, asksFuture };
+  const words = contentTokens(norm);
+  let best: { key: AnswerKey; score: number } | null = null;
+  for (const [bankQ, key] of Object.entries(QUESTION_BANK)) {
+    const score = similarity(words, contentTokens(bankQ));
+    if (score >= FUZZY_MIN && (!best || score > best.score)) best = { key, score };
+  }
+  if (best) return { key: best.key, blocked: null, asksFuture };
+
+  // 2. The wording the bank does not hold yet, by its parts.
   if (SPONSOR_RE.test(q)) {
     // "Please give details of your visa / sponsorship needs" wants the
     // sentence; "Will you … require sponsorship for employment visa status?"
@@ -116,6 +202,22 @@ export function matchQuestion(question: string): QuestionMatch {
   if (START_RE.test(q)) return { key: "start_date", blocked: null, asksFuture };
   if (FULL_TIME_RE.test(q)) return { key: "full_time", blocked: null, asksFuture };
   return none;
+}
+
+/**
+ * The answers keyed by the bank's normalised question text, from the user's
+ * Eligibility answers (null where the answer is not given yet).
+ */
+export function answersByQuestion(f: AnswerFacts | null | undefined): Record<string, string | null> {
+  const bank = buildAnswerBank(f);
+  return Object.fromEntries(Object.entries(QUESTION_BANK).map(([q, key]) => [q, bank.find((e) => e.key === key)?.answer ?? null]));
+}
+
+/** A pasted question's answer: the stored one, a block, or none. */
+export function answerFor(question: string, f: AnswerFacts | null | undefined): { answer: string | null; key: AnswerKey | null; blocked: BlockedKind | null; note: string | null } {
+  const match = matchQuestion(question);
+  const answer = match.key ? (buildAnswerBank(f).find((e) => e.key === match.key)?.answer ?? null) : null;
+  return { answer, key: match.key, blocked: match.blocked, note: answerNote(match, f) };
 }
 
 /** A note beside an answer that needs the user's own check, or null. */

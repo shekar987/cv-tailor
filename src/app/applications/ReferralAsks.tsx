@@ -1,30 +1,25 @@
 // "Referral asks" above the tracker sheet (31 Oct 2026, Chunk 6): every
-// application whose referral is still to ask or asked and waiting, the one
-// that has waited longest first (lib/referrals referralAsks). Each line says
-// who to ask and the req ID they will need, with the next step as text
-// links. Renders nothing when no ask is open.
+// referral not yet applied, oldest first (lib/referrals referralAsks), each
+// line leading with the next action in words ("Send details to Nitish",
+// "Finish Deloitte application"), the req ID the referrer will need, and one
+// text link that marks the step done. Renders nothing when none is open.
 //
 // No next/* or @/ imports: tests/referralAsks renders it under node:test
 // (tests/support/tsxLoader.mjs).
 import { useState } from "react";
 import {
-  nextReferralSteps,
+  nextReferralAction,
+  nextReferralStatus,
   referralAsks,
   REFERRAL_STATUSES,
   REFERRAL_STATUS_LABELS,
   MAX_REFERRER_NAME,
   MAX_REQ_ID,
+  isReferralStatus,
   type ReferralFields,
   type ReferralRow,
   type ReferralStatus,
 } from "../../lib/referrals.ts";
-
-const STEP_LABELS: Record<ReferralStatus, string> = {
-  to_ask: "Back to to ask",
-  asked: "Mark asked",
-  referred: "Referred",
-  declined: "Declined",
-};
 
 function formatDay(iso: string): string {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -49,32 +44,26 @@ export function ReferralAsks({
       </h2>
       <ul className="referralAsks__list">
         {asks.map((row) => {
-          const status = (row.referral_status ?? "to_ask") as ReferralStatus;
+          const status: ReferralStatus = isReferralStatus(row.referral_status) ? row.referral_status : "offered";
+          const next = nextReferralStatus(status);
           return (
             <li key={row.id} className="referralAsks__item" data-referral-row={row.id} data-referral-status={status}>
+              <strong className="referralAsks__action" data-referral-action>
+                {nextReferralAction(row)}
+              </strong>
               <span className="referralAsks__what">
-                <strong>{row.company_name}</strong> · {row.role}
-              </span>
-              <span className="referralAsks__who">
-                {row.referrer_name ? <>Ask {row.referrer_name}</> : <>Find someone who can refer you</>}
+                {row.company_name} · {row.role}
                 {row.req_id ? <> · Req ID {row.req_id}</> : null}
-                <> · Applied {formatDay(row.date_applied)}</>
+                <> · since {formatDay(row.date_applied)}</>
               </span>
               <span className="referralAsks__status">{REFERRAL_STATUS_LABELS[status]}</span>
-              <span className="referralAsks__actions">
-                {nextReferralSteps(status).map((next) => (
-                  <button
-                    key={next}
-                    type="button"
-                    className="linkBtn"
-                    data-referral-step={next}
-                    disabled={busyId === row.id}
-                    onClick={() => onStep(row, next)}
-                  >
-                    {STEP_LABELS[next]}
+              {next && (
+                <span className="referralAsks__actions">
+                  <button type="button" className="linkBtn" data-referral-step={next} disabled={busyId === row.id} onClick={() => onStep(row, next)}>
+                    Mark {REFERRAL_STATUS_LABELS[next].toLowerCase()}
                   </button>
-                ))}
-              </span>
+                </span>
+              )}
             </li>
           );
         })}
@@ -96,7 +85,7 @@ export function ReferralEditor({
   const [referral, setReferral] = useState(row.referral === true);
   const [referrer, setReferrer] = useState(row.referrer_name ?? "");
   const [reqId, setReqId] = useState(row.req_id ?? "");
-  const [status, setStatus] = useState<ReferralStatus>((row.referral_status as ReferralStatus | null) ?? "to_ask");
+  const [status, setStatus] = useState<ReferralStatus>(isReferralStatus(row.referral_status) ? row.referral_status : "offered");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -117,12 +106,12 @@ export function ReferralEditor({
     <div className="referralEditor" data-referral-editor>
       <label className="referralEditor__toggle">
         <input type="checkbox" checked={referral} onChange={(e) => setReferral(e.target.checked)} disabled={busy} data-referral-toggle />
-        Ask for a referral
+        A referral is in play
       </label>
       {referral && (
         <div className="referralEditor__fields">
           <label>
-            <span>Who could refer you</span>
+            <span>Who is referring you</span>
             <input className="textInput" value={referrer} maxLength={MAX_REFERRER_NAME} onChange={(e) => setReferrer(e.target.value)} disabled={busy} data-referrer-name />
           </label>
           <label>

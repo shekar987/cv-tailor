@@ -12,11 +12,15 @@
 //      description but nowhere in the master CV is reported (not deleted),
 //      so the page can flag it before download.
 //   4. (31 Oct, Chunk 6) "OpenAI API" stays only when the user's own skills
-//      list names it (the claims registry, seeded from the CV's skills
-//      section) — a bullet that once called the API is not a listed skill;
-//      and "GitHub Actions" never sits in the first TOOLS_LEAD_SLOTS
-//      Technical Tools: it moves behind them, or leaves a list too short to
-//      hold it anywhere else.
+//      list names it — the claims registry, which is where the extracted
+//      skills are kept (the stored profile, cv_profiles.data, has no skills
+//      field), else the CV's skills section; a bullet that once called the
+//      API is not a listed skill. "GitHub Actions" never sits in the first
+//      TOOLS_LEAD_SLOTS Technical Tools: it moves rather than failing the
+//      claims check — to the end of Cloud & DevOps (CareerSet; Other only if
+//      that is still a lead slot) or of the flat line — and leaves only a
+//      list too short to hold it anywhere else. "Java" joins the over-claimed
+//      tools (Burendo, 30 Oct).
 //
 // Imports only import-free siblings (relative .ts paths), so it runs under
 // node:test.
@@ -42,6 +46,9 @@ export const OVERCLAIMED_TOOLS = [
   "Kotlin",
   "C#",
   ".NET",
+  // 30 Oct, Burendo: "Java" reached a header for a master CV with none
+  // ("Java" never matches inside "JavaScript").
+  "Java",
 ] as const;
 
 function esc(s: string): string {
@@ -156,7 +163,11 @@ export function keepOutOfLead(skills: string, shape: SkillsShape = FLAT_SKILLS):
       continue;
     }
     if (shape.grouped) {
-      text = addToolItem(parseSkillsBlock(writeToolLines(block, without), shape), item, "Other");
+      // Its own group, Cloud & DevOps, last on that line; the Other line only
+      // when that still leaves it inside the lead slots.
+      const devops = addToolItem(parseSkillsBlock(writeToolLines(block, without), shape), item, "Cloud & DevOps");
+      const at2 = toolItems(parseSkillsBlock(devops, shape)).findIndex((i) => i === item);
+      text = at2 >= LEAD_SLOTS ? devops : addToolItem(parseSkillsBlock(writeToolLines(block, without), shape), item, "Other");
     } else {
       without[without.length - 1] = [...without[without.length - 1], item];
       text = writeToolLines(block, without);

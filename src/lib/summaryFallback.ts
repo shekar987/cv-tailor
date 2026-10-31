@@ -4,18 +4,21 @@
 // availability sentence alone, or no summary at all. When that happens the
 // summary is rebuilt from the master CV itself, never written:
 //
-//   1. the master CV's own summary / profile section, its first sentences
-//      within the style's sentence and word caps (verbatim — the master is
-//      the source every claim must trace to, so it is supported by
-//      definition); a right-to-work or availability sentence in it is
-//      skipped, because the style appends the Eligibility one;
+//   1. the first line of the master CV's own summary / profile section
+//      (verbatim — the master is the source every claim must trace to, so it
+//      is supported by definition); a right-to-work or availability sentence
+//      is skipped, because the style appends the Eligibility one;
 //   2. else one line built from the master's most recent role header and its
 //      top languages: "Full Stack Engineer at Northgate Systems, working with
 //      Python, TypeScript and SQL." — every word a master-CV fact.
 //
-// The availability sentence (when the style appends one) closes it, as on a
-// normal run. topLanguages() is also what the header line leads its stack
-// with (lib/headline leadLanguages).
+// The availability sentence closes it, as on a normal run ("Available
+// immediately for full-time employment." for an Eligibility answer of
+// "now" + full time). topLanguages() is also what the header's first
+// technology is checked against (lib/headline guardTaglineLanguage).
+// 30 Oct, Burendo (OpenRouter + CareerSet): no Professional Summary at all,
+// and a header of "Java, CI/CD & Cloud Deployment, AWS" for a master CV that
+// leads with Python.
 //
 // Imports only import-free siblings by relative .ts path, so it runs under
 // node:test.
@@ -105,7 +108,6 @@ export type EnsureSummaryInput = {
   availabilityLine: string | null;
   // The master CV's most recent role header (lib/bulletIds parseMasterExperience).
   recentRoleHeader?: string | null;
-  maxSentences: number;
   maxWords: number;
 };
 
@@ -116,19 +118,11 @@ export function ensureSummary(summary: unknown, input: EnsureSummaryInput): { su
   const current = typeof summary === "string" ? summary : "";
   if (summaryHasContent(current, input.availabilityLine)) return { summary: current, report: { rebuilt: false, source: null } };
 
-  const room = {
-    sentences: Math.max(1, input.maxSentences - (input.availabilityLine ? 1 : 0)),
-    words: Math.max(10, input.maxWords - (input.availabilityLine ? words(input.availabilityLine) : 0)),
-  };
-  const kept: string[] = [];
-  let used = 0;
-  for (const s of sentences(masterSummary(input.cv))) {
-    if (mentionsRightToWork(s) || mentionsAvailability(s)) continue;
-    if (kept.length >= room.sentences || used + words(s) > room.words) break;
-    kept.push(/[.!?]$/.test(s) ? s : `${s}.`);
-    used += words(s);
-  }
-  let body = kept.join(" ");
+  const roomWords = Math.max(10, input.maxWords - (input.availabilityLine ? words(input.availabilityLine) : 0));
+  // The master summary's first line (its first sentence that is not a
+  // right-to-work or availability line), within the word cap.
+  const first = sentences(masterSummary(input.cv)).find((s) => !mentionsRightToWork(s) && !mentionsAvailability(s) && words(s) <= roomWords);
+  let body = first ? (/[.!?]$/.test(first) ? first : `${first}.`) : "";
   let source: EnsureSummaryReport["source"] = body ? "master_summary" : null;
 
   if (!body) {

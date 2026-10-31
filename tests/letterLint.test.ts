@@ -212,3 +212,31 @@ test("tidyFinishedLetter runs all three and reports each", () => {
   // A second pass changes nothing.
   assert.deepEqual(tidyFinishedLetter(r.text, MASTER_EDU).tidy, { areasCount: null, otherDegreeModules: [], doubleStops: 0 });
 });
+
+test("fixAreasCount: 'four areas' over two LABELLED areas says two", () => {
+  const letter = `Dear Acme Hiring Team,\n\nI am applying for the Software Engineer role.\n\n${FIXED}\nBackend delivery: 20+ production API modules in Python.\nFrontend: React interfaces used daily by operations staff.\n\nThank you for considering my application.\n\nKind regards,\nAlex Morgan`;
+  const r = fixAreasCount(letter);
+  assert.deepEqual(r.fixed, { from: "four", to: "two" });
+  assert.match(r.text, /these are the two areas where I can add value/);
+  // Bullets count the same way.
+  const bullets = letter.replace("Backend delivery:", "• Backend delivery:").replace("Frontend:", "• Frontend:");
+  assert.equal(fixAreasCount(bullets).fixed?.to, "two");
+});
+
+test("fixDoubleStops: the Uncountable letter's 'Inc..'", () => {
+  assert.equal(fixDoubleStops("I am applying for the Software Engineer role at Uncountable Inc.. My work at Northgate Systems").text, "I am applying for the Software Engineer role at Uncountable Inc. My work at Northgate Systems");
+});
+
+test("modules from education[i] attach only to that degree (the extracted profile's entries)", () => {
+  const education = [
+    { degree: "MSc Computer Science (with Industrial Placement)", note: "Modules: Machine Learning, Cloud Computing" },
+    { degree: "BTech Computer Science", note: "Modules: Compiler Design, Operating Systems" },
+  ];
+  const m = modulesByDegree("", education);
+  assert.deepEqual(m.get("msc"), ["Machine Learning", "Cloud Computing"]);
+  assert.deepEqual(m.get("btech"), ["Compiler Design", "Operating Systems"]);
+  const letter = "Dear Acme team,\n\nMy MSc modules included Machine Learning, Compiler Design and Cloud Computing.\n\nKind regards,\nAlex Morgan";
+  const r = tidyFinishedLetter(letter, "no modules in the CV text", education);
+  assert.deepEqual(r.tidy.otherDegreeModules, ["Compiler Design"]);
+  assert.match(r.text, /My MSc modules included Machine Learning and Cloud Computing\./);
+});

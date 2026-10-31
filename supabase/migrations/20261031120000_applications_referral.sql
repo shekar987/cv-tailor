@@ -1,9 +1,10 @@
--- 31 Oct 2026 (Chunk 6): referrals on the tracker. Per application: whether a
--- referral is being sought (`referral`), who could refer (`referrer_name`),
--- the posting's requisition id the referrer needs (`req_id`), and where the
--- ask stands (`referral_status`: to_ask → asked → referred | declined).
--- /applications shows the open asks (to_ask, asked) in a "Referral asks"
--- strip above the sheet (lib/referrals referralAsks).
+-- 31 Oct 2026 (Chunk 6): referrals on the tracker, the warmest leads. Per
+-- application: whether a referral is in play (`referral`), who is referring
+-- (`referrer_name`), the posting's requisition id the referrer needs
+-- (`req_id`), and where it stands (`referral_status`: offered → details_sent
+-- → referred → applied). /applications shows every referral not yet applied
+-- in a "Referral asks" strip above the sheet, oldest first, with the next
+-- action in words (lib/referrals referralAsks / nextReferralAction).
 --
 -- Additive and reversible. No data changes: every existing row reads as "no
 -- referral" (false, nulls). RLS on applications already covers the new
@@ -24,7 +25,7 @@ alter table public.applications
 
 alter table public.applications
   add constraint applications_referral_status_check
-  check (referral_status is null or referral_status in ('to_ask', 'asked', 'referred', 'declined'));
+  check (referral_status is null or referral_status in ('offered', 'details_sent', 'referred', 'applied'));
 
 alter table public.applications
   drop constraint if exists applications_referral_text_length_check;

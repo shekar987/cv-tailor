@@ -52,12 +52,6 @@ export type HeadlineInput = {
   savedTagline?: string | null;
   // The master CV's job titles, most recent first (lib/bulletIds headers).
   heldTitles?: string[];
-  // The master CV's top languages (lib/summaryFallback topLanguages), passed
-  // by a style whose stack must lead with one (CareerSet, 31 Oct): the first
-  // the registry holds at PRODUCTION level leads the stack — moved to the
-  // front when the posting already put it there, else added first. Absent →
-  // the stack is the posting's order alone (UKJI).
-  leadLanguages?: string[];
 };
 
 export type HeadlineParts = { role: string; years: string; stack: string };
@@ -155,17 +149,24 @@ export function rolePhrase(raw: unknown): string {
   return "";
 }
 
-// The first of the master CV's top languages the registry holds at PRODUCTION
-// level, in the registry's spelling; null when none is (a project-level or
-// learning skill never headlines).
-export function leadLanguage(claims: HeadlineClaims, languages: string[] | undefined): string | null {
-  if (!languages?.length) return null;
-  const production = (claims?.skills ?? []).filter((s) => s.level === "production" && s.name.trim() && !s.name.includes(":"));
-  for (const lang of languages) {
-    const hit = production.find((s) => s.name.trim().toLowerCase() === lang.trim().toLowerCase());
-    if (hit) return hit.name.trim();
-  }
-  return null;
+// The CareerSet header's language check (31 Oct, Chunk 6): the header's first
+// technology must be one of the master CV's top three languages
+// (lib/summaryFallback topLanguages). When it is not — the 30 Oct Burendo run
+// printed "Java, CI/CD & Cloud Deployment, AWS" for a master CV that leads
+// with Python — the header is the master tagline instead (cleaned by
+// lib/profile cleanTagline, as every renderer would). A header with no
+// technology, or no master tagline to fall back to, is left as built.
+export function guardTaglineLanguage(
+  built: { headline: string; parts: HeadlineParts },
+  topLanguages: string[],
+  masterTagline: string | null | undefined
+): { headline: string; replaced: { from: string; firstTechnology: string } | null } {
+  const first = built.parts.stack.split(/\s*,\s*/)[0]?.trim() ?? "";
+  if (!first) return { headline: built.headline, replaced: null };
+  if (topLanguages.some((l) => l.trim().toLowerCase() === first.toLowerCase())) return { headline: built.headline, replaced: null };
+  const fallback = cleanTagline(typeof masterTagline === "string" ? masterTagline : "").trim();
+  if (!fallback) return { headline: built.headline, replaced: null };
+  return { headline: fallback, replaced: { from: built.headline, firstTechnology: first } };
 }
 
 // `render` (lib/formatStyles RenderOptions) gives only the separator: UKJI
@@ -179,15 +180,9 @@ export function buildHeadline(input: HeadlineInput, render?: Pick<RenderOptions,
       .find(Boolean) ?? "";
   const years = yearsLabel(input.yearsExperience);
   const roleWords = role.toLowerCase();
-  const inRole = (name: string) => roleWords.includes(name.toLowerCase()) || matchAtsKeywords(role, [name]).matched > 0;
-  let stackItems = topProductionSkills(input.claims, input.requiredSkills, input.keywords, TAGLINE_STACK_ITEMS + 4)
-    .filter((name) => !inRole(name))
+  const stackItems = topProductionSkills(input.claims, input.requiredSkills, input.keywords, TAGLINE_STACK_ITEMS + 4)
+    .filter((name) => !roleWords.includes(name.toLowerCase()) && !matchAtsKeywords(role, [name]).matched)
     .slice(0, TAGLINE_STACK_ITEMS);
-  const lead = leadLanguage(input.claims, input.leadLanguages);
-  if (lead && !inRole(lead)) {
-    const same = (n: string) => n.toLowerCase() === lead.toLowerCase();
-    stackItems = [lead, ...stackItems.filter((n) => !same(n))].slice(0, TAGLINE_STACK_ITEMS);
-  }
 
   const line = (items: string[], withYears: boolean) =>
     cleanTagline([role, withYears ? years : "", items.join(", ")].filter(Boolean).join(sep));

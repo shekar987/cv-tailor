@@ -132,7 +132,7 @@ test("GitHub Actions in a list of 8 or fewer has no place behind the lead: it le
   assert.deepEqual(r.fix.dropped, ["GitHub Actions"]);
 });
 
-test("the grouped CareerSet block: GitHub Actions moves to the Other line", () => {
+test("the grouped CareerSet block: GitHub Actions moves to the end of Cloud & DevOps, out of the lead", () => {
   const grouped = [
     "Functional Competencies: API Design | Testing",
     "Technical Tools:",
@@ -142,9 +142,36 @@ test("the grouped CareerSet block: GitHub Actions moves to the Other line", () =
     "Testing: Jest, Pytest",
   ].join("\n");
   const r = keepOutOfLead(grouped, SKILLS_SHAPE.careerset);
-  assert.deepEqual(r.fix.moved, ["GitHub Actions"]);
-  assert.match(r.text, /^Cloud & DevOps: AWS, Docker, Terraform$/m);
+  assert.deepEqual(r.fix, { moved: ["GitHub Actions"], dropped: [] });
+  assert.match(r.text, /^Cloud & DevOps: AWS, Docker, Terraform, GitHub Actions$/m);
+  assert.doesNotMatch(r.text, /^Other:/m, "no Other line needed");
+});
+
+test("GitHub Actions put first in the lead (another group) also lands in Cloud & DevOps", () => {
+  const grouped = [
+    "Technical Tools:",
+    "Languages & Frameworks: GitHub Actions, Python, TypeScript, FastAPI, React",
+    "Databases: PostgreSQL, Redis",
+    "Cloud & DevOps: AWS, Docker",
+    "Testing: Jest",
+  ].join("\n");
+  const r = keepOutOfLead(grouped, SKILLS_SHAPE.careerset);
+  assert.match(r.text, /^Languages & Frameworks: Python, TypeScript, FastAPI, React$/m);
+  assert.match(r.text, /^Cloud & DevOps: AWS, Docker, GitHub Actions$/m);
+});
+
+test("when the end of Cloud & DevOps is still a lead slot, the Other line takes it", () => {
+  const grouped = ["Technical Tools:", "Languages & Frameworks: Python, TypeScript", "Cloud & DevOps: GitHub Actions, AWS", "Testing: Jest, Pytest, Playwright, Cypress, Vitest"].join("\n");
+  const r = keepOutOfLead(grouped, SKILLS_SHAPE.careerset);
+  assert.match(r.text, /^Cloud & DevOps: AWS$/m);
   assert.match(r.text, /^Other: GitHub Actions$/m);
+});
+
+test("Java leaves the skills unless the master CV names it; JavaScript is never mistaken for it", () => {
+  const r = dropUnbackedTools("Technical Tools: Java | JavaScript | Python", master);
+  assert.equal(r.text, "Technical Tools: JavaScript | Python");
+  assert.deepEqual(r.dropped, ["Java"]);
+  assert.match(dropUnbackedTools("Technical Tools: Java | Python", master + "\nJava").text, /Java \|/);
 });
 
 test("guardFacts runs the tool guards with the skills list and shape it is given", () => {

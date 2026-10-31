@@ -187,14 +187,28 @@ const AREAS_RE = /\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,
 // The same numbered-point line lib/letterStyle counts.
 const POINT_RE = /^\s*\d{1,2}\.\s+\S/;
 
-/** "these are the four areas" said with the number of points the letter has. */
+// An item of the list under the intro line: numbered ("1. …"), a bullet
+// ("• …", "- …") or labelled ("Backend delivery: …" — a short label, then a
+// colon and the text).
+const LIST_ITEM_RE = /^\s*(?:\d{1,2}[.)]\s+\S|[•\-*]\s+\S|[A-Z][^:.!?]{1,60}:\s+\S)/;
+
+/** "these are the four areas" said with the number of areas the letter really lists. */
 export function fixAreasCount(letter: string): { text: string; fixed: { from: string; to: string } | null } {
   const lines = letter.replace(/\r/g, "").split("\n");
-  const points = lines.filter((l) => POINT_RE.test(l)).length;
   // Only the line that introduces the list (it ends with a colon): "I worked
   // in three areas of the platform" in the body is a fact, never a count.
   const at = lines.findIndex((l) => AREAS_RE.test(l) && !POINT_RE.test(l) && /:\s*$/.test(l));
-  if (points === 0 || at < 0) return { text: letter, fixed: null };
+  if (at < 0) return { text: letter, fixed: null };
+  // The items right under it (blank lines between them allowed); else every
+  // numbered point in the letter.
+  let points = 0;
+  for (const l of lines.slice(at + 1)) {
+    if (!l.trim()) continue;
+    if (!LIST_ITEM_RE.test(l)) break;
+    points++;
+  }
+  if (points === 0) points = lines.filter((l) => POINT_RE.test(l)).length;
+  if (points === 0) return { text: letter, fixed: null };
   const m = AREAS_RE.exec(lines[at])!;
   const stated = /^\d+$/.test(m[1]) ? Number(m[1]) : NUMBER_WORDS.indexOf(m[1].toLowerCase());
   if (stated === points) return { text: letter, fixed: null };
@@ -219,17 +233,38 @@ const MODULES_LINE_RE = /^\s*(?:[•\-*]\s*)?(?:(?:key|relevant|core|selected|ma
 
 const degreeKey = (d: string) => d.replace(/\./g, "").toLowerCase();
 
-/** The modules the master CV lists under each degree, keyed by the degree's abbreviation ("msc"). */
-export function modulesByDegree(masterCv: string): Map<string, string[]> {
+// An education entry as the extracted profile stores it (lib/profile
+// Education): its degree line and the note that may carry its modules.
+export type EducationEntry = { degree?: string; note?: string };
+
+const splitModules = (list: string) => list.split(/\s*[,;|·]\s*|\s+and\s+/).map((s) => s.replace(/[.\s]+$/, "").trim()).filter((s) => s.length >= 3);
+
+/**
+ * The modules listed under each degree, keyed by the degree's abbreviation
+ * ("msc"): from the master CV's own lines, and from each education entry
+ * (education[i].note "Modules: …" belongs to education[i].degree only).
+ */
+export function modulesByDegree(masterCv: string, education: readonly EducationEntry[] = []): Map<string, string[]> {
   const out = new Map<string, string[]>();
+  const add = (deg: string, items: string[]) => {
+    const have = out.get(deg) ?? [];
+    out.set(deg, [...have, ...items.filter((m) => !have.some((h) => h.toLowerCase() === m.toLowerCase()))]);
+  };
+  for (const e of education) {
+    const degrees = [...(e?.degree ?? "").matchAll(DEGREE_RE)].map((m) => degreeKey(m[1]));
+    if (degrees.length !== 1) continue;
+    for (const part of (e?.note ?? "").split(/\n|(?<=\.)\s+(?=[A-Z])/)) {
+      const mods = MODULES_LINE_RE.exec(part.trim());
+      if (mods) add(degrees[0], splitModules(mods[1]));
+    }
+  }
   let current: string | null = null;
   for (const raw of (masterCv || "").replace(/\r/g, "").split("\n")) {
     const line = raw.trim();
     if (!line) continue;
     const mods = MODULES_LINE_RE.exec(line);
     if (mods && current) {
-      const items = mods[1].split(/\s*[,;|·]\s*|\s+and\s+/).map((s) => s.replace(/[.\s]+$/, "").trim()).filter((s) => s.length >= 3);
-      out.set(current, [...(out.get(current) ?? []), ...items]);
+      add(current, splitModules(mods[1]));
       continue;
     }
     const degrees = [...line.matchAll(DEGREE_RE)].map((m) => degreeKey(m[1]));
@@ -258,8 +293,8 @@ function tidyList(s: string): string {
 }
 
 /** Modules named next to a degree are that degree's own (see the header). */
-export function keepDegreeModules(letter: string, masterCv: string): { text: string; removed: string[] } {
-  const byDegree = modulesByDegree(masterCv);
+export function keepDegreeModules(letter: string, masterCv: string, education: readonly EducationEntry[] = []): { text: string; removed: string[] } {
+  const byDegree = modulesByDegree(masterCv, education);
   const removed: string[] = [];
   if (byDegree.size === 0) return { text: letter, removed };
   const all = [...byDegree.entries()].flatMap(([deg, mods]) => mods.map((m) => ({ deg, m })));
@@ -288,10 +323,10 @@ export function keepDegreeModules(letter: string, masterCv: string): { text: str
 }
 
 /** The three final rules, in order: modules, the stop, then the count. */
-export function tidyFinishedLetter(letter: string, masterCv: string): { text: string; tidy: LetterTidy } {
+export function tidyFinishedLetter(letter: string, masterCv: string, education: readonly EducationEntry[] = []): { text: string; tidy: LetterTidy } {
   const tidy: LetterTidy = { areasCount: null, otherDegreeModules: [], doubleStops: 0 };
   if (!letter || !letter.trim()) return { text: letter, tidy };
-  const mods = keepDegreeModules(letter, masterCv);
+  const mods = keepDegreeModules(letter, masterCv, education);
   tidy.otherDegreeModules = mods.removed;
   const stops = fixDoubleStops(mods.text);
   tidy.doubleStops = stops.count;

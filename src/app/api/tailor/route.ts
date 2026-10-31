@@ -39,7 +39,7 @@ import { fitOnePage, fitTwoPages, fitToRealPages, experienceRefillCandidates, pr
 import { buildCvPdfWithPages } from "@/lib/buildCvPdf";
 import { buildCoverLetterPdfWithPages } from "@/lib/buildCoverLetterPdf";
 import { fitLetterToOnePage, type LetterFitReport } from "@/lib/letterFit";
-import { buildHeadline, degreesInProgress } from "@/lib/headline";
+import { buildHeadline, degreesInProgress, guardTaglineLanguage } from "@/lib/headline";
 import { ensureSummary, topLanguages, type EnsureSummaryReport } from "@/lib/summaryFallback";
 import { normalizeEligibility, type Eligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
@@ -579,7 +579,8 @@ async function runPipeline(opts: {
   // so a style that measures the real page count with it (CareerSet, whose
   // header and printed addresses can wrap) counts the run's own header.
   const headlineTerms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
-  const headline = buildHeadline(
+  const masterTagline = typeof (profile as { tagline?: unknown } | null)?.tagline === "string" ? (profile as { tagline: string }).tagline : null;
+  const builtHeadline = buildHeadline(
     {
       claims,
       requiredSkills: headlineTerms.required_skills,
@@ -589,13 +590,18 @@ async function runPipeline(opts: {
       // (the same test the summary uses); else their own role, below.
       identityTitle: asIdentity ? roleTitle : null,
       positioning: variant?.headline ?? null,
-      savedTagline: typeof (profile as { tagline?: unknown } | null)?.tagline === "string" ? (profile as { tagline: string }).tagline : null,
+      savedTagline: masterTagline,
       heldTitles: masterRoles.map((r) => r.header.split(/\s[—–|]\s/)[0]),
-      // CareerSet: the stack leads with one of the master CV's top three languages.
-      leadLanguages: style.headline.leadLanguage ? topLanguages(cv) : undefined,
     },
     style.render
-  ).headline;
+  );
+  // CareerSet: the header's first technology must be one of the master CV's
+  // top three languages, else the header is the master tagline (lib/headline
+  // guardTaglineLanguage) — reported as `taglineFallback`.
+  const taglineGuard = style.headline.languageCheck
+    ? guardTaglineLanguage(builtHeadline, topLanguages(cv), masterTagline)
+    : { headline: builtHeadline.headline, replaced: null };
+  const headline = taglineGuard.headline;
   let pageFitReport: PageFitReport | null = null;
   // The built PDF's page count after the fit, for the style's format check.
   let realPages: number | null = null;
@@ -1034,7 +1040,6 @@ async function runPipeline(opts: {
       cv,
       availabilityLine,
       recentRoleHeader: masterRoles[0]?.header ?? null,
-      maxSentences: style.limits.summary.maxSentences,
       maxWords: style.limits.summary.maxWords,
     });
     summary = e.summary;
@@ -1078,7 +1083,7 @@ async function runPipeline(opts: {
   // areas" says how many points are really there, modules stay with the
   // degree the sentence names, and "Inc.." loses its second stop.
   if (typeof coverLetter === "string" && coverLetter.trim()) {
-    const t = tidyFinishedLetter(coverLetter, cv);
+    const t = tidyFinishedLetter(coverLetter, cv, (profile as { education?: { degree?: string; note?: string }[] } | null)?.education ?? []);
     coverLetter = t.text;
     if (t.tidy.areasCount || t.tidy.otherDegreeModules.length > 0 || t.tidy.doubleStops > 0) letterCheck.tidy = t.tidy;
   }
@@ -1156,6 +1161,9 @@ async function runPipeline(opts: {
     factGuard: factGuard.report,
     // lib/summaryFallback: the summary rebuilt from the master CV (CareerSet), or null.
     summaryRebuild,
+    // lib/headline guardTaglineLanguage: the built header led with a technology
+    // outside the master CV's top three languages, so the master tagline ran (CareerSet).
+    taglineFallback: taglineGuard.replaced,
     // "Changes vs master CV": the finished text against the master's own
     // bullets (lib/bulletIds) — kept, edited (which words), dropped, new.
     bulletChanges: {

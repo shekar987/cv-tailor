@@ -3,7 +3,7 @@
 // reads a form's question. Consent and conviction questions are never answered.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAnswerBank, matchQuestion, answerNote, type AnswerFacts } from "../src/lib/answerBank.ts";
+import { buildAnswerBank, matchQuestion, answerNote, answerFor, answersByQuestion, normaliseQuestion, QUESTION_BANK, type AnswerFacts } from "../src/lib/answerBank.ts";
 
 const CAN_WORK_NOW: AnswerFacts = {
   rightToWork: { status: "time_limited", permissionEnds: "2027-12" },
@@ -94,4 +94,39 @@ test("matcher 10: a time-limited permission asked about the future carries a not
   assert.equal(answer(CAN_WORK_NOW, "sponsorship"), "No", "the note never changes the answer");
   assert.equal(answerNote(matchQuestion("Do you require sponsorship?"), CAN_WORK_NOW), null, "no future, no note");
   assert.equal(answerNote(future, { ...CAN_WORK_NOW, rightToWork: { status: "full" } }), null, "permanent: no note");
+});
+
+// ── The bank keyed by question text, and the fuzzy matcher ─────────────────
+
+test("matcher 11: the brief's question answers No, exactly from the bank", () => {
+  const r = answerFor("Will you now or in the future require sponsorship?", CAN_WORK_NOW);
+  assert.equal(r.key, "sponsorship");
+  assert.equal(r.answer, "No");
+  assert.equal(QUESTION_BANK[normaliseQuestion("Will you now or in the future require sponsorship?")], "sponsorship");
+});
+
+test("matcher 12: fuzzy — Workday and People First wording close to a bank question", () => {
+  assert.equal(answerFor("Will you, now or in the future, require visa sponsorship?", CAN_WORK_NOW).answer, "No");
+  assert.equal(answerFor("Do you currently have the legal right to work in the UK?", CAN_WORK_NOW).answer, "Yes");
+  assert.equal(answerFor("Please provide details of your current visa status.", CAN_WORK_NOW).answer, "No sponsorship required. I am available immediately for full-time employment.");
+  assert.equal(answerFor("When would you be available to start?", CAN_WORK_NOW).answer, "I am available immediately for full-time employment.");
+});
+
+test("normaliseQuestion folds case, punctuation, asides and spelling", () => {
+  assert.equal(normaliseQuestion("Are you legally AUTHORISED to work in the UK? (Yes/No)"), "are you legally authorized to work in the uk");
+  assert.equal(normaliseQuestion("Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B)?"), "will you now or in the future require sponsorship for employment visa status");
+});
+
+test("answersByQuestion: every bank question keyed to the user's own answer", () => {
+  const byQ = answersByQuestion(CAN_WORK_NOW);
+  assert.equal(byQ[normaliseQuestion("Do you require visa sponsorship?")], "No");
+  assert.equal(byQ[normaliseQuestion("Do you have the right to work in the UK?")], "Yes");
+  assert.equal(byQ[normaliseQuestion("What is your current immigration status?")], "No sponsorship required. I am available immediately for full-time employment.");
+  assert.ok(Object.values(answersByQuestion(null)).every((a) => a === null), "nothing until the Eligibility answers are given");
+  assert.ok(!Object.keys(QUESTION_BANK).some((q) => /consent|convict|criminal|agree/.test(q)), "no consent or convictions question in the bank");
+});
+
+test("a consent or convictions question never gets an answer, even close to a bank question", () => {
+  assert.deepEqual(answerFor("I confirm that I will not require sponsorship", CAN_WORK_NOW), { answer: null, key: null, blocked: "consent", note: null });
+  assert.equal(answerFor("Do you have any unspent convictions?", CAN_WORK_NOW).answer, null);
 });
