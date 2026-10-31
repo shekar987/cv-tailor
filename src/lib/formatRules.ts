@@ -58,6 +58,10 @@ export type FormatFixes = {
   // dropStrayLines() (grouped blocks only): lines under the skills labels that
   // are not skills at all — the model's own commentary or rationale.
   strayLines?: string[] | null;
+  // lib/factGuard keepOutOfLead (31 Oct): a tool that never holds a lead
+  // slot ("GitHub Actions") moved behind them, or dropped from a list too
+  // short to hold it anywhere else.
+  leadTools?: { moved: string[]; dropped: string[] } | null;
   // The British-English pass (lib/britishSpelling): how many words changed,
   // and the first few as "from → to".
   spelling?: { count: number; examples: string[] } | null;

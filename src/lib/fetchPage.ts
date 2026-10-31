@@ -457,7 +457,7 @@ async function fetchOnce(url: URL, timeoutMs: number, trust: string[], repaired:
 // Fetch one page with the SSRF guard applied to the URL AND to every redirect
 // hop (fetch's automatic redirect following would sidestep the guard).
 // `allowHost` narrows it further for a caller that may only ever reach a fixed
-// set of hosts (/api/import-job): checked on the first URL and every hop.
+// set of hosts (/api/jd/fetch): checked on the first URL and every hop.
 export async function fetchPage(
   rawUrl: string,
   opts: { timeoutMs?: number; maxBytes?: number; allowHost?: (hostname: string) => boolean } = {}

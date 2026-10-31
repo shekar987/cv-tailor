@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import {
   fixDegreeLabels, dropUnbackedTools, liftedSummaryPhrases, guardFacts, masterUndergrad,
   factGuardNotices, factGuardItemKey, normalizeFactGuard, FACT_GUARD_LABELS,
+  keepOutOfLead, listNames, LEAD_SLOTS,
 } from "../src/lib/factGuard.ts";
+import { SKILLS_SHAPE } from "../src/lib/formatStyles/ids.ts";
 
 const master = `ALEX MORGAN
 EDUCATION
@@ -85,4 +87,102 @@ test("normalizeFactGuard re-bounds what the response or a stored workspace holds
     droppedTools: [],
     liftedPhrases: ["x".repeat(160)],
   });
+});
+
+// ── Tool guards (31 Oct, Chunk 6) ─────────────────────────────────────────
+
+test("OpenAI API stays only when the user's skills list names it, not the master's prose", () => {
+  const prose = master + "\n• Called the OpenAI API to summarise support tickets";
+  const skills = "Technical Tools: Python | OpenAI API | FastAPI";
+  // Prose alone: without a skills list the old rule keeps it; with the list it goes.
+  assert.match(dropUnbackedTools(skills, prose).text, /OpenAI API/);
+  const listed = dropUnbackedTools(skills, prose, ["Python", "FastAPI", "LangChain"]);
+  assert.equal(listed.text, "Technical Tools: Python | FastAPI");
+  assert.deepEqual(listed.dropped, ["OpenAI API"]);
+  // Named in the list, as the item or as the vendor: kept.
+  assert.match(dropUnbackedTools(skills, master, ["Python", "OpenAI API"]).text, /OpenAI API/);
+  assert.match(dropUnbackedTools(skills, master, ["OpenAI"]).text, /OpenAI API/);
+  assert.equal(listNames(["OpenAI GPT-4o"], "OpenAI API"), false, "another OpenAI product is not the API");
+});
+
+test("the list rule touches only OpenAI API; other tools still go by the master CV", () => {
+  const r = dropUnbackedTools("Technical Tools: Kubernetes | Terraform | OpenAI API", master, ["Terraform", "Kubernetes"]);
+  assert.deepEqual(r.dropped.sort(), ["Kubernetes", "OpenAI API"]);
+  assert.equal(r.text, "Technical Tools: Terraform");
+});
+
+const TEN = ["Python", "TypeScript", "FastAPI", "React", "PostgreSQL", "AWS", "Docker", "Terraform", "Jest", "Redis"];
+
+test("GitHub Actions never holds one of the first 8 Technical Tools: it moves to the end", () => {
+  const flat = `Functional Competencies: API Design | Testing\nTechnical Tools: Python | GitHub Actions | ${TEN.slice(1).join(" | ")}`;
+  const r = keepOutOfLead(flat);
+  assert.deepEqual(r.fix, { moved: ["GitHub Actions"], dropped: [] });
+  const tools = r.text.split("\n")[1].replace("Technical Tools: ", "").split(" | ");
+  assert.equal(tools.indexOf("GitHub Actions"), tools.length - 1);
+  assert.ok(tools.indexOf("GitHub Actions") >= LEAD_SLOTS);
+  assert.equal(r.text.split("\n")[0], "Functional Competencies: API Design | Testing", "the competencies line untouched");
+  // Already behind the lead slots: nothing moves.
+  const late = `Technical Tools: ${TEN.join(" | ")} | GitHub Actions`;
+  assert.equal(keepOutOfLead(late).text, late);
+});
+
+test("GitHub Actions in a list of 8 or fewer has no place behind the lead: it leaves", () => {
+  const r = keepOutOfLead("Technical Tools: Python | GitHub Actions | FastAPI");
+  assert.equal(r.text, "Technical Tools: Python | FastAPI");
+  assert.deepEqual(r.fix.dropped, ["GitHub Actions"]);
+});
+
+test("the grouped CareerSet block: GitHub Actions moves to the end of Cloud & DevOps, out of the lead", () => {
+  const grouped = [
+    "Functional Competencies: API Design | Testing",
+    "Technical Tools:",
+    "Languages & Frameworks: Python, TypeScript, FastAPI, React",
+    "Databases: PostgreSQL, Redis",
+    "Cloud & DevOps: GitHub Actions, AWS, Docker, Terraform",
+    "Testing: Jest, Pytest",
+  ].join("\n");
+  const r = keepOutOfLead(grouped, SKILLS_SHAPE.careerset);
+  assert.deepEqual(r.fix, { moved: ["GitHub Actions"], dropped: [] });
+  assert.match(r.text, /^Cloud & DevOps: AWS, Docker, Terraform, GitHub Actions$/m);
+  assert.doesNotMatch(r.text, /^Other:/m, "no Other line needed");
+});
+
+test("GitHub Actions put first in the lead (another group) also lands in Cloud & DevOps", () => {
+  const grouped = [
+    "Technical Tools:",
+    "Languages & Frameworks: GitHub Actions, Python, TypeScript, FastAPI, React",
+    "Databases: PostgreSQL, Redis",
+    "Cloud & DevOps: AWS, Docker",
+    "Testing: Jest",
+  ].join("\n");
+  const r = keepOutOfLead(grouped, SKILLS_SHAPE.careerset);
+  assert.match(r.text, /^Languages & Frameworks: Python, TypeScript, FastAPI, React$/m);
+  assert.match(r.text, /^Cloud & DevOps: AWS, Docker, GitHub Actions$/m);
+});
+
+test("when the end of Cloud & DevOps is still a lead slot, the Other line takes it", () => {
+  const grouped = ["Technical Tools:", "Languages & Frameworks: Python, TypeScript", "Cloud & DevOps: GitHub Actions, AWS", "Testing: Jest, Pytest, Playwright, Cypress, Vitest"].join("\n");
+  const r = keepOutOfLead(grouped, SKILLS_SHAPE.careerset);
+  assert.match(r.text, /^Cloud & DevOps: AWS$/m);
+  assert.match(r.text, /^Other: GitHub Actions$/m);
+});
+
+test("Java leaves the skills unless the master CV names it; JavaScript is never mistaken for it", () => {
+  const r = dropUnbackedTools("Technical Tools: Java | JavaScript | Python", master);
+  assert.equal(r.text, "Technical Tools: JavaScript | Python");
+  assert.deepEqual(r.dropped, ["Java"]);
+  assert.match(dropUnbackedTools("Technical Tools: Java | Python", master + "\nJava").text, /Java \|/);
+});
+
+test("guardFacts runs the tool guards with the skills list and shape it is given", () => {
+  const g = guardFacts(
+    { summary: "Engineer.", skills: `Technical Tools: OpenAI API | GitHub Actions | ${TEN.join(" | ")}` },
+    master + "\nUsed the OpenAI API once.",
+    "",
+    { skillNames: TEN }
+  );
+  assert.doesNotMatch(String(g.skills), /OpenAI API/);
+  assert.deepEqual(g.report.droppedTools, ["OpenAI API"]);
+  assert.deepEqual(g.leadTools.moved, ["GitHub Actions"]);
+  assert.match(String(g.skills), /Redis \| GitHub Actions$/);
 });
