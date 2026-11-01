@@ -13,14 +13,18 @@
 //     Desirable list makes it a Review;
 //   - needs security clearance (SC, DV, "eligible for security clearance");
 //   - needs five years' UK residence (the clearance rule in other words);
-//   - is a contract role (day rate, IR35, "6-month contract", "contract role")
-//     — a "permanent contract" or "smart contracts" is not;
+//   - is a contractor role (day rate, IR35, "contract role", "initial 6-month
+//     contract", freelance) — a "permanent contract" or "smart contracts" is
+//     not;
 //   - will not sponsor "now or in the future" / "at any time" — "unable to
 //     sponsor at this time" is not a Skip.
 // Review when it asks for about 2 years (2+, 2–3, "two years"), the right to
 // work "for the duration" of the job, or names C#, .NET, Java, Kotlin or C++
 // as a core language (the title or the requirements, not a Desirable line and
-// not one option of "Python or Java").
+// not one option of "Python or Java"), or is a fixed-term employee contract
+// (fixed term, FTC, maternity cover, a plain "12-month contract" with no
+// contractor wording beside it) — the reason reads "Fixed-term contract
+// (N months)" (owner's call, 1 Nov).
 //
 // Deterministic and import-free (node:test runs it). Each reason is the
 // phrase the rule matched, at most 120 characters; each hit also keeps its
@@ -38,7 +42,8 @@ export type TriageRule =
   | "sponsorship"
   | "years_review"
   | "rtw_duration"
-  | "languages";
+  | "languages"
+  | "fixed_term";
 export type TriageHit = { level: "skip" | "review"; rule: TriageRule; phrase: string; sentence: string };
 export type JdTriage = { verdict: TriageVerdict; reasons: string[]; hits: TriageHit[] };
 export type TriageProfile = {
@@ -63,6 +68,7 @@ export const TRIAGE_RULE_LABELS: Record<TriageRule, string> = {
   years_review: "Years of experience",
   rtw_duration: "Right to work for the duration",
   languages: "Core language",
+  fixed_term: "Fixed-term contract",
 };
 
 type Section = "req" | "nice" | "other" | null;
@@ -117,7 +123,8 @@ const YEARS_RE = new RegExp(
 // A span of time, not a requirement: "within 2 years", "in the last 3 years",
 // "for over 10 years", "18 years old", "5 years ago".
 const YEARS_BEFORE_SKIP = /(?:within|in\s+the\s+(?:last|past|next|first)|over\s+the\s+(?:last|past|next)|(?:last|past|next|first)|every|up\s+to|less\s+than|under|after|for(?:\s+(?:over|more\s+than|nearly|almost))?|aged?|since)\s*$/i;
-const YEARS_AFTER_SKIP = /^\s*(?:old\b|of\s+age\b|ago\b|later\b|from\s+now\b)/i;
+// … and the length of a contract ("a 2 year fixed-term contract", "1 year FTC").
+const YEARS_AFTER_SKIP = /^\s*(?:old\b|of\s+age\b|ago\b|later\b|from\s+now\b|['’]?\s*(?:fixed|FTC\b|contract|maternity|secondment|placement))/i;
 // What follows a requirement: "of experience", "' experience", "in software",
 // "as a developer", "of software engineering".
 const YEARS_AFTER_REQ = /^\s*(?:['’]\s*)?(?:(?:of\s+)?(?:[\w-]+\s+){0,4}?(?:experience|engineering|development|programming|coding)\b|exp\b|in\s+(?:a|an|the|software|industry|engineering|commercial|professional|production|web|backend|frontend|data)\b|working\b|as\s+an?\b|building\b|developing\b|commercial\b|professional\b|hands-on\b|industry\b|relevant\b|post-?qualification\b)/i;
@@ -137,9 +144,42 @@ const CLEARANCE_NOT = /\b(?:no|not|n['’]t|without)\b[^.?!]{0,40}\b(?:clearance
 
 const RESIDENCE = /lived\s+in\s+(?:the\s+)?(?:UK|U\.K\.|United\s+Kingdom)\s+(?:for\s+)?(?:at\s+least\s+|a\s+minimum\s+of\s+|the\s+(?:last|past)\s+)?(?:5|five)\s*\+?\s*(?:consecutive\s+|continuous\s+)?years|(?:5|five)\s+years['’]?\s+(?:of\s+)?(?:continuous\s+)?(?:UK\s+)?residen(?:ce|cy)|resident\s+in\s+(?:the\s+)?(?:UK|United\s+Kingdom)\s+for\s+(?:at\s+least\s+|a\s+minimum\s+of\s+)?(?:the\s+(?:last|past)\s+)?(?:5|five)\s+years/i;
 
-const CONTRACT = /\bday[\s-]rates?\b|\b(?:inside|outside)\s+IR35\b|\bIR35\b|\b(?:\d{1,2}|three|six|nine|twelve)(?:\s*(?:-|to)\s*\d{1,2})?[\s-]+months?['’]?\s+(?:initial\s+|rolling\s+)?(?:contract|engagement)\b|\bcontract\s+(?:role|position|basis|opportunity|assignment|engagement|job)\b|\b(?:initial|rolling|freelance|interim)\s+contract\b|\bon\s+a\s+contract\b|\b(?:contract|employment|job)\s+type\s*[:\-–]\s*contract(?:or)?\b|\bcontractor\s+(?:role|position|basis)\b|\((?:contract|contractor)\)/i;
+// Contractor wording only: a plain "12-month contract" is a fixed-term
+// employee contract (FIXED_TERM below), a Review.
+const CONTRACT = /\bday[\s-]rates?\b|\b(?:inside|outside)\s+IR35\b|\bIR35\b|\b(?:initial|rolling)\s+(?:\d{1,2}|three|six|nine|twelve)(?:\s*(?:-|to)\s*\d{1,2})?[\s-]+months?['’]?\s+contract\b|\b(?:\d{1,2}|three|six|nine|twelve)(?:\s*(?:-|to)\s*\d{1,2})?[\s-]+months?['’]?\s+(?:initial\s+|rolling\s+)(?:contract|engagement)\b|\b(?:\d{1,2}|three|six|nine|twelve)[\s-]+months?['’]?\s+engagement\b|\bcontract\s+(?:role|position|basis|opportunity|assignment|engagement|job)\b|\b(?:initial|rolling|freelance|interim)\s+contract\b|\bon\s+a\s+contract\b|\b(?:contract|employment|job)\s+type\s*[:\-–]\s*contract(?:or)?\b|\bcontractor\s+(?:role|position|basis)\b|\((?:contract|contractor)\)/i;
 
-const NO_SPONSOR = /\b(?:unable|not\s+able|cannot|can\s*not|can['’]t|do\s+not|don['’]t|does\s+not|doesn['’]t|will\s+not|won['’]t|not\s+in\s+a\s+position|are\s+not|aren['’]t|is\s+not|isn['’]t|no)\b[^.?!]{0,60}?\bsponsor\w*/i;
+// A fixed-term employee contract. "Fixed term" needs an employment word, a
+// length or "on a / this is a" beside it — a Fixed Term ISA or bond in a
+// savings company's posting is a product. "FTC" in capitals only.
+const FIXED_TERM_I = new RegExp(
+  [
+    String.raw`\bfixed[\s-]+term\s+(?:contract|role|position|basis|appointment|post|engagement|employment|opportunity|secondment|vacancy|hire)\b`,
+    String.raw`\b(?:on\s+a|this\s+is\s+a|as\s+a)\s+(?:${NUM}[\s-]+months?\s+)?fixed[\s-]+term\b`,
+    String.raw`\b${NUM}[\s-]*(?:months?|mths?|years?|yrs?)['’]?\s+fixed[\s-]+term\b`,
+    String.raw`\((?:fixed[\s-]+term|maternity\s+cover)[^)]*\)`,
+    String.raw`\b(?:contract|employment|job)\s+type\s*[:\-–]\s*fixed[\s-]+term\b`,
+    String.raw`\bmaternity\s+(?:leave\s+)?cover\b`,
+    String.raw`\b${NUM}[\s-]*months?['’]?\s+contract\b`,
+  ].join("|"),
+  "i"
+);
+const FIXED_TERM_CS = /\bFTCs?\b/;
+// The length, read beside the match: months, else years as months.
+const TERM_MONTHS = new RegExp(String.raw`(?<![\w.])(${NUM})[\s-]*(?:months?|mths?)\b`, "i");
+const TERM_YEARS = new RegExp(String.raw`(?<![\w.])(${NUM})[\s-]*(?:years?|yrs?)['’]?\s+(?:fixed|FTC|contract|maternity)`, "i");
+
+function fixedTermReason(sentence: string): string | null {
+  const m = sentence.match(FIXED_TERM_I) ?? sentence.match(FIXED_TERM_CS);
+  if (!m) return null;
+  const at = m.index ?? 0;
+  const near = sentence.slice(Math.max(0, at - 40), at + m[0].length + 40);
+  const months = near.match(TERM_MONTHS);
+  const years = months ? null : near.match(TERM_YEARS);
+  const n = months ? numberOf(months[1]) : years ? numberOf(years[1]) * 12 : NaN;
+  return Number.isFinite(n) && n > 0 ? `Fixed-term contract (${n} ${n === 1 ? "month" : "months"})` : "Fixed-term contract";
+}
+
+const NO_SPONSOR =/\b(?:unable|not\s+able|cannot|can\s*not|can['’]t|do\s+not|don['’]t|does\s+not|doesn['’]t|will\s+not|won['’]t|not\s+in\s+a\s+position|are\s+not|aren['’]t|is\s+not|isn['’]t|no)\b[^.?!]{0,60}?\bsponsor\w*/i;
 const SPONSOR_FUTURE = /\bnow\s+or\s+(?:at\s+any\s+(?:point|time)\s+)?in\s+the\s+future\b|\bnow\s+or\s+at\s+any\s+(?:point|time)\b|\bat\s+any\s+(?:point|time)\b|\bcurrently\s+or\s+in\s+the\s+future\b/i;
 
 const RTW_DURATION = /\bright\s+to\s+work\b[^.?!]{0,80}?\bfor\s+the\s+(?:full\s+|entire\s+|whole\s+)?duration\b|\bfor\s+the\s+(?:full\s+|entire\s+|whole\s+)?duration\b[^.?!]{0,80}?\bright\s+to\s+work\b/i;
@@ -263,6 +303,11 @@ export function triageJd(text: string, profile?: TriageProfile): JdTriage {
 
       const contract = sentence.match(CONTRACT);
       if (contract) add({ level: "skip", rule: "contract", phrase: contract[0], sentence });
+      else {
+        // Contractor wording in the same sentence makes it a contract Skip, never both.
+        const fixedTerm = fixedTermReason(sentence);
+        if (fixedTerm) add({ level: "review", rule: "fixed_term", phrase: fixedTerm, sentence });
+      }
 
       const noSponsor = sentence.match(NO_SPONSOR);
       const future = sentence.match(SPONSOR_FUTURE);
@@ -282,6 +327,13 @@ export function triageJd(text: string, profile?: TriageProfile): JdTriage {
         }
       }
     }
+  }
+
+  // One fixed-term reason per posting, the one that says how long.
+  const terms = hits.filter((h) => h.rule === "fixed_term");
+  if (terms.length > 1) {
+    const keep = terms.find((h) => h.phrase.includes("(")) ?? terms[0];
+    for (const h of terms) if (h !== keep) hits.splice(hits.indexOf(h), 1);
   }
 
   const skip = hits.filter((h) => h.level === "skip");

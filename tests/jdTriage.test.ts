@@ -78,12 +78,66 @@ test("sponsorship: 'now or in the future' / 'at any time' → skip; 'at this tim
   assert.equal(triageJd("Will you now or in the future require sponsorship?").verdict, "apply", "a question, not a refusal");
 });
 
-test("contract roles → skip; a permanent contract or smart contracts → apply", () => {
+test("a time-limited visa (the owner's profile): 'at this time' stays Apply; only 'now or in the future' / 'at any time' is Skip", () => {
+  const owner = { rightToWork: "time_limited", yearsExperience: 2 };
+  for (const jd of [
+    "We are unable to sponsor visas at this time.",
+    "Unfortunately we cannot offer visa sponsorship at this time.",
+    "At this time we cannot offer visa sponsorship for this role.",
+  ]) {
+    const t = triageJd(jd, owner);
+    assert.equal(t.verdict, "apply", jd);
+    assert.deepEqual(t.hits, [], jd);
+  }
+  for (const [jd, reason] of [
+    ["We won't sponsor visas now or in the future.", "won't sponsor visas now or in the future"],
+    ["We are unable to sponsor now or in the future.", "unable to sponsor now or in the future"],
+    ["We cannot offer sponsorship at any time.", "cannot offer sponsorship at any time"],
+  ]) {
+    const t = triageJd(jd, owner);
+    assert.equal(t.verdict, "skip", jd);
+    assert.deepEqual(t.reasons, [reason], jd);
+    assert.equal(t.hits[0].rule, "sponsorship");
+  }
+});
+
+test("contractor roles → skip; a permanent contract or smart contracts → apply", () => {
   assert.equal(triageJd("Initial 6-month contract, outside IR35.").verdict, "skip");
   assert.equal(triageJd("£550 day rate.").verdict, "skip");
   assert.equal(triageJd("Python Developer (Contract)").verdict, "skip");
+  assert.equal(triageJd("Rolling 3-month contract.").verdict, "skip");
   assert.equal(triageJd("This is a permanent contract with 25 days' holiday.").verdict, "apply");
   assert.equal(triageJd("You'll write and audit smart contracts in Solidity.").verdict, "apply");
+});
+
+test("fixed-term contracts → review, reason 'Fixed-term contract (N months)'", () => {
+  const cases: [string, string][] = [
+    ["Marketing Insight & Analytics Lead - 9 Month FTC", "Fixed-term contract (9 months)"],
+    ["This is a 12-month fixed-term contract.", "Fixed-term contract (12 months)"],
+    ["Contract type: Fixed term (6 months)", "Fixed-term contract (6 months)"],
+    ["A 12 month contract to cover a team member's maternity leave.", "Fixed-term contract (12 months)"],
+    ["Maternity cover for nine months.", "Fixed-term contract (9 months)"],
+    ["This role is offered on a fixed term basis.", "Fixed-term contract"],
+    ["Data Analyst (Maternity Cover)", "Fixed-term contract"],
+    ["Offered as a 1 year FTC.", "Fixed-term contract (12 months)"],
+  ];
+  for (const [jd, reason] of cases) {
+    const t = triageJd(jd);
+    assert.equal(t.verdict, "review", jd);
+    assert.deepEqual(t.reasons, [reason], jd);
+    assert.equal(t.hits[0].rule, "fixed_term", jd);
+  }
+  // Said twice, once with its length: one reason, the one that says how long.
+  const twice = triageJd("Analytics Lead - 9 Month FTC\n\nAbout the role\nYou'll join the team on a fixed-term basis.");
+  assert.deepEqual(twice.reasons, ["Fixed-term contract (9 months)"]);
+  assert.equal(twice.hits.length, 1);
+  // Contractor wording beside the length makes it a contract Skip, never both.
+  const contractor = triageJd("6-month contract, outside IR35, £500 day rate.");
+  assert.equal(contractor.verdict, "skip");
+  assert.ok(!contractor.hits.some((h) => h.rule === "fixed_term"));
+  // A savings product is not a contract; a contract's length is not experience.
+  assert.equal(triageJd("You'll build the onboarding flow for our Fixed Term ISA.").verdict, "apply");
+  assert.ok(!triageJd("A 2 year fixed-term contract.").hits.some((h) => h.rule === "years_review"));
 });
 
 test("about two years, a 2–3 year range, and right to work for the duration → review", () => {
