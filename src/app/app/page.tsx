@@ -17,6 +17,8 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import FormAnswers from "../FormAnswers";
+import TriageBadge from "../TriageBadge";
+import { triageJd, eligibilityTriageProfile } from "@/lib/triage/jdTriage";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
 import TailorGamePopup, { type TailorGameStatus } from "../TailorGamePopup";
 import { gameForTailorCount, nextTailorCount } from "@/lib/games/pick";
@@ -465,6 +467,12 @@ export default function Home() {
   // The user's eligibility answers (Customize), sent with the pre-check so
   // the server can compare each gate. null = never set up.
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
+  // The JD triage (lib/triage/jdTriage): Apply / Review / Skip read off the
+  // box as it stands, typed or imported — free and instant. A Skip makes the
+  // full tailor ask first (runFullTailor). The eligibility answers only drop
+  // rules that plainly do not apply (full right to work, years that meet it).
+  const triageProfile = useMemo(() => eligibilityTriageProfile(eligibility), [eligibility]);
+  const jdTriage = useMemo(() => (jobDescription.trim() ? triageJd(jobDescription, triageProfile) : null), [jobDescription, triageProfile]);
   // The claims registry (Customize), sent with every tailor/extras call and
   // used for the live re-check of the edited preview. null = none yet.
   const [claims, setClaims] = useState<ClaimsRegistry | null>(null);
@@ -1201,7 +1209,20 @@ export default function Home() {
     }
   }
 
-  function runFullTailor() {
+  // Every path that spends a credit on a JD comes through here: a posting the
+  // triage reads as Skip asks first, with the phrases it was read from.
+  async function runFullTailor() {
+    if (
+      jdTriage?.verdict === "skip" &&
+      !(await confirm({
+        title: "Tailor anyway?",
+        message: `This JD looks out of criteria: ${jdTriage.reasons.join("; ")}. Tailor anyway?`,
+        confirmLabel: "Tailor anyway",
+        cancelLabel: "Don't tailor",
+      }))
+    ) {
+      return null;
+    }
     return executeTailor(jobDescription, "jd");
   }
 
@@ -1575,6 +1596,9 @@ export default function Home() {
           tailor_session_id: sid,
           status: "Applied",
           source: "tailored",
+          // The server triages the stored JD itself (gates.triage); this only
+          // lets it drop rules that plainly do not apply to the user.
+          ...(triageProfile ? { triageProfile } : {}),
           // The JD's literal figure with its unit ("£480 per day"),
           // "Voluntary (unpaid)", or an explicit "Not Specified".
           salary: salaryFromJd(jdForRow),
@@ -1954,6 +1978,7 @@ export default function Home() {
                 {jobDescription.length.toLocaleString()} / {MAX_JD_CHARS.toLocaleString()}
               </p>
             </FormField>
+            <TriageBadge triage={jdTriage} />
             {usage && !usage.unlimited && (
               <p className="usageRow">
                 <span>

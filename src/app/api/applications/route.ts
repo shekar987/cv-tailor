@@ -13,6 +13,7 @@ import {
 import { isFormatStyleId, type FormatStyleId } from "@/lib/formatStyles/ids";
 import { normalizeStyleCheck } from "@/lib/styleCheck";
 import { validateReferralFields, REFERRAL_MIGRATION_HINT, type ReferralFields } from "@/lib/referrals";
+import { triageJd, triageProfileOf, type JdTriage } from "@/lib/triage/jdTriage";
 
 const REFERRAL_KEYS = ["referral", "referrer_name", "req_id", "referral_status"] as const;
 
@@ -52,7 +53,8 @@ function isStatusCheckViolation(error: { code?: string; message?: string } | nul
 const SELECT_COLUMNS =
   "id, company_name, role, cv_reference, tailor_session_id, status, salary, date_applied, followup_date, notes, job_description, source, created_at, updated_at";
 // gates: the pre-check's eligibility read stored with the snapshot, so the
-// sheet can show "Knockout: <quote>" / "Clear" per row without the detail read.
+// sheet can show "Knockout: <quote>" / "Clear" per row without the detail read;
+// gates.triage is the JD triage (lib/triage/jdTriage), computed here.
 // format_style: the format style the CV was made with, or the one picked by
 // hand for a manual row (lib/formatStyles; absent = not recorded).
 const LIST_COLUMNS = `${SELECT_COLUMNS}, prep_generated_at:prep_pack->>generatedAt, gates:tailored_cv->gates, format_style:tailored_cv->>formatStyle`;
@@ -162,6 +164,23 @@ function cleanGates(value: unknown): Record<string, unknown> | null {
         }))
     : [];
   return { read: g.read, hard: count(g.hard), soft: count(g.soft), unknown: count(g.unknown), items };
+}
+
+// The JD triage (lib/triage/jdTriage, Chunk 8) is computed HERE from the
+// stored job description — never taken from the client — and kept at
+// tailored_cv.gates.triage beside the pre-check's read. The body may carry
+// `triageProfile` (the user's right-to-work answer and years, from their
+// Eligibility), which only drops rules that plainly do not apply to them.
+// No JD → no triage; a snapshot left empty is null.
+function withTriage(snapshot: Record<string, unknown> | null, triage: JdTriage | null): Record<string, unknown> | null {
+  const next: Record<string, unknown> = { ...(snapshot ?? {}) };
+  const gates: Record<string, unknown> =
+    next.gates && typeof next.gates === "object" && !Array.isArray(next.gates) ? { ...(next.gates as Record<string, unknown>) } : {};
+  if (triage) gates.triage = triage;
+  else delete gates.triage;
+  if (Object.keys(gates).length > 0) next.gates = gates;
+  else delete next.gates;
+  return Object.keys(next).length > 0 ? next : null;
 }
 
 // The CV snapshot comes from our own client, so this only pins the shape and
@@ -467,7 +486,7 @@ export async function POST(req: NextRequest) {
       tailor_session_id: sessionId,
       cv_reference: cvReference,
       job_description: jobDescription || null,
-      tailored_cv: cv.snapshot,
+      tailored_cv: withTriage(cv.snapshot, jobDescription ? triageJd(jobDescription, triageProfileOf(body.triageProfile)) : null),
     };
 
     // Duplicate rule: one row per tailoring session. Check-then-insert rather
@@ -594,33 +613,47 @@ export async function PUT(req: NextRequest) {
     if (Object.keys(fields).length === 0 && stylePatch === undefined) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
+    // A new job description gets a new triage (withTriage above), merged into
+    // the stored snapshot like the style tag.
+    const jdChanged = "job_description" in fields;
     let snapshotPatch: Record<string, unknown> | null | undefined;
-    if (stylePatch !== undefined) {
+    if (stylePatch !== undefined || jdChanged) {
       const { data: existing, error: existingError } = await supabase
         .from("applications")
         .select("source, tailored_cv")
         .eq("id", id)
         .eq("user_id", userId)
         .maybeSingle();
-      if (existingError) {
-        if (isMissingColumn(existingError)) {
+      // Without the snapshot column a JD edit still saves, untriaged; only the
+      // style tag has nowhere else to go.
+      const snapshotMissing = !!existingError && isMissingColumn(existingError);
+      if (existingError && !(snapshotMissing && stylePatch === undefined)) {
+        if (snapshotMissing) {
           return NextResponse.json({ error: MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
         }
         console.error("applications lookup error:", existingError.message);
         return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
       }
-      if (!existing) {
-        return NextResponse.json({ error: "Application not found" }, { status: 404 });
+      if (!snapshotMissing) {
+        if (!existing) {
+          return NextResponse.json({ error: "Application not found" }, { status: 404 });
+        }
+        if (stylePatch !== undefined && existing.source === "tailored") {
+          return NextResponse.json({ error: "A tailored row keeps the style it was made with." }, { status: 400 });
+        }
+        const stored = existing.tailored_cv;
+        let snapshot: Record<string, unknown> | null =
+          stored && typeof stored === "object" && !Array.isArray(stored) ? { ...(stored as Record<string, unknown>) } : {};
+        if (stylePatch !== undefined) {
+          if (stylePatch) snapshot.formatStyle = stylePatch;
+          else delete snapshot.formatStyle;
+        }
+        if (jdChanged) {
+          const jd = fields.job_description ?? "";
+          snapshot = withTriage(snapshot, jd ? triageJd(jd, triageProfileOf(body.triageProfile)) : null) ?? {};
+        }
+        snapshotPatch = Object.keys(snapshot).length > 0 ? snapshot : null;
       }
-      if (existing.source === "tailored") {
-        return NextResponse.json({ error: "A tailored row keeps the style it was made with." }, { status: 400 });
-      }
-      const stored = existing.tailored_cv;
-      const snapshot: Record<string, unknown> =
-        stored && typeof stored === "object" && !Array.isArray(stored) ? { ...(stored as Record<string, unknown>) } : {};
-      if (stylePatch) snapshot.formatStyle = stylePatch;
-      else delete snapshot.formatStyle;
-      snapshotPatch = Object.keys(snapshot).length > 0 ? snapshot : null;
     }
 
     // The date rule spans two columns; when the patch carries only one of
@@ -691,7 +724,10 @@ export async function PUT(req: NextRequest) {
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 });
     }
-    return NextResponse.json({ ok: true, ...(followupCleared ? { followupCleared } : {}) });
+    // A JD edit answers with the row's gates as stored, so the sheet can show
+    // the new triage without a reload.
+    const gates = jdChanged && snapshotPatch !== undefined ? (snapshotPatch?.gates ?? null) : undefined;
+    return NextResponse.json({ ok: true, ...(followupCleared ? { followupCleared } : {}), ...(gates !== undefined ? { gates } : {}) });
   } catch (err) {
     console.error("applications PUT error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
