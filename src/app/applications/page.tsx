@@ -8,7 +8,9 @@ import SentCvBlock from "./SentCvBlock";
 import { ReferralAsks, ReferralEditor } from "./ReferralAsks";
 import { REFERRAL_STATUS_LABELS, type ReferralFields, type ReferralRow, type ReferralStatus } from "@/lib/referrals";
 import type { SentCvInfo } from "@/lib/sentCv";
-import { getProfile, type Profile } from "@/lib/cvStore";
+import { getProfile, getUserSettings, type Profile } from "@/lib/cvStore";
+import TriageBadge from "../TriageBadge";
+import { triageJd, normalizeTriage, eligibilityTriageProfile, type TriageProfile } from "@/lib/triage/jdTriage";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
@@ -651,6 +653,7 @@ export default function ApplicationsPage() {
   // The row that just saved, for a brief success flash on its cells.
   const [flashRowId, setFlashRowId] = useState<string | null>(null);
   const rowFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [triageProfile, setTriageProfile] = useState<TriageProfile | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -666,6 +669,10 @@ export default function ApplicationsPage() {
     });
     getProfile().then((p) => {
       if (!cancelled) setProfile(p);
+    });
+    // The eligibility answers the JD triage may use (lib/triage/jdTriage).
+    getUserSettings().then((s) => {
+      if (!cancelled) setTriageProfile(eligibilityTriageProfile(s.eligibility));
     });
     getUsage().then((u) => {
       if (!cancelled) setIsOwner(!!u?.unlimited);
@@ -861,7 +868,8 @@ export default function ApplicationsPage() {
   // Only the keys in this patch are reverted — another cell's edit that
   // succeeded in the meantime must not be undone with it.
   // Returns the error message, or null on success.
-  async function patchRow(id: string, patch: Partial<Application>): Promise<string | null> {
+  // `extra` rides in the body without touching the row (the triage profile).
+  async function patchRow(id: string, patch: Partial<Application>, extra: Record<string, unknown> = {}): Promise<string | null> {
     const previous = rowsRef.current.find((r) => r.id === id);
     if (!previous) return "Application not found";
     const undo: Partial<Application> = {};
@@ -869,7 +877,7 @@ export default function ApplicationsPage() {
       (undo as Record<string, unknown>)[key] = previous[key];
     }
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-    const { ok, status, data } = await api("PUT", { id, ...patch });
+    const { ok, status, data } = await api("PUT", { id, ...patch, ...extra });
     if (!ok) {
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...undo } : r)));
       if (status === 401) {
@@ -885,6 +893,8 @@ export default function ApplicationsPage() {
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, followup_date: null, notes: cleared.notes } : r)));
       showFlash("Follow-up cleared — the date is kept in the notes.");
     }
+    // A JD edit re-triaged the row on the server (gates.triage); mirror it.
+    if ("gates" in data) setRows((rs) => rs.map((r) => (r.id === id ? { ...r, gates: data.gates } : r)));
     flashRow(id);
     return null;
   }
@@ -1036,7 +1046,7 @@ export default function ApplicationsPage() {
     }
     setPanelBusy(true);
     setPanelError("");
-    const message = await patchRow(row.id, { job_description: jd || null });
+    const message = await patchRow(row.id, { job_description: jd || null }, triageProfile ? { triageProfile } : {});
     setPanelBusy(false);
     if (message) {
       setPanelError(message);
@@ -1420,7 +1430,16 @@ export default function ApplicationsPage() {
               </div>
             </>
           ) : (
-            <pre className="appsJd">{row.job_description}</pre>
+            <>
+              {/* The triage stored with the row; a row saved before Chunk 8 is read live. */}
+              <TriageBadge
+                triage={
+                  normalizeTriage((row.gates as { triage?: unknown } | null | undefined)?.triage) ??
+                  (row.job_description ? triageJd(row.job_description, triageProfile) : null)
+                }
+              />
+              <pre className="appsJd">{row.job_description}</pre>
+            </>
           )}
         </div>
       );

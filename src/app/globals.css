@@ -2769,6 +2769,23 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .importJob { margin-bottom: var(--space-5); }
 .importJob__note { margin-top: var(--space-2); }
 .importJob__note--done { font-size: var(--text-sm); color: var(--muted); }
+/* JD triage (1 Nov, Chunk 8): one line under the posting — the verdict in its
+   colour, the phrases it was read from, the sentences behind a disclosure. */
+.triage { margin: var(--space-2) 0 var(--space-4); font-size: var(--text-sm); }
+.triage__line { margin: 0; color: var(--text); }
+.triage__label { margin-right: var(--space-2); color: var(--muted); }
+.triage__verdict { font-weight: 600; }
+.triage--skip .triage__verdict { color: var(--danger); }
+.triage--review .triage__verdict { color: var(--amber); }
+.triage--apply .triage__verdict { color: var(--success); }
+.triage__note { color: var(--muted); }
+.triage__where { margin-top: var(--space-1); color: var(--muted); }
+.triage__where summary { cursor: pointer; width: fit-content; }
+.triage__where summary:hover { color: var(--text); }
+.triage__where summary:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-xs); }
+.triage__where ul { margin: var(--space-2) 0 0; padding-left: var(--space-5); }
+.triage__where li { margin-bottom: var(--space-1); }
+.appsPanel .triage { margin-top: 0; }
 .researchHead {
   display: flex;
   justify-content: space-between;
