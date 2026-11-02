@@ -21,7 +21,9 @@ const REFERRAL_KEYS = ["referral", "referrer_name", "req_id", "referral_status"]
 //
 // No LLM call, so no burst limiter — these are ordinary DB reads/writes.
 
-const MAX_APPLICATIONS = 1000;
+const MAX_APPLICATIONS = 2000;
+// PostgREST returns at most 1000 rows per request, so the list read pages.
+const LIST_PAGE_SIZE = 1000;
 const MAX_COMPANY = 200;
 const MAX_ROLE = 200;
 const MAX_SALARY = 100;
@@ -402,13 +404,25 @@ export async function GET(req: NextRequest) {
     let readError: { code?: string; message: string } | null = null;
     const listLadder = [LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
     for (let rung = 0; rung < listLadder.length; rung++) {
-      const res = await supabase
-        .from("applications")
-        .select(listLadder[rung])
-        .order("date_applied", { ascending: false })
-        .order("created_at", { ascending: false });
-      rows = res.data as Record<string, unknown>[] | null;
-      readError = res.error;
+      const collected: Record<string, unknown>[] = [];
+      readError = null;
+      for (let from = 0; from < MAX_APPLICATIONS; from += LIST_PAGE_SIZE) {
+        const res = await supabase
+          .from("applications")
+          .select(listLadder[rung])
+          .order("date_applied", { ascending: false })
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(from, from + LIST_PAGE_SIZE - 1);
+        if (res.error) {
+          readError = res.error;
+          break;
+        }
+        const page = (res.data as unknown as Record<string, unknown>[] | null) ?? [];
+        collected.push(...page);
+        if (page.length < LIST_PAGE_SIZE) break;
+      }
+      rows = readError ? null : collected;
       if (!(readError && isMissingColumn(readError) && rung < listLadder.length - 1)) break;
     }
 
