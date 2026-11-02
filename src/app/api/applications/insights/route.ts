@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server";
 import { signedIn, unauthorized } from "@/lib/routeAuth";
 import { computeInsights, rowFromApplication, scoreOutcome } from "@/lib/insights";
+import { readApplicationPages, type OrderableQuery } from "@/lib/applicationRows";
 
 const WITH_SNAPSHOT_PATHS =
   "status, role, company_name, source, followup_date, ats:tailored_cv->ats, gates:tailored_cv->gates, pages:tailored_cv->>pages, posting_age_days:tailored_cv->>postingAgeDays, format_style:tailored_cv->>formatStyle";
@@ -18,16 +19,12 @@ export async function GET() {
     if (!caller) return unauthorized();
     const { supabase } = caller;
 
-    let rows: unknown[] | null = null;
-    let readError: { code?: string; message: string } | null = null;
-    const first = await supabase.from("applications").select(WITH_SNAPSHOT_PATHS).limit(2000);
-    rows = first.data;
-    readError = first.error;
+    const read = (select: string) =>
+      readApplicationPages(() => supabase.from("applications").select(select) as unknown as OrderableQuery);
+    let { rows, error: readError } = await read(WITH_SNAPSHOT_PATHS);
     if (readError && readError.code === "42703") {
       // tailored_cv not migrated in — the status/role/company view still works.
-      const second = await supabase.from("applications").select(PLAIN).limit(2000);
-      rows = second.data;
-      readError = second.error;
+      ({ rows, error: readError } = await read(PLAIN));
     }
     if (readError) {
       console.error("insights read error:", readError.message);
