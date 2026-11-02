@@ -23,6 +23,7 @@ import { signedIn, unauthorized } from "@/lib/routeAuth";
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
 import { isStatus } from "@/lib/tracker";
 import { rowStyle, isFormatStyleId, ROW_STYLE_LABELS, type RowStyle } from "@/lib/formatStyles/ids";
+import { readApplicationPages, type OrderableQuery } from "@/lib/applicationRows";
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const COLUMNS: { header: string; key: string }[] = [
@@ -88,17 +89,18 @@ export async function GET(req: NextRequest) {
     const columns = owner ? [...COLUMNS, STYLE_COLUMN] : COLUMNS;
 
     const BASE = "company_name, role, status, salary, date_applied, followup_date, notes, source, cv_reference, job_description, created_at";
-    const read = async (select: string) => {
-      let query = supabase.from("applications").select(select);
-      if (status) query = query.eq("status", status);
-      if (from) query = query.gte("date_applied", from);
-      if (to) query = query.lte("date_applied", to);
-      return query.order("date_applied", { ascending: false }).order("created_at", { ascending: false });
-    };
-    let { data: rows, error: readError } = await read(owner ? `${BASE}, ${STYLE_SELECT}` : BASE);
+    const read = (select: string) =>
+      readApplicationPages(() => {
+        let query = supabase.from("applications").select(select);
+        if (status) query = query.eq("status", status);
+        if (from) query = query.gte("date_applied", from);
+        if (to) query = query.lte("date_applied", to);
+        return query as unknown as OrderableQuery;
+      });
+    let { rows, error: readError } = await read(owner ? `${BASE}, ${STYLE_SELECT}` : BASE);
     if (readError && owner && readError.code === "42703") {
       // tailored_cv not migrated in: the column reads blank.
-      ({ data: rows, error: readError } = await read(BASE));
+      ({ rows, error: readError } = await read(BASE));
     }
 
     if (readError) {
@@ -107,7 +109,7 @@ export async function GET(req: NextRequest) {
     }
 
     const lines = [columns.map((c) => csvField(c.header)).join(",")];
-    for (const row of ((rows ?? []) as unknown as Record<string, unknown>[]).filter((r) => matchesSearch(r, q) && (!style || rowStyle(r.format_style) === style))) {
+    for (const row of (rows ?? []).filter((r) => matchesSearch(r, q) && (!style || rowStyle(r.format_style) === style))) {
       const tag = rowStyle(row.format_style);
       lines.push(columns.map((c) => csvField(c.key === "format_style" ? (tag === "unknown" ? "" : ROW_STYLE_LABELS[tag]) : row[c.key])).join(","));
     }

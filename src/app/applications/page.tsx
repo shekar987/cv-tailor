@@ -11,6 +11,7 @@ import type { SentCvInfo } from "@/lib/sentCv";
 import { getProfile, getUserSettings, type Profile } from "@/lib/cvStore";
 import TriageBadge from "../TriageBadge";
 import { triageJd, normalizeTriage, eligibilityTriageProfile, type TriageProfile } from "@/lib/triage/jdTriage";
+import { notesListFields } from "@/lib/applicationRows";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
@@ -28,7 +29,6 @@ import {
   findDuplicateApplication,
   roleTooLong,
   ROLE_WARN_CHARS,
-  notesSayNotSubmitted,
   pageSlice,
   PAGE_SIZE,
   isReplyOwed,
@@ -53,16 +53,19 @@ type Application = {
   company_name: string;
   role: string;
   cv_reference: string | null;
-  tailor_session_id: string | null;
   status: Status;
   salary: string | null;
   date_applied: string;
   followup_date: string | null;
-  notes: string | null;
-  job_description: string | null;
+  // The list carries no full text (lib/applicationRows toListRow): a flag for
+  // the JD and a preview for the notes. The full text is rowText below, read
+  // from the detail endpoint when a panel opens.
+  has_job_description?: boolean;
+  notes_preview?: string;
+  notes_more?: boolean;
+  notes_not_submitted?: boolean;
   source: "tailored" | "manual";
   created_at: string;
-  updated_at: string;
   // Stage 4: set (via a JSON-path alias in the list query) when a prep pack
   // is cached on the row; absent until the prep_pack migration is applied.
   prep_generated_at?: string | null;
@@ -539,11 +542,21 @@ async function api(method: string, body?: unknown, query = ""): Promise<ApiResul
 
 const SESSION_EXPIRED = "Your session has expired — sign in again to see your applications.";
 
+const EMPTY_LIST_FIELDS = { cv_reference: null, salary: null, followup_date: null };
+
+// A row's full text from the detail read. undefined = not known yet, which is
+// different from null = none: notes that are not known yet can never be saved
+// back, or the preview would overwrite them.
+type RowText = { job_description?: string | null; notes?: string | null; gates?: unknown };
+
 async function fetchApplications(): Promise<{ rows: Application[] } | { error: string; expired?: boolean }> {
   const { ok, status, data } = await api("GET");
   if (status === 401) return { error: SESSION_EXPIRED, expired: true };
   if (!ok) return { error: data.error || "Could not load your applications." };
-  return { rows: (data.applications as Application[] | undefined) ?? [] };
+  // The list leaves out null keys to stay small; the sheet's required fields
+  // read as null again here.
+  const rows = (data.applications as Application[] | undefined) ?? [];
+  return { rows: rows.map((r) => ({ ...EMPTY_LIST_FIELDS, ...r })) };
 }
 
 // Salary is free text ("£65,000", "$120k–$140k", "12 LPA"); sort on the first
@@ -621,7 +634,13 @@ export default function ApplicationsPage() {
   const [bulkReady, setBulkReady] = useState<"offer" | "review" | "dismissed" | "moving">("offer");
   const [jdDraft, setJdDraft] = useState("");
   const [jdEditing, setJdEditing] = useState(false);
-  const [notesDraft, setNotesDraft] = useState("");
+  // Set only once the user types, so the box otherwise shows the full notes the
+  // moment they arrive, whichever row is open by then.
+  const [notesDraft, setNotesDraft] = useState<{ id: string; text: string } | null>(null);
+  const [rowText, setRowText] = useState<Record<string, RowText>>({});
+  const [textLoading, setTextLoading] = useState<Record<string, boolean>>({});
+  const textLoadingRef = useRef<Record<string, boolean>>({});
+  const [textErrors, setTextErrors] = useState<Record<string, string>>({});
   // The moment "Reply owed" is judged against, fixed for the page's life so
   // the order doesn't shift under the user while they work.
   const [now] = useState(() => Date.now());
@@ -778,14 +797,14 @@ export default function ApplicationsPage() {
   // Rows the insights cannot use: no job description, or (added by hand) no
   // CV file. Shown beside the rate so the figures never look more complete
   // than the data.
-  const withoutJd = useMemo(() => rows.filter((r) => isSubmittedRow(r) && !(r.job_description ?? "").trim()).length, [rows]);
+  const withoutJd = useMemo(() => rows.filter((r) => isSubmittedRow(r) && !r.has_job_description).length, [rows]);
   const withoutCv = useMemo(() => rows.filter((r) => isSubmittedRow(r) && r.source === "manual" && !r.sent_cv_name).length, [rows]);
 
   // Progression by the level the title reads as, over every row.
   const lanes = useMemo(() => laneStats(rows), [rows]);
 
   // Rows marked Applied whose notes say they were never sent (lib/tracker).
-  const notSubmitted = useMemo(() => rows.filter((r) => r.status === "Applied" && notesSayNotSubmitted(r.notes)), [rows]);
+  const notSubmitted = useMemo(() => rows.filter((r) => r.status === "Applied" && r.notes_not_submitted), [rows]);
 
   // Live warnings on the add-row form: a row this company + role already has,
   // and a role long enough to be a title plus extras.
@@ -868,8 +887,9 @@ export default function ApplicationsPage() {
   // Only the keys in this patch are reverted — another cell's edit that
   // succeeded in the meantime must not be undone with it.
   // Returns the error message, or null on success.
-  // `extra` rides in the body without touching the row (the triage profile).
-  async function patchRow(id: string, patch: Partial<Application>, extra: Record<string, unknown> = {}): Promise<string | null> {
+  // `body` rides in the request without touching the row: full text the row no
+  // longer holds, and the triage profile.
+  async function patchRow(id: string, patch: Partial<Application>, body: Record<string, unknown> = {}): Promise<string | null> {
     const previous = rowsRef.current.find((r) => r.id === id);
     if (!previous) return "Application not found";
     const undo: Partial<Application> = {};
@@ -877,7 +897,7 @@ export default function ApplicationsPage() {
       (undo as Record<string, unknown>)[key] = previous[key];
     }
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-    const { ok, status, data } = await api("PUT", { id, ...patch, ...extra });
+    const { ok, status, data } = await api("PUT", { id, ...patch, ...body });
     if (!ok) {
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...undo } : r)));
       if (status === 401) {
@@ -890,11 +910,16 @@ export default function ApplicationsPage() {
     // server and wrote the old date into the notes; mirror both.
     const cleared = data.followupCleared as { followup_date: null; notes: string | null } | undefined;
     if (cleared) {
-      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, followup_date: null, notes: cleared.notes } : r)));
+      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, followup_date: null, ...notesListFields(cleared.notes) } : r)));
+      rememberText(id, { notes: cleared.notes });
       showFlash("Follow-up cleared — the date is kept in the notes.");
     }
-    // A JD edit re-triaged the row on the server (gates.triage); mirror it.
+    // A JD edit re-triaged the row on the server (gates.triage); mirror it. With
+    // no answer (the snapshot column is missing) the old triage no longer
+    // describes this JD, and the panel reads the new text live instead.
     if ("gates" in data) setRows((rs) => rs.map((r) => (r.id === id ? { ...r, gates: data.gates } : r)));
+    if ("job_description" in body) rememberText(id, { job_description: body.job_description as string | null, gates: data.gates });
+    if ("notes" in body) rememberText(id, { notes: body.notes as string | null });
     flashRow(id);
     return null;
   }
@@ -1003,11 +1028,48 @@ export default function ApplicationsPage() {
     setPanel({ id: row.id, kind });
     setPanelError("");
     if (kind === "jd") {
-      setJdDraft(row.job_description ?? "");
-      setJdEditing(!row.job_description);
+      setJdDraft("");
+      setJdEditing(!row.has_job_description);
+      if (row.has_job_description && rowText[row.id]?.job_description === undefined) void loadRowText(row.id);
     }
-    if (kind === "notes") setNotesDraft(row.notes ?? "");
+    if (kind === "notes") {
+      setNotesDraft(null);
+      if (row.notes_more && rowText[row.id]?.notes === undefined) void loadRowText(row.id);
+    }
     if (kind === "cv" && !(row.id in cvCache) && !cvLoadingRef.current[row.id]) void loadCv(row.id);
+  }
+
+  function rememberText(id: string, text: RowText) {
+    setRowText((all) => ({ ...all, [id]: { ...all[id], ...text } }));
+  }
+
+  // The row's full JD and notes, from the detail endpoint, when a panel needs them.
+  async function loadRowText(id: string) {
+    if (textLoadingRef.current[id]) return;
+    textLoadingRef.current = { ...textLoadingRef.current, [id]: true };
+    setTextLoading(textLoadingRef.current);
+    setTextErrors((e) => {
+      const { [id]: _gone, ...rest } = e;
+      void _gone;
+      return rest;
+    });
+    const { ok, status, data } = await api("GET", undefined, `?id=${encodeURIComponent(id)}`);
+    textLoadingRef.current = { ...textLoadingRef.current, [id]: false };
+    setTextLoading(textLoadingRef.current);
+    if (!ok) {
+      if (status === 401) setSessionExpired(true);
+      setTextErrors((e) => ({ ...e, [id]: status === 401 ? SESSION_EXPIRED : data.error || "Could not load this application." }));
+      return;
+    }
+    const app = data.application as { job_description?: string | null; notes?: string | null; tailored_cv?: { gates?: unknown } | null } | undefined;
+    rememberText(id, { job_description: app?.job_description ?? null, notes: app?.notes ?? null, gates: app?.tailored_cv?.gates });
+  }
+
+  // The notes as saved, or null while they are not known: only a preview is
+  // on hand, and saving that would cut them short.
+  function fullNotes(row: Application): string | null {
+    if (!row.notes_more) return row.notes_preview ?? "";
+    return rowText[row.id]?.notes ?? null;
   }
 
   async function loadCv(id: string) {
@@ -1046,7 +1108,7 @@ export default function ApplicationsPage() {
     }
     setPanelBusy(true);
     setPanelError("");
-    const message = await patchRow(row.id, { job_description: jd || null }, triageProfile ? { triageProfile } : {});
+    const message = await patchRow(row.id, { has_job_description: !!jd }, { job_description: jd || null, ...(triageProfile ? { triageProfile } : {}) });
     setPanelBusy(false);
     if (message) {
       setPanelError(message);
@@ -1058,14 +1120,17 @@ export default function ApplicationsPage() {
   }
 
   async function saveNotes(row: Application) {
-    const notes = notesDraft.trim();
+    const saved = fullNotes(row);
+    // Nothing typed and the full text not loaded: there is nothing safe to send.
+    if (saved === null) return;
+    const notes = (notesDraft?.id === row.id ? notesDraft.text : saved).trim();
     if (notes.length > MAX_NOTES) {
       setPanelError(`Notes are too long (max ${MAX_NOTES} characters).`);
       return;
     }
     setPanelBusy(true);
     setPanelError("");
-    const message = await patchRow(row.id, { notes: notes || null });
+    const message = await patchRow(row.id, notesListFields(notes), { notes: notes || null });
     setPanelBusy(false);
     if (message) {
       setPanelError(message);
@@ -1382,6 +1447,7 @@ export default function ApplicationsPage() {
     }
 
     if (panel.kind === "jd") {
+      const jdText = rowText[row.id]?.job_description;
       return (
         <div className="appsPanel">
           <div className="appsPanelHead">
@@ -1391,8 +1457,9 @@ export default function ApplicationsPage() {
                 <button
                   type="button"
                   className="appsActionBtn"
+                  disabled={jdText === undefined}
                   onClick={() => {
-                    setJdDraft(row.job_description ?? "");
+                    setJdDraft(jdText ?? "");
                     setJdEditing(true);
                   }}
                 >
@@ -1421,7 +1488,7 @@ export default function ApplicationsPage() {
                 </Button>
                 <Button
                   variant="ghost"
-                  onClick={() => (row.job_description ? setJdEditing(false) : setPanel(null))}
+                  onClick={() => (row.has_job_description ? setJdEditing(false) : setPanel(null))}
                   disabled={panelBusy}
                 >
                   Cancel
@@ -1429,41 +1496,60 @@ export default function ApplicationsPage() {
                 {panelError && <StatusText as="span" role="alert">{panelError}</StatusText>}
               </div>
             </>
+          ) : jdText === undefined ? (
+            textErrors[row.id] ? (
+              <div className="actions">
+                <StatusText as="span" role="alert">{textErrors[row.id]}</StatusText>
+                <Button variant="secondary" onClick={() => void loadRowText(row.id)}>Try again</Button>
+              </div>
+            ) : (
+              <Skeleton />
+            )
           ) : (
             <>
               {/* The triage stored with the row; a row saved before Chunk 8 is read live. */}
               <TriageBadge
                 triage={
-                  normalizeTriage((row.gates as { triage?: unknown } | null | undefined)?.triage) ??
-                  (row.job_description ? triageJd(row.job_description, triageProfile) : null)
+                  normalizeTriage((rowText[row.id]?.gates as { triage?: unknown } | null | undefined)?.triage) ??
+                  (jdText ? triageJd(jdText, triageProfile) : null)
                 }
               />
-              <pre className="appsJd">{row.job_description}</pre>
+              <pre className="appsJd">{jdText}</pre>
             </>
           )}
         </div>
       );
     }
 
+    const savedNotes = fullNotes(row);
+    const notesValue = notesDraft?.id === row.id ? notesDraft.text : (savedNotes ?? "");
     return (
       <div className="appsPanel">
         <div className="appsPanelHead">
           <span className="appsPanelTitle">Notes</span>
           <button type="button" className="appsActionBtn" onClick={() => setPanel(null)}>Close</button>
         </div>
+        {/* Locked until the full notes are here: the row only holds a preview. */}
         <Textarea
-          value={notesDraft}
-          onChange={(e) => setNotesDraft(e.target.value)}
-          placeholder="Recruiter name, referral, what you emphasised, next steps…"
+          value={notesValue}
+          onChange={(e) => setNotesDraft({ id: row.id, text: e.target.value })}
+          placeholder={savedNotes !== null ? "Recruiter name, referral, what you emphasised, next steps…" : textErrors[row.id] ? "" : "Loading your notes…"}
           rows={4}
-          disabled={panelBusy}
+          disabled={panelBusy || savedNotes === null}
           aria-label="Notes"
+          aria-busy={!!textLoading[row.id] || undefined}
         />
-        <p className={"charCount" + (notesDraft.length > MAX_NOTES ? " over" : "")} aria-live="polite">
-          {notesDraft.length.toLocaleString()} / {MAX_NOTES.toLocaleString()}
+        <p className={"charCount" + (notesValue.length > MAX_NOTES ? " over" : "")} aria-live="polite">
+          {notesValue.length.toLocaleString()} / {MAX_NOTES.toLocaleString()}
         </p>
+        {savedNotes === null && textErrors[row.id] && (
+          <div className="actions">
+            <StatusText as="span" role="alert">{textErrors[row.id]}</StatusText>
+            <Button variant="secondary" onClick={() => void loadRowText(row.id)}>Try again</Button>
+          </div>
+        )}
         <div className="actions">
-          <Button variant="secondary" onClick={() => saveNotes(row)} disabled={panelBusy}>
+          <Button variant="secondary" onClick={() => saveNotes(row)} disabled={panelBusy || savedNotes === null}>
             {panelBusy ? "Saving…" : "Save"}
           </Button>
           <Button variant="ghost" onClick={() => setPanel(null)} disabled={panelBusy}>Cancel</Button>
@@ -1540,8 +1626,8 @@ export default function ApplicationsPage() {
                 <ul className="atsList">
                   {notSubmitted.map((r) => (
                     <li key={r.id}>
-                      <strong>{r.company_name}</strong> — {r.role} ({formatDate(r.date_applied)}): “{(r.notes ?? "").trim().slice(0, 90)}
-                      {(r.notes ?? "").trim().length > 90 ? "…" : ""}”
+                      <strong>{r.company_name}</strong> — {r.role} ({formatDate(r.date_applied)}): “{(r.notes_preview ?? "").slice(0, 90)}
+                      {(r.notes_preview ?? "").length > 90 || r.notes_more ? "…" : ""}”
                     </li>
                   ))}
                 </ul>
@@ -1957,10 +2043,10 @@ export default function ApplicationsPage() {
                         <td data-label="JD">
                           <button
                             type="button"
-                            className={"appsLinkBtn" + (panelIs("jd") ? " active" : "") + (row.job_description ? "" : " muted")}
+                            className={"appsLinkBtn" + (panelIs("jd") ? " active" : "") + (row.has_job_description ? "" : " muted")}
                             onClick={() => togglePanel(row, "jd")}
                           >
-                            {row.job_description ? "View JD" : "Add JD"}
+                            {row.has_job_description ? "View JD" : "Add JD"}
                           </button>
                         </td>
                         <td data-label="Gate">
@@ -1998,11 +2084,11 @@ export default function ApplicationsPage() {
                         <td data-label="Notes" className="appsNotesCell">
                           <button
                             type="button"
-                            className={"appsLinkBtn appsNotesBtn" + (panelIs("notes") ? " active" : "") + (row.notes ? "" : " muted")}
+                            className={"appsLinkBtn appsNotesBtn" + (panelIs("notes") ? " active" : "") + (row.notes_preview ? "" : " muted")}
                             onClick={() => togglePanel(row, "notes")}
-                            title={row.notes ?? undefined}
+                            title={row.notes_preview ? `${row.notes_preview}${row.notes_more ? "…" : ""}` : undefined}
                           >
-                            {row.notes || "Add notes"}
+                            {row.notes_preview || "Add notes"}
                           </button>
                         </td>
                         <td className="appsActions">
