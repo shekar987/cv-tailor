@@ -13,7 +13,7 @@ import {
 import { isFormatStyleId, type FormatStyleId } from "@/lib/formatStyles/ids";
 import { normalizeStyleCheck } from "@/lib/styleCheck";
 import { validateReferralFields, REFERRAL_MIGRATION_HINT, type ReferralFields } from "@/lib/referrals";
-import { triageJd, triageProfileOf, type JdTriage } from "@/lib/triage/jdTriage";
+import { triageJd, buildTriageProfile, type JdTriage } from "@/lib/triage/jdTriage";
 import { MAX_APPLICATIONS, readApplicationPages, toListRow, type OrderableQuery } from "@/lib/applicationRows";
 
 const REFERRAL_KEYS = ["referral", "referrer_name", "req_id", "referral_status"] as const;
@@ -171,10 +171,19 @@ function cleanGates(value: unknown): Record<string, unknown> | null {
 
 // The JD triage (lib/triage/jdTriage, Chunk 8) is computed HERE from the
 // stored job description — never taken from the client — and kept at
-// tailored_cv.gates.triage beside the pre-check's read. The body may carry
-// `triageProfile` (the user's right-to-work answer and years, from their
-// Eligibility), which only drops rules that plainly do not apply to them.
-// No JD → no triage; a snapshot left empty is null.
+// tailored_cv.gates.triage beside the pre-check's read. Its inputs are read here
+// too, under RLS: the user's Eligibility answers and master CV, so a row saved
+// from anywhere is judged by the same answers. No JD → no triage; a snapshot
+// left empty is null.
+async function triageForUser(supabase: NonNullable<Awaited<ReturnType<typeof signedIn>>>["supabase"], userId: string, jd: string): Promise<JdTriage> {
+  // Missing table or row: the answers are unknown and the rules say so.
+  const [settings, cv] = await Promise.all([
+    supabase.from("user_settings").select("eligibility").eq("user_id", userId).maybeSingle(),
+    supabase.from("master_cvs").select("text").eq("user_id", userId).maybeSingle(),
+  ]);
+  return triageJd(jd, buildTriageProfile(settings.data?.eligibility, cv.data?.text));
+}
+
 function withTriage(snapshot: Record<string, unknown> | null, triage: JdTriage | null): Record<string, unknown> | null {
   const next: Record<string, unknown> = { ...(snapshot ?? {}) };
   const gates: Record<string, unknown> =
@@ -487,7 +496,7 @@ export async function POST(req: NextRequest) {
       tailor_session_id: sessionId,
       cv_reference: cvReference,
       job_description: jobDescription || null,
-      tailored_cv: withTriage(cv.snapshot, jobDescription ? triageJd(jobDescription, triageProfileOf(body.triageProfile)) : null),
+      tailored_cv: withTriage(cv.snapshot, jobDescription ? await triageForUser(supabase, userId, jobDescription) : null),
     };
 
     // Duplicate rule: one row per tailoring session. Check-then-insert rather
@@ -593,6 +602,33 @@ export async function PUT(req: NextRequest) {
     if (!isUuid(body.id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
     const id = body.id;
 
+    // "Run check" on /applications: the triage of the row's stored JD, now, with
+    // the user's current answers and CV. No model call.
+    if (body.runCheck === true) {
+      const { data: existing, error: existingError } = await supabase
+        .from("applications")
+        .select("job_description, tailored_cv")
+        .eq("id", id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (existingError) {
+        if (isMissingColumn(existingError)) return NextResponse.json({ error: MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+        console.error("applications lookup error:", existingError.message);
+        return NextResponse.json({ error: "Could not check that application" }, { status: 500 });
+      }
+      if (!existing) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+      const jd = typeof existing.job_description === "string" ? existing.job_description.trim() : "";
+      if (!jd) return NextResponse.json({ error: "Add the job description first.", errorType: "needs_jd" }, { status: 400 });
+      const stored = existing.tailored_cv;
+      const snapshot = withTriage(stored && typeof stored === "object" && !Array.isArray(stored) ? (stored as Record<string, unknown>) : null, await triageForUser(supabase, userId, jd));
+      const { error: writeError } = await supabase.from("applications").update({ tailored_cv: snapshot }).eq("id", id).eq("user_id", userId);
+      if (writeError) {
+        console.error("applications check error:", writeError.message);
+        return NextResponse.json({ error: "Could not check that application" }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true, gates: snapshot?.gates ?? null });
+    }
+
     const validated = validateEditable(body, true);
     if ("error" in validated) {
       return NextResponse.json({ error: validated.error }, { status: 400 });
@@ -651,7 +687,7 @@ export async function PUT(req: NextRequest) {
         }
         if (jdChanged) {
           const jd = fields.job_description ?? "";
-          snapshot = withTriage(snapshot, jd ? triageJd(jd, triageProfileOf(body.triageProfile)) : null) ?? {};
+          snapshot = withTriage(snapshot, jd ? await triageForUser(supabase, userId, jd) : null) ?? {};
         }
         snapshotPatch = Object.keys(snapshot).length > 0 ? snapshot : null;
       }

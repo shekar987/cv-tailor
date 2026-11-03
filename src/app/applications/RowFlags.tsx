@@ -1,0 +1,55 @@
+// A row's flags under its company name (3 Nov 2026): "Missing JD" / "Missing
+// CV" on a row in Screening or Interview, "Not checked" with the action that
+// checks it on a row made outside /app, and the triage's verdict once there is
+// one. Nothing here blocks. Renders nothing when a row has nothing to say.
+//
+// No next/* or @/ imports: tests/rowFlags renders it under node:test
+// (tests/support/tsxLoader.mjs).
+import { missingAttachments, rowCheck, type RowFlagFields } from "../../lib/tracker.ts";
+import { TRIAGE_LABELS } from "../../lib/triage/jdTriage.ts";
+
+export default function RowFlags({
+  row,
+  checking,
+  onRunCheck,
+  onAddJd,
+}: {
+  row: RowFlagFields & { company_name: string };
+  checking: boolean;
+  onRunCheck: () => void;
+  onAddJd: () => void;
+}) {
+  const missing = missingAttachments(row);
+  const check = rowCheck(row);
+  if (!missing.length && !check) return null;
+  return (
+    <span className="rowFlags" data-row-flags="true">
+      {missing.map((m) => (
+        <span key={m} className="rowFlag rowFlag--missing" data-missing={m}>{m}</span>
+      ))}
+      {check?.kind === "checked" && (
+        <span
+          className={`rowFlag rowFlag--${check.verdict}`}
+          data-row-triage={check.verdict}
+          title={check.reasons.join("; ") || undefined}
+        >
+          {/* The column is narrow: "Skip: Go", with the note on hover and in the JD panel. */}
+          {TRIAGE_LABELS[check.verdict]}{check.reasons[0] ? `: ${check.reasons[0].replace(/\s*\(.*$/, "")}` : ""}
+        </span>
+      )}
+      {(check?.kind === "run" || check?.kind === "add_jd") && (
+        <span className="rowFlag" data-not-checked="true">Not checked</span>
+      )}
+      {check?.kind === "run" && (
+        <button type="button" className="inlineLink" onClick={onRunCheck} disabled={checking} aria-label={`Run check on ${row.company_name}`} data-run-check="true">
+          {checking ? "Checking…" : "Run check"}
+        </button>
+      )}
+      {check?.kind === "add_jd" && (
+        <button type="button" className="inlineLink" onClick={onAddJd} aria-label={`Add a job description to check ${row.company_name}`} data-add-jd-check="true">
+          Add JD to check
+        </button>
+      )}
+    </span>
+  );
+}

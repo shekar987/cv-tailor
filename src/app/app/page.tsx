@@ -18,7 +18,7 @@ import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import FormAnswers from "../FormAnswers";
 import TriageBadge from "../TriageBadge";
-import { triageJd, eligibilityTriageProfile } from "@/lib/triage/jdTriage";
+import { triageJd, buildTriageProfile } from "@/lib/triage/jdTriage";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
 import TailorGamePopup, { type TailorGameStatus } from "../TailorGamePopup";
 import { gameForTailorCount, nextTailorCount } from "@/lib/games/pick";
@@ -469,9 +469,9 @@ export default function Home() {
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
   // The JD triage (lib/triage/jdTriage): Apply / Review / Skip read off the
   // box as it stands, typed or imported — free and instant. A Skip makes the
-  // full tailor ask first (runFullTailor). The eligibility answers only drop
-  // rules that plainly do not apply (full right to work, years that meet it).
-  const triageProfile = useMemo(() => eligibilityTriageProfile(eligibility), [eligibility]);
+  // full tailor ask first (runFullTailor). The eligibility answers and what the
+  // master CV's experience shows decide which rules apply (lib/triage/jdTriage).
+  const triageProfile = useMemo(() => buildTriageProfile(eligibility, masterCvText), [eligibility, masterCvText]);
   const jdTriage = useMemo(() => (jobDescription.trim() ? triageJd(jobDescription, triageProfile) : null), [jobDescription, triageProfile]);
   // The claims registry (Customize), sent with every tailor/extras call and
   // used for the live re-check of the edited preview. null = none yet.
@@ -1596,9 +1596,6 @@ export default function Home() {
           tailor_session_id: sid,
           status: "Applied",
           source: "tailored",
-          // The server triages the stored JD itself (gates.triage); this only
-          // lets it drop rules that plainly do not apply to the user.
-          ...(triageProfile ? { triageProfile } : {}),
           // The JD's literal figure with its unit ("£480 per day"),
           // "Voluntary (unpaid)", or an explicit "Not Specified".
           salary: salaryFromJd(jdForRow),

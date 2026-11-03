@@ -1,6 +1,6 @@
 // The JD triage badge (1 Nov 2026, Chunk 8): "Skip: 5+ years", "Review:
 // Java", "Apply" — lib/triage/jdTriage read off the posting — with the
-// sentences each reason was read from behind a disclosure. Shown in /app's
+// sentences each reason was read from below it, open by default. Shown in /app's
 // job-description card (live, as the posting is pasted or imported) and in
 // the tracker's JD panel (as stored on the row).
 //
@@ -8,7 +8,7 @@
 // (tests/support/tsxLoader.mjs).
 import { TRIAGE_LABELS, TRIAGE_RULE_LABELS, type JdTriage } from "../lib/triage/jdTriage.ts";
 
-const APPLY_NOTE = "Nothing in the posting is out of your criteria (years, clearance, residence, contract, sponsorship).";
+const APPLY_NOTE = "Nothing in the posting is out of your criteria (years, clearance, right to work, contract, languages).";
 
 export default function TriageBadge({ triage }: { triage: JdTriage | null }) {
   if (!triage) return null;
@@ -21,7 +21,7 @@ export default function TriageBadge({ triage }: { triage: JdTriage | null }) {
         {reasons.length > 0 ? <span className="triage__reasons" data-triage-reasons="true"> {reasons.join("; ")}</span> : <span className="triage__note"> {APPLY_NOTE}</span>}
       </p>
       {hits.length > 0 && (
-        <details className="triage__where">
+        <details className="triage__where" open>
           <summary>Where the posting says so</summary>
           <ul>
             {hits.map((h, i) => (

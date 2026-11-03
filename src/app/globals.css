@@ -2493,6 +2493,24 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   font-weight: 600;
   white-space: nowrap;
 }
+/* A row's flags under its company name (RowFlags, 3 Nov): stamps that state a
+   fact, with the one action beside them. Amber is the attention state. */
+.rowFlags { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); padding: 0 var(--space-3) var(--space-2); font-size: var(--text-xs); }
+.rowFlag {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px var(--space-2);
+  overflow: hidden;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowFlag--missing, .rowFlag--review { border-color: var(--amber-border); background: var(--amber-dim); color: var(--amber-bright); }
+.rowFlag--skip { border-color: var(--danger-border); background: var(--danger-dim); color: var(--danger); }
+.rowFlag--apply { border-color: var(--success-border); background: var(--success-dim); color: var(--success); }
 /* The Notes panel's last-contact line: what is recorded, and the two answers. */
 .appsContact { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); font-size: var(--text-sm); }
 .appsContact__state { color: var(--muted); margin-right: auto; }

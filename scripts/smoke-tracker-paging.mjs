@@ -82,6 +82,15 @@ try {
   const fullCsv = await get("/api/applications/export");
   const fullText = await fullCsv.text();
   check("CSV at 2,000 rows", fullCsv.status === 200 && csvRows(fullText) === 2000, `${fullCsv.status}, ${csvRows(fullText)} rows, ${(Buffer.byteLength(fullText) / 1048576).toFixed(2)} MB`);
+
+  // "Download everything": every row, past Vercel's 4.5 MB limit on a buffered response.
+  const accountRes = await get("/api/account/export");
+  const accountText = await accountRes.text();
+  const account = accountRes.status === 200 ? JSON.parse(accountText) : null;
+  const accountMb = Buffer.byteLength(accountText) / 1048576;
+  check("Download everything has all 2,000 rows", account?.applications?.rows?.length === 2000, `${accountRes.status}, ${account?.applications?.rows?.length} rows, ${accountMb.toFixed(2)} MB`);
+  check("…with the full JD and notes", account?.applications?.rows?.[0]?.notes?.length > 400 && account?.applications?.rows?.[0]?.job_description?.length > 1500);
+  check("…and past 4.5 MB, so the limit was really tested", accountMb > 4.5, `${accountMb.toFixed(2)} MB`);
 } catch (e) {
   failed++;
   console.log("FAIL threw —", e?.message ?? e);

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { signedIn, unauthorized } from "@/lib/routeAuth";
 import { normalizeSentCv, publicSentCv } from "@/lib/sentCv";
+import { readApplicationPages, type OrderableQuery } from "@/lib/applicationRows";
+import { accountExportChunks } from "@/lib/account";
 
 // GET /api/account/export — everything the signed-in user's account holds, as
 // one JSON file (portability). Read as the user, so RLS scopes every table.
@@ -17,10 +19,7 @@ export async function GET() {
     if (!caller) return unauthorized();
     const { supabase, userId, email } = caller;
 
-    async function read(table: string, columns: string, order?: string): Promise<Section> {
-      let q = supabase.from(table).select(columns).eq(table === "profiles" ? "id" : "user_id", userId);
-      if (order) q = q.order(order, { ascending: true });
-      const { data, error } = await q.limit(5000);
+    function section(table: string, data: unknown, error: { code?: string; message: string } | null): Section {
       if (error) {
         if (error.code === "PGRST205" || error.code === "42P01") return { rows: null, note: "table not present on this database" };
         if (error.code === "42703") return { rows: null, note: `a column is missing: ${error.message}` };
@@ -29,13 +28,27 @@ export async function GET() {
       }
       return { rows: (data ?? []) as unknown[] };
     }
+    async function read(table: string, columns: string, order?: string): Promise<Section> {
+      let q = supabase.from(table).select(columns).eq(table === "profiles" ? "id" : "user_id", userId);
+      if (order) q = q.order(order, { ascending: true });
+      const { data, error } = await q.limit(5000);
+      return section(table, data, error);
+    }
+    // The tracker can pass PostgREST's 1000 rows per request; the other tables
+    // are one row or a handful.
+    async function readApplications(): Promise<Section> {
+      const { rows, error } = await readApplicationPages(
+        () => supabase.from("applications").select("*").eq("user_id", userId) as unknown as OrderableQuery
+      );
+      return section("applications", rows, error);
+    }
 
     const [profile, masterCv, cvProfile, settings, applications, interviews, research, keys] = await Promise.all([
       read("profiles", "tailor_count, tailor_count_reset_at, claude_tailors_used, is_unlimited, section_order"),
       read("master_cvs", "text, projects_pool, updated_at"),
       read("cv_profiles", "data, updated_at"),
       read("user_settings", "eligibility, claims, variants, preferences, updated_at"),
-      read("applications", "*", "date_applied"),
+      readApplications(),
       read("mock_interviews", "id, application_id, type, persona, llm_path, status, plan, transcript, feedback, created_at, finished_at", "created_at"),
       read("company_profiles", "domain, data, fetched_at", "fetched_at"),
       read("user_api_keys", "provider, key_hint, updated_at"),
@@ -71,7 +84,16 @@ export async function GET() {
       providerKeys: { ...keys, note: keys.note ?? "hints only — the keys themselves are encrypted and never exported" },
     };
     const day = payload.exportedAt.slice(0, 10);
-    return new NextResponse(JSON.stringify(payload, null, 2), {
+    const chunks = accountExportChunks(payload);
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const next = chunks.next();
+        if (next.done) controller.close();
+        else controller.enqueue(encoder.encode(next.value));
+      },
+    });
+    return new NextResponse(body, {
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         "Content-Disposition": `attachment; filename="jobhuntz-data-${day}.json"`,
