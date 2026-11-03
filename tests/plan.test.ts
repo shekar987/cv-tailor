@@ -3,10 +3,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  activeEvents, activeApplications, bookingReply, buildFunnel, buildPlan, conflictsFor, daysSinceContact, eventDays, feedbackRequest, findConflicts, followUpNudge,
+  activeEvents, activeApplications, bookingReply, buildFunnel, buildPlan, funnelChartData, conflictsFor, daysSinceContact, eventDays, feedbackRequest, findConflicts, followUpNudge,
   nextEventByApplication, priorityScore, readEventInput, readWindowInput, stageWeight, suggestSlots, windowOnDay,
   type AvailabilityWindow, type PlanApplication, type PlanEvent,
 } from "../src/lib/plan.ts";
+import { safeNextPath } from "../src/lib/safeNext.ts";
 import { addDays, clockTime, countdown, dayKey, formatWhen, isValidTimeZone, mondayOf, weekdayOf, zonedTimeToMs } from "../src/lib/planTime.ts";
 
 const LONDON = "Europe/London";
@@ -423,4 +424,24 @@ test("the calendar's dots and the stage tabs' next event", () => {
   assert.equal(next.get("a2")?.next, null, "a long-past event is not next");
   assert.equal(next.has("a3"), false);
   assert.equal(next.get("a4")?.next?.id, "e");
+});
+
+test("the chart's links are valid node indexes, with no empty node or link", () => {
+  const data = funnelChartData(buildFunnel([
+    { status: "applied", stages_reached: ["applied"] },
+    { status: "rejected", stages_reached: ["applied", "screening", "rejected"] },
+  ]));
+  assert.deepEqual(data.nodes.map((n) => n.key), ["applied", "screening", "rejected"]);
+  for (const l of data.links) {
+    assert.ok(data.nodes[l.source] && data.nodes[l.target]);
+    assert.ok(l.value > 0);
+  }
+  assert.deepEqual(funnelChartData(buildFunnel([])).links, []);
+  assert.deepEqual(funnelChartData(buildFunnel([])).nodes, []);
+});
+
+test("sign-in lands on the plan unless a page asked to come back", () => {
+  assert.equal(safeNextPath(null), "/app/next");
+  assert.equal(safeNextPath("https://evil.example/app"), "/app/next");
+  assert.equal(safeNextPath("/applications"), "/applications");
 });

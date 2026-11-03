@@ -41,6 +41,10 @@ export default function PrivacyPage() {
           your voice is turned into text in your browser and <strong>no audio is sent or stored</strong>.
         </li>
         <li>
+          <strong>Your plan.</strong> The interviews, assessments and deadlines you add (dates, times, meeting links, contact names and
+          prep notes), and the free and busy times you enter, such as shifts or lectures. They are used only for your own plan and clash checks.
+        </li>
+        <li>
           <strong>Company research</strong> you request, cached in your account for seven days.
         </li>
         <li>

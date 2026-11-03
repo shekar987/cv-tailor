@@ -23,9 +23,13 @@ import { gateLine, type GatesSummary } from "@/lib/knockouts";
 import { rowStyle, isFormatStyleId, normalizeFormatStyle, ROW_STYLE_LABELS, type RowStyle } from "@/lib/formatStyles/ids";
 import { normalizeStyleCheck, summarizeStyleCheck } from "@/lib/styleCheck";
 import { getUsage } from "@/lib/usage";
+import StageTable from "./StageTable";
 import {
   STATUSES,
   STATUS_LABELS,
+  inStageTab,
+  inStageTabOrPast,
+  isStageTab,
   normalizeStatus,
   statusLabel,
   hasProgressed,
@@ -98,6 +102,9 @@ type Application = {
   // manual row (lib/formatStyles; a JSON-path alias in the list query);
   // absent or null = not recorded.
   format_style?: string | null;
+  // The stages this row has been through and why it ended (migration 20261103120000).
+  stages_reached?: string[] | null;
+  outcome_reason?: string | null;
 };
 
 // What the Applied button stored: the generated sections plus the profile and
@@ -610,6 +617,9 @@ export default function ApplicationsPage() {
   const [sectionOrder, setSectionOrder] = useState<unknown>(null);
 
   const [statusFilter, setStatusFilter] = useState<"All" | Status>("All");
+  // On a stage tab: the dated table, or the full sheet with its panels.
+  const [stageSheet, setStageSheet] = useState(false);
+  const [includePast, setIncludePast] = useState(false);
   const [periodFilter, setPeriodFilter] = useState<Period>("all");
   // The format-style tag, filter, picker and tile are the owner's while the
   // two styles are compared (profiles.is_unlimited, read fail-soft).
@@ -717,6 +727,9 @@ export default function ApplicationsPage() {
       .catch(() => {
         /* the card simply doesn't show */
       });
+    // A link from the pipeline opens that stage's tab (lib/plan buildFunnel's nodes).
+    const linked = normalizeStatus(new URLSearchParams(window.location.search).get("status"));
+    if (linked) setStatusFilter(linked);
     fetch("/api/section-order")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -751,6 +764,8 @@ export default function ApplicationsPage() {
   const statusCounts = useMemo(() => {
     const counts = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<Status, number>;
     for (const r of rows) if (r.status in counts) counts[r.status] += 1;
+    // The Won tab holds offers too; every count is the row's current stage.
+    counts.accepted += counts.offer;
     return counts;
   }, [rows]);
   const dueCount = useMemo(() => rows.filter(isDue).length, [rows]);
@@ -759,7 +774,7 @@ export default function ApplicationsPage() {
   const visible = useMemo(() => {
     const filtered = rows.filter(
       (r) =>
-        (statusFilter === "All" || r.status === statusFilter) &&
+        (statusFilter === "All" || (includePast && isStageTab(statusFilter) && !stageSheet ? inStageTabOrPast(r, statusFilter) : inStageTab(r.status, statusFilter))) &&
         (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) &&
         (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
         (!dueOnly || isDue(r)) &&
@@ -794,7 +809,7 @@ export default function ApplicationsPage() {
     });
     // A reply owed outranks any sort: those rows come first, in sort order.
     return replyOwedFirst(sorted, now);
-  }, [rows, statusFilter, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, missingOnly, searchTerm, now]);
+  }, [rows, statusFilter, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, missingOnly, searchTerm, now, includePast, stageSheet]);
 
   // Only PAGE_SIZE rows are painted at a time; search, filters, counts and the
   // export cover the whole set. A different filter/sort state starts at page 1.
@@ -844,7 +859,7 @@ export default function ApplicationsPage() {
     () =>
       rows.filter(
         (r) =>
-          (statusFilter === "All" || r.status === statusFilter) &&
+          (statusFilter === "All" || inStageTab(r.status, statusFilter)) &&
           (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) &&
           (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
           matchesSearch(r, searchTerm)
@@ -1706,10 +1721,11 @@ export default function ApplicationsPage() {
                       (statusFilter === s ? " active" : "") +
                       (statusCounts[s] === 0 ? " zero" : "")
                     }
-                    onClick={() => setStatusFilter(statusFilter === s ? "All" : s)}
+                    onClick={() => { setStatusFilter(statusFilter === s ? "All" : s); setStageSheet(false); }}
                     aria-pressed={statusFilter === s}
+                    data-status-chip={s}
                   >
-                    {s} <strong>{statusCounts[s]}</strong>
+                    {STATUS_LABELS[s]} <strong>{statusCounts[s]}</strong>
                   </button>
                 ))}
                 {dueCount > 0 && (
@@ -1844,7 +1860,39 @@ export default function ApplicationsPage() {
           </Card>
         )}
 
-        {showTable && (
+        {statusFilter !== "All" && isStageTab(statusFilter) && (
+          <div className="stageTabBar" data-stage-bar>
+            <label className="planRadio" hidden={stageSheet}>
+              <input type="checkbox" checked={includePast} onChange={(e) => setIncludePast(e.target.checked)} data-include-past />
+              Include past stages
+            </label>
+            <button type="button" className="linkBtn" onClick={() => setStageSheet((v) => !v)} data-stage-sheet>
+              {stageSheet ? "Back to dates" : "Open the full sheet"}
+            </button>
+          </div>
+        )}
+        {statusFilter !== "All" && isStageTab(statusFilter) && !stageSheet ? (
+          visible.length > 0 && (
+            <StageTable
+              key={statusFilter}
+              rows={visible}
+              stage={statusFilter}
+              includePast={includePast}
+              onStatus={(row, status) => {
+                const full = rowsRef.current.find((r) => r.id === row.id);
+                if (full) changeStatus(full, status);
+              }}
+              onReason={(row, reason) => {
+                void patchRow(row.id, { outcome_reason: reason || null }).then((message) => setActionError(message ?? ""));
+              }}
+              onOpenSheet={(row) => {
+                setStageSheet(true);
+                const full = rowsRef.current.find((r) => r.id === row.id);
+                if (full) togglePanel(full, "notes");
+              }}
+            />
+          )
+        ) : showTable && (
           <div className="appsTableWrap riseIn riseIn--delayed">
             <table className="appsTable">
               <thead>

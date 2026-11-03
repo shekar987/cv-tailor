@@ -89,7 +89,7 @@ export default function UpdatePasswordPage() {
           <p className="authEyebrow">Password updated</p>
           <h1 className="authTitle">You&apos;re all set</h1>
           <p className="authMuted">Your new password is saved. Taking you to the app…</p>
-          <Button href="/app">Open the app</Button>
+          <Button href="/app/next">Open the app</Button>
         </div>
       </main>
     )

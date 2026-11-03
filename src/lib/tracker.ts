@@ -85,6 +85,30 @@ export function isActiveStatus(status: unknown): boolean {
   return !!s && ACTIVE_STATUSES.has(s);
 }
 
+// The tabs with date columns. Won holds offers too, so an offer is celebrated from
+// the day it lands.
+export const STAGE_TABS: readonly Status[] = ["screening", "interview", "assessment", "offer", "rejected", "accepted"];
+export function isStageTab(value: unknown): value is Status {
+  return (STAGE_TABS as readonly unknown[]).includes(value);
+}
+
+/** A tab holds a row by its CURRENT status only. */
+export function inStageTab(status: unknown, tab: Status): boolean {
+  const s = normalizeStatus(status);
+  return tab === "accepted" ? s === "accepted" || s === "offer" : s === tab;
+}
+
+/** With "Include past stages" on, also a row that has been through this stage. */
+export function inStageTabOrPast(row: { status: unknown; stages_reached?: readonly string[] | null }, tab: Status): boolean {
+  if (inStageTab(row.status, tab)) return true;
+  return (row.stages_reached ?? []).some((s) => inStageTab(s, tab));
+}
+
+/** The stored values a tab's filter matches, old labels included. */
+export function stageTabValues(tab: Status): string[] {
+  return tab === "accepted" ? [...storedStatusValues("accepted"), ...storedStatusValues("offer")] : storedStatusValues(tab);
+}
+
 // Past the screen. Rejected is the other outcome; Applied is still pending.
 export const PROGRESSED: ReadonlySet<string> = new Set<Status>(["screening", "interview", "assessment", "offer", "accepted"]);
 export function hasProgressed(status: unknown): boolean {

@@ -3,7 +3,7 @@
 // and `/\evil.com` both start with "/" yet resolve to another host, which is
 // exactly the phishing pivot a naive startsWith("/") check allows.
 
-const FALLBACK = "/app";
+const FALLBACK = "/app/next";
 
 // The one auth page that IS a valid destination: the password-recovery link
 // lands on /auth/callback with ?next=/auth/update-password.

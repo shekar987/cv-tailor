@@ -21,7 +21,7 @@ import { signedIn, unauthorized } from "@/lib/routeAuth";
 //                                export is exactly what it was.
 
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
-import { normalizeStatus, statusLabel, storedStatusValues } from "@/lib/tracker";
+import { normalizeStatus, statusLabel, stageTabValues } from "@/lib/tracker";
 import { rowStyle, isFormatStyleId, ROW_STYLE_LABELS, type RowStyle } from "@/lib/formatStyles/ids";
 import { readApplicationPages, type OrderableQuery } from "@/lib/applicationRows";
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -93,7 +93,7 @@ export async function GET(req: NextRequest) {
     const read = (select: string) =>
       readApplicationPages(() => {
         let query = supabase.from("applications").select(select);
-        if (statusKey) query = query.in("status", storedStatusValues(statusKey));
+        if (statusKey) query = query.in("status", stageTabValues(statusKey));
         if (from) query = query.gte("date_applied", from);
         if (to) query = query.lte("date_applied", to);
         return query as unknown as OrderableQuery;

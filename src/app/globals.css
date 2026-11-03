@@ -54,6 +54,17 @@
   --danger-dim: rgba(229, 137, 107, 0.10);
   --danger-border: rgba(229, 137, 107, 0.32);
 
+  /* Stage colours (Chunk 11). Each is always beside an icon and a word: blue and
+     violet separate at 15 ΔE for full colour vision but not under every
+     colour-blindness (dataviz validate_palette, dark on --surface). */
+  --stage-screening: #4A8FEA;
+  --stage-interview: #B296F5;
+  --stage-assessment: var(--amber);
+  --stage-offer: #3FAE6D;
+  --stage-won: #46DDB0;
+  --stage-rejected: #B5837A;
+  --stage-ghosted: #8E8A84;
+
   --doc-paper: #FFFFFF;
   --doc-ink: #1A1A1A;
   --doc-navy: #1F3864;
@@ -3678,3 +3689,230 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
   .interviewLayout--room .interviewStage { aspect-ratio: 1 / 1; }
   .interviewControls { position: sticky; bottom: 0; padding: var(--space-2) 0; background: var(--bg); }
 }
+
+/* ── What's next (/app/next, Chunk 11) ───────────────────────────────────────── */
+.nextToolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); flex-wrap: wrap; }
+.nextLayout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-8); align-items: start; }
+@media (min-width: 1080px) {
+  .nextLayout { grid-template-columns: minmax(0, 1fr) 340px; }
+  .planRail { position: sticky; top: var(--space-16); }
+  .nextHero { display: none !important; }
+}
+.planMain { min-width: 0; }
+.planRail { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.planRailCard { background: var(--surface); border: 1px solid var(--border-card); border-radius: var(--radius-lg); padding: var(--space-4); box-shadow: var(--surface-inset); }
+.planRailTitle { font-size: var(--text-sm); font-weight: 600; color: var(--text); margin-bottom: var(--space-3); }
+.planRailCard .cvHelp .icon, .planRailCard .cvHelp svg { vertical-align: -2px; }
+
+.nextHero { position: sticky; top: var(--space-16); z-index: 5; display: grid; gap: 2px; padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4); background: var(--surface-2); border: 1px solid var(--border-card); border-left: 3px solid var(--amber); border-radius: var(--radius-md); box-shadow: var(--shadow-md); }
+.nextHero strong { font-size: var(--text-lg); color: var(--text); }
+.nextHero span:last-child { font-size: var(--text-sm); color: var(--text-subtle); }
+
+.planGroup { margin-bottom: var(--space-8); }
+.planGroupHead { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-md); font-weight: 600; color: var(--text); margin-bottom: var(--space-3); }
+.planGroupCount { font-size: var(--text-xs); font-weight: 500; color: var(--muted); }
+.planGroupNote { margin: calc(var(--space-2) * -1) 0 var(--space-3); }
+.planGroup[data-group="overdue"] .planGroupHead { color: var(--danger); }
+.planGroup[data-group="overdue"] .planCard { border-color: var(--danger-border); }
+.planList, .planWaiting, .planFunnel, .planClashList, .planSlotList, .planPickerList, .weekWindowList { list-style: none; }
+.planList { display: flex; flex-direction: column; gap: var(--space-3); }
+.planFilterNote { font-size: var(--text-sm); color: var(--text-subtle); margin-bottom: var(--space-4); }
+.planShortcuts kbd { font: inherit; font-size: var(--text-xs); padding: 0 var(--space-1); border: 1px solid var(--border-strong); border-radius: var(--radius-xs); color: var(--text-subtle); }
+
+.planCard { display: flex; gap: var(--space-3); padding: var(--space-4); background: var(--surface); border: 1px solid var(--border-card); border-radius: var(--radius-lg); box-shadow: var(--surface-inset); transition: transform var(--duration) var(--ease), opacity var(--duration-slow) var(--ease); outline: none; }
+.planCard:hover { transform: translateY(-1px); }
+.planCard--selected, .planCard:focus-visible { box-shadow: var(--focus-ring); border-color: var(--amber-border); }
+.planCard--leaving { opacity: 0; transform: translateX(12px) scale(0.99); }
+.planCardBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.planCardHead { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap; }
+.planCardWho { min-width: 0; flex: 1 1 200px; }
+.planCardCompany { font-size: var(--text-md); font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.planCardRole { display: block; font-size: var(--text-sm); color: var(--muted); overflow-wrap: anywhere; }
+.planCardTags { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.planCardTitle { font-size: var(--text-sm); color: var(--text-subtle); overflow-wrap: anywhere; }
+.planCardWhen { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); font-size: var(--text-sm); color: var(--text); margin-top: var(--space-1); }
+.planCardWhen svg { color: var(--muted); }
+.planCountdown { color: var(--text-subtle); }
+.planCountdown[data-overdue] { color: var(--danger); font-weight: 500; }
+.planCardLink { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); font-size: var(--text-sm); color: var(--text-subtle); overflow-wrap: anywhere; }
+.planCardLink svg { color: var(--muted); }
+.planCardMeta { font-size: var(--text-sm); color: var(--text-subtle); }
+.planCardNotes { font-size: var(--text-sm); color: var(--text-subtle); white-space: pre-wrap; overflow-wrap: anywhere; max-width: var(--measure-prose); }
+.planCardActions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-4); margin-top: var(--space-2); }
+.planOutcome { display: inline-flex; gap: var(--space-3); padding-left: var(--space-3); border-left: 1px solid var(--border-card); }
+.planCopy { display: inline-flex; align-items: center; gap: var(--space-1); background: none; border: 1px solid var(--border-card); border-radius: var(--radius-sm); color: var(--text-subtle); font: inherit; font-size: var(--text-xs); padding: 2px var(--space-2); cursor: pointer; transition: border-color var(--duration) var(--ease), color var(--duration) var(--ease); }
+.planCopy:hover { color: var(--text); border-color: var(--border-strong); }
+.planCopy:active { color: var(--amber); }
+.planCopy:focus-visible { outline: none; box-shadow: var(--focus-ring); border-color: var(--amber-border); }
+
+.companyInitial { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-md); background: var(--surface-3); border: 1px solid var(--border-card); color: var(--text); font-weight: 600; font-size: var(--text-sm); }
+.stageChip { display: inline-flex; align-items: center; gap: var(--space-1); padding: 1px var(--space-2); border: 1px solid var(--stage-color, var(--border-card)); border-radius: var(--radius-pill); font-size: var(--text-xs); color: var(--text); white-space: nowrap; }
+.stageChip svg { color: var(--stage-color, var(--muted)); }
+[data-stage="applied"], [data-stage="saved"] { --stage-color: var(--muted); }
+[data-stage="screening"] { --stage-color: var(--stage-screening); }
+[data-stage="interview"] { --stage-color: var(--stage-interview); }
+[data-stage="assessment"] { --stage-color: var(--stage-assessment); }
+[data-stage="offer"] { --stage-color: var(--stage-offer); }
+[data-stage="accepted"] { --stage-color: var(--stage-won); }
+[data-stage="rejected"], [data-stage="withdrawn"] { --stage-color: var(--stage-rejected); }
+[data-stage="ghosted"] { --stage-color: var(--stage-ghosted); }
+.kindTag { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-xs); color: var(--text-subtle); white-space: nowrap; }
+.kindTag svg { color: var(--muted); }
+
+.planSlots { margin-top: var(--space-2); padding: var(--space-3); border: 1px dashed var(--border-strong); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.planSlotList { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); color: var(--text); width: 100%; }
+.planSlotList li { display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+
+.planWaiting { display: flex; flex-direction: column; border-top: 1px solid var(--border-card); }
+.planWaitingRow { display: flex; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.planWaitingText { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.planWaitingText strong { color: var(--text); overflow-wrap: anywhere; }
+.planWaitingActions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); }
+.planNudge { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-xs); color: var(--amber-bright); }
+
+.calHead { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-2); font-size: var(--text-sm); color: var(--text); }
+.calNav { display: grid; place-items: center; width: 28px; height: 28px; background: none; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-subtle); cursor: pointer; transition: border-color var(--duration) var(--ease), color var(--duration) var(--ease); }
+.calNav:hover { border-color: var(--border-strong); color: var(--text); }
+.calNav:active { color: var(--amber); }
+.calNav:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.calGrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.calDow { text-align: center; font-size: var(--text-xs); color: var(--muted); padding-bottom: var(--space-1); }
+.calDay { position: relative; aspect-ratio: 1; display: grid; place-items: center; background: none; border: 1px solid transparent; border-radius: var(--radius-sm); font: inherit; font-size: var(--text-xs); color: var(--muted); }
+.calDay[data-outside] { opacity: 0.45; }
+.calDay[data-today] { border-color: var(--border-strong); color: var(--text); }
+.calDay[data-has-events] { color: var(--text); cursor: pointer; font-weight: 600; transition: border-color var(--duration) var(--ease); }
+.calDay[data-has-events]::after { content: ""; position: absolute; bottom: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--amber); }
+.calDay[data-has-events]:hover { border-color: var(--amber-border); }
+.calDay[data-has-events]:active { background: var(--amber-dim); }
+.calDay:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.calDay[data-selected] { background: var(--amber-dim); border-color: var(--amber-border); }
+
+.planClashList { display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm); color: var(--text-subtle); }
+.planClashList li::before { content: "! "; color: var(--danger); font-weight: 700; }
+.planClashList li.cvHelp::before { content: ""; }
+.planClashList strong { color: var(--text); font-weight: 600; }
+
+.planFunnel { display: flex; flex-direction: column; margin-bottom: var(--space-2); }
+.planFunnelRow { display: grid; grid-template-columns: 1fr auto; gap: 0 var(--space-2); padding: var(--space-2) 0 var(--space-2) var(--space-3); border-left: 3px solid var(--stage-color, var(--border-strong)); border-radius: 0; color: var(--text); text-decoration: none; transition: background var(--duration) var(--ease); }
+.planFunnelRow:hover { background: var(--surface-2); }
+.planFunnelRow:active { background: var(--surface-3); }
+.planFunnelRow:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.planFunnelName { font-size: var(--text-sm); }
+.planFunnelCount { font-size: var(--text-sm); font-weight: 600; font-variant-numeric: tabular-nums; padding-right: var(--space-2); }
+.planFunnelRate { grid-column: 1 / -1; font-size: var(--text-xs); color: var(--muted); }
+.planFunnelRate:empty { display: none; }
+
+.planToast { position: fixed; left: 50%; bottom: var(--space-6); transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: var(--space-3); max-width: calc(100vw - 32px); padding: var(--space-3) var(--space-4); background: var(--surface-3); border: 1px solid var(--border-strong); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); font-size: var(--text-sm); color: var(--text); animation: planToastIn var(--duration-slow) var(--ease); }
+@keyframes planToastIn { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.planToastUndo { background: none; border: none; color: var(--amber-bright); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.planToastUndo:hover { color: var(--amber); }
+.planToastUndo:active { color: var(--amber-bright); }
+.planToastUndo:focus-visible, .planToastClose:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.planToastClose { display: grid; place-items: center; background: none; border: none; color: var(--muted); cursor: pointer; }
+.planToastClose:hover { color: var(--text); }
+.planToastClose:active { color: var(--amber); }
+
+.planDialogBackdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; overflow-y: auto; padding: var(--space-8) var(--space-4); background: rgba(0, 0, 0, 0.6); }
+.planDialog { width: 100%; max-width: 620px; padding: var(--space-6); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+.planDialogTitle { font-size: var(--text-lg); font-weight: 600; color: var(--text); margin-bottom: var(--space-4); }
+.planForm { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-4); }
+.planField { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.planField--wide { grid-column: 1 / -1; }
+.planWhen { border: none; display: flex; flex-direction: row; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.planWhen legend { margin-bottom: var(--space-1); }
+.planRadio { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--text-subtle); cursor: pointer; }
+.planRadio[hidden] { display: none; }
+.planPicked { font-size: var(--text-sm); color: var(--text-subtle); overflow-wrap: anywhere; }
+.planPicked strong { color: var(--text); }
+.planPickerList { display: flex; flex-direction: column; margin-top: var(--space-1); border: 1px solid var(--border-card); border-radius: var(--radius-md); overflow: hidden; }
+.planPickerItem { display: block; width: 100%; text-align: left; padding: var(--space-2) var(--space-3); background: none; border: none; border-bottom: 1px solid var(--border); color: var(--text-subtle); font: inherit; font-size: var(--text-sm); cursor: pointer; transition: background var(--duration) var(--ease); }
+.planPickerItem strong { color: var(--text); }
+.planPickerItem:hover { background: var(--surface-2); }
+.planPickerItem:active { background: var(--surface-3); }
+.planPickerItem:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--amber-border); }
+.planSlotRow { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-1); }
+.planSlotRow .textInput { flex: 1 1 130px; min-width: 0; }
+.planDialogActions { display: flex; gap: var(--space-3); margin-top: var(--space-2); flex-wrap: wrap; }
+
+/* The week: times down the side, Monday to Sunday. Scrolls inside its own frame on a phone. */
+.weekNav { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-bottom: var(--space-3); }
+.weekNavLabel { font-size: var(--text-sm); color: var(--text); }
+.weekScroll { overflow-x: auto; border: 1px solid var(--border-card); border-radius: var(--radius-lg); background: var(--surface); }
+.weekScroll:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.weekGrid { display: grid; grid-template-columns: 52px repeat(7, minmax(84px, 1fr)); min-width: 640px; }
+.weekCorner { border-bottom: 1px solid var(--border-card); }
+.weekDayHead { padding: var(--space-2); border-bottom: 1px solid var(--border-card); border-left: 1px solid var(--border); font-size: var(--text-xs); font-weight: 600; color: var(--text-subtle); }
+.weekDayHead[data-today] { color: var(--amber-bright); }
+.weekDue { display: block; margin-top: 2px; font-weight: 400; color: var(--text); overflow-wrap: anywhere; }
+.weekTimes span { display: block; padding: 0 var(--space-1); font-size: 10px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.weekColumn { position: relative; border-left: 1px solid var(--border); background-image: linear-gradient(to bottom, var(--border) 1px, transparent 1px); }
+.weekBlock { position: absolute; left: 2px; right: 2px; overflow: hidden; padding: 1px var(--space-1); border-radius: var(--radius-xs); font-size: 11px; line-height: 1.25; color: var(--text); }
+.weekBlock[data-type="event"] { background: var(--surface-3); border: 1px solid var(--stage-interview); z-index: 2; }
+.weekBlock[data-type="deadline"] { background: var(--amber-dim); border: 1px solid var(--amber-border); z-index: 2; }
+.weekBlock[data-type="offer"] { border: 1px dashed var(--border-strong); background: var(--bg); z-index: 2; }
+.weekBlock[data-type="busy"] { background: repeating-linear-gradient(135deg, var(--surface-2), var(--surface-2) 5px, var(--surface-3) 5px, var(--surface-3) 10px); border: 1px solid var(--border-card); color: var(--text-subtle); z-index: 1; }
+.weekBlock[data-type="free"] { background: var(--success-dim); border: 1px solid var(--success-border); color: var(--text-subtle); }
+.weekBlock[data-clash] { border-color: var(--danger); box-shadow: inset 3px 0 0 var(--danger); }
+.weekLegend { margin-top: var(--space-2); }
+.weekWindows { margin-top: var(--space-8); display: flex; flex-direction: column; gap: var(--space-3); }
+.weekForm { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--space-2); align-items: center; }
+.weekWindowList { display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm); color: var(--text-subtle); }
+.weekWindowList li { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); }
+.weekWindowList .inlineLink { margin-left: auto; }
+
+/* The pipeline map. Node labels wear text colours; a colour beside them carries identity. */
+.pipeWrap { display: flex; flex-direction: column; gap: var(--space-3); }
+.pipeChart { width: 100%; min-width: 0; }
+.pipeNode { cursor: pointer; outline: none; }
+.pipeNode:focus-visible rect:last-of-type { stroke: var(--amber); stroke-width: 2; }
+.pipeNode:hover rect:last-of-type { stroke: var(--text); stroke-width: 1; }
+.pipeLabel { fill: var(--text-subtle); font-size: 12px; }
+.pipeValue { fill: var(--text); font-weight: 600; }
+.pipeLink { transition: stroke-opacity var(--duration) var(--ease); }
+.pipeLink:hover { stroke-opacity: 0.55; }
+.pipeTableWrap summary { cursor: pointer; font-size: var(--text-sm); width: fit-content; }
+.pipeTable { width: 100%; margin-top: var(--space-3); border-collapse: collapse; font-size: var(--text-sm); color: var(--text-subtle); }
+.pipeTable th, .pipeTable td { padding: var(--space-2); text-align: left; border-bottom: 1px solid var(--border); font-weight: 400; }
+.pipeTable thead th { color: var(--muted); font-size: var(--text-xs); }
+.pipeTable tbody th { color: var(--text); }
+.pipeTable td { font-variant-numeric: tabular-nums; }
+
+/* The tracker's stage tabs. */
+.stageTabBar { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-bottom: var(--space-3); }
+.stageTableWrap { border: 1px solid var(--border-strong); border-radius: var(--radius-lg); overflow-x: auto; background: var(--surface); }
+.stageTable { width: 100%; border-collapse: collapse; font-size: var(--text-sm); color: var(--text-subtle); }
+.stageTable th { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-card); font-size: var(--text-xs); font-weight: 500; color: var(--muted); white-space: nowrap; }
+.stageTable td { padding: var(--space-3); border-bottom: 1px solid var(--border); vertical-align: top; }
+.stageTable td > .cvHelp { display: block; }
+.stageTable tbody tr:last-child td { border-bottom: none; }
+.stageTable tr[data-past] { opacity: 0.72; }
+.stageTable tr[data-won] td:first-child { box-shadow: inset 3px 0 0 var(--stage-won); }
+.stageTable tr[data-won] svg { color: var(--stage-won); vertical-align: -2px; margin-right: var(--space-1); }
+.stageCompany { background: none; border: none; padding: 0; font: inherit; color: var(--text); cursor: pointer; text-align: left; overflow-wrap: anywhere; transition: color var(--duration) var(--ease); }
+.stageCompany:hover { color: var(--amber-bright); }
+.stageCompany:active { color: var(--amber); }
+.stageCompany:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+td[data-stage-deadline][data-soon] .stageDue { color: var(--danger); font-weight: 500; }
+.stageDue svg { vertical-align: -2px; margin-right: var(--space-1); }
+.stageReason { display: block; width: 100%; min-width: 120px; margin-top: var(--space-1); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: var(--text-xs); padding: 2px var(--space-2); transition: border-color var(--duration) var(--ease); }
+.stageReason:hover { border-color: var(--text-subtle); }
+.stageReason:focus-visible { outline: none; border-color: var(--amber-border); box-shadow: var(--focus-ring); }
+.stageActions { white-space: nowrap; text-align: right; }
+.stageMore { margin: var(--space-3); }
+
+@media (max-width: 760px) {
+  .stageTable thead { display: none; }
+  .stageTable, .stageTable tbody, .stageTable tr, .stageTable td { display: block; width: 100%; }
+  .stageTable tr { padding: var(--space-3) 0; border-bottom: 1px solid var(--border-card); }
+  .stageTable td { border-bottom: none; padding: var(--space-1) var(--space-3); }
+  .stageTable td[data-label]:not([data-label=""])::before { content: attr(data-label); display: block; font-size: var(--text-xs); color: var(--muted); }
+  .stageActions { text-align: left; }
+  .planForm { grid-template-columns: minmax(0, 1fr); }
+  .planCard { padding: var(--space-3); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planCard, .planCard--leaving, .planCard:hover { transition: none; transform: none; }
+  .planToast { animation: none; }
+}
+.pipeLabel { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }

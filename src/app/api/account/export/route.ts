@@ -43,7 +43,7 @@ export async function GET() {
       return section("applications", rows, error);
     }
 
-    const [profile, masterCv, cvProfile, settings, applications, interviews, research, keys] = await Promise.all([
+    const [profile, masterCv, cvProfile, settings, applications, interviews, research, keys, events, availability] = await Promise.all([
       read("profiles", "tailor_count, tailor_count_reset_at, claude_tailors_used, is_unlimited, section_order"),
       read("master_cvs", "text, projects_pool, updated_at"),
       read("cv_profiles", "data, updated_at"),
@@ -52,6 +52,8 @@ export async function GET() {
       read("mock_interviews", "id, application_id, type, persona, llm_path, status, plan, transcript, feedback, created_at, finished_at", "created_at"),
       read("company_profiles", "domain, data, fetched_at", "fetched_at"),
       read("user_api_keys", "provider, key_hint, updated_at"),
+      read("application_events", "*", "created_at"),
+      read("availability_windows", "*", "created_at"),
     ]);
 
     // An unfinished interview's plan holds the questions not yet asked; the
@@ -81,6 +83,8 @@ export async function GET() {
       applications,
       mockInterviews: interviews,
       companyResearch: research,
+      planEvents: events,
+      availability,
       providerKeys: { ...keys, note: keys.note ?? "hints only — the keys themselves are encrypted and never exported" },
     };
     const day = payload.exportedAt.slice(0, 10);

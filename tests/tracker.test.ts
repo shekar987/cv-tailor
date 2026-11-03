@@ -10,6 +10,11 @@ import {
   oldStatusLabel,
   storedStatusValues,
   isActiveStatus,
+  inStageTab,
+  inStageTabOrPast,
+  isStageTab,
+  stageTabValues,
+  STAGE_TABS,
   isStatus,
   isSubmitted,
   isFollowupDue,
@@ -41,6 +46,31 @@ test("the status list is the lower-case keys; old labels still read", () => {
   assert.ok(!isStatus("Pending"));
   assert.ok(!isStatus(null));
   assert.equal(normalizeStatus("Pending"), null);
+});
+
+test("a stage tab holds a row by its CURRENT status only: a rejected row is never under Screening", () => {
+  assert.equal(inStageTab("rejected", "screening"), false);
+  assert.equal(inStageTab("Rejected", "screening"), false);
+  assert.equal(inStageTab("screening", "screening"), true);
+  assert.equal(inStageTab("Screening", "screening"), true, "an old label reads the same");
+  // A row that passed through Screening and was then rejected stays out unless asked for.
+  const row = { status: "rejected", stages_reached: ["applied", "screening", "rejected"] };
+  assert.equal(inStageTab(row.status, "screening"), false);
+  assert.equal(inStageTabOrPast(row, "screening"), true, "Include past stages");
+  assert.equal(inStageTabOrPast(row, "interview"), false);
+  assert.equal(inStageTabOrPast({ status: "screening" }, "screening"), true);
+  assert.equal(inStageTabOrPast({ status: "applied", stages_reached: null }, "screening"), false);
+});
+
+test("the Won tab holds accepted and offer; every other tab one status", () => {
+  assert.equal(inStageTab("accepted", "accepted"), true);
+  assert.equal(inStageTab("offer", "accepted"), true);
+  assert.equal(inStageTab("offer", "offer"), true);
+  assert.equal(inStageTab("accepted", "offer"), false);
+  assert.deepEqual(stageTabValues("accepted"), ["accepted", "offer", "Offer"]);
+  assert.deepEqual(stageTabValues("screening"), ["screening", "Screening"]);
+  assert.deepEqual([...STAGE_TABS], ["screening", "interview", "assessment", "offer", "rejected", "accepted"]);
+  assert.equal(isStageTab("applied"), false);
 });
 
 test("every status has a label, and the two renamed ones read as the user knows them", () => {

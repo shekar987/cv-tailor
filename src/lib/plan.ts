@@ -526,6 +526,23 @@ export function buildFunnel(rows: readonly FunnelRow[]): Funnel {
   return { nodes, links: [...links.values()], rejected, ghosted, total, excluded };
 }
 
+export type FunnelChartNode = { name: string; key: string; total: number };
+
+/** A chart addresses a link by node index, and a zero link or an empty node breaks its layout. */
+export function funnelChartData(funnel: Funnel): { nodes: FunnelChartNode[]; links: { source: number; target: number; value: number }[] } {
+  const totals = new Map<string, number>();
+  for (const n of funnel.nodes) totals.set(n.key, n.count);
+  totals.set("rejected", funnel.rejected);
+  totals.set("ghosted", funnel.ghosted);
+  const links = funnel.links.filter((l) => l.count > 0);
+  const used = [...totals.keys()].filter((key) => (totals.get(key) ?? 0) > 0 && links.some((l) => l.from === key || l.to === key));
+  const index = new Map(used.map((key, i) => [key, i]));
+  return {
+    nodes: used.map((key) => ({ key, name: FUNNEL_LABELS[key as keyof typeof FUNNEL_LABELS], total: totals.get(key) ?? 0 })),
+    links: links.map((l) => ({ source: index.get(l.from)!, target: index.get(l.to)!, value: l.count })),
+  };
+}
+
 // ── Reading a request ───────────────────────────────────────────────────────
 
 const MAX_TITLE = 200;

@@ -26,6 +26,7 @@ import Wordmark from "./Wordmark";
 // and tagline sit on the dossier's left rule.
 
 const NAV = [
+  { href: "/app/next", label: "What's next" },
   { href: "/app", label: "Tailor" },
   { href: "/applications", label: "Applications" },
   { href: "/interviews", label: "Interview" },
@@ -99,7 +100,8 @@ export default function AppHeader({
     router.push("/auth/login");
   }
 
-  const isCurrent = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  // /app/next is its own section, not a page of Tailor.
+  const isCurrent = (href: string) => pathname === href || (href !== "/app" && pathname.startsWith(`${href}/`));
   const signOutLabel = signingOut ? "Signing out…" : "Sign out";
 
   return (
@@ -114,7 +116,7 @@ export default function AppHeader({
             }
           }}
         >
-          <Wordmark href="/app" className="wordmark" />
+          <Wordmark href="/app/next" className="wordmark" />
           <button
             ref={menuBtnRef}
             type="button"
