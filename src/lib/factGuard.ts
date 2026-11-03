@@ -26,6 +26,7 @@
 // node:test.
 import { FLAT_SKILLS, type SkillsShape } from "./formatStyles/ids.ts";
 import { parseSkillsBlock, toolItems, toolLines, writeToolLines, addToolItem } from "./skillsLines.ts";
+import { ownsWork } from "./jdCopyGuard.ts";
 
 const DEGREES = ["BTech", "B.Tech", "BSc", "B.Sc", "BEng", "BA", "MSc", "MEng", "MA", "MBA", "PhD"] as const;
 const UNDERGRAD = /\b(?:BTech|B\.Tech|BSc|B\.Sc|BEng|BA)\b/g;
@@ -96,30 +97,165 @@ export function listNames(skillNames: readonly string[], tool: string): boolean 
   });
 }
 
+const isListOnly = (tool: string, skillNames?: readonly string[]) => skillNames !== undefined && (SKILLS_LIST_ONLY_TOOLS as readonly string[]).includes(tool);
+// A vendor stands for its API: "OpenAI" on a line, or in a role, is the OpenAI API.
+const vendorOf = (tool: string) => (/\sAPI$/i.test(tool) ? tool.replace(/\s+API$/i, "").trim() : null);
+
 // `skillNames`: the user's own skills list (the claims registry's names, or
 // the CV's skills section when it has none). Without it the master CV's text
-// decides every tool, as before. `evidenceText`: what the CV's roles and
-// projects say, the second half of the test for SKILLS_LIST_ONLY_TOOLS.
+// decides every tool, as before. `evidenceText`: what the CV says outside that
+// list, the second half of the test for SKILLS_LIST_ONLY_TOOLS.
+function toolIsBacked(tool: string, master: string, skillNames?: readonly string[], evidenceText?: string): boolean {
+  if (!isListOnly(tool, skillNames)) return mentions(master, tool);
+  if (!listNames(skillNames as readonly string[], tool)) return false;
+  if (evidenceText === undefined) return true;
+  const vendor = vendorOf(tool);
+  return mentions(evidenceText, tool) || (!!vendor && mentions(evidenceText, vendor));
+}
+
+/** The over-claimed tools a text names that the master CV doesn't back. */
+export function unbackedToolsIn(text: string, master: string, skillNames?: readonly string[], evidenceText?: string): string[] {
+  return OVERCLAIMED_TOOLS.filter((tool) => {
+    const vendor = isListOnly(tool, skillNames) ? vendorOf(tool) : null;
+    return (mentions(text, tool) || (!!vendor && mentions(text, vendor))) && !toolIsBacked(tool, master, skillNames, evidenceText);
+  });
+}
+
+/** Why a tool left: said truthfully, since a tool can go for three different reasons. */
+export function dropReason(tool: string, master: string, skillNames?: readonly string[]): string {
+  if (!isListOnly(tool, skillNames)) return "your master CV does not name it";
+  if (listNames(skillNames as readonly string[], tool)) return "no role or project on your master CV shows it";
+  return mentions(master, tool) ? "it is not on your master CV's skills list" : "your master CV does not name it";
+}
+
+// A line's items with the separator before each, outside brackets, so the line can
+// be put back as it was written ("Python, Java | FastAPI, React").
+function splitTop(body: string): { sep: string; item: string }[] {
+  const out: { sep: string; item: string }[] = [];
+  let depth = 0;
+  let cur = "";
+  let sep = "";
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === "(") depth++;
+    if (ch === ")") depth = Math.max(0, depth - 1);
+    if (depth === 0 && /[,|;]/.test(ch)) {
+      out.push({ sep, item: cur });
+      const ws = /^\s*/.exec(body.slice(i + 1))?.[0] ?? "";
+      const before = /\s*$/.exec(cur)?.[0] ?? "";
+      sep = before + ch + ws;
+      cur = "";
+      i += ws.length;
+    } else cur += ch;
+  }
+  out.push({ sep, item: cur });
+  return out.map((p) => ({ sep: p.sep, item: p.item.trim() })).filter((p) => p.item);
+}
+
+// The user's own practice phrase ("REST & GraphQL API Design", word for word on
+// their CV) is a competency, not the tool.
+const PRACTICE_PHRASE = /\b(?:development|design|engineering|architecture|integration|testing)\s*$/i;
+
+// One item without the tool: gone when it names it ("GraphQL APIs", "**GraphQL**",
+// or the vendor alone), or only its own part cut ("LLM (OpenAI API, Claude)",
+// "Docker/Kubernetes").
+function itemWithout(item: string, tool: string, vendor: string | null, master: string): string {
+  const plain = item.replace(/\*/g, "").trim().toLowerCase();
+  if (vendor && plain === vendor.toLowerCase()) return "";
+  if (PRACTICE_PHRASE.test(plain) && master.toLowerCase().includes(plain)) return item;
+  const bracket = /^(.*?)\s*\((.*)\)\s*$/.exec(item);
+  if (bracket && !mentions(bracket[1], tool) && mentions(bracket[2], tool)) {
+    const inner = splitTop(bracket[2]).map((p) => p.item).filter((i) => !mentions(i, tool));
+    return inner.length ? `${bracket[1]} (${inner.join(", ")})` : bracket[1];
+  }
+  if (item.includes("/") && mentions(item, tool)) {
+    const parts = item.split("/");
+    const left = parts.filter((p) => !mentions(p, tool));
+    if (left.length > 0 && left.length < parts.length) return left.join("/");
+  }
+  return mentions(item, tool) ? "" : item;
+}
+
+// Line by line, item by item, so a bold label or a bold first item is still seen.
+// A line whose only item it was ("Languages: Java") goes; other lines keep every byte.
+function removeToolItems(skills: string, tool: string, vendor: string | null, master: string): string {
+  return skills
+    .split("\n")
+    .flatMap((line) => {
+      const m = /^(\s*(?:[•*-]\s+)?\*{0,2}[^:\n*]{1,60}\*{0,2}:\*{0,2}\s*)(.*)$/.exec(line);
+      const label = m ? m[1] : "";
+      const body = m ? m[2] : line;
+      const parts = splitTop(body);
+      const kept = parts.map((p) => ({ sep: p.sep, item: itemWithout(p.item, tool, vendor, master) }));
+      if (kept.every((k, i) => k.item === parts[i].item)) return [line];
+      if (!kept.some((k) => k.item)) return [];
+      // The item after a removed one takes its separator: "A | X, B" without X is "A | B".
+      let text = "";
+      let carried: string | null = null;
+      for (const k of kept) {
+        if (!k.item) {
+          carried ??= k.sep;
+          continue;
+        }
+        text += text ? (carried ?? k.sep) + k.item : k.item;
+        carried = null;
+      }
+      return [label + text];
+    })
+    .join("\n");
+}
+
 export function dropUnbackedTools(skills: string, master: string, skillNames?: readonly string[], evidenceText?: string): { text: string; dropped: string[] } {
   if (typeof skills !== "string") return { text: skills, dropped: [] };
   const dropped: string[] = [];
   let out = skills;
   for (const tool of OVERCLAIMED_TOOLS) {
-    const listOnly = skillNames !== undefined && (SKILLS_LIST_ONLY_TOOLS as readonly string[]).includes(tool);
-    const backed = listOnly ? listNames(skillNames, tool) && (evidenceText === undefined || mentions(evidenceText, tool)) : mentions(master, tool);
-    if (backed || !mentions(out, tool)) continue;
-    // "A, OpenAI API, B" / "OpenAI API, B" / "A, OpenAI API" / "A | OpenAI API",
-    // and a line whose only item it is ("Languages: Java") — that line goes.
-    const t = esc(tool);
+    if (toolIsBacked(tool, master, skillNames, evidenceText)) continue;
     const before = out;
-    out = out
-      .replace(new RegExp(`\\s*[,|;]\\s*${t}(?=\\s*(?:[,|;]|$|\\n))`, "gim"), "")
-      .replace(new RegExp(`(^|[:\\n]\\s*)${t}\\s*[,|;]\\s*`, "gim"), "$1")
-      .replace(new RegExp(`^[^:\\n]{1,60}:\\s*${t}\\s*(?:\\n|$)`, "gim"), "")
-      .replace(/\n+$/, before.endsWith("\n") ? "\n" : "");
+    out = removeToolItems(out, tool, isListOnly(tool, skillNames) ? vendorOf(tool) : null, master);
     if (out !== before) dropped.push(tool);
   }
   return { text: out, dropped };
+}
+
+// "I have not yet worked with GraphQL" is the honest gap the letter is asked to state.
+const GAP_WORDING = /\b(?:have not|haven't|haven’t|not yet|no experience|never used|yet to|would expect to learn|do not have|don't have|don’t have|new to me)\b/i;
+// "I used Python at Acme, where other teams ran GraphQL": the tool's own clause is someone else's.
+const ASIDE_CLAUSE = /^(?:where|while|whereas|although|though|but|which)\b/i;
+const toolIsAnAside = (sentence: string, tool: string) =>
+  sentence.split(/,\s+/).some((clause) => mentions(clause, tool) && ASIDE_CLAUSE.test(clause.trim()) && !ownsWork(clause));
+const BARE_NUMBER = /^\s*\d+[.)]\s*$/;
+const SENTENCE_BREAK = /(?<=[.!?])\s+(?=[A-Z0-9"“(£$€])/;
+
+/**
+ * A tool the skills lost can't stay in the prose: the sentence claiming it goes.
+ * The summary is about the candidate by construction; the letter must own the work
+ * ("your team's GraphQL platform" stays). `keep` protects the role-title sentence, and
+ * a text is never emptied.
+ */
+export function dropUnbackedSentences(
+  text: string,
+  section: "summary" | "coverLetter",
+  master: string,
+  opts: { skillNames?: readonly string[]; evidenceText?: string; keep?: (sentence: string) => boolean }
+): { text: string; tools: string[] } {
+  const tools = new Set<string>();
+  const lines = text.split("\n").flatMap((line) => {
+    if (/^\s*dear\b/i.test(line)) return [line];
+    const parts = line.split(SENTENCE_BREAK);
+    const kept = parts.filter((s) => {
+      const hit = unbackedToolsIn(s, master, opts.skillNames, opts.evidenceText).filter((t) => !toolIsAnAside(s, t));
+      if (hit.length === 0 || GAP_WORDING.test(s) || opts.keep?.(s)) return true;
+      if (section === "coverLetter" && !ownsWork(s)) return true;
+      hit.forEach((t) => tools.add(t));
+      return false;
+    });
+    if (kept.length === parts.length) return [line];
+    // "1. I built a GraphQL gateway." leaves no bare "1." behind.
+    return kept.some((p) => !BARE_NUMBER.test(p)) ? [kept.join(" ")] : [];
+  });
+  const out = lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return out ? { text: out, tools: [...tools] } : { text, tools: [] };
 }
 
 const STOP = new Set("a an and the of for to in on with by at from as is are be or into across".split(" "));

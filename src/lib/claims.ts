@@ -210,6 +210,72 @@ const INLINE_SKILLS_RE = /^(?:(?:technical|core|key)\s+)?(?:skills|technologies|
 const KNOWN_HEADING_RE =
   /^(?:(?:professional\s+)?summary|profile|objective|about(?:\s+me)?|(?:technical|core|key)?\s*(?:skills|competencies|technologies|tools)|tech(?:nical)?\s+stack|(?:work|professional|relevant)?\s*experience|employment(?:\s+history)?|work\s+history|career(?:\s+history)?|(?:personal|selected|key|side)?\s*projects?|portfolio|education|academic\s+background|qualifications|certifications?|certificates|awards|honou?rs|publications|languages|interests|volunteering|references|right\s+to\s+work|work\s+authori[sz]ation)\b/i;
 
+// One section's lines, sub-headings included, up to the next section of the CV.
+// sectionsOf() switches section on any heading-shaped line, which the registry
+// seed relies on: "RideX" or "RideX - Platform" under PROJECTS ends the section
+// there, and a "Languages:" sub-heading ends SKILLS. Only a whole known heading, or
+// a heading naming a section of another kind, ends it here.
+const SKILLS_SUBHEADING_RE = /^(?:(?:technical|core|key)\s+)?(?:skills|competencies|technologies|tools)\b|^tech(?:nical)?\s+stack\b|^languages\b/i;
+const OTHER_SECTION_RE = /\b(?:projects?|experience|employment|internships?|education|certifications?|publications|volunteering|achievements|awards|interests|references|summary|profile)\s*$/i;
+// In a skills list "AWS" and "SQL" are items; a long or many-word line in capitals is a heading.
+const looksLikeCapsHeading = (t: string) => !/[a-z]/.test(t) && (t.length >= 8 || /\s/.test(t.trim()));
+
+function wholeKnownHeading(h: string): boolean {
+  const known = KNOWN_HEADING_RE.exec(h);
+  if (!known) return false;
+  const rest = h.slice(known[0].length).trim();
+  return !rest || /^(?:[&/,]|and\b)/i.test(rest);
+}
+
+function readBlock(cvText: string, which: "skills" | "projects", opens: RegExp): string[] {
+  const own = which === "skills" ? SKILLS_SUBHEADING_RE : PROJECTS_HEADING_RE;
+  const out: string[] = [];
+  let inside = false;
+  for (const raw of (cvText || "").split(/\r?\n/)) {
+    const t = raw.trim();
+    if (!t) continue;
+    if (!(HEADING_RE.test(t) && t.length <= 45)) {
+      if (inside) out.push(t);
+      continue;
+    }
+    const h = t.replace(/:$/, "").trim();
+    if (!inside) {
+      // "Tools Used" under a role opens nothing: the whole heading must be the section's.
+      inside = opens.test(h) && wholeKnownHeading(h);
+      continue;
+    }
+    const whole = wholeKnownHeading(h);
+    const ends = which === "skills" ? (whole && !own.test(h)) || (!own.test(h) && (OTHER_SECTION_RE.test(h) || looksLikeCapsHeading(t))) : whole && !own.test(h);
+    if (ends) {
+      if (which === "skills") break;
+      inside = false;
+      continue;
+    }
+    if (whole && which === "projects") continue;
+    out.push(t);
+  }
+  return out;
+}
+
+export function sectionBlock(cvText: string, which: "skills" | "projects"): string[] {
+  if (which === "projects") return readBlock(cvText, "projects", PROJECTS_HEADING_RE);
+  // A section that says "Skills" beats a "Tools:" line under some role.
+  const named = readBlock(cvText, "skills", /\bskills\b/i);
+  return named.length > 0 ? named : readBlock(cvText, "skills", SKILLS_HEADING_RE);
+}
+
+// What the CV says outside its skills list: the test of whether a listed skill has
+// anything behind it. Only the list itself is left out: "Tech Stack: React, GraphQL"
+// under a project is evidence. A "Currently learning:" line is not.
+export function cvTextOutsideSkills(cvText: string): string {
+  const block = sectionBlock(cvText, "skills");
+  const listed = new Set(block.length > 0 ? block : sectionsOf(cvText).skills.filter((l) => /^(?:[•*-]\s*)?(?:(?:technical|core|key)\s+)?skills\b/i.test(l)));
+  return (cvText || "")
+    .split(/\r?\n/)
+    .filter((l) => !listed.has(l.trim()) && !/^\s*(?:currently\s+)?(?:learning|studying)\b/i.test(l))
+    .join("\n");
+}
+
 // The CV's lines by section (headings recognised as in the registry seed);
 // also read by lib/evidenceMap.
 export function sectionsOf(cvText: string): Record<CvSection, string[]> {

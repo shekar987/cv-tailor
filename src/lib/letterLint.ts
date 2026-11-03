@@ -122,8 +122,12 @@ export function coreProjectName(fullName: string): string {
 export function projectDescriptor(fullName: string): { name: string; descriptor: string } | null {
   const m = /^(.+?)\s*\(([^()]+)\)/.exec(fullName.split("|")[0].trim());
   if (!m) return null;
-  const q = m[2].trim().replace(/\s+/g, " ");
-  if (q.split(" ").length < 3 || q.includes(",")) return null;
+  const whole = m[2].trim().replace(/\s+/g, " ");
+  // A label the master CV writes says "project"; a comma would break the
+  // appositive, so "personal project, live product" reads "a personal project".
+  const isLabel = /\bproject\b/i.test(whole.split(",")[0]);
+  const q = isLabel ? whole.split(",")[0].trim() : whole;
+  if (!isLabel && (q.split(" ").length < 3 || q.includes(","))) return null;
   const descriptor = /^(?:a|an|the|my)\s/i.test(q) ? q : `${/^[aeiou]/i.test(q) ? "an" : "a"} ${q}`;
   // "RideX — Ride-Hailing Platform": the letter says "RideX".
   return { name: m[1].trim().split(/\s+[—–-]\s+/)[0], descriptor };
@@ -143,30 +147,57 @@ function factsOf(sentence: string, projectNames: string[]): string[] {
   return keys;
 }
 
-// At the first mention of each described project in the body, the master
-// CV's description replaces whatever the model wrote after the name (an
-// appositive starting with an article, or a bracket) or is added.
-function describeProjects(body: string, projects: { name: string; descriptor: string }[], report: string[]): string {
+// Where an appositive would break the phrase the name sits in: "the RideX platform",
+// "My RideX project", "RideX's booking flow", "RideX-style", "RideX Platform".
+const NAME_MODIFIES_BEFORE = /\b(?:the|my|our|a|an|this|that|your|their|its)\s+$/i;
+const NAME_MODIFIES_AFTER = /^(?:['’]s\b|-\w|\s+(?!I\b)[A-Z]|\s+(?:project|platform|app|application|system|service|site|website|product|tool|codebase|repo|repository|team|build|api|apis|pipeline|backend|frontend|stack|work|feature|features|booking|dashboard|demo|mvp|prototype|engine|architecture|code)\b)/;
+// The name as the master CV writes it in full: "RideX — Ride-Hailing Platform" goes
+// with the name in the letter; "RideX — Built 8 APIs" is the writer's own dash.
+function describedProject(fullName: string): { name: string; descriptor: string; title: string } | null {
+  const p = projectDescriptor(fullName);
+  return p ? { ...p, title: fullName.split("|")[0].replace(/\s*\(.*$/, "").trim() } : null;
+}
+
+// At the first mention of each described project where it reads, the master CV's
+// description replaces whatever the model wrote after the name (an appositive
+// starting with an article, or a bracket) or is added. Exact case, so a common word
+// that happens to be a project's name is left alone. Never in the salutation.
+function describeProjects(body: string, projects: { name: string; descriptor: string; title: string }[], report: string[]): string {
   let out = body;
-  for (const { name, descriptor } of projects) {
-    const m = nameRe(name).exec(out);
-    if (!m) continue;
-    const at = m.index + m[0].length;
-    const after = out.slice(at);
-    if (after.toLowerCase().startsWith(`, ${descriptor.toLowerCase()}`)) continue;
-    const span = /^\s*\([^()]{1,160}\)|^,\s+(?:a|an|the|my|our)\s+[^,.;!?\n]{1,120}?,/i.exec(after);
-    const rest = span ? after.slice(span[0].length) : after;
-    const closes = /^\s*(?:[.!?;:]|$)/.test(rest) || rest.startsWith(",");
-    out = out.slice(0, at) + `, ${descriptor}` + (closes ? "" : ",") + rest;
-    report.push(name);
+  for (const { name, descriptor, title } of projects) {
+    for (const m of out.matchAll(nameRe(name, "g"))) {
+      const lineStart = out.lastIndexOf("\n", m.index) + 1;
+      if (/^\s*dear\b/i.test(out.slice(lineStart, m.index))) continue;
+      let at = m.index + m[0].length;
+      if (out.slice(at).toLowerCase().startsWith(`, ${descriptor.toLowerCase()}`)) break;
+      if (NAME_MODIFIES_BEFORE.test(out.slice(lineStart, m.index))) continue;
+      if (out.slice(m.index).toLowerCase().startsWith(title.toLowerCase())) at = m.index + title.length;
+      const after = out.slice(at);
+      if (NAME_MODIFIES_AFTER.test(after) || /^\s+[—–-]\s/.test(after)) continue;
+      const span = /^\s*\([^()]{1,160}\)|^,\s+(?:a|an|the|my|our)\s+[^,.;!?\n]{1,120}?,/i.exec(after);
+      const rest = span ? after.slice(span[0].length) : after;
+      const closes = /^\s*(?:[.!?;:]|$)/.test(rest) || rest.startsWith(",");
+      out = out.slice(0, at) + `, ${descriptor}` + (closes ? "" : ",") + rest;
+      report.push(name);
+      break;
+    }
   }
   return out;
+}
+
+/** The projects whose label the finished letter really carries: what the note may claim. */
+export function projectsLabelledInLetter(letter: string, names: string[]): string[] {
+  const text = letter.toLowerCase();
+  return names.filter((name) => {
+    const p = projectDescriptor(name);
+    return !!p && text.includes(`, ${p.descriptor.toLowerCase()}`);
+  });
 }
 
 /** The finished letter with each labelled project's exact label at its first mention (lib/autoFix labels the names). */
 export function describeLetterProjects(letter: string, projects: string[]): { text: string; described: string[] } {
   const described: string[] = [];
-  const list = projects.map(projectDescriptor).filter((p): p is { name: string; descriptor: string } => !!p);
+  const list = projects.map(describedProject).filter((p): p is NonNullable<ReturnType<typeof describedProject>> => !!p);
   const seen = new Set<string>();
   const unique = list.filter((p) => !seen.has(p.name.toLowerCase()) && !!seen.add(p.name.toLowerCase()));
   return { text: describeProjects(letter, unique, described), described };
@@ -375,7 +406,7 @@ export function applyLetterLint(letter: string, opts: LetterLintOptions = {}): {
   const rules: LetterRules = { bannedPhrases: [], extraGaps: [], repeatedFacts: [], projectDescriptors: [] };
   if (!letter || !letter.trim()) return { text: letter, lint, rules };
   const projectNames = [...new Set((opts.projects ?? []).map(coreProjectName).filter((n) => n.length >= 3))];
-  const described = (opts.projects ?? []).map(projectDescriptor).filter((p): p is { name: string; descriptor: string } => !!p);
+  const described = (opts.projects ?? []).map(describedProject).filter((p): p is NonNullable<ReturnType<typeof describedProject>> => !!p);
   const gapTerms = opts.essentialGaps;
   let gapKept = false;
   const factFirstParagraph = new Map<string, number>();

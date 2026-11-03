@@ -17,7 +17,7 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import FormAnswers from "../FormAnswers";
-import { labelProjectName, masterProjectLabels, normalizeAutoFixes, type AutoFix } from "@/lib/autoFix";
+import { cvLabelFixes, labelProjectName, masterProjectLabels, normalizeAutoFixes, type AutoFix } from "@/lib/autoFix";
 import TriageBadge from "../TriageBadge";
 import { triageJd, buildTriageProfile } from "@/lib/triage/jdTriage";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
@@ -1041,7 +1041,11 @@ export default function Home() {
   const factGuardRun = tailorSessionId ?? "run";
   // The fixes the last pass made have their own note; the guard's notice keeps
   // what only the user can judge. A run from before the note shows all of it.
-  const autoFixes = normalizeAutoFixes(result?.autoFixes);
+  // A profile's labels are added here, not on the server; a pool run's selection reports its own.
+  const autoFixes = [
+    ...normalizeAutoFixes(result?.autoFixes),
+    ...(result?.autoFixes && !result.selectedProjects?.length ? cvLabelFixes((profile?.projects ?? []).map((p) => p.name), masterProjectLabels(masterCvText)) : []),
+  ];
   const guardReport = normalizeFactGuard(result?.factGuard);
   const factGuardList = factGuardNotices(
     guardReport && result?.autoFixes ? { ...guardReport, droppedTools: [], degrees: [] } : guardReport,

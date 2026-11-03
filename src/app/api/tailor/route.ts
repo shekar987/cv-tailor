@@ -1,5 +1,5 @@
-import { guardFacts, fixDegreeLabels } from "@/lib/factGuard";
-import { buildAutoFixes, keepAvailabilityLast, labelProjectName, labelProjectNames, masterProjectLabels, masterStackItems, stripApplyingFor } from "@/lib/autoFix";
+import { guardFacts, fixDegreeLabels, dropReason, dropUnbackedSentences, unbackedToolsIn } from "@/lib/factGuard";
+import { buildAutoFixes, cvLabelFixes, keepAvailabilityLast, labelProjectName, labelProjectNames, masterProjectLabels, masterStackItems, stripApplyingFor, type AutoFix } from "@/lib/autoFix";
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { callLLM, Provider, ProviderRateLimitError, ProviderCreditError, MODELS } from "@/lib/claude";
@@ -7,7 +7,7 @@ import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration, loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { chooseFallback, openRouterLimitMessage, fallbackExhaustedMessage, type FallbackReason } from "@/lib/fallbackRoute";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
-import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, sectionsOf, skillsFromCv, type ClaimsRegistry } from "@/lib/claims";
+import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, cvTextOutsideSkills, skillsFromCv, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
 import { normalizePreferences, pageTargetFor, type CvLength } from "@/lib/preferences";
 import { isGraduateScheme } from "@/lib/graduateMode";
@@ -53,7 +53,7 @@ import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProje
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { stripLinkText } from "@/lib/projectLinks";
 import { toBritish, toBritishDeep, type SpellingChange } from "@/lib/britishSpelling";
-import { applyLetterLint, describeLetterProjects, hasHonestGap, tidyFinishedLetter, type LetterLint, type LetterRules, type LetterTidy } from "@/lib/letterLint";
+import { applyLetterLint, describeLetterProjects, hasHonestGap, projectDescriptor, projectsLabelledInLetter, tidyFinishedLetter, type LetterLint, type LetterRules, type LetterTidy } from "@/lib/letterLint";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 import {
   surgicalUntilStable,
@@ -319,13 +319,15 @@ async function runPipeline(opts: {
   // instead of writing the section is a failed step: empty, so the client's
   // partial-failure notice names it rather than rendering the refusal.
   const dropRefusal = (v: unknown) => (looksLikeRefusal(v) ? "" : v);
-  // The exact role title must be in the summary (lib/roleTitle). One retry
-  // with the rejection spelled out; the draft is kept if the retry fails too.
+  // The role title as the candidate's identity, when that is true (lib/roleTitle).
+  // One retry with the rejection spelled out; the draft is kept if the retry fails
+  // too. Not paid for when the title could only be the job applied for: that clause
+  // leaves the summary below (lib/autoFix).
   const summaryDraft = dropRefusal(summaryRaw);
   const titleCheck = { title: roleTitle, present: !roleTitle || titleInText(summaryDraft, roleTitle), retried: false };
   let summary: unknown = summaryDraft;
-  if (!fast && roleTitle && typeof summaryDraft === "string" && summaryDraft.trim() && !titleCheck.present) {
-    const retryBlock = `\nREJECTED IN YOUR PREVIOUS DRAFT: the summary did not contain the exact role title "${roleTitle}". Rewrite it so that title appears verbatim once, ${asIdentity ? "opening the summary as the candidate's professional identity" : "as the job being applied for"}. Keep every fact and figure as it was.\n`;
+  if (!fast && roleTitle && asIdentity && typeof summaryDraft === "string" && summaryDraft.trim() && !titleCheck.present) {
+    const retryBlock = `\nREJECTED IN YOUR PREVIOUS DRAFT: the summary did not contain the exact role title "${roleTitle}". Rewrite it so that title appears verbatim once, opening the summary as the candidate's professional identity. Keep every fact and figure as it was.\n`;
     const retry = dropRefusal(
       await callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle, retryBlock, evidenceBlock, asIdentity, summaryForm), userInput: analysisStr }).catch(swallowStep(""))
     );
@@ -581,7 +583,12 @@ async function runPipeline(opts: {
   // header and printed addresses can wrap) counts the run's own header.
   const headlineTerms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
   const masterTagline = typeof (profile as { tagline?: unknown } | null)?.tagline === "string" ? (profile as { tagline: string }).tagline : null;
-  const headlineStack = masterStackItems(cv, claims);
+  // The user's own skills list, and what the CV says outside it: a skill only
+  // listed has nothing behind it. The header, the guard and the prose all use them.
+  const registered = (claims?.skills ?? []).filter((s) => s.level !== "learning").map((s) => s.name);
+  const skillNames = registered.length > 0 ? registered : skillsFromCv(cv).map((s) => s.name);
+  const evidenceText = [cvTextOutsideSkills(cv), projectsPool].join("\n");
+  const headlineStack = masterStackItems(cv, claims, 3, (item) => unbackedToolsIn(item, cv, skillNames, evidenceText).length > 0);
   const builtHeadline = buildHeadline(
     {
       claims,
@@ -601,8 +608,10 @@ async function runPipeline(opts: {
   // Each project's label as the master CV writes it (lib/autoFix), before the
   // page fit measures the name it will print. A profile's projects were labelled
   // by /app before they were sent.
+  const cvLabels: AutoFix[] = [];
   if (projectsPool) {
     const labels = masterProjectLabels(cv);
+    cvLabels.push(...cvLabelFixes(selectedFinal.map((p) => p.name), labels));
     selectedFinal = selectedFinal.map((p) => ({ ...p, name: labelProjectName(p.name, labels) }));
   }
   let pageFitReport: PageFitReport | null = null;
@@ -720,11 +729,6 @@ async function runPipeline(opts: {
   // The user's own skills list decides "OpenAI API" (the registry's names —
   // learning skills excluded — or the CV's skills section when the registry
   // is empty), and "GitHub Actions" never holds a lead slot (31 Oct).
-  const registered = (claims?.skills ?? []).filter((s) => s.level !== "learning").map((s) => s.name);
-  const skillNames = registered.length > 0 ? registered : skillsFromCv(cv).map((s) => s.name);
-  // What the CV's roles and projects say: a skill only listed has nothing behind it.
-  const cvSections = sectionsOf(cv);
-  const evidenceText = [...cvSections.experience, ...cvSections.projects, projectsPool].join("\n");
   const factGuard = guardFacts({ summary, skills: skillsFinal }, cv, jd, { skillNames, evidenceText, skillsShape: style.skills });
   // The guard's text is the text from here on: until 31 Oct only the score
   // read it, and the response carried the unguarded summary and skills.
@@ -1054,13 +1058,21 @@ async function runPipeline(opts: {
   // The form-letter tail goes first, so a summary that was nothing else is
   // rebuilt below rather than sent empty (lib/autoFix).
   const summaryRemoved: string[] = [];
+  const sentenceDrops: { where: string; tool: string; why: string }[] = [];
+  const proseGuard = { skillNames, evidenceText, keep: (s: string) => !!roleTitle && titleInText(s, roleTitle) };
+  const noteDrops = (where: string, tools: string[]) => tools.forEach((tool) => sentenceDrops.push({ where, tool, why: dropReason(tool, cv, skillNames) }));
   if (typeof summary === "string") {
-    const s = stripApplyingFor(summary);
+    const u = dropUnbackedSentences(summary, "summary", cv, proseGuard);
+    noteDrops("summary", u.tools);
+    const s = stripApplyingFor(u.text);
     summary = s.text;
     summaryRemoved.push(...s.removed);
+    titleCheck.present = !roleTitle || titleInText(summary, roleTitle);
   }
   let summaryRebuild: EnsureSummaryReport | null = null;
-  if (style.summary.ensureFromMaster) {
+  // A style that never sends a CV without one, and any summary these removals
+  // emptied: nothing but the availability sentence is not a summary.
+  if (style.summary.ensureFromMaster || summaryRemoved.length > 0 || sentenceDrops.length > 0) {
     const e = ensureSummary(summary, {
       cv,
       availabilityLine,
@@ -1096,13 +1108,16 @@ async function runPipeline(opts: {
   if (typeof coverLetter === "string") coverLetter = toBritish(coverLetter, spell).text;
   // The letter's facts, before the page fit measures it: the degree as the master
   // CV names it, and each labelled project's exact label at its first mention.
-  let letterLabels: string[] = [];
+  const labelledNames = labelProjectNames([...projectNames, ...selectedFinal.map((p) => p.name)], cv);
+  const letterLabelled = new Set<string>(letterLinted?.rules.projectDescriptors ?? []);
   if (typeof coverLetter === "string" && coverLetter.trim()) {
-    const d = fixDegreeLabels(coverLetter, cv);
+    const u = dropUnbackedSentences(coverLetter, "coverLetter", cv, proseGuard);
+    noteDrops("cover letter", u.tools);
+    const d = fixDegreeLabels(u.tools.length > 0 ? tidyNumberedPoints(u.text).text : u.text, cv);
     lateDegrees.push(...d.fixed);
-    const l = describeLetterProjects(d.text, labelProjectNames([...projectNames, ...selectedFinal.map((p) => p.name)], cv));
+    const l = describeLetterProjects(d.text, labelledNames);
     coverLetter = l.text;
-    letterLabels = l.described;
+    l.described.forEach((n) => letterLabelled.add(n));
   }
   // Strictly one page (lib/letterFit): the letter's own PDF, with the date
   // line the preview adds on top, decides; the longest paragraph gives up
@@ -1139,14 +1154,21 @@ async function runPipeline(opts: {
   }
   // Everything the passes above changed against the master CV, for the note above
   // Download. Tool names only reach the log: no CV or posting text does.
+  const stillLabelled = new Set(typeof coverLetter === "string" ? projectsLabelledInLetter(coverLetter, labelledNames) : []);
+  const letterLabels = labelledNames.flatMap((n) => {
+    const name = projectDescriptor(n)?.name;
+    return name && letterLabelled.has(name) && stillLabelled.has(n) ? [name] : [];
+  });
   const autoFixes = buildAutoFixes({
-    droppedTools: factGuard.report.droppedTools,
+    droppedTools: factGuard.report.droppedTools.map((tool) => ({ tool, why: dropReason(tool, cv, skillNames) })),
     unsupportedTools: formatFixes.unsupportedTools,
+    sentenceDrops,
+    cvLabels,
     degrees: [...new Set([...factGuard.report.degrees, ...lateDegrees])],
     summaryRemoved,
     availabilityAdded,
     letterLabels,
-    headerStack: headlineStack,
+    headerStack: builtHeadline.parts.stack,
     postingStack: topProductionSkills(claims, headlineTerms.required_skills, headlineTerms.top_15_ats_keywords, 3),
     headerLock,
   });
