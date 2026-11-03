@@ -14,11 +14,8 @@
 //
 // The availability sentence closes it, as on a normal run ("Available
 // immediately for full-time employment." for an Eligibility answer of
-// "now" + full time). topLanguages() is also what the header's first
-// technology is checked against (lib/headline guardTaglineLanguage).
-// 30 Oct, Burendo (OpenRouter + CareerSet): no Professional Summary at all,
-// and a header of "Java, CI/CD & Cloud Deployment, AWS" for a master CV that
-// leads with Python.
+// "now" + full time). 30 Oct, Burendo (OpenRouter + CareerSet): no Professional
+// Summary at all.
 //
 // Imports only import-free siblings by relative .ts path, so it runs under
 // node:test.
@@ -85,11 +82,6 @@ function sentences(text: string): string[] {
     .split(/(?<=[.!?])\s+(?=[A-Z0-9"“(£$€])/)
     .map((s) => s.trim())
     .filter(Boolean);
-}
-
-/** Whether a name is a programming language a skills list would name (lib/headline's stack check). */
-export function isLanguageName(name: string): boolean {
-  return LANGUAGE_KEYS.has(name.trim().toLowerCase());
 }
 
 function words(text: string): number {

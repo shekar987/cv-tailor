@@ -17,6 +17,7 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import FormAnswers from "../FormAnswers";
+import { cvLabelFixes, labelProjectName, masterProjectLabels, normalizeAutoFixes, type AutoFix } from "@/lib/autoFix";
 import TriageBadge from "../TriageBadge";
 import { triageJd, buildTriageProfile } from "@/lib/triage/jdTriage";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
@@ -199,6 +200,8 @@ type Result = {
   masterCvNotes?: MasterCvNote[];
   // lib/factGuard: degree labels fixed, tools dropped, JD phrases in the summary.
   factGuard?: FactGuardReport;
+  // lib/autoFix: what the last pass changed, listed above Download.
+  autoFixes?: AutoFix[];
   // "Changes vs master CV" (lib/bulletIds): the finished bullets against the
   // master's own — kept, edited (which words), reverted, dropped, new.
   bulletChanges?: { protocol: boolean; headers?: HeaderLock | null; chronology?: ChronologyReport | null; experience: BulletChanges | null; projects: RoleChanges[] };
@@ -390,7 +393,10 @@ function skillLinesNotice(f: SkillLinesFix): string {
 // The document profile with each project's links attached (lib/projectLinks).
 function withProjectLinks<T extends Profile | null>(p: T, prefs: Preferences, sources: string[]): T {
   if (!p || p.projects.length === 0) return p;
-  return { ...p, projects: attachProjectLinks(p.projects, prefs.projectLinks, sources) };
+  // ... and its label as the master CV writes it (lib/autoFix): links first, since
+  // they are looked up by the name as stored.
+  const labels = masterProjectLabels(sources[0] ?? "");
+  return { ...p, projects: attachProjectLinks(p.projects, prefs.projectLinks, sources).map((x) => ({ ...x, name: labelProjectName(x.name, labels) })) };
 }
 
 function buildFileBaseName(profile: Profile | null, analysis: Result["analysis"], suffix: string): string {
@@ -1033,8 +1039,16 @@ export default function Home() {
   // What the fact guard changed or found (lib/factGuard), said above
   // "Download CV" until each item is OK'd. A flag, never a lock.
   const factGuardRun = tailorSessionId ?? "run";
+  // The fixes the last pass made have their own note; the guard's notice keeps
+  // what only the user can judge. A run from before the note shows all of it.
+  // A profile's labels are added here, not on the server; a pool run's selection reports its own.
+  const autoFixes = [
+    ...normalizeAutoFixes(result?.autoFixes),
+    ...(result?.autoFixes && !result.selectedProjects?.length ? cvLabelFixes((profile?.projects ?? []).map((p) => p.name), masterProjectLabels(masterCvText)) : []),
+  ];
+  const guardReport = normalizeFactGuard(result?.factGuard);
   const factGuardList = factGuardNotices(
-    normalizeFactGuard(result?.factGuard),
+    guardReport && result?.autoFixes ? { ...guardReport, droppedTools: [], degrees: [] } : guardReport,
     new Set(factGuardOk.filter((k) => k.startsWith(`${factGuardRun}|`)).map((k) => k.slice(factGuardRun.length + 1)))
   );
 
@@ -3407,6 +3421,16 @@ export default function Home() {
             )}
             {appliedNotice && (
               <div className="limitNotice" role="status">{appliedNotice}</div>
+            )}
+            {autoFixes.length > 0 && (
+              <div className="limitNotice factGuardNotice" role="status" data-auto-fix>
+                <div className="limitNotice__title">Auto-fixed: {autoFixes.length} {autoFixes.length === 1 ? "item" : "items"}</div>
+                <ul className="factGuardNotice__list">
+                  {autoFixes.map((fix) => (
+                    <li key={fix.text} data-auto-fix-kind={fix.kind}><span>{fix.text}</span></li>
+                  ))}
+                </ul>
+              </div>
             )}
             {factGuardList.length > 0 && (
               <div className="limitNotice factGuardNotice" role="status" data-fact-guard>

@@ -83,7 +83,7 @@ const OWN_VERB_RE =
 // "the team that built", "engineers who handle") is not the candidate's.
 const ATTRIBUTED_RE = /\b(?:you|your|they|their|team|teams|company|engineers?|who|that|which)\s+(?:\w+\s+)?$/i;
 
-function ownsWork(sentence: string): boolean {
+export function ownsWork(sentence: string): boolean {
   const first = FIRST_PERSON_RE.exec(sentence);
   if (!first) return false;
   const after = sentence.slice(first.index);

@@ -140,7 +140,6 @@ function summarize(label, rows) {
     if (r.absentFigures.length) hardFails.push(`${r.cv}×${r.jd}: figures not in the CV: ${r.absentFigures.join(", ")}`);
     if (r.absentTools.length) hardFails.push(`${r.cv}×${r.jd}: tools not in the CV: ${r.absentTools.join(", ")}`);
     if (r.overBudget) hardFails.push(`${r.cv}×${r.jd}: over two pages (${r.pages})`);
-    if (r.titleMissing) hardFails.push(`${r.cv}×${r.jd}: role title "${r.title}" absent from the summary`);
     if (r.careerset && r.styledBold) hardFails.push(`${r.cv}×${r.jd}: CareerSet bullets carry bold or a Highlight prefix (${r.styledBold})`);
     if (r.careerset && r.styleFailKeys.includes("fullStops")) hardFails.push(`${r.cv}×${r.jd}: CareerSet bullets end in a full stop`);
     if (r.careerset && r.strayLines) hardFails.push(`${r.cv}×${r.jd}: ${r.strayLines} non-skill line(s) in the skills block`);

@@ -14,10 +14,11 @@
 //   stack has its own slot) and a repeated bracket is said once
 // - years: the user's own eligibility answer, "N years' experience", never
 //   inferred from dates and never "production" (the answer does not say so)
-// - stack: ONE phrase of up to TAGLINE_STACK_ITEMS posting terms the claims
-//   registry holds at PRODUCTION level, in posting order, registry spelling,
-//   none the role already names — a project-level or learning skill never
-//   headlines
+// - stack: ONE phrase of up to TAGLINE_STACK_ITEMS of the master CV's own top
+//   skills, in its order (lib/autoFix masterStackItems), none the role already
+//   names. Never a posting's keyword (owner's call, 3 Nov 2026: the Navan header
+//   led with "Java, TypeScript, REST & GraphQL API Design"); /api/tailor always
+//   passes `masterStack`, and a CV with no skills list gets no stack
 //
 // The line is one printed line: past MAX_TAGLINE_CHARS the stack gives up its
 // last items, then the years (tests/taglineSnapshot builds the real PDF and
@@ -34,15 +35,17 @@ import { matchAtsKeywords } from "./atsMatch.ts";
 import { ROLE_NOUN_RE } from "./roleTitle.ts";
 import { cleanTagline, dedupeParentheticals, stripSkillGroupLabels } from "./profile.ts";
 import type { RenderOptions } from "./formatStyles/ids.ts";
-import { isLanguageName } from "./summaryFallback.ts";
 
 export type HeadlineEducation = { degree?: string; dates?: string; note?: string };
 export type HeadlineClaims = { skills: { name: string; level: string }[] } | null | undefined;
 
 export type HeadlineInput = {
   claims: HeadlineClaims;
-  requiredSkills: unknown;
-  keywords: unknown;
+  // The posting's terms: read only when `masterStack` is absent, which /api/tailor never leaves it.
+  requiredSkills?: unknown;
+  keywords?: unknown;
+  // The master CV's own top skills (lib/autoFix masterStackItems).
+  masterStack?: string[];
   yearsExperience: number | null | undefined;
   // The posting's core title, passed only when it plainly describes the
   // candidate (lib/roleTitle titleAsIdentity); null otherwise.
@@ -53,13 +56,6 @@ export type HeadlineInput = {
   savedTagline?: string | null;
   // The master CV's job titles, most recent first (lib/bulletIds headers).
   heldTitles?: string[];
-  // CareerSet (31 Oct, Chunk 6): the master CV's top three production
-  // languages (lib/summaryFallback topLanguages). The stack's first
-  // technology must be one of them: a language outside the CV's list leaves
-  // the stack (Burendo's "Java"), a listed one moves to the front, else the
-  // first is added — never one the registry holds below production level.
-  // Absent → the posting's order alone (UKJI).
-  leadLanguages?: string[];
 };
 
 export type HeadlineParts = { role: string; years: string; stack: string };
@@ -157,48 +153,6 @@ export function rolePhrase(raw: unknown): string {
   return "";
 }
 
-// A saved tagline held to one printed line: whole segments while they fit
-// MAX_TAGLINE_CHARS, else the first segment cut at a word.
-export function capTagline(tagline: string): string {
-  const t = tagline.replace(/\s+/g, " ").trim();
-  if (t.length <= MAX_TAGLINE_CHARS) return t;
-  // The outermost separator only ("Role | Python · FastAPI | …" splits at the
-  // pipes), so a segment keeps its own inner separators.
-  const sep = [" | ", " · ", " • "].find((s) => t.includes(s))?.trim() ?? "|";
-  const segments = t.split(` ${sep} `);
-  let out = "";
-  for (const s of segments) {
-    const next = out ? `${out} ${sep} ${s}` : s;
-    if (next.length > MAX_TAGLINE_CHARS) break;
-    out = next;
-  }
-  if (out) return out;
-  const cut = t.slice(0, MAX_TAGLINE_CHARS);
-  return cut.slice(0, cut.lastIndexOf(" ") > 0 ? cut.lastIndexOf(" ") : MAX_TAGLINE_CHARS).trim();
-}
-
-// The CareerSet header's language check (31 Oct, Chunk 6): the header's first
-// technology must be one of the master CV's top three languages
-// (lib/summaryFallback topLanguages). buildHeadline's `leadLanguages` makes it
-// so whenever the CV lists one; only a header still leading with something
-// else — the CV lists no production language at all — falls back to the
-// master tagline (cleaned by lib/profile cleanTagline as every renderer
-// would, and held to one line). The 30 Oct Burendo header was "Java, CI/CD &
-// Cloud Deployment, AWS" for a master CV that leads with Python. A header
-// with no technology, or no master tagline to fall back to, stays as built.
-export function guardTaglineLanguage(
-  built: { headline: string; parts: HeadlineParts },
-  topLanguages: string[],
-  masterTagline: string | null | undefined
-): { headline: string; replaced: { from: string; firstTechnology: string } | null } {
-  const first = built.parts.stack.split(/\s*,\s*/)[0]?.trim() ?? "";
-  if (!first) return { headline: built.headline, replaced: null };
-  if (topLanguages.some((l) => l.trim().toLowerCase() === first.toLowerCase())) return { headline: built.headline, replaced: null };
-  const fallback = capTagline(cleanTagline(typeof masterTagline === "string" ? masterTagline : ""));
-  if (!fallback) return { headline: built.headline, replaced: null };
-  return { headline: fallback, replaced: { from: built.headline, firstTechnology: first } };
-}
-
 // `render` (lib/formatStyles RenderOptions) gives only the separator: UKJI
 // " · ", CareerSet " | " — the same three slots in both. A slot with nothing
 // is left out, never a dangling separator.
@@ -211,18 +165,8 @@ export function buildHeadline(input: HeadlineInput, render?: Pick<RenderOptions,
   const years = yearsLabel(input.yearsExperience);
   const roleWords = role.toLowerCase();
   const inRole = (name: string) => roleWords.includes(name.toLowerCase()) || matchAtsKeywords(role, [name]).matched > 0;
-  let stackItems = topProductionSkills(input.claims, input.requiredSkills, input.keywords, TAGLINE_STACK_ITEMS + 4).filter((name) => !inRole(name));
-  if (input.leadLanguages) {
-    const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
-    const belowProduction = (lang: string) => (input.claims?.skills ?? []).some((s) => same(s.name, lang) && s.level !== "production");
-    const leads = input.leadLanguages.filter((l) => !belowProduction(l) && !inRole(l));
-    // A language the CV does not list (at production level) never headlines.
-    stackItems = stackItems.filter((n) => !isLanguageName(n) || leads.some((l) => same(l, n)));
-    const present = stackItems.find((n) => leads.some((l) => same(l, n)));
-    const lead = present ?? leads[0];
-    if (lead) stackItems = [lead, ...stackItems.filter((n) => !same(n, lead))];
-  }
-  stackItems = stackItems.slice(0, TAGLINE_STACK_ITEMS);
+  const picked = input.masterStack ?? topProductionSkills(input.claims, input.requiredSkills, input.keywords, TAGLINE_STACK_ITEMS + 4);
+  const stackItems = picked.filter((name) => !inRole(name)).slice(0, TAGLINE_STACK_ITEMS);
 
   const line = (items: string[], withYears: boolean) =>
     cleanTagline([role, withYears ? years : "", items.join(", ")].filter(Boolean).join(sep));

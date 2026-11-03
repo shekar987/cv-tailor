@@ -240,6 +240,7 @@ export default function Landing() {
                 <li className="miss"><span className="dot">✕</span>Kafka — not in your CV</li>
               </ul>
             </div>
+            <p className="lpShowNote" data-landing-auto-fix><strong>Auto-fixed: 1 item.</strong> Removed OpenAI API from the skills: no role or project on the master CV shows it. The tool checks its own output and tells you what it changed.</p>
             <p className="lpShowNote">A worked example — Jordan and Northwind are made up; the layout, the score and the lists are exactly what the tool produces.</p>
           </div>
         </section>
