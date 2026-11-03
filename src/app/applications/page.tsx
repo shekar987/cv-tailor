@@ -25,6 +25,10 @@ import { normalizeStyleCheck, summarizeStyleCheck } from "@/lib/styleCheck";
 import { getUsage } from "@/lib/usage";
 import {
   STATUSES,
+  STATUS_LABELS,
+  normalizeStatus,
+  statusLabel,
+  hasProgressed,
   READY_TO_SUBMIT,
   isFollowupDue,
   findDuplicateApplication,
@@ -288,11 +292,10 @@ type Lane = { level: Seniority; applied: number; decided: number; progressed: nu
 // nothing else in the tracker separated outcomes at all. A rate shows only
 // from MIN_DECIDED decided applications, as every other bucket.
 export function laneStats(rows: { role: string; status: string }[]): Lane[] {
-  const PROG = new Set(["Screening", "Interview", "Offer"]);
   return (["junior", "mid", "senior"] as Seniority[]).map((level) => {
-    const lane = rows.filter((r) => r.status !== "Ready to submit" && r.status !== "Withdrawn" && seniorityOf(r.role) === level);
-    const progressed = lane.filter((r) => PROG.has(r.status)).length;
-    const decided = progressed + lane.filter((r) => r.status === "Rejected").length;
+    const lane = rows.filter((r) => { const s = normalizeStatus(r.status); return s !== "saved" && s !== "withdrawn" && seniorityOf(r.role) === level; });
+    const progressed = lane.filter((r) => hasProgressed(r.status)).length;
+    const decided = progressed + lane.filter((r) => normalizeStatus(r.status) === "rejected").length;
     return { level, applied: lane.length, decided, progressed, rate: decided >= MIN_DECIDED ? progressed / decided : null };
   });
 }
@@ -485,13 +488,16 @@ function isDue(row: Application): boolean {
 
 // Data colour only: outcomes get colour, in-flight statuses stay neutral.
 const STATUS_TONES: Record<Status, string> = {
-  "Ready to submit": "muted",
-  Applied: "neutral",
-  Screening: "neutral",
-  Interview: "neutral",
-  Offer: "success",
-  Rejected: "danger",
-  Withdrawn: "muted",
+  saved: "muted",
+  applied: "neutral",
+  screening: "neutral",
+  interview: "neutral",
+  assessment: "neutral",
+  offer: "success",
+  accepted: "success",
+  rejected: "danger",
+  withdrawn: "muted",
+  ghosted: "muted",
 };
 
 // Period filter on date_applied, in the user's own timezone. Calendar periods:
@@ -810,7 +816,7 @@ export default function ApplicationsPage() {
   const lanes = useMemo(() => laneStats(rows), [rows]);
 
   // Rows marked Applied whose notes say they were never sent (lib/tracker).
-  const notSubmitted = useMemo(() => rows.filter((r) => r.status === "Applied" && r.notes_not_submitted), [rows]);
+  const notSubmitted = useMemo(() => rows.filter((r) => r.status === "applied" && r.notes_not_submitted), [rows]);
 
   // Live warnings on the add-row form: a row this company + role already has,
   // and a role long enough to be a title plus extras.
@@ -1224,7 +1230,7 @@ export default function ApplicationsPage() {
     setNewRow({
       company_name: "",
       role: "",
-      status: "Applied",
+      status: "applied",
       salary: "",
       date_applied: todayLocal(),
       followup_date: "",
@@ -1819,7 +1825,7 @@ export default function ApplicationsPage() {
                 <>
                   No applications
                   {periodFilter !== "all" ? ` ${PERIODS.find((p) => p.key === periodFilter)?.label.toLowerCase()}` : ""}
-                  {statusFilter !== "All" ? ` with status “${statusFilter}”` : ""}
+                  {statusFilter !== "All" ? ` with status “${STATUS_LABELS[statusFilter]}”` : ""}
                   {styleFilter !== "all" ? ` in the ${ROW_STYLE_LABELS[styleFilter]} style` : ""}
                   {dueOnly ? " with a follow-up due" : ""}
                   {missingOnly ? " missing a JD or CV" : ""}
@@ -1930,7 +1936,7 @@ export default function ApplicationsPage() {
                           disabled={savingNew}
                         >
                           {STATUSES.map((s) => (
-                            <option key={s} value={s}>{s}</option>
+                            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
                           ))}
                         </select>
                       </td>
@@ -1991,7 +1997,7 @@ export default function ApplicationsPage() {
                         <td colSpan={COL_COUNT}>
                           {newRowDuplicate && (
                             <span className="appsCellHint" role="status" data-dup-warning>
-                              You already have <strong>{newRowDuplicate.company_name}</strong> — {newRowDuplicate.role} ({formatDate(newRowDuplicate.date_applied)}, {newRowDuplicate.status}).
+                              You already have <strong>{newRowDuplicate.company_name}</strong> — {newRowDuplicate.role} ({formatDate(newRowDuplicate.date_applied)}, {statusLabel(newRowDuplicate.status)}).
                               Save anyway only if this is a different posting.
                             </span>
                           )}
@@ -2115,7 +2121,7 @@ export default function ApplicationsPage() {
                               aria-label={`Status for ${row.company_name}`}
                             >
                               {STATUSES.map((s) => (
-                                <option key={s} value={s}>{s}</option>
+                                <option key={s} value={s}>{STATUS_LABELS[s]}</option>
                               ))}
                             </select>
                           </span>
@@ -2160,7 +2166,7 @@ export default function ApplicationsPage() {
                                 href={`/applications/${row.id}/prep`}
                                 className={
                                   "appsActionBtn" +
-                                  (row.prep_generated_at || row.status === "Screening" || row.status === "Interview" ? " primary" : "")
+                                  (row.prep_generated_at || row.status === "screening" || row.status === "interview" ? " primary" : "")
                                 }
                                 aria-label={`Interview prep for ${row.company_name}`}
                                 title={row.prep_generated_at ? "Open your prep pack" : "Prepare for the interview"}

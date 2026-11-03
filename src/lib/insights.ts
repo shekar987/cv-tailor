@@ -13,6 +13,7 @@
 // 1-of-1 "100%" would mislead.
 
 import { POSTING_AGE_BANDS } from "./postingAge.ts";
+import { hasProgressed, normalizeStatus } from "./tracker.ts";
 import { isFormatStyleId, FORMAT_STYLE_LABELS, type FormatStyleId } from "./formatStyles/ids.ts";
 
 export type GateRead = "apply" | "long_shot" | "skip";
@@ -102,11 +103,10 @@ export type Insights = {
 // applications have an outcome (the ≥8-per-group rule): below that a 2-of-3
 // reads as 67% and sends the user chasing noise.
 export const MIN_DECIDED = 8;
-const PROGRESSED = new Set(["Screening", "Interview", "Offer"]);
 // Rows that say nothing about the screen: pulled out, or never sent.
-// (Mirrors lib/tracker; kept as literals so this module stays import-light.)
-const EXCLUDED = new Set(["Withdrawn", "Ready to submit"]);
-const READY_TO_SUBMIT = "Ready to submit";
+const EXCLUDED: ReadonlySet<string> = new Set(["withdrawn", "saved"]);
+const isExcluded = (status: string) => EXCLUDED.has(normalizeStatus(status) ?? "");
+const isRejected = (status: string) => normalizeStatus(status) === "rejected";
 
 function obj(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -159,8 +159,8 @@ function bucketOf(map: Map<string, Acc>, key: string, label: string, row: Insigh
   }
   acc.n++;
   acc.labels.set(label, (acc.labels.get(label) ?? 0) + 1);
-  if (PROGRESSED.has(row.status)) acc.progressed++;
-  else if (row.status === "Rejected") acc.rejected++;
+  if (hasProgressed(row.status)) acc.progressed++;
+  else if (isRejected(row.status)) acc.rejected++;
   else acc.pending++;
 }
 
@@ -195,8 +195,8 @@ const REQUIRED_BANDS: { key: string; label: string; test: (f: number) => boolean
 const GATE_LABEL: Record<GateRead, string> = { apply: "Read: apply", long_shot: "Read: long shot", skip: "Read: likely auto-rejected" };
 
 export function computeInsights(rows: InsightRow[]): Insights {
-  const counted = rows.filter((r) => !EXCLUDED.has(r.status));
-  const readyToSubmit = rows.filter((r) => r.status === READY_TO_SUBMIT).length;
+  const counted = rows.filter((r) => !isExcluded(r.status));
+  const readyToSubmit = rows.filter((r) => normalizeStatus(r.status) === "saved").length;
   const byVisibility = new Map<string, Acc>();
   const byRequired = new Map<string, Acc>();
   const byGate = new Map<string, Acc>();
@@ -215,8 +215,8 @@ export function computeInsights(rows: InsightRow[]): Insights {
   let rejected = 0;
 
   for (const row of counted) {
-    if (PROGRESSED.has(row.status)) progressed++;
-    else if (row.status === "Rejected") rejected++;
+    if (hasProgressed(row.status)) progressed++;
+    else if (isRejected(row.status)) rejected++;
     if (row.kwTotal && row.kwHits !== undefined) {
       scored++;
       const band = VISIBILITY_BANDS.find((b) => b.test(row.kwHits! / row.kwTotal!));
@@ -315,8 +315,8 @@ export function scoreOutcome(rows: InsightRow[]): ScoreOutcome {
   let pendingScored = 0;
   let unscoredDecided = 0;
   for (const r of rows) {
-    if (EXCLUDED.has(r.status)) continue;
-    const decided: Outcome | null = PROGRESSED.has(r.status) ? "progressed" : r.status === "Rejected" ? "rejected" : null;
+    if (isExcluded(r.status)) continue;
+    const decided: Outcome | null = hasProgressed(r.status) ? "progressed" : isRejected(r.status) ? "rejected" : null;
     const scored = r.kwTotal !== undefined && r.kwTotal > 0 && r.kwHits !== undefined;
     if (!decided) {
       if (scored) pendingScored++;

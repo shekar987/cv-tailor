@@ -5,7 +5,7 @@ import { signedIn, unauthorized } from "@/lib/routeAuth";
 // no LLM call, so no burst limiter.
 //
 // Optional filters mirror the page so the file matches what's on screen:
-//   ?status=Interview            one of the statuses in lib/tracker
+//   ?status=interview            one of the statuses in lib/tracker
 //   ?from=YYYY-MM-DD&to=YYYY-MM-DD   inclusive range on date_applied. The client
 //                                computes these in its own timezone, so "today"
 //                                means the user's today, not the server's.
@@ -21,7 +21,7 @@ import { signedIn, unauthorized } from "@/lib/routeAuth";
 //                                export is exactly what it was.
 
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
-import { isStatus } from "@/lib/tracker";
+import { normalizeStatus, statusLabel, storedStatusValues } from "@/lib/tracker";
 import { rowStyle, isFormatStyleId, ROW_STYLE_LABELS, type RowStyle } from "@/lib/formatStyles/ids";
 import { readApplicationPages, type OrderableQuery } from "@/lib/applicationRows";
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -66,7 +66,8 @@ export async function GET(req: NextRequest) {
     const status = params.get("status");
     const from = params.get("from");
     const to = params.get("to");
-    if (status && !isStatus(status)) {
+    const statusKey = normalizeStatus(status);
+    if (status && !statusKey) {
       return NextResponse.json({ error: "Invalid status filter." }, { status: 400 });
     }
     if ((from && !ISO_DATE_RE.test(from)) || (to && !ISO_DATE_RE.test(to))) {
@@ -92,7 +93,7 @@ export async function GET(req: NextRequest) {
     const read = (select: string) =>
       readApplicationPages(() => {
         let query = supabase.from("applications").select(select);
-        if (status) query = query.eq("status", status);
+        if (statusKey) query = query.in("status", storedStatusValues(statusKey));
         if (from) query = query.gte("date_applied", from);
         if (to) query = query.lte("date_applied", to);
         return query as unknown as OrderableQuery;
@@ -111,14 +112,14 @@ export async function GET(req: NextRequest) {
     const lines = [columns.map((c) => csvField(c.header)).join(",")];
     for (const row of (rows ?? []).filter((r) => matchesSearch(r, q) && (!style || rowStyle(r.format_style) === style))) {
       const tag = rowStyle(row.format_style);
-      lines.push(columns.map((c) => csvField(c.key === "format_style" ? (tag === "unknown" ? "" : ROW_STYLE_LABELS[tag]) : row[c.key])).join(","));
+      lines.push(columns.map((c) => csvField(c.key === "format_style" ? (tag === "unknown" ? "" : ROW_STYLE_LABELS[tag]) : c.key === "status" ? statusLabel(row.status) : row[c.key])).join(","));
     }
     // BOM so Excel reads the file as UTF-8; CRLF row endings per RFC 4180.
     const csv = "\uFEFF" + lines.join("\r\n") + "\r\n";
 
     // Name the file after the filter so a folder of exports stays legible.
     const nameParts = ["applications"];
-    if (status) nameParts.push(status.toLowerCase());
+    if (statusKey) nameParts.push(statusLabel(statusKey).toLowerCase());
     if (from && to) nameParts.push(from === to ? from : `${from}_to_${to}`);
     else if (from) nameParts.push(`from_${from}`);
     else if (to) nameParts.push(`to_${to}`);

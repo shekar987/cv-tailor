@@ -92,13 +92,13 @@ export type ReferralRow = {
 };
 
 // A row that has been closed (rejected, withdrawn) no longer needs the action.
-const CLOSED = new Set(["Rejected", "Withdrawn"]);
+const CLOSED: ReadonlySet<string> = new Set(["rejected", "withdrawn"]);
 
 const statusOf = (r: ReferralRow): ReferralStatus => (isReferralStatus(r.referral_status) ? r.referral_status : "offered");
 
 /** The open referrals, oldest first (the one that has waited longest). */
 export function referralAsks<T extends ReferralRow>(rows: readonly T[]): T[] {
-  const open = rows.filter((r) => r.referral === true && OPEN_REFERRAL_STATUSES.includes(statusOf(r)) && !CLOSED.has(r.status ?? ""));
+  const open = rows.filter((r) => r.referral === true && OPEN_REFERRAL_STATUSES.includes(statusOf(r)) && !CLOSED.has((r.status ?? "").trim().toLowerCase()));
   return [...open].sort(
     (a, b) => a.date_applied.localeCompare(b.date_applied) || (a.created_at ?? "").localeCompare(b.created_at ?? "") || a.company_name.localeCompare(b.company_name)
   );

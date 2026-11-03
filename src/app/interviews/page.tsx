@@ -10,6 +10,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import Skeleton from "@/components/ui/Skeleton";
 import StatusText from "@/components/ui/StatusText";
 import { ROUNDS, type InterviewType } from "@/lib/interviewTypes";
+import { statusLabel } from "@/lib/tracker";
 
 // /interviews — every mock interview and every prep pack across the tracker,
 // in one place (30 Sep audit, Phase 7). Both are made from a tracker row, so
@@ -136,7 +137,7 @@ export default function InterviewsPage() {
               {packs.map((p) => (
                 <li key={p.id}>
                   <span>
-                    <strong>{p.company_name} — {p.role}</strong> · built {formatDate(p.prep_generated_at)} · {p.status}
+                    <strong>{p.company_name} — {p.role}</strong> · built {formatDate(p.prep_generated_at)} · {statusLabel(p.status)}
                   </span>
                   <Link href={`/applications/${p.id}/prep`} className="inlineLink">
                     Open

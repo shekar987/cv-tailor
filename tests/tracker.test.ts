@@ -4,6 +4,12 @@ import assert from "node:assert/strict";
 import {
   STATUSES,
   READY_TO_SUBMIT,
+  STATUS_LABELS,
+  normalizeStatus,
+  statusLabel,
+  oldStatusLabel,
+  storedStatusValues,
+  isActiveStatus,
   isStatus,
   isSubmitted,
   isFollowupDue,
@@ -25,14 +31,45 @@ import {
   REPLY_OWED_AFTER_MS,
 } from "../src/lib/tracker.ts";
 
-test("the status list carries Ready to submit first and validates strictly", () => {
+test("the status list is the lower-case keys; old labels still read", () => {
   assert.equal(STATUSES[0], READY_TO_SUBMIT);
-  assert.equal(STATUSES.length, 7);
-  assert.ok(isStatus("Ready to submit"));
-  assert.ok(isStatus("Withdrawn"));
-  assert.ok(!isStatus("ready to submit"), "case matters: the CHECK constraint is exact");
+  assert.deepEqual([...STATUSES], ["saved", "applied", "screening", "interview", "assessment", "offer", "accepted", "rejected", "withdrawn", "ghosted"]);
+  assert.equal(normalizeStatus("Ready to submit"), "saved");
+  assert.equal(normalizeStatus("Withdrawn"), "withdrawn");
+  assert.equal(normalizeStatus(" screening "), "screening");
+  assert.ok(isStatus("ghosted"));
   assert.ok(!isStatus("Pending"));
   assert.ok(!isStatus(null));
+  assert.equal(normalizeStatus("Pending"), null);
+});
+
+test("every status has a label, and the two renamed ones read as the user knows them", () => {
+  for (const s of STATUSES) assert.ok(STATUS_LABELS[s], s);
+  assert.equal(statusLabel("saved"), "Ready to submit");
+  assert.equal(statusLabel("accepted"), "Won");
+  assert.equal(statusLabel("Rejected"), "Rejected");
+  assert.equal(statusLabel("Pending"), "Pending");
+});
+
+test("a database on the old CHECK gets the old label; a filter matches both spellings", () => {
+  assert.equal(oldStatusLabel("saved"), "Ready to submit");
+  assert.equal(oldStatusLabel("assessment"), null);
+  assert.deepEqual(storedStatusValues("screening"), ["screening", "Screening"]);
+  assert.deepEqual(storedStatusValues("ghosted"), ["ghosted"]);
+});
+
+test("active means screening, interview, assessment or offer, and nothing else", () => {
+  const active = STATUSES.filter(isActiveStatus);
+  assert.deepEqual(active, ["screening", "interview", "assessment", "offer"]);
+  assert.ok(isActiveStatus("Screening"));
+  assert.ok(!isActiveStatus("Rejected"));
+  assert.ok(!isActiveStatus(null));
+});
+
+test("ghosted and won rows have ended, so their follow-ups clear", () => {
+  for (const s of ["rejected", "withdrawn", "ghosted", "accepted", "Rejected"]) assert.equal(clearsFollowup(s), true, s);
+  for (const s of ["applied", "screening", "interview", "assessment", "offer"]) assert.equal(clearsFollowup(s), false, s);
+  assert.equal(followupClearedNote("2026-11-04", "accepted", "2026-11-03"), "Follow-up 2026-11-04 cleared when marked Won on 2026-11-03.");
 });
 
 test("Ready to submit is not a submitted application; everything else is", () => {
