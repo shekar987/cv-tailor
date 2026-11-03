@@ -223,6 +223,7 @@ const GAP_WORDING = /\b(?:have not|haven't|haven’t|not yet|no experience|never
 // "I used Python at Acme, where other teams ran GraphQL": the tool's own clause is someone else's.
 const ASIDE_CLAUSE = /^(?:where|while|whereas|although|though|but|which)\b/i;
 const toolIsAnAside = (sentence: string, tool: string) =>
+  new RegExp(`\\b(?:your|their|the\\s+team's|the\\s+company's)\\s+(?:[\\w-]+\\s+){0,2}${esc(tool)}`, "i").test(sentence) ||
   sentence.split(/,\s+/).some((clause) => mentions(clause, tool) && ASIDE_CLAUSE.test(clause.trim()) && !ownsWork(clause));
 const BARE_NUMBER = /^\s*\d+[.)]\s*$/;
 const SENTENCE_BREAK = /(?<=[.!?])\s+(?=[A-Z0-9"“(£$€])/;

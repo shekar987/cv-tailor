@@ -19,7 +19,8 @@ import { buildHeadline } from "../src/lib/headline.ts";
 import { guardFacts, dropReason, dropUnbackedSentences, dropUnbackedTools, fixDegreeLabels, unbackedToolsIn } from "../src/lib/factGuard.ts";
 import { applyLetterLint, describeLetterProjects, projectDescriptor, projectsLabelledInLetter } from "../src/lib/letterLint.ts";
 import { lockRoleHeaders, parseMasterExperience } from "../src/lib/bulletIds.ts";
-import { cvTextOutsideSkills, sectionBlock, skillsFromCv } from "../src/lib/claims.ts";
+import { cvTextOutsideSkills, listedSkillNames, sectionBlock, skillsFromCv } from "../src/lib/claims.ts";
+import { tidyNumberedPoints } from "../src/lib/letterStyle.ts";
 
 const MASTER = `ALEX MORGAN
 London, UK | alex.morgan@example.com
@@ -383,4 +384,27 @@ test("the note says what happened, and only that", () => {
   assert.deepEqual(cvLabelFixes(["RideX — Platform | 2025", "RideX (personal portfolio project) | 2025", "Other"], labels).map((f) => f.text), ["Added your label to RideX on the CV, as your master CV writes it."]);
   const drops = buildAutoFixes({ sentenceDrops: [{ where: "cover letter", tool: "GraphQL", why: "your master CV does not name it" }] });
   assert.equal(drops[0].text, "Removed a sentence naming GraphQL from the cover letter: your master CV does not name it.");
+});
+
+test("the third review pass: sub-headings, other headings, and true sentences", () => {
+  assert.deepEqual(masterStackItems("SKILLS\nProgramming Languages\nPython, Java\nCloud Platforms\nAWS", null), ["Python", "Java", "AWS"]);
+  // A heading the seed doesn't read still lists a skill, and a bullet backs it.
+  for (const heading of ["IT SKILLS", "Programming Skills", "TECHNICAL EXPERTISE", "Skills Summary"]) {
+    const cv = `${heading}\nPython, GraphQL\nEXPERIENCE\nDev | Acme | 2022\n• Built a GraphQL gateway`;
+    assert.deepEqual(masterStackItems(cv, null), ["Python", "GraphQL"], heading);
+    assert.deepEqual(dropUnbackedTools("Tools: Python, GraphQL", cv, listedSkillNames(cv, null), cvTextOutsideSkills(cv)).dropped, [], heading);
+    const unbacked = `${heading}\nPython, OpenAI API\nEXPERIENCE\nDev | Acme | 2022\n• Built it in Python`;
+    assert.deepEqual(dropUnbackedTools("Tools: Python, OpenAI API", unbacked, listedSkillNames(unbacked, null), cvTextOutsideSkills(unbacked)).dropped, ["OpenAI API"], `the list is not its own evidence: ${heading}`);
+  }
+  const caps = "SKILLS\nCLOUD & DEVOPS\nAWS, OpenAI API\nEXPERIENCE\nDev | Acme | 2022\n• Built it";
+  assert.doesNotMatch(cvTextOutsideSkills(caps), /OpenAI/, "a caps sub-heading stays inside the list");
+  assert.deepEqual(listedSkillNames("SKILLS\nGraphQL\nCurrently learning: Rust", { skills: [{ name: "Go", level: "production" }, { name: "Zig", level: "learning" }] }), ["Go", "GraphQL"]);
+  assert.equal(stripApplyingFor("Full-stack engineer applying for the Backend Engineer role with 20+ production APIs behind me.").text, "Full-stack engineer with 20+ production APIs behind me.");
+  const opts = { skillNames: ["Python", "GraphQL"], evidenceText: "Built with Python." };
+  const master = "SKILLS\nPython, Kafka\nEXPERIENCE\nBuilt with Python.";
+  const reader = "I built 20 Python APIs and would like to apply that to your GraphQL pipelines.";
+  assert.equal(dropUnbackedSentences(reader, "coverLetter", master, opts).text, reader);
+  // The route renumbers a letter that lost a point, in either style.
+  const dropped = dropUnbackedSentences("My two reasons:\n1. I built a GraphQL consumer.\n2. I shipped APIs.\n3. I led a team.", "coverLetter", master, opts);
+  assert.match(tidyNumberedPoints(dropped.text).text, /1\. I shipped APIs\.\n2\. I led a team\./);
 });

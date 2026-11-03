@@ -215,7 +215,9 @@ const KNOWN_HEADING_RE =
 // seed relies on: "RideX" or "RideX - Platform" under PROJECTS ends the section
 // there, and a "Languages:" sub-heading ends SKILLS. Only a whole known heading, or
 // a heading naming a section of another kind, ends it here.
-const SKILLS_SUBHEADING_RE = /^(?:(?:technical|core|key)\s+)?(?:skills|competencies|technologies|tools)\b|^tech(?:nical)?\s+stack\b|^languages\b/i;
+const SKILLS_SUBHEADING_RE = /^(?:(?:technical|core|key)\s+)?(?:skills|competencies|technologies|tools)\b|^tech(?:nical)?\s+stack\b|\bskills$|\b(?:languages?|frameworks?|databases?|libraries|cloud|devops|testing|tools|technologies|platforms?|llm)\b/i;
+// "IT SKILLS", "Programming Skills", "Skills Summary", "TECHNICAL EXPERTISE": never "Soft Skills".
+const NAMED_SKILLS_RE = /(?<!soft\s)\bskills(?:\s+(?:summary|overview))?$|\bexpertise$/i;
 const OTHER_SECTION_RE = /\b(?:projects?|experience|employment|internships?|education|certifications?|publications|volunteering|achievements|awards|interests|references|summary|profile)\s*$/i;
 // In a skills list "AWS" and "SQL" are items; a long or many-word line in capitals is a heading.
 const looksLikeCapsHeading = (t: string) => !/[a-z]/.test(t) && (t.length >= 8 || /\s/.test(t.trim()));
@@ -241,11 +243,11 @@ function readBlock(cvText: string, which: "skills" | "projects", opens: RegExp):
     const h = t.replace(/:$/, "").trim();
     if (!inside) {
       // "Tools Used" under a role opens nothing: the whole heading must be the section's.
-      inside = opens.test(h) && wholeKnownHeading(h);
+      inside = opens === NAMED_SKILLS_RE ? opens.test(h) : opens.test(h) && wholeKnownHeading(h);
       continue;
     }
     const whole = wholeKnownHeading(h);
-    const ends = which === "skills" ? (whole && !own.test(h)) || (!own.test(h) && (OTHER_SECTION_RE.test(h) || looksLikeCapsHeading(t))) : whole && !own.test(h);
+    const ends = which === "skills" ? (whole && !own.test(h)) || OTHER_SECTION_RE.test(h) || (!own.test(h) && looksLikeCapsHeading(t)) : whole && !own.test(h);
     if (ends) {
       if (which === "skills") break;
       inside = false;
@@ -260,8 +262,16 @@ function readBlock(cvText: string, which: "skills" | "projects", opens: RegExp):
 export function sectionBlock(cvText: string, which: "skills" | "projects"): string[] {
   if (which === "projects") return readBlock(cvText, "projects", PROJECTS_HEADING_RE);
   // A section that says "Skills" beats a "Tools:" line under some role.
-  const named = readBlock(cvText, "skills", /\bskills\b/i);
+  const named = readBlock(cvText, "skills", NAMED_SKILLS_RE);
   return named.length > 0 ? named : readBlock(cvText, "skills", SKILLS_HEADING_RE);
+}
+
+// The user's own skills list for the fact guard: the registry's non-learning names
+// and whatever the CV's list says, so a heading the seed didn't read still lists them.
+export function listedSkillNames(cvText: string, registry: { skills?: { name: string; level: string }[] } | null | undefined): string[] {
+  const registered = (registry?.skills ?? []).filter((s) => s.level !== "learning").map((s) => s.name);
+  const seeded = registered.length > 0 ? registered : skillsFromCv(cvText).map((s) => s.name);
+  return [...seeded, ...sectionBlock(cvText, "skills").filter((l) => !/^\s*(?:currently\s+)?(?:learning|studying)\b/i.test(l))];
 }
 
 // What the CV says outside its skills list: the test of whether a listed skill has

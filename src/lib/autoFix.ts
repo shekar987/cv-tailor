@@ -31,7 +31,10 @@ const PRACTICE = /\b(?:development|design|engineering|architecture|integration|t
 // Not .io or .net: Socket.io and ASP.NET are tools.
 const ADDRESS = /\bhttps?:|\b[\w-]+\.(?:com|org|dev|app|co)\b|\b[\w-]+\.\w+\/\S/i;
 
-const isTool = (item: string) => !GROUP_WORD.test(item) && !SPOKEN.test(item) && !SOFT.test(item) && !PRACTICE.test(item) && !ADDRESS.test(item);
+// "Programming Languages", "Cloud Platforms": a sub-heading, whatever qualifies it.
+const GROUP_TAIL = /\b(?:languages|frameworks|databases|libraries|tools|technologies|platforms|stack)$/i;
+
+const isTool = (item: string) => !GROUP_WORD.test(item) && !GROUP_TAIL.test(item) && !SPOKEN.test(item) && !SOFT.test(item) && !PRACTICE.test(item) && !ADDRESS.test(item);
 
 // "React 19" is the registry's "React"; "AWS (Lambda, SQS)" its "AWS".
 const foldSkill = (s: string) => s.trim().toLowerCase().replace(/\s*\([^()]*\)\s*$/, "").replace(/\s+v?\d[\d.x+]*$/, "").trim();
@@ -72,7 +75,7 @@ export function masterStackItems(cvText: string, claims: Claims, max = 3, unback
       skipping = bareLabel || !/[,|;·•:]/.test(line);
       continue;
     }
-    if (bareLabel || GROUP_WORD.test(line)) {
+    if (bareLabel || GROUP_WORD.test(line) || GROUP_TAIL.test(line)) {
       skipping = false;
       continue;
     }
@@ -107,7 +110,7 @@ const CLAUSE_START = String.raw`(?:^|[,;]\s*|\s+[—–-]\s+|(?<=\b(?:engineer|d
 const APPLYING_RE = new RegExp(String.raw`${CLAUSE_START}(applying\s+(?:for|to)\s+${PHRASE}${JOB_NOUN}${NOUN_END}${CLAUSE_TAIL})`, "gi");
 const SEEKING_RE = new RegExp(String.raw`${CLAUSE_START}((?:targeting|seeking|pursuing|looking\s+for)\s+${PHRASE}${SOUGHT_NOUN}${NOUN_END}${CLAUSE_TAIL})`, "gi");
 // "… role with two years of Python": that part is about the candidate, and stays.
-const OWN_TAIL = /\s+with\s+(?:[\w+-]+\s+){0,3}(?:years?|experience|background)\b.*$/i;
+const OWN_TAIL = /\s+with\s+(?:(?:[\w+-]+\s+){0,3}(?:years?|experience|background)\b|(?:over\s+|more\s+than\s+)?\d).*$/i;
 // "pursuing an MSc while working in a part-time role" is a true statement.
 const NOT_A_JOB_HUNT = /\b(?:msc|bsc|btech|beng|meng|phd|degree|masters?|master's|certification|course|promotion)\b/i;
 // The regex is case-blind, the comma in a title is not: "the scheme, with the role" is two clauses.

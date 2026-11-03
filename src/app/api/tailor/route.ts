@@ -7,7 +7,7 @@ import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration, loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { chooseFallback, openRouterLimitMessage, fallbackExhaustedMessage, type FallbackReason } from "@/lib/fallbackRoute";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
-import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, cvTextOutsideSkills, skillsFromCv, type ClaimsRegistry } from "@/lib/claims";
+import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, cvTextOutsideSkills, listedSkillNames, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
 import { normalizePreferences, pageTargetFor, type CvLength } from "@/lib/preferences";
 import { isGraduateScheme } from "@/lib/graduateMode";
@@ -585,8 +585,7 @@ async function runPipeline(opts: {
   const masterTagline = typeof (profile as { tagline?: unknown } | null)?.tagline === "string" ? (profile as { tagline: string }).tagline : null;
   // The user's own skills list, and what the CV says outside it: a skill only
   // listed has nothing behind it. The header, the guard and the prose all use them.
-  const registered = (claims?.skills ?? []).filter((s) => s.level !== "learning").map((s) => s.name);
-  const skillNames = registered.length > 0 ? registered : skillsFromCv(cv).map((s) => s.name);
+  const skillNames = listedSkillNames(cv, claims);
   const evidenceText = [cvTextOutsideSkills(cv), projectsPool].join("\n");
   const headlineStack = masterStackItems(cv, claims, 3, (item) => unbackedToolsIn(item, cv, skillNames, evidenceText).length > 0);
   const builtHeadline = buildHeadline(
