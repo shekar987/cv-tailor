@@ -54,7 +54,7 @@ test("the UKJI style is today's constants, by import", () => {
   assert.equal(UKJI.render.trailingFullStop, true);
   assert.equal(UKJI.skills.grouped, false);
   assert.deepEqual(UKJI.lint, { bannedWords: [], equivalences: {}, verbCap: null, letterBanned: [] });
-  assert.equal(UKJI.summary.appendAvailability, false);
+  assert.equal(UKJI.summary.appendAvailability, true, "every summary ends on the availability answer since 3 Nov");
   assert.equal(UKJI.letter.points, 3);
   assert.equal(UKJI.letter.teamSuffix, "team");
   assert.equal(UKJI.prompts.projectsBullets, "");

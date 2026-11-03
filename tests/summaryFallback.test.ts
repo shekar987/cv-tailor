@@ -1,12 +1,8 @@
-// A CareerSet CV always has a summary (lib/summaryFallback, 31 Oct 2026), and
-// its header's first technology is one of the master CV's top three languages
-// or the header is the master tagline (lib/headline guardTaglineLanguage).
-// The 30 Oct Burendo run had no summary and "Java, CI/CD & Cloud Deployment,
-// AWS" as its header. Fixtures are a made-up CV.
+// A CareerSet CV always has a summary (lib/summaryFallback, 31 Oct 2026). The 30
+// Oct Burendo run had none. Fixtures are a made-up CV.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ensureSummary, masterSummary, summaryHasContent, topLanguages } from "../src/lib/summaryFallback.ts";
-import { buildHeadline, guardTaglineLanguage } from "../src/lib/headline.ts";
 import { availabilityCvSentence } from "../src/lib/rightToWorkText.ts";
 import { normalizeEligibility } from "../src/lib/knockouts.ts";
 import { STYLE_RULES } from "../src/lib/formatStyles/ids.ts";
@@ -36,9 +32,7 @@ const CAPS = { maxWords: STYLE_RULES.careerset.limits.summary.maxWords };
 
 test("only CareerSet rebuilds the summary and checks the header's language; UKJI is unchanged", () => {
   assert.equal(STYLE_RULES.careerset.summary.ensureFromMaster, true);
-  assert.equal(STYLE_RULES.careerset.headline.languageCheck, true);
   assert.equal(STYLE_RULES.ukji.summary.ensureFromMaster, false);
-  assert.equal(STYLE_RULES.ukji.headline.languageCheck, false);
 });
 
 test("fixture tailor with an empty summary: the master's first summary line, ending with the availability sentence", () => {
@@ -87,66 +81,6 @@ test("topLanguages: the skills list's first three languages, markup skipped", ()
   assert.deepEqual(topLanguages("SKILLS\nGo-to-market strategy, React"), []);
 });
 
-const CLAIMS = {
-  skills: [
-    { name: "Java", level: "production" },
-    { name: "Python", level: "production" },
-    { name: "CI/CD & Cloud Deployment", level: "production" },
-    { name: "AWS", level: "production" },
-  ],
-};
-const MASTER_TAGLINE = "Full Stack Engineer | Python · FastAPI · React";
-
-test("the Burendo header: Java (not a CV language) leaves the stack and a top-three CV language leads", () => {
-  const input = { claims: CLAIMS, requiredSkills: ["Java", "CI/CD & Cloud Deployment", "AWS"], keywords: [], yearsExperience: 2, heldTitles: ["Full Stack Engineer"] };
-  const plain = buildHeadline(input, { headlineSeparator: " | " });
-  assert.equal(plain.parts.stack, "Java, CI/CD & Cloud Deployment, AWS", "what the Burendo run printed");
-  const led = buildHeadline({ ...input, leadLanguages: topLanguages(MASTER) }, { headlineSeparator: " | " });
-  assert.equal(led.parts.stack, "Python, CI/CD & Cloud Deployment, AWS");
-  assert.equal(led.headline, "Full Stack Engineer | 2 years' experience | Python, CI/CD & Cloud Deployment, AWS");
-  assert.deepEqual(guardTaglineLanguage(led, topLanguages(MASTER), MASTER_TAGLINE), { headline: led.headline, replaced: null }, "the built header is kept");
-});
-
-test("a posting led by a framework keeps its header: the CV's language moves or is added to the front", () => {
-  const claims = { skills: [...CLAIMS.skills, { name: "React", level: "production" }, { name: "TypeScript", level: "production" }] };
-  const reorder = buildHeadline({ claims, requiredSkills: ["React", "TypeScript", "AWS"], keywords: [], yearsExperience: 2, heldTitles: ["Full Stack Engineer"], leadLanguages: ["Python", "TypeScript"] }, { headlineSeparator: " | " });
-  assert.equal(reorder.parts.stack, "TypeScript, React, AWS", "a listed language already in the stack moves to the front");
-  const added = buildHeadline({ claims, requiredSkills: ["React", "AWS"], keywords: [], yearsExperience: 2, heldTitles: ["Full Stack Engineer"], leadLanguages: ["Python"] }, { headlineSeparator: " | " });
-  assert.equal(added.parts.stack, "Python, React, AWS");
-  // A language the registry holds below production never leads.
-  const projectPython = { skills: [{ name: "Python", level: "project" }, { name: "React", level: "production" }] };
-  const noLead = buildHeadline({ claims: projectPython, requiredSkills: ["React"], keywords: [], yearsExperience: 2, heldTitles: ["Full Stack Engineer"], leadLanguages: ["Python"] }, { headlineSeparator: " | " });
-  assert.equal(noLead.parts.stack, "React");
-});
-
-test("only a CV with no production language falls back to the master tagline, held to one line", () => {
-  const built = buildHeadline({ claims: CLAIMS, requiredSkills: ["AWS"], keywords: [], yearsExperience: 2, heldTitles: ["Full Stack Engineer"], leadLanguages: [] }, { headlineSeparator: " | " });
-  const g = guardTaglineLanguage(built, [], MASTER_TAGLINE);
-  assert.equal(g.headline, MASTER_TAGLINE);
-  assert.deepEqual(g.replaced, { from: built.headline, firstTechnology: "AWS" });
-  const long = "Full Stack Engineer | Python · FastAPI · React · TypeScript · PostgreSQL · AWS | Building reliable services for operations teams";
-  const capped = guardTaglineLanguage(built, [], long).headline;
-  assert.ok(capped.length <= 90, capped);
-  assert.equal(capped, "Full Stack Engineer | Python · FastAPI · React · TypeScript · PostgreSQL · AWS");
-});
-
-test("a header that leads with a top-three language is kept", () => {
-  const built = buildHeadline(
-    { claims: CLAIMS, requiredSkills: ["Python", "AWS"], keywords: [], yearsExperience: 2, heldTitles: ["Full Stack Engineer"] },
-    { headlineSeparator: " | " }
-  );
-  assert.equal(built.headline, "Full Stack Engineer | 2 years' experience | Python, AWS");
-  assert.deepEqual(guardTaglineLanguage(built, topLanguages(MASTER), MASTER_TAGLINE), { headline: built.headline, replaced: null });
-});
-
-test("no technology in the header, or no master tagline: the header stays as built", () => {
-  const bare = buildHeadline({ claims: null, requiredSkills: [], keywords: [], yearsExperience: 2, heldTitles: ["Full Stack Engineer"] }, { headlineSeparator: " | " });
-  assert.equal(guardTaglineLanguage(bare, topLanguages(MASTER), MASTER_TAGLINE).replaced, null);
-  const java = buildHeadline({ claims: CLAIMS, requiredSkills: ["Java"], keywords: [], yearsExperience: 2, heldTitles: ["Full Stack Engineer"] }, { headlineSeparator: " | " });
-  assert.equal(guardTaglineLanguage(java, topLanguages(MASTER), "").replaced, null);
-});
-
-// ── Review of PR #6 (31 Oct) ───────────────────────────────────────────────
 
 test("a learning or project-only language is never one of the top languages", () => {
   const cv = `SKILLS

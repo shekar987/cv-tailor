@@ -34,6 +34,7 @@ const UNDERGRAD = /\b(?:BTech|B\.Tech|BSc|B\.Sc|BEng|BA)\b/g;
 // CV does not name them anywhere.
 export const OVERCLAIMED_TOOLS = [
   "OpenAI API",
+  "GraphQL",
   "Kafka",
   "Azure",
   "GCP",
@@ -78,9 +79,12 @@ export function fixDegreeLabels(text: string, master: string): { text: string; f
   return { text: out, fixed };
 }
 
-// Tools kept only when the user's skills list names them; the master CV's
-// prose mentioning one is not enough.
-export const SKILLS_LIST_ONLY_TOOLS = ["OpenAI API"] as const;
+// Tools kept only when the user's skills list names them AND a role or project
+// shows them: the master CV's prose is not a listed skill, and a listed skill
+// nothing backs is what you cannot defend in an interview. The 3 Nov Navan and V7
+// CVs carried "OpenAI API" because the owner's skills list names it, while no
+// role or project does.
+export const SKILLS_LIST_ONLY_TOOLS = ["OpenAI API", "GraphQL"] as const;
 
 // Whether a skills list names the tool: the item itself, or the vendor alone
 // ("OpenAI" lists the OpenAI API).
@@ -94,14 +98,15 @@ export function listNames(skillNames: readonly string[], tool: string): boolean 
 
 // `skillNames`: the user's own skills list (the claims registry's names, or
 // the CV's skills section when it has none). Without it the master CV's text
-// decides every tool, as before.
-export function dropUnbackedTools(skills: string, master: string, skillNames?: readonly string[]): { text: string; dropped: string[] } {
+// decides every tool, as before. `evidenceText`: what the CV's roles and
+// projects say, the second half of the test for SKILLS_LIST_ONLY_TOOLS.
+export function dropUnbackedTools(skills: string, master: string, skillNames?: readonly string[], evidenceText?: string): { text: string; dropped: string[] } {
   if (typeof skills !== "string") return { text: skills, dropped: [] };
   const dropped: string[] = [];
   let out = skills;
   for (const tool of OVERCLAIMED_TOOLS) {
     const listOnly = skillNames !== undefined && (SKILLS_LIST_ONLY_TOOLS as readonly string[]).includes(tool);
-    const backed = listOnly ? listNames(skillNames, tool) : mentions(master, tool);
+    const backed = listOnly ? listNames(skillNames, tool) && (evidenceText === undefined || mentions(evidenceText, tool)) : mentions(master, tool);
     if (backed || !mentions(out, tool)) continue;
     // "A, OpenAI API, B" / "OpenAI API, B" / "A, OpenAI API" / "A | OpenAI API",
     // and a line whose only item it is ("Languages: Java") — that line goes.
@@ -186,6 +191,8 @@ export type FactGuardReport = { degrees: string[]; droppedTools: string[]; lifte
 export type GuardOptions = {
   // The user's own skills list (see dropUnbackedTools).
   skillNames?: readonly string[];
+  // What the master CV's roles and projects say (see dropUnbackedTools).
+  evidenceText?: string;
   // How the skills block is read (lib/formatStyles); flat when absent.
   skillsShape?: SkillsShape;
 };
@@ -207,7 +214,7 @@ export function guardFacts(
     report.liftedPhrases = liftedSummaryPhrases(d.text, master, jd);
   }
   if (typeof skills === "string") {
-    const t = dropUnbackedTools(skills, master, opts.skillNames);
+    const t = dropUnbackedTools(skills, master, opts.skillNames, opts.evidenceText);
     report.droppedTools = t.dropped;
     const lead = keepOutOfLead(t.text, opts.skillsShape);
     skills = lead.text;

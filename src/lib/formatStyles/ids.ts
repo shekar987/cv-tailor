@@ -146,9 +146,6 @@ export type StyleRules = {
     // the style never sends a CV without one (31 Oct).
     ensureFromMaster: boolean;
   };
-  // The header's first technology must be one of the master CV's top three
-  // languages, else the master tagline (lib/headline guardTaglineLanguage, 31 Oct).
-  headline: { languageCheck: boolean };
   letter: StyleLetter;
   // Whether the style has its own deterministic format check (lib/styleCheck).
   check: boolean;
@@ -189,8 +186,7 @@ export const STYLE_RULES: Record<FormatStyleId, StyleRules> = {
     skills: SKILLS_SHAPE.ukji,
     lint: { bannedWords: [], equivalences: {}, verbCap: null, letterBanned: [] },
     render: RENDER_OPTIONS.ukji,
-    summary: { appendAvailability: false, ensureFromMaster: false },
-    headline: { languageCheck: false },
+    summary: { appendAvailability: true, ensureFromMaster: false },
     letter: {
       furniture: [],
       interestOpening: null,
@@ -222,7 +218,6 @@ export const STYLE_RULES: Record<FormatStyleId, StyleRules> = {
     lint: { bannedWords: CAREERSET_BANNED_WORDS, equivalences: CAREERSET_EQUIVALENCES, verbCap: 2, letterBanned: CAREERSET_LETTER_BANNED },
     render: RENDER_OPTIONS.careerset,
     summary: { appendAvailability: true, ensureFromMaster: true },
-    headline: { languageCheck: true },
     letter: {
       furniture: [/^Having read the job description, these are the four areas where I can add value from the start:?$/i, /^I am particularly interested in this role because\b/i],
       interestOpening: CAREERSET_INTEREST_OPENING,

@@ -1,4 +1,5 @@
-import { guardFacts } from "@/lib/factGuard";
+import { guardFacts, fixDegreeLabels } from "@/lib/factGuard";
+import { buildAutoFixes, keepAvailabilityLast, labelProjectName, labelProjectNames, masterProjectLabels, masterStackItems, stripApplyingFor } from "@/lib/autoFix";
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { callLLM, Provider, ProviderRateLimitError, ProviderCreditError, MODELS } from "@/lib/claude";
@@ -6,7 +7,7 @@ import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration, loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { chooseFallback, openRouterLimitMessage, fallbackExhaustedMessage, type FallbackReason } from "@/lib/fallbackRoute";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
-import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillsFromCv, type ClaimsRegistry } from "@/lib/claims";
+import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, sectionsOf, skillsFromCv, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
 import { normalizePreferences, pageTargetFor, type CvLength } from "@/lib/preferences";
 import { isGraduateScheme } from "@/lib/graduateMode";
@@ -39,8 +40,8 @@ import { fitOnePage, fitTwoPages, fitToRealPages, experienceRefillCandidates, pr
 import { buildCvPdfWithPages } from "@/lib/buildCvPdf";
 import { buildCoverLetterPdfWithPages } from "@/lib/buildCoverLetterPdf";
 import { fitLetterToOnePage, type LetterFitReport } from "@/lib/letterFit";
-import { buildHeadline, degreesInProgress, guardTaglineLanguage } from "@/lib/headline";
-import { ensureSummary, topLanguages, type EnsureSummaryReport } from "@/lib/summaryFallback";
+import { buildHeadline, degreesInProgress, topProductionSkills } from "@/lib/headline";
+import { ensureSummary, type EnsureSummaryReport } from "@/lib/summaryFallback";
 import { normalizeEligibility, type Eligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
 import { contactRefusal } from "@/lib/contactRefusal";
@@ -52,7 +53,7 @@ import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProje
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
 import { stripLinkText } from "@/lib/projectLinks";
 import { toBritish, toBritishDeep, type SpellingChange } from "@/lib/britishSpelling";
-import { applyLetterLint, hasHonestGap, tidyFinishedLetter, type LetterLint, type LetterRules, type LetterTidy } from "@/lib/letterLint";
+import { applyLetterLint, describeLetterProjects, hasHonestGap, tidyFinishedLetter, type LetterLint, type LetterRules, type LetterTidy } from "@/lib/letterLint";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 import {
   surgicalUntilStable,
@@ -545,7 +546,7 @@ async function runPipeline(opts: {
     summary = a.text;
     rightToWork.availability.removed.push(...a.removed);
   }
-  // The style's closing availability sentence (CareerSet), from Eligibility
+  // The closing availability sentence (every style since 3 Nov), from Eligibility
   // alone, once every model-written one has gone; the fact check skips it as
   // furniture and the page fit protects it.
   if (availabilityLine && typeof summary === "string" && summary.trim()) {
@@ -580,12 +581,12 @@ async function runPipeline(opts: {
   // header and printed addresses can wrap) counts the run's own header.
   const headlineTerms = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
   const masterTagline = typeof (profile as { tagline?: unknown } | null)?.tagline === "string" ? (profile as { tagline: string }).tagline : null;
-  const cvTopLanguages = topLanguages(cv);
+  const headlineStack = masterStackItems(cv, claims);
   const builtHeadline = buildHeadline(
     {
       claims,
-      requiredSkills: headlineTerms.required_skills,
-      keywords: headlineTerms.top_15_ats_keywords,
+      // The user's own top skills, in their order: never the posting's keywords.
+      masterStack: headlineStack,
       yearsExperience,
       // The posting's core title only when it plainly describes the candidate
       // (the same test the summary uses); else their own role, below.
@@ -593,18 +594,17 @@ async function runPipeline(opts: {
       positioning: variant?.headline ?? null,
       savedTagline: masterTagline,
       heldTitles: masterRoles.map((r) => r.header.split(/\s[—–|]\s/)[0]),
-      // CareerSet: the stack's first technology is one of the master CV's top three languages.
-      leadLanguages: style.headline.languageCheck ? cvTopLanguages : undefined,
     },
     style.render
   );
-  // CareerSet: the header's first technology must be one of the master CV's
-  // top three languages, else the header is the master tagline (lib/headline
-  // guardTaglineLanguage) — reported as `taglineFallback`.
-  const taglineGuard = style.headline.languageCheck
-    ? guardTaglineLanguage(builtHeadline, cvTopLanguages, masterTagline)
-    : { headline: builtHeadline.headline, replaced: null };
-  const headline = taglineGuard.headline;
+  const headline = builtHeadline.headline;
+  // Each project's label as the master CV writes it (lib/autoFix), before the
+  // page fit measures the name it will print. A profile's projects were labelled
+  // by /app before they were sent.
+  if (projectsPool) {
+    const labels = masterProjectLabels(cv);
+    selectedFinal = selectedFinal.map((p) => ({ ...p, name: labelProjectName(p.name, labels) }));
+  }
   let pageFitReport: PageFitReport | null = null;
   // The built PDF's page count after the fit, for the style's format check.
   let realPages: number | null = null;
@@ -722,7 +722,10 @@ async function runPipeline(opts: {
   // is empty), and "GitHub Actions" never holds a lead slot (31 Oct).
   const registered = (claims?.skills ?? []).filter((s) => s.level !== "learning").map((s) => s.name);
   const skillNames = registered.length > 0 ? registered : skillsFromCv(cv).map((s) => s.name);
-  const factGuard = guardFacts({ summary, skills: skillsFinal }, cv, jd, { skillNames, skillsShape: style.skills });
+  // What the CV's roles and projects say: a skill only listed has nothing behind it.
+  const cvSections = sectionsOf(cv);
+  const evidenceText = [...cvSections.experience, ...cvSections.projects, projectsPool].join("\n");
+  const factGuard = guardFacts({ summary, skills: skillsFinal }, cv, jd, { skillNames, evidenceText, skillsShape: style.skills });
   // The guard's text is the text from here on: until 31 Oct only the score
   // read it, and the response carried the unguarded summary and skills.
   summary = factGuard.summary;
@@ -791,7 +794,7 @@ async function runPipeline(opts: {
   // CV describes in brackets written with that description.
   const letterLinted =
     typeof letterNormalized.letter === "string"
-      ? applyLetterLint(letterNormalized.letter, { essentialGaps, projects: [...projectNames, ...selectedFinal.map((p) => p.name)] })
+      ? applyLetterLint(letterNormalized.letter, { essentialGaps, projects: labelProjectNames([...projectNames, ...selectedFinal.map((p) => p.name)], cv) })
       : null;
   const letterDraft: unknown = letterLinted ? letterLinted.text : letterNormalized.letter;
   const letterSources = [jd, cv, projectsPool, JSON.stringify(research ?? {}), JSON.stringify(analysis ?? {})];
@@ -1048,6 +1051,14 @@ async function runPipeline(opts: {
   // passes above left none — the fact check can remove every sentence of a
   // thin run — it is rebuilt from the master CV's own summary, else its most
   // recent role and top languages (lib/summaryFallback), never written.
+  // The form-letter tail goes first, so a summary that was nothing else is
+  // rebuilt below rather than sent empty (lib/autoFix).
+  const summaryRemoved: string[] = [];
+  if (typeof summary === "string") {
+    const s = stripApplyingFor(summary);
+    summary = s.text;
+    summaryRemoved.push(...s.removed);
+  }
   let summaryRebuild: EnsureSummaryReport | null = null;
   if (style.summary.ensureFromMaster) {
     const e = ensureSummary(summary, {
@@ -1059,6 +1070,17 @@ async function runPipeline(opts: {
     summary = e.summary;
     summaryRebuild = e.report;
     if (e.report.rebuilt && availabilityLine) rightToWork.appended = availabilityLine;
+  }
+  // The summary ends on the user's own availability answer, and a degree a late
+  // rewrite renamed goes back to the master CV's label.
+  let availabilityAdded: string | null = null;
+  const lateDegrees: string[] = [];
+  if (typeof summary === "string") {
+    const last = keepAvailabilityLast(summary, availabilityLine);
+    if (last.added) availabilityAdded = availabilityLine;
+    const d = fixDegreeLabels(last.text, cv);
+    summary = d.text;
+    lateDegrees.push(...d.fixed);
   }
   const spellingChanges: SpellingChange[] = [];
   const protect = new Set<string>();
@@ -1072,6 +1094,16 @@ async function runPipeline(opts: {
   projectsFinal = toBritishDeep(projectsFinal, spellingChanges, spell);
   if (projectsPool) selectedFinal = toBritishDeep(selectedFinal, spellingChanges, spell);
   if (typeof coverLetter === "string") coverLetter = toBritish(coverLetter, spell).text;
+  // The letter's facts, before the page fit measures it: the degree as the master
+  // CV names it, and each labelled project's exact label at its first mention.
+  let letterLabels: string[] = [];
+  if (typeof coverLetter === "string" && coverLetter.trim()) {
+    const d = fixDegreeLabels(coverLetter, cv);
+    lateDegrees.push(...d.fixed);
+    const l = describeLetterProjects(d.text, labelProjectNames([...projectNames, ...selectedFinal.map((p) => p.name)], cv));
+    coverLetter = l.text;
+    letterLabels = l.described;
+  }
   // Strictly one page (lib/letterFit): the letter's own PDF, with the date
   // line the preview adds on top, decides; the longest paragraph gives up
   // its last sentence until it fits. A build failure is logged, never fatal.
@@ -1105,6 +1137,20 @@ async function runPipeline(opts: {
   if (style.letter.renumberPoints && typeof coverLetter === "string") {
     letterCheck.points = { found: countNumberedPoints(coverLetter), expected: style.letter.points, ...pointsTidy };
   }
+  // Everything the passes above changed against the master CV, for the note above
+  // Download. Tool names only reach the log: no CV or posting text does.
+  const autoFixes = buildAutoFixes({
+    droppedTools: factGuard.report.droppedTools,
+    unsupportedTools: formatFixes.unsupportedTools,
+    degrees: [...new Set([...factGuard.report.degrees, ...lateDegrees])],
+    summaryRemoved,
+    availabilityAdded,
+    letterLabels,
+    headerStack: headlineStack,
+    postingStack: topProductionSkills(claims, headlineTerms.required_skills, headlineTerms.top_15_ats_keywords, 3),
+    headerLock,
+  });
+  if (factGuard.report.droppedTools.length > 0) console.info("[autoFix] removed tools:", factGuard.report.droppedTools.join(", "));
   const finalSections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
   const finalText = tailoredSectionsText(finalSections, style.skills);
   const finalCoverage = matchAtsKeywords(finalText, terms.top_15_ats_keywords);
@@ -1175,9 +1221,8 @@ async function runPipeline(opts: {
     factGuard: factGuard.report,
     // lib/summaryFallback: the summary rebuilt from the master CV (CareerSet), or null.
     summaryRebuild,
-    // lib/headline guardTaglineLanguage: the built header led with a technology
-    // outside the master CV's top three languages, so the master tagline ran (CareerSet).
-    taglineFallback: taglineGuard.replaced,
+    // lib/autoFix: what the last pass changed, for the "Auto-fixed" note on /app.
+    autoFixes,
     // "Changes vs master CV": the finished text against the master's own
     // bullets (lib/bulletIds) — kept, edited (which words), dropped, new.
     bulletChanges: {

@@ -125,7 +125,8 @@ export function projectDescriptor(fullName: string): { name: string; descriptor:
   const q = m[2].trim().replace(/\s+/g, " ");
   if (q.split(" ").length < 3 || q.includes(",")) return null;
   const descriptor = /^(?:a|an|the|my)\s/i.test(q) ? q : `${/^[aeiou]/i.test(q) ? "an" : "a"} ${q}`;
-  return { name: m[1].trim(), descriptor };
+  // "RideX — Ride-Hailing Platform": the letter says "RideX".
+  return { name: m[1].trim().split(/\s+[—–-]\s+/)[0], descriptor };
 }
 
 function escapeRe(s: string): string {
@@ -160,6 +161,15 @@ function describeProjects(body: string, projects: { name: string; descriptor: st
     report.push(name);
   }
   return out;
+}
+
+/** The finished letter with each labelled project's exact label at its first mention (lib/autoFix labels the names). */
+export function describeLetterProjects(letter: string, projects: string[]): { text: string; described: string[] } {
+  const described: string[] = [];
+  const list = projects.map(projectDescriptor).filter((p): p is { name: string; descriptor: string } => !!p);
+  const seen = new Set<string>();
+  const unique = list.filter((p) => !seen.has(p.name.toLowerCase()) && !!seen.add(p.name.toLowerCase()));
+  return { text: describeProjects(letter, unique, described), described };
 }
 
 // ── The final tidy (31 Oct 2026, Chunk 6) ────────────────────────────────────
