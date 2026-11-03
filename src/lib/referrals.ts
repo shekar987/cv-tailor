@@ -92,7 +92,7 @@ export type ReferralRow = {
 };
 
 // A row that has been closed (rejected, withdrawn) no longer needs the action.
-const CLOSED: ReadonlySet<string> = new Set(["rejected", "withdrawn"]);
+const CLOSED: ReadonlySet<string> = new Set(["rejected", "withdrawn", "ghosted", "accepted"]);
 
 const statusOf = (r: ReferralRow): ReferralStatus => (isReferralStatus(r.referral_status) ? r.referral_status : "offered");
 

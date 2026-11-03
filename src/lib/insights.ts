@@ -13,7 +13,7 @@
 // 1-of-1 "100%" would mislead.
 
 import { POSTING_AGE_BANDS } from "./postingAge.ts";
-import { hasProgressed, normalizeStatus } from "./tracker.ts";
+import { endedWithoutProgress, hasProgressed, normalizeStatus } from "./tracker.ts";
 import { isFormatStyleId, FORMAT_STYLE_LABELS, type FormatStyleId } from "./formatStyles/ids.ts";
 
 export type GateRead = "apply" | "long_shot" | "skip";
@@ -106,7 +106,7 @@ export const MIN_DECIDED = 8;
 // Rows that say nothing about the screen: pulled out, or never sent.
 const EXCLUDED: ReadonlySet<string> = new Set(["withdrawn", "saved"]);
 const isExcluded = (status: string) => EXCLUDED.has(normalizeStatus(status) ?? "");
-const isRejected = (status: string) => normalizeStatus(status) === "rejected";
+const isRejected = endedWithoutProgress;
 
 function obj(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};

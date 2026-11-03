@@ -34,6 +34,16 @@ export async function GET() {
       const { data, error } = await q.limit(5000);
       return section(table, data, error);
     }
+    // Finished events stay, so this table can pass PostgREST's 1000 rows per request.
+    async function readEvents(): Promise<Section> {
+      const rows: unknown[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from("application_events").select("*").eq("user_id", userId).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, from + 999);
+        if (error) return section("application_events", null, error);
+        rows.push(...(data ?? []));
+        if ((data ?? []).length < 1000) return section("application_events", rows, null);
+      }
+    }
     // The tracker can pass PostgREST's 1000 rows per request; the other tables
     // are one row or a handful.
     async function readApplications(): Promise<Section> {
@@ -52,7 +62,7 @@ export async function GET() {
       read("mock_interviews", "id, application_id, type, persona, llm_path, status, plan, transcript, feedback, created_at, finished_at", "created_at"),
       read("company_profiles", "domain, data, fetched_at", "fetched_at"),
       read("user_api_keys", "provider, key_hint, updated_at"),
-      read("application_events", "*", "created_at"),
+      readEvents(),
       read("availability_windows", "*", "created_at"),
     ]);
 

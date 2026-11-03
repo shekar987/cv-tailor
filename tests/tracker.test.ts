@@ -10,6 +10,7 @@ import {
   oldStatusLabel,
   storedStatusValues,
   isActiveStatus,
+  endedWithoutProgress,
   inStageTab,
   inStageTabOrPast,
   isStageTab,
@@ -94,6 +95,13 @@ test("active means screening, interview, assessment or offer, and nothing else",
   assert.ok(isActiveStatus("Screening"));
   assert.ok(!isActiveStatus("Rejected"));
   assert.ok(!isActiveStatus(null));
+});
+
+test("a ghosted row has ended without progress, so it is not still open", () => {
+  assert.equal(endedWithoutProgress("ghosted"), true);
+  assert.equal(endedWithoutProgress("Rejected"), true);
+  assert.equal(endedWithoutProgress("screening"), false);
+  assert.equal(endedWithoutProgress("accepted"), false);
 });
 
 test("ghosted and won rows have ended, so their follow-ups clear", () => {

@@ -42,6 +42,7 @@ const db = {
     app("Old Silence Ltd", "Backend Engineer", "screening", { date_applied: "2026-10-01" }),
     app("Gone Ltd", "Engineer", "rejected", { stages_reached: ["applied", "screening", "rejected"] }),
     app("Applied Only Ltd", "Engineer", "applied"),
+    app("Unsent Ltd", "Engineer", "saved", { stages_reached: ["saved"] }),
     app("Won Ltd", "Engineer", "accepted", { stages_reached: ["applied", "screening", "interview", "offer", "accepted"] }),
     app("Offer Ltd", "Engineer", "offer", { stages_reached: ["applied", "interview", "offer"] }),
     app("Late Ltd", "Engineer", "assessment"),
@@ -129,6 +130,7 @@ async function route(page) {
         if (!row.stages_reached.includes(row.status)) row.stages_reached.push(row.status);
       }
       if ("outcome_reason" in body) row.outcome_reason = body.outcome_reason;
+      for (const k of ["last_contact_from", "last_contact_at", "followup_date"]) if (k in body) row[k] = body[k];
       return json(r, { ok: true });
     }
     json(r, { ok: true });
@@ -164,13 +166,13 @@ try {
 
   // ── The plan ───────────────────────────────────────────────────────────────
   const groups = await page.locator(".planGroup").evaluateAll((els) => els.map((e) => e.dataset.group));
-  check("groups appear in order", groups.join() === "overdue,tomorrow,this_week,next_week,needs_booking,waiting", groups.join());
+  check("groups appear in order", groups.join() === "overdue,needs_booking,tomorrow,this_week,next_week,waiting", groups.join());
   const titles = (g) => page.locator(`[data-group="${g}"] [data-event-title]`).evaluateAll((els) => els.map((e) => e.dataset.eventTitle));
   check("tomorrow lists the interview first, then the networking call", (await titles("tomorrow")).join("|") === "Interview call|Networking call: Sam Contact", (await titles("tomorrow")).join("|"));
   const overdueGroup = page.locator('[data-group="overdue"]');
   check("overdue says so in words and with an icon, not only red", /Overdue/.test(await overdueGroup.locator("h2").innerText()) && (await overdueGroup.locator("h2 svg").count()) === 1);
   check("a missed deadline counts up", /overdue/.test(await page.locator('[data-event-title="Overdue task"] [data-event-countdown]').innerText()), await page.locator('[data-event-title="Overdue task"] [data-event-countdown]').innerText());
-  check("a call that has ended asks for an outcome, not 'started'", /overdue/.test(await page.locator('[data-event-title="Call that ended"] [data-event-countdown]').innerText()));
+  check("a call that has ended asks for its outcome", /ended .* ago: set the outcome/.test(await page.locator('[data-event-title="Call that ended"] [data-event-countdown]').innerText()));
   check("a booking with no slots does not claim slots were offered", /Not booked yet/.test(await page.locator('.planCard:has-text("Delta Advisory")').innerText()));
   check("a booking with slots says so", /Slots offered/.test(await page.locator('.planCard:has-text("Sunbury Energy")').innerText()));
   check("a rejected application's event is not on the plan", !(await page.locator("body").innerText()).includes("Hidden interview"));
@@ -183,11 +185,46 @@ try {
   const pharma = page.locator('[data-event-title="Video assessment"]');
   check("a date with no time prints no time", /Tue 10 Nov/.test(await pharma.innerText()) && !/23:59/.test(await pharma.innerText()) && (await pharma.locator("[data-event-countdown]").innerText()) === "due in 7 days", await pharma.innerText());
   check("Waiting on them lists rows with nothing booked, longest first", (await page.locator("[data-waiting]").evaluateAll((e) => e.map((x) => x.dataset.waiting))).join() === "Old Silence Ltd,Offer Ltd,Bluebell Telecom");
-  check("the T+21 nudge shows", (await page.locator('[data-waiting="Old Silence Ltd"] [data-nudge]').getAttribute("data-nudge")) === "21");
+  check("with no contact recorded it counts from applying and says so", /Applied 33 days ago; no contact recorded/.test(await page.locator('[data-waiting="Old Silence Ltd"]').innerText()) && !/days since contact/.test(await page.locator('[data-waiting="Old Silence Ltd"]').innerText()), await page.locator('[data-waiting="Old Silence Ltd"]').innerText());
+  check("the nudge does not tell a row with no record to give up", /T\+21 from applying: if you have heard nothing, follow up/.test(await page.locator('[data-waiting="Old Silence Ltd"] [data-nudge]').innerText()));
+  await page.locator('[data-waiting="Bluebell Telecom"] [data-waiting-followed]').click();
+  await page.waitForFunction(() => /In touch today/.test(document.querySelector('[data-waiting="Bluebell Telecom"]')?.textContent ?? ""), null, { timeout: 8000 });
+  check("Followed up today records the contact", db.applications.find((a) => a.company_name === "Bluebell Telecom").last_contact_from === "me");
+  await page.locator("[data-toast-undo]").click();
+  await page.waitForFunction(() => /no contact recorded/.test(document.querySelector('[data-waiting="Bluebell Telecom"]')?.textContent ?? ""), null, { timeout: 8000 });
+  check("and undo clears it", db.applications.find((a) => a.company_name === "Bluebell Telecom").last_contact_at == null);
   check("the promised follow-up date shows", /follow-up Tue 10 Nov/.test(await page.locator('[data-waiting="Bluebell Telecom"]').innerText()));
   check("the calendar dots its event days", (await page.locator('[data-mini-calendar] [data-has-events]').count()) >= 3);
   check("the funnel lists its steps with counts", /Screening\s*\d+/.test(await page.locator("[data-funnel]").innerText()));
   check("under eight in a group says too few to judge", /too few to judge/.test(await page.locator("[data-funnel]").innerText()));
+
+  // ── A reminder moves nothing; a call proves its stage, and the user can say no ──
+  await page.locator("[data-new-event]").click();
+  await page.locator("[data-event-search]").fill("Unsent");
+  await page.getByRole("button", { name: /Unsent Ltd/ }).click();
+  await page.locator("#evKind").selectOption("deadline");
+  await page.getByLabel("A deadline").check();
+  await page.locator("[data-event-date]").fill("2026-11-20");
+  await page.locator("[data-event-notime]").check();
+  check("a deadline on an unsent row says it stays off the plan", /stays off your plan until Unsent Ltd/.test(await page.locator("[data-event-hidden]").innerText()) && (await page.locator("[data-event-move]").count()) === 0);
+  await page.locator("[data-event-save]").click();
+  await page.locator("[data-toast]").waitFor();
+  check("and saves without moving the row", db.applications.find((a) => a.company_name === "Unsent Ltd").status === "saved" && /stays off your plan/.test(await page.locator("[data-toast]").innerText()), await page.locator("[data-toast]").innerText());
+  await page.locator("[data-new-event]").click();
+  await page.locator("[data-event-search]").fill("Applied Only");
+  await page.getByRole("button", { name: /Applied Only Ltd/ }).click();
+  await page.locator("#evKind").selectOption("interview");
+  await page.locator("[data-event-date]").fill("2026-11-21");
+  await page.locator("[data-event-time]").fill("10:00");
+  check("an interview on an Applied row offers the move", /Move it to Interview/.test(await page.locator("[data-event-move]").innerText()));
+  check("the length starts blank", (await page.locator("[data-event-duration]").inputValue()) === "");
+  await page.locator("[data-event-move-toggle]").uncheck();
+  check("unticked, it says it stays off the plan", (await page.locator("[data-event-hidden]").count()) === 1);
+  await page.locator("[data-event-save]").click();
+  await page.waitForFunction(() => !document.querySelector("[data-event-form]"), null, { timeout: 8000 });
+  check("unticked, the row does not move", db.applications.find((a) => a.company_name === "Applied Only Ltd").status === "applied");
+  check("a length nobody gave is not stored", db.events.find((e) => e.application_id === idOf("Applied Only Ltd")).ends_at === null);
+  db.events = db.events.filter((e) => e.application_id !== idOf("Applied Only Ltd") && e.application_id !== idOf("Unsent Ltd"));
 
   // ── Creating an interview ──────────────────────────────────────────────────
   await page.locator("[data-new-event]").click();
@@ -287,7 +324,20 @@ try {
   await page.screenshot({ path: path.join(SHOTS, "next-booking.png"), fullPage: true });
   await sunbury.locator('[data-slot="11:00"] [data-slot-book]').click();
   await page.locator('[data-group="tomorrow"] .planCard:has-text("Sunbury Energy")').waitFor({ timeout: 8000 });
-  check("Book this moves it onto the timeline", db.events.find((e) => e.application_id === idOf("Sunbury Energy")).status === "scheduled");
+  const booked = db.events.find((e) => e.application_id === idOf("Sunbury Energy"));
+  check("Book this moves it onto the timeline", booked.status === "scheduled");
+  check("and stores no length they never gave", booked.ends_at === null);
+  check("and copies a one-slot reply", /I'm available on Wednesday 4 November at 11:00/.test(await page.evaluate(() => navigator.clipboard.readText())));
+  check("the toast says to send it", /A reply is copied/.test(await page.locator("[data-toast]").innerText()));
+  await page.locator("[data-toast-undo]").click();
+  await page.locator('[data-group="needs_booking"] .planCard:has-text("Sunbury Energy")').waitFor({ timeout: 8000 });
+  check("undo puts the offer back with its slots", booked.status === "to_book" && booked.offered_slots.length === 3);
+  await page.locator('.planCard:has-text("Sunbury Energy") [data-suggest-replies]').click();
+  await page.locator('.planCard:has-text("Sunbury Energy") [data-slot="11:00"] [data-slot-book]').click();
+  await page.locator('[data-group="tomorrow"] .planCard:has-text("Sunbury Energy")').waitFor({ timeout: 8000 });
+  await page.locator('.planCard:has-text("Delta Advisory") [data-event-reschedule]').first().click().catch(() => {});
+  await page.locator("[data-event-form]").waitFor({ timeout: 5000 }).catch(() => {});
+  await page.keyboard.press("Escape");
 
   // ── Week and pipeline ──────────────────────────────────────────────────────
   await page.locator('[data-view="week"]').click();
@@ -331,6 +381,21 @@ try {
   check("a column re-sorts", list.join() === [...list].sort((a, b) => a.localeCompare(b)).join(), list.join());
   await page.locator('[data-stage-sort="next"]').click();
 
+  // An assessment past its due date still shows here, as it does on the plan.
+  await chip("assessment").click();
+  await page.locator('[data-stage-table="assessment"]').waitFor({ timeout: 8000 });
+  check("an overdue deadline stays on the tracker", /overdue/.test(await page.locator('[data-stage-row="Late Ltd"]').innerText()) && (await page.locator('[data-stage-row="Late Ltd"] [data-stage-deadline][data-soon]').count()) === 1, await page.locator('[data-stage-row="Late Ltd"]').innerText());
+  await chip("screening").click();
+  await page.locator('[data-stage-table="screening"]').waitFor({ timeout: 8000 });
+
+  // + Add row on a stage tab opens the row form.
+  await page.getByRole("button", { name: "+ Add row" }).click();
+  await page.locator(".appsNewRow").waitFor({ timeout: 5000 });
+  check("+ Add row works on a stage tab", (await page.locator(".appsNewRow").count()) === 1);
+  await page.keyboard.press("Escape");
+  await page.locator(".appsNewRow").waitFor({ state: "hidden", timeout: 5000 });
+  await page.locator('[data-stage-table="screening"]').waitFor({ timeout: 5000 });
+
   // Moving a row to Rejected takes it off the tab; the count follows.
   const before = await countOf("screening");
   await page.locator('[data-stage-row="Old Silence Ltd"] [data-stage-status]').selectOption("rejected");
@@ -342,6 +407,13 @@ try {
   check("Include past stages brings it back, marked", /Now Rejected/.test(await page.locator('[data-stage-row="Old Silence Ltd"]').innerText()) && (await page.locator('[data-stage-row="Old Silence Ltd"]').getAttribute("data-past")) === "");
   check("the count stays the current stage", (await countOf("screening")) === before - 1);
   await page.locator("[data-include-past]").uncheck();
+
+  // A form that moves a row updates the table at once.
+  await chip("rejected").click();
+  await page.locator('[data-stage-table="rejected"]').waitFor({ timeout: 8000 });
+  await page.locator("[data-stage-sheet]").waitFor();
+  await chip("screening").click();
+  await page.locator('[data-stage-table="screening"]').waitFor({ timeout: 8000 });
 
   // Inline date, and the deadline's 48-hour colour.
   await page.locator('[data-stage-row="Bluebell Telecom"] [data-stage-add]').click();
@@ -360,6 +432,7 @@ try {
   await page.locator('[data-stage-table="rejected"]').waitFor({ timeout: 8000 });
   list = await companies();
   check("the Rejected tab lists rejected rows", list.includes("Gone Ltd") && list.includes("Old Silence Ltd"), list.join());
+  check("a closed row shows no countdown from its hidden events", /None/.test(await page.locator('[data-stage-row="Gone Ltd"] [data-stage-next]').innerText()), await page.locator('[data-stage-row="Gone Ltd"] [data-stage-next]').innerText());
   await page.locator('[data-stage-row="Gone Ltd"] [data-stage-reason]').fill("Wanted more years");
   await page.locator('[data-stage-row="Gone Ltd"] [data-ask-feedback]').click();
   await page.waitForFunction(() => document.querySelector('[data-stage-row="Gone Ltd"] [data-ask-feedback]')?.textContent === "Copied", null, { timeout: 4000 });

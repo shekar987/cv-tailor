@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  activeEvents, activeApplications, bookingReply, buildFunnel, buildPlan, funnelChartData, conflictsFor, daysSinceContact, eventDays, feedbackRequest, findConflicts, followUpNudge,
+  activeEvents, activeApplications, bookingReply, buildFunnel, buildPlan, describeTiming, funnelChartData, conflictsFor, daysSinceContact, eventDays, feedbackRequest, findConflicts, followUpNudge,
   nextEventByApplication, priorityScore, readEventInput, readWindowInput, stageWeight, suggestSlots, windowOnDay,
   type AvailabilityWindow, type PlanApplication, type PlanEvent,
 } from "../src/lib/plan.ts";
@@ -118,7 +118,7 @@ test("at the same time the stage decides: offer, final, interview, assessment, s
     score({ kind: "screening_call" }, "screening"),
     score({ kind: "follow_up" }, "screening"),
   ];
-  assert.deepEqual([...order].sort((a, b) => b - a), order);
+  for (let i = 1; i < order.length; i++) assert.ok(order[i - 1] > order[i], `step ${i} of ${order.join()}`);
   assert.equal(stageWeight({ kind: "assessment" }, "offer"), 100, "any event on an offer is about the offer");
 });
 
@@ -308,9 +308,9 @@ test("offered slots: only the free ones, soonest first", () => {
 test("the reply reads as British English and names each slot in full", () => {
   const start = zonedTimeToMs("2026-11-04", "15:00", LONDON);
   const end = zonedTimeToMs("2026-11-04", "17:00", LONDON);
-  const one = bookingReply([{ start, end, offered: false }]);
+  const one = bookingReply([{ start, end, offered: false, endGiven: true }]);
   assert.match(one, /I'm available on Wednesday 4 November from 15:00 to 17:00 \(UK time\)/);
-  const two = bookingReply([{ start, end, offered: false }, { start: start + 86_400_000, end: end + 86_400_000, offered: true }]);
+  const two = bookingReply([{ start, end, offered: false, endGiven: true }, { start: start + 86_400_000, end: end + 86_400_000, offered: true, endGiven: false }]);
   assert.match(two, /- Wednesday 4 November from 15:00 to 17:00/);
   assert.match(two, /- Thursday 5 November at 15:00/);
   assert.match(two, /Kind regards,$/);
@@ -363,15 +363,24 @@ test("a row with no history still counts at its current stage; old labels read t
   assert.equal(f.rejected, 1);
 });
 
-test("a rate shows only from eight in the group", () => {
+test("a rate shows only from eight with an outcome; someone still there has not decided", () => {
   const rows = (n: number, status: string, stages: string[]) => Array.from({ length: n }, () => ({ status, stages_reached: stages }));
-  const seven = buildFunnel([...rows(5, "applied", ["applied"]), ...rows(2, "screening", ["applied", "screening"])]);
+  const seven = buildFunnel([...rows(5, "rejected", ["applied", "rejected"]), ...rows(2, "screening", ["applied", "screening"])]);
   assert.equal(seven.nodes[0].tooFew, true);
   assert.equal(seven.nodes[0].furtherRate, null);
-  const eight = buildFunnel([...rows(6, "applied", ["applied"]), ...rows(2, "screening", ["applied", "screening"])]);
-  assert.equal(eight.nodes[0].tooFew, false);
-  assert.equal(eight.nodes[0].furtherRate, 0.25);
+  const eight = buildFunnel([...rows(6, "rejected", ["applied", "rejected"]), ...rows(2, "screening", ["applied", "screening"]), ...rows(500, "applied", ["applied"])]);
+  assert.equal(eight.nodes[0].decided, 8);
+  assert.equal(eight.nodes[0].furtherRate, 0.25, "the 500 still waiting are not in the rate");
   assert.equal(eight.nodes[1].tooFew, true);
+  const justArrived = buildFunnel(rows(8, "screening", ["applied", "screening"]));
+  assert.equal(justArrived.nodes[1].furtherRate, null, "eight who just arrived do not read as 0% went further");
+});
+
+test("a row is here at its current status, even after a stage it no longer holds", () => {
+  const f = buildFunnel([{ status: "screening", stages_reached: ["applied", "screening", "offer"] }]);
+  const node = (key: string) => f.nodes.find((n) => n.key === key)!;
+  assert.equal(node("screening").here, 1);
+  assert.equal(node("offer").here, 0);
 });
 
 // ── Requests ─────────────────────────────────────────────────────────────────
@@ -418,10 +427,12 @@ test("the calendar's dots and the stage tabs' next event", () => {
   ];
   assert.equal(eventDays(events).get("2026-11-04"), 1);
   assert.equal(eventDays(events).has("2026-11-05"), true);
-  const next = nextEventByApplication(events, NOW);
+  const next = nextEventByApplication(events);
   assert.equal(next.get("a1")?.next?.id, "a");
   assert.equal(next.get("a1")?.deadline?.id, "b");
-  assert.equal(next.get("a2")?.next, null, "a long-past event is not next");
+  assert.equal(next.get("a2")?.next?.id, "c", "an open event in the past stays, as it does on the plan");
+  const overdueDeadline = nextEventByApplication([ev("late", { application_id: "a9", kind: "take_home", due_at: at("2026-10-31", "18:00") })]);
+  assert.equal(overdueDeadline.get("a9")?.deadline?.id, "late", "a missed deadline stays visible");
   assert.equal(next.has("a3"), false);
   assert.equal(next.get("a4")?.next?.id, "e");
 });
@@ -444,4 +455,95 @@ test("sign-in lands on the plan unless a page asked to come back", () => {
   assert.equal(safeNextPath(null), "/app/next");
   assert.equal(safeNextPath("https://evil.example/app"), "/app/next");
   assert.equal(safeNextPath("/applications"), "/applications");
+});
+
+// ── The review's findings ────────────────────────────────────────────────────
+
+test("a call under way reads as happening now, never overdue", () => {
+  const e = ev("x", { starts_at: at("2026-11-03", "08:50"), ends_at: at("2026-11-03", "09:30") });
+  assert.deepEqual(describeTiming(e, NOW, LONDON), { when: "Tue 3 Nov, 08:50", left: "happening now", state: "now" });
+});
+
+test("a call that has ended asks for its outcome", () => {
+  const e = ev("x", { starts_at: at("2026-11-03", "07:00"), ends_at: at("2026-11-03", "08:00") });
+  const timing = describeTiming(e, NOW, LONDON);
+  assert.equal(timing?.left, "ended 1h ago: set the outcome");
+  assert.equal(timing?.state, "overdue");
+});
+
+test("a date with no time never gets hours, whatever reads it", () => {
+  const e = ev("x", { kind: "deadline", due_at: at("2026-11-03", "23:59"), date_only: true, timezone: LONDON });
+  assert.equal(describeTiming(e, NOW, LONDON)?.left, "due today");
+  assert.equal(describeTiming(ev("y", { kind: "deadline", due_at: at("2026-11-02", "23:59"), date_only: true }), NOW, LONDON)?.state, "overdue");
+});
+
+test("a date with no time stays on its own day in another zone", () => {
+  const e = ev("x", { kind: "deadline", due_at: at("2026-11-04", "23:59", "America/New_York"), date_only: true, timezone: "America/New_York" });
+  assert.equal(describeTiming(e, NOW, LONDON)?.when, "Wed 4 Nov", "04:59 on Thursday in London");
+  assert.equal(describeTiming(e, NOW, LONDON)?.left, "due tomorrow");
+  assert.equal(eventDays([e], LONDON).has("2026-11-04"), true);
+  const plan = buildPlan({ events: [e], applications: [app("a1", "interview")], now: NOW, tz: LONDON });
+  assert.equal(plan.groups[0].key, "tomorrow");
+});
+
+test("a deadline due today is not overdue in the last minute of the day", () => {
+  const lastMinute = zonedTimeToMs("2026-11-03", "23:59", LONDON) + 30_000;
+  const e = ev("x", { kind: "deadline", due_at: at("2026-11-03", "23:59"), date_only: true, timezone: LONDON });
+  const plan = buildPlan({ events: [e], applications: [app("a1", "interview")], now: lastMinute, tz: LONDON });
+  assert.equal(plan.groups[0].key, "today");
+});
+
+test("days since contact is only called contact when contact is recorded", () => {
+  const plan = buildPlan({
+    events: [],
+    applications: [
+      app("none", "interview", { date_applied: "2026-09-01" }),
+      app("heard", "interview", { date_applied: "2026-09-01", last_contact_at: at("2026-11-01", "10:00") }),
+    ],
+    now: NOW,
+  });
+  const row = (id: string) => plan.waiting.find((w) => w.application.id === id)!;
+  assert.equal(row("none").basis, "applied");
+  assert.equal(row("heard").basis, "contact");
+  assert.equal(row("heard").daysSinceContact, 2);
+});
+
+test("the page and the keyboard walk the same order, with booking straight after today", () => {
+  const applications = [app("a1", "interview")];
+  const events = [
+    ev("late", { starts_at: at("2026-11-25", "10:00") }),
+    ev("today", { starts_at: at("2026-11-03", "16:00") }),
+    ev("book", { status: "to_book" }),
+    ev("tomorrow", { starts_at: at("2026-11-04", "10:00") }),
+  ];
+  const plan = buildPlan({ events, applications, now: NOW });
+  assert.deepEqual(plan.sections.map((s) => s.key), ["today", "needs_booking", "tomorrow", "later"]);
+  assert.deepEqual(plan.ordered.map((i) => i.event.id), plan.sections.flatMap((s) => s.items.map((i) => i.event.id)));
+  assert.deepEqual(buildPlan({ events: [ev("book", { status: "to_book" }), ev("t", { starts_at: at("2026-11-04", "10:00") })], applications, now: NOW }).sections.map((s) => s.key), ["needs_booking", "tomorrow"]);
+});
+
+test("a countdown agrees with its group: Tomorrow never says in 2 days", () => {
+  const lateTonight = zonedTimeToMs("2026-11-03", "01:00", LONDON);
+  assert.equal(countdown(zonedTimeToMs("2026-11-04", "23:00", LONDON), lateTonight, { tz: LONDON }), "in 1 day");
+  assert.equal(countdown(zonedTimeToMs("2026-11-05", "01:30", LONDON), lateTonight, { tz: LONDON }), "in 2 days");
+  assert.equal(countdown(zonedTimeToMs("2026-11-03", "20:00", LONDON), lateTonight, { tz: LONDON }), "in 19h");
+});
+
+test("an offered slot with no stated end says so, so no length is stored as theirs", () => {
+  const given = suggestSlots({ windows: [], events: [], now: NOW, offered: [{ starts_at: at("2026-11-04", "11:00"), ends_at: at("2026-11-04", "11:30") }] }).slots[0];
+  const notGiven = suggestSlots({ windows: [], events: [], now: NOW, offered: [{ starts_at: at("2026-11-04", "11:00"), ends_at: null }] }).slots[0];
+  assert.equal(given.endGiven, true);
+  assert.equal(notGiven.endGiven, false);
+});
+
+test("a call with no stated length is judged by its kind's usual length", () => {
+  const a = ev("a", { kind: "interview", starts_at: at("2026-11-04", "10:00"), ends_at: null });
+  const b = ev("b", { kind: "interview", starts_at: at("2026-11-04", "11:00"), ends_at: null });
+  assert.equal(conflictsFor(a, [b], [])[0].kind, "too_close");
+  const running = describeTiming(ev("r", { kind: "interview", starts_at: at("2026-11-03", "08:30"), ends_at: null }), NOW, LONDON);
+  assert.equal(running?.state, "now", "30 minutes in, a 60-minute default has not ended");
+});
+
+test("an offered slot cannot end before it starts", () => {
+  assert.ok("error" in readEventInput({ offered_slots: [{ starts_at: at("2026-11-04", "11:00"), ends_at: at("2026-11-04", "10:00") }] }, true));
 });

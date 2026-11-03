@@ -2,8 +2,8 @@
 // write is also scoped by user id, and an event can only hang off the caller's own
 // application. No model call, so no burst limiter, like /api/applications.
 //
-// GET answers every event, hidden ones too, because the tracker's stage tabs show
-// a rejected row's history. The plan reads /api/plan, which filters.
+// GET answers every event, hidden ones too. The plan and the stage tabs read
+// /api/plan, which holds the one rule.
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { readEventInput } from "@/lib/plan";
@@ -13,12 +13,15 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const isUuid = (value: unknown): value is string => typeof value === "string" && UUID_RE.test(value);
 const needsMigration = () => NextResponse.json({ error: PLAN_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
 const notFound = () => NextResponse.json({ error: "Event not found" }, { status: 404 });
+// Open events only: finished ones never crowd the plan, and PostgREST answers at most
+// 1000 rows a request, so this is also what /api/plan can read in one go.
+const MAX_OPEN_EVENTS = 1000;
 
 export async function GET() {
   try {
     const caller = await signedIn();
     if (!caller) return unauthorized();
-    const { data, error } = await caller.supabase.from("application_events").select("*").order("created_at", { ascending: false }).limit(2000);
+    const { data, error } = await caller.supabase.from("application_events").select("*").order("created_at", { ascending: false }).limit(1000);
     if (isMissingPlanSchema(error)) return needsMigration();
     if (error) {
       console.error("events read error:", error.message);
@@ -54,6 +57,20 @@ export async function POST(req: NextRequest) {
       applicationId = body.application_id;
     } else if (read.fields.kind !== "networking") {
       return NextResponse.json({ error: "Pick the application this event belongs to." }, { status: 400 });
+    }
+
+    const { count, error: countError } = await supabase
+      .from("application_events")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .in("status", ["scheduled", "to_book"]);
+    if (isMissingPlanSchema(countError)) return needsMigration();
+    if (countError) {
+      console.error("events count error:", countError.message);
+      return NextResponse.json({ error: "Could not save that event" }, { status: 500 });
+    }
+    if ((count ?? 0) >= MAX_OPEN_EVENTS) {
+      return NextResponse.json({ error: `You have ${MAX_OPEN_EVENTS} open events. Mark some done or cancel them to add more.` }, { status: 400 });
     }
 
     const { data, error } = await supabase
@@ -93,6 +110,8 @@ export async function PUT(req: NextRequest) {
       .eq("user_id", userId)
       .select("*");
     if (isMissingPlanSchema(error)) return needsMigration();
+    // application_events_time_order: an end sent alone can be before the stored start.
+    if (error?.code === "23514") return NextResponse.json({ error: "The end time is before the start." }, { status: 400 });
     if (error) {
       console.error("events update error:", error.message);
       return NextResponse.json({ error: "Could not save that event" }, { status: 500 });

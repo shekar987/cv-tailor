@@ -89,14 +89,14 @@ export default function PipelineChart({ funnel }: { funnel: Funnel }) {
         </ResponsiveContainer>
       </div>
       <p className="cvHelp">
-        Select a stage to see those applications on the tracker. Stages have been recorded only since 3 November 2026, so an earlier rejection counts at Applied whatever stage it reached.
+        Select a stage to see those applications on the tracker. Stages have been recorded only since 3 November 2026, so an earlier rejection counts at Applied whatever stage it reached, and an earlier row shows only its current stage. "Went further" is out of those with an outcome from that stage; someone still there is not counted.
         {funnel.excluded > 0 ? ` ${funnel.excluded} unsent or withdrawn ${funnel.excluded === 1 ? "application is" : "applications are"} not counted.` : ""}
       </p>
       <details className="pipeTableWrap">
         <summary className="inlineLink">As a table</summary>
         <table className="pipeTable" data-pipe-table>
           <thead>
-            <tr><th scope="col">Stage</th><th scope="col">Reached</th><th scope="col">Here now</th><th scope="col">Rejected here</th><th scope="col">Ghosted here</th><th scope="col">Went further</th></tr>
+            <tr><th scope="col">Stage</th><th scope="col">Reached</th><th scope="col">Here now</th><th scope="col">Rejected here</th><th scope="col">Ghosted here</th><th scope="col">Went further, of those decided</th></tr>
           </thead>
           <tbody>
             {funnel.nodes.map((n) => (

@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 
     const [rows, eventsRead, windowsRead] = await Promise.all([
       readApplicationPages<PlanApplication>(() => supabase.from("applications").select(APPLICATION_COLUMNS) as unknown as OrderableQuery),
-      supabase.from("application_events").select("*").in("status", ["scheduled", "to_book"]).limit(2000),
+      supabase.from("application_events").select("*").in("status", ["scheduled", "to_book"]).order("created_at", { ascending: true }).limit(1000),
       supabase.from("availability_windows").select("*").limit(500),
     ]);
     if (isMissingPlanSchema(rows.error) || isMissingPlanSchema(eventsRead.error) || isMissingPlanSchema(windowsRead.error)) return needsMigration();

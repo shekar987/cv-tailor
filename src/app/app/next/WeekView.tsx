@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import Button from "@/components/ui/Button";
 import StatusText from "@/components/ui/StatusText";
 import {
-  conflictsFor, eventEndMs, eventMs, windowOnDay,
+  conflictsFor, displayZone, eventEndMs, eventMs, windowOnDay,
   type AvailabilityWindow, type PlanApplication, type PlanEvent,
 } from "@/lib/plan";
 import { addDays, clockTime, dayKey, mondayOf, shortDay } from "@/lib/planTime";
@@ -83,7 +83,7 @@ export default function WeekView({
       }
       const at = eventMs(e);
       if (at === null) continue;
-      const day = dayKey(at, tz);
+      const day = dayKey(at, displayZone(e, tz));
       if (e.date_only) { noTime.get(day)?.push(`${nameOf(e)}: ${e.title} due`); continue; }
       if (!e.starts_at) {
         const startMin = minutes(at);

@@ -4,8 +4,8 @@
 // decides what is live.
 import { isActiveStatus, normalizeStatus, type Status } from "./tracker.ts";
 import {
-  DAY_MS, DEFAULT_TIMEZONE, MINUTE_MS,
-  addDays, clockTime, dayKey, daysBetween, isClockTime, isDayKey, isValidTimeZone, longDay, mondayOf, weekdayOf, zonedTimeToMs,
+  DEFAULT_TIMEZONE, MINUTE_MS,
+  addDays, clockTime, countdown, dayKey, daysBetween, formatWhen, isClockTime, isDayKey, isValidTimeZone, longDay, mondayOf, span, weekdayOf, zonedTimeToMs,
 } from "./planTime.ts";
 
 export const EVENT_KINDS = ["screening_call", "interview", "assessment", "take_home", "deadline", "follow_up", "offer_deadline", "networking"] as const;
@@ -101,6 +101,12 @@ export function isDeadline(e: Pick<PlanEvent, "starts_at" | "due_at">): boolean 
   return !e.starts_at && !!e.due_at;
 }
 
+// A date-only deadline belongs to the day it was given in, wherever it is read: at
+// 23:59 in its own zone, it must not read as the next day from further east.
+export function displayZone(e: Pick<PlanEvent, "date_only" | "timezone">, tz: string): string {
+  return e.date_only ? e.timezone ?? tz : tz;
+}
+
 const DEFAULT_MINUTES: Partial<Record<EventKind, number>> = { screening_call: 30, networking: 30, follow_up: 15 };
 
 // A call with no stated end still takes time; deadlines take none.
@@ -119,6 +125,31 @@ export function stageWeight(e: Pick<PlanEvent, "kind" | "stage_label">, applicat
   if (e.kind === "screening_call") return 40;
   if (e.kind === "networking") return 30;
   return 20;
+}
+
+export type Timing = { when: string; left: string; state: "upcoming" | "now" | "overdue" };
+
+/**
+ * The one description of when an event is, for the card, the hero, the screen
+ * reader's line and the stage tabs: a call under way is happening now, a call that
+ * has ended asks for its outcome, and a date with no time counts in days.
+ */
+export function describeTiming(e: PlanEvent, now: number, tz: string): Timing | null {
+  const at = eventMs(e);
+  if (at === null) return null;
+  const zone = displayZone(e, tz);
+  const when = formatWhen(at, zone, e.date_only);
+  if (e.date_only) {
+    const overdue = dayKey(at, zone) < dayKey(now, zone);
+    return { when, left: countdown(at, now, { dateOnly: true, tz: zone }), state: overdue ? "overdue" : "upcoming" };
+  }
+  if (e.starts_at) {
+    const end = eventEndMs(e) ?? at;
+    if (at <= now && now <= end) return { when, left: "happening now", state: "now" };
+    if (end < now) return { when, left: `ended ${span(now - end)} ago: set the outcome`, state: "overdue" };
+    return { when, left: countdown(at, now, { tz: zone }), state: "upcoming" };
+  }
+  return { when, left: countdown(at, now, { due: true, tz: zone }), state: at < now ? "overdue" : "upcoming" };
 }
 
 const OVERDUE_BASE = 5000;
@@ -153,21 +184,28 @@ export const PLAN_GROUP_LABELS: Record<PlanGroupKey, string> = {
 };
 
 export type PlanItem = { event: PlanEvent; application: PlanApplication | null; score: number; at: number | null };
-export type WaitingItem = { application: PlanApplication; daysSinceContact: number | null; nudge: 7 | 14 | 21 | null };
+// "contact": days since a recorded contact. "applied": none is recorded, so the
+// count is from the date applied and must not be worded as contact.
+export type WaitingItem = { application: PlanApplication; daysSinceContact: number | null; basis: "contact" | "applied"; nudge: 7 | 14 | 21 | null };
+export type PlanSection = { key: PlanGroupKey | "needs_booking"; label: string; items: PlanItem[] };
 export type Plan = {
   groups: { key: PlanGroupKey; label: string; items: PlanItem[] }[];
   needsBooking: PlanItem[];
+  // What the page draws, top to bottom: an unanswered slot offer sits straight after
+  // today, because it can lose the interview.
+  sections: PlanSection[];
   waiting: WaitingItem[];
   nextUp: PlanItem | null;
-  // Every item in the order the keyboard walks it.
+  // Every item in the order the page draws it, and the keyboard walks it.
   ordered: PlanItem[];
 };
 
 function groupOf(e: PlanEvent, at: number, now: number, tz: string): PlanGroupKey {
-  const endOfEvent = e.starts_at ? (eventEndMs(e) ?? at) : at;
-  if (endOfEvent < now) return "overdue";
-  const today = dayKey(now, tz);
-  const day = dayKey(at, tz);
+  const zone = displayZone(e, tz);
+  const today = dayKey(now, zone);
+  const day = dayKey(at, zone);
+  const overdue = e.date_only ? day < today : (e.starts_at ? eventEndMs(e) ?? at : at) < now;
+  if (overdue) return "overdue";
   if (day <= today) return "today";
   if (day === addDays(today, 1)) return "tomorrow";
   const nextMonday = addDays(mondayOf(today), 7);
@@ -176,7 +214,7 @@ function groupOf(e: PlanEvent, at: number, now: number, tz: string): PlanGroupKe
   return "later";
 }
 
-/** Whole days since anything was heard or sent: the last contact, else the date applied. */
+/** Whole days since the last recorded contact, else since the date applied (see WaitingItem's basis). */
 export function daysSinceContact(a: Pick<PlanApplication, "last_contact_at" | "date_applied">, now: number, tz: string): number | null {
   const stamp = a.last_contact_at ? Date.parse(a.last_contact_at) : Date.parse(`${a.date_applied ?? ""}T12:00:00Z`);
   if (!Number.isFinite(stamp)) return null;
@@ -218,23 +256,18 @@ export function buildPlan(input: { events: readonly PlanEvent[]; applications: r
     .filter((a) => !busy.has(a.id))
     .map((application) => {
       const days = daysSinceContact(application, now, tz);
-      return { application, daysSinceContact: days, nudge: followUpNudge(days) };
+      return { application, daysSinceContact: days, basis: application.last_contact_at ? ("contact" as const) : ("applied" as const), nudge: followUpNudge(days) };
     })
     .sort((a, b) => (b.daysSinceContact ?? -1) - (a.daysSinceContact ?? -1) || a.application.company_name.localeCompare(b.application.company_name));
 
-  // Overdue, then Today … with Needs booking straight after Today, as scored.
-  const ordered: PlanItem[] = [];
-  for (const g of groups) {
-    ordered.push(...g.items);
-    if (g.key === "today") ordered.push(...needsBooking);
+  const sections: PlanSection[] = [...groups];
+  if (needsBooking.length > 0) {
+    const after = Math.max(sections.findIndex((g) => g.key === "today"), sections.findIndex((g) => g.key === "overdue"));
+    sections.splice(after + 1, 0, { key: "needs_booking", label: "Needs booking", items: needsBooking });
   }
-  if (!groups.some((g) => g.key === "today")) {
-    const after = groups.findIndex((g) => g.key !== "overdue");
-    const at = after === -1 ? ordered.length : groups.slice(0, after).reduce((n, g) => n + g.items.length, 0);
-    ordered.splice(at, 0, ...needsBooking);
-  }
+  const ordered = sections.flatMap((s) => s.items);
   const nextUp = [...items].filter((i) => i.event.status === "scheduled" && i.at !== null && (eventEndMs(i.event) ?? i.at) >= now).sort((a, b) => (a.at ?? 0) - (b.at ?? 0))[0] ?? null;
-  return { groups, needsBooking, waiting, nextUp, ordered };
+  return { groups, needsBooking, sections, waiting, nextUp, ordered };
 }
 
 // ── Conflicts ───────────────────────────────────────────────────────────────
@@ -331,7 +364,9 @@ export function findConflicts(events: readonly PlanEvent[], windows: readonly Av
 export const DEFAULT_FREE_START = "09:00";
 export const DEFAULT_FREE_END = "17:30";
 
-export type SuggestedSlot = { start: number; end: number; offered: boolean };
+// endGiven: false when the employer offered a start only, so `end` is an assumption
+// for the clash check and must not be stored as if they had said it.
+export type SuggestedSlot = { start: number; end: number; offered: boolean; endGiven: boolean };
 
 function subtract(intervals: Interval[], block: Interval): Interval[] {
   const out: Interval[] = [];
@@ -378,7 +413,7 @@ export function suggestSlots(input: {
       if (!Number.isFinite(start) || start <= input.now) continue;
       const parsedEnd = Date.parse(offer.ends_at ?? "");
       const end = Number.isFinite(parsedEnd) ? parsedEnd : start + durationMs;
-      if (!blocked({ start, end })) slots.push({ start, end, offered: true });
+      if (!blocked({ start, end })) slots.push({ start, end, offered: true, endGiven: Number.isFinite(parsedEnd) });
     }
     return { slots: slots.sort((a, b) => a.start - b.start).slice(0, count), usedDefaultHours: false };
   }
@@ -414,7 +449,7 @@ export function suggestSlots(input: {
     if (picked.length < count && !picked.includes(f)) picked.push(f);
   }
   return {
-    slots: picked.sort((a, b) => a.at.start - b.at.start).map((f) => ({ start: f.at.start, end: f.at.end, offered: false })),
+    slots: picked.sort((a, b) => a.at.start - b.at.start).map((f) => ({ start: f.at.start, end: f.at.end, offered: false, endGiven: true })),
     usedDefaultHours,
   };
 }
@@ -464,7 +499,10 @@ export type FunnelNode = {
   here: number;
   rejected: number;
   ghosted: number;
-  // The share who went further; null under FUNNEL_MIN_GROUP, or at the last step.
+  // Who has an outcome from this step: went further, or ended here.
+  decided: number;
+  // Of those decided, the share who went further; null under FUNNEL_MIN_GROUP
+  // decided, or at the last step. Someone still here has not decided anything.
   furtherRate: number | null;
   tooFew: boolean;
 };
@@ -516,12 +554,13 @@ export function buildFunnel(rows: readonly FunnelRow[]): Funnel {
     const last = counts.get(path[path.length - 1])!;
     if (status === "rejected") { last.rejected++; rejected++; addLink(path[path.length - 1], "rejected"); }
     else if (status === "ghosted") { last.ghosted++; ghosted++; addLink(path[path.length - 1], "ghosted"); }
-    else last.here++;
+    else counts.get(status as FunnelStep)!.here++;
   }
   const nodes: FunnelNode[] = FUNNEL_STEPS.map((key) => {
     const c = counts.get(key)!;
-    const tooFew = c.count < FUNNEL_MIN_GROUP;
-    return { key, label: FUNNEL_LABELS[key], count: c.count, here: c.here, rejected: c.rejected, ghosted: c.ghosted, furtherRate: tooFew || key === "accepted" ? null : c.further / c.count, tooFew };
+    const decided = c.further + c.rejected + c.ghosted;
+    const tooFew = decided < FUNNEL_MIN_GROUP;
+    return { key, label: FUNNEL_LABELS[key], count: c.count, here: c.here, rejected: c.rejected, ghosted: c.ghosted, decided, furtherRate: tooFew || key === "accepted" ? null : c.further / decided, tooFew };
   });
   return { nodes, links: [...links.values()], rejected, ghosted, total, excluded };
 }
@@ -613,7 +652,7 @@ export function readEventInput(body: Record<string, unknown>, partial: boolean):
       const slot = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
       const start = isoOrNull(slot.starts_at);
       const end = isoOrNull(slot.ends_at ?? null);
-      if (!start || end === undefined) return { error: "Enter a valid date and time for each offered slot." };
+      if (!start || end === undefined || (end && Date.parse(end) < Date.parse(start))) return { error: "Enter a valid date and time for each offered slot." };
       slots.push({ starts_at: start, ends_at: end });
     }
     fields.offered_slots = slots;
@@ -661,24 +700,22 @@ export function eventDays(events: readonly PlanEvent[], tz: string = DEFAULT_TIM
   for (const e of events) {
     const at = eventMs(e);
     if (at === null || e.status === "to_book") continue;
-    const key = dayKey(at, tz);
+    const key = dayKey(at, displayZone(e, tz));
     days.set(key, (days.get(key) ?? 0) + 1);
   }
   return days;
 }
 
-/** The next event per application, for the stage tabs' columns. */
-export function nextEventByApplication(events: readonly PlanEvent[], now: number): Map<string, { next: PlanEvent | null; deadline: PlanEvent | null }> {
+/** The next open event per application, overdue included, as the plan shows it, for the stage tabs' columns. */
+export function nextEventByApplication(events: readonly PlanEvent[]): Map<string, { next: PlanEvent | null; deadline: PlanEvent | null }> {
   const out = new Map<string, { next: PlanEvent | null; deadline: PlanEvent | null }>();
   const sorted = events
     .filter((e) => e.application_id && OPEN_EVENT.has(e.status))
     .sort((a, b) => (eventMs(a) ?? Infinity) - (eventMs(b) ?? Infinity));
   for (const e of sorted) {
     const entry = out.get(e.application_id!) ?? { next: null, deadline: null };
-    const at = eventMs(e);
-    const upcoming = at === null || at >= now - DAY_MS;
-    if (!entry.next && upcoming) entry.next = e;
-    if (!entry.deadline && e.due_at && upcoming) entry.deadline = e;
+    if (!entry.next) entry.next = e;
+    if (!entry.deadline && e.due_at) entry.deadline = e;
     out.set(e.application_id!, entry);
   }
   return out;

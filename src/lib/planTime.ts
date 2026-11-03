@@ -136,7 +136,8 @@ export function formatWhen(ms: number, tz: string, dateOnly = false): string {
   return dateOnly ? day : `${day}, ${clockTime(ms, tz)}`;
 }
 
-function span(diffMs: number): string {
+/** "45m", "3h 20m", "2 days". */
+export function span(diffMs: number): string {
   const minutes = Math.round(diffMs / MINUTE_MS);
   if (minutes < 1) return "under a minute";
   if (minutes < 60) return `${minutes}m`;
@@ -161,5 +162,10 @@ export function countdown(ms: number, now: number, opts: { due?: boolean; dateOn
   }
   const diff = ms - now;
   if (diff < 0) return `${span(-diff)} overdue`;
+  // Past a day, count the days on the calendar, so "Tomorrow" never says "in 2 days".
+  if (diff >= DAY_MS) {
+    const days = daysBetween(dayKey(now, tz), dayKey(ms, tz));
+    return `${opts.due ? "due in" : "in"} ${days === 1 ? "1 day" : `${days} days`}`;
+  }
   return `${opts.due ? "due in" : "in"} ${span(diff)}`;
 }

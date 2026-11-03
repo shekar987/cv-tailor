@@ -116,6 +116,12 @@ export function hasProgressed(status: unknown): boolean {
   return !!s && PROGRESSED.has(s);
 }
 
+// An outcome with no progress: a rejection, or a silence the user has called Ghosted.
+export function endedWithoutProgress(status: unknown): boolean {
+  const s = normalizeStatus(status);
+  return s === "rejected" || s === "ghosted";
+}
+
 // A follow-up is "due" while the application is still moving — a date in the
 // past on a Rejected row is history, and a row that was never sent has nothing
 // to follow up.

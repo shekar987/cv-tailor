@@ -10,11 +10,11 @@ import StatusText from "@/components/ui/StatusText";
 import EventForm, { type EventFormMode } from "@/app/app/next/EventForm";
 import { KindTag, StageChip, browserTimeZone, copyText } from "@/app/app/next/planUi";
 import {
-  eventMs, feedbackRequest, isDeadline, nextEventByApplication,
+  describeTiming, displayZone, eventMs, feedbackRequest, nextEventByApplication,
   type AvailabilityWindow, type PlanEvent,
 } from "@/lib/plan";
-import { DEFAULT_TIMEZONE, HOUR_MS, countdown, formatWhen, shortDay, dayKey } from "@/lib/planTime";
-import { PAGE_SIZE, STATUSES, STATUS_LABELS, normalizeStatus, type Status } from "@/lib/tracker";
+import { HOUR_MS, formatWhen, shortDay, dayKey } from "@/lib/planTime";
+import { PAGE_SIZE, STATUSES, STATUS_LABELS, isActiveStatus, normalizeStatus, type Status } from "@/lib/tracker";
 
 export type StageRow = {
   id: string;
@@ -32,7 +32,7 @@ type SortKey = "next" | "deadline" | "contact" | "company";
 const DEADLINE_SOON_MS = 48 * HOUR_MS;
 
 export default function StageTable({
-  rows, stage, includePast, onStatus, onReason, onOpenSheet,
+  rows, stage, includePast, onStatus, onReason, onOpenSheet, onMoved,
 }: {
   rows: readonly StageRow[];
   stage: Status;
@@ -40,6 +40,7 @@ export default function StageTable({
   onStatus: (row: StageRow, status: Status) => void;
   onReason: (row: StageRow, reason: string) => void;
   onOpenSheet: (row: StageRow) => void;
+  onMoved: (id: string, status: Status, message: string) => void;
 }) {
   const [events, setEvents] = useState<PlanEvent[] | null>(null);
   const [windows, setWindows] = useState<AvailabilityWindow[]>([]);
@@ -48,23 +49,23 @@ export default function StageTable({
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({ key: "next", asc: true });
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [copied, setCopied] = useState<string | null>(null);
-  const [now] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
   const [tz] = useState(browserTimeZone);
 
   async function loadEvents(signal?: { cancelled: boolean }) {
     try {
-      const [ev, av] = await Promise.all([fetch("/api/events"), fetch("/api/availability")]);
+      // The plan's own read: what a closed application holds stays hidden here too.
+      const res = await fetch("/api/plan");
       if (signal?.cancelled) return;
-      const body = await ev.json().catch(() => ({}));
-      const windowsBody = await av.json().catch(() => ({}));
+      const body = await res.json().catch(() => ({}));
       if (signal?.cancelled) return;
-      if (!ev.ok) {
+      if (!res.ok) {
         setEvents([]);
         setLoadError(body.error || "Could not load your events.");
         return;
       }
       setEvents(body.events ?? []);
-      setWindows(windowsBody.windows ?? []);
+      setWindows(body.availability ?? []);
       setLoadError("");
     } catch {
       if (!signal?.cancelled) {
@@ -78,13 +79,14 @@ export default function StageTable({
     const signal = { cancelled: false };
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the first read of the table's events
     void loadEvents(signal);
-    return () => { signal.cancelled = true; };
+    const tick = setInterval(() => setNow(Date.now()), 60_000);
+    return () => { signal.cancelled = true; clearInterval(tick); };
   }, []);
 
-  const next = useMemo(() => nextEventByApplication(events ?? [], now), [events, now]);
+  const next = useMemo(() => nextEventByApplication(events ?? []), [events]);
   const sorted = useMemo(() => {
     const value = (row: StageRow): number | string | null => {
-      const entry = next.get(row.id);
+      const entry = isActiveStatus(row.status) ? next.get(row.id) : undefined;
       // A row still to book sorts after the dated ones and before those with nothing.
       if (sort.key === "next") return entry?.next ? eventMs(entry.next) ?? Number.MAX_SAFE_INTEGER : null;
       if (sort.key === "deadline") return entry?.deadline ? eventMs(entry.deadline) : null;
@@ -137,9 +139,9 @@ export default function StageTable({
         </thead>
         <tbody>
           {sorted.slice(0, limit).map((row) => {
-            const entry = next.get(row.id);
+            const entry = isActiveStatus(row.status) ? next.get(row.id) : undefined;
             const event = entry?.next ?? null;
-            const at = event ? eventMs(event) : null;
+            const timing = event && event.status !== "to_book" ? describeTiming(event, now, tz) : null;
             const deadline = entry?.deadline ?? null;
             const dueAt = deadline ? eventMs(deadline) : null;
             const soon = dueAt !== null && dueAt - now < DEADLINE_SOON_MS;
@@ -169,10 +171,10 @@ export default function StageTable({
                 <td data-label="Next event" data-stage-next>
                   {event && event.status === "to_book" ? (
                     <span>To book</span>
-                  ) : at !== null && event ? (
+                  ) : timing ? (
                     <>
-                      <span>{formatWhen(at, event.timezone ?? tz, event.date_only)}</span>
-                      <span className="cvHelp">{countdown(at, now, { due: isDeadline(event), dateOnly: event.date_only, tz: event.timezone ?? DEFAULT_TIMEZONE })}</span>
+                      <span>{timing.when}</span>
+                      <span className="cvHelp">{timing.left}</span>
                     </>
                   ) : (
                     <span className="cvHelp">None</span>
@@ -183,7 +185,7 @@ export default function StageTable({
                   {dueAt !== null && deadline ? (
                     <span className="stageDue">
                       {soon && <Icon name="alert" />}
-                      {formatWhen(dueAt, deadline.timezone ?? tz, deadline.date_only)}
+                      {formatWhen(dueAt, displayZone(deadline, tz), deadline.date_only)}
                       {soon && <span className="srOnly"> (under 48 hours)</span>}
                     </span>
                   ) : <span className="cvHelp">None</span>}
@@ -248,8 +250,9 @@ export default function StageTable({
           otherEvents={scheduled}
           windows={windows}
           onClose={() => setForm(null)}
-          onSaved={() => {
+          onSaved={(message, moved) => {
             setForm(null);
+            if (moved) onMoved(moved.id, moved.status, message);
             void loadEvents();
           }}
         />

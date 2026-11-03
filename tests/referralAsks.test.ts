@@ -96,3 +96,7 @@ test("the editor shows the row's referral; its fields only once a referral is on
   assert.doesNotMatch(off, /data-referrer-name/);
   assert.match(off, /Save referral/);
 });
+test("a ghosted or won row owes no referral action", () => {
+  const row = (company_name: string, status: string): ReferralRow => ({ id: company_name, role: "Engineer", referral: true, referral_status: "offered", company_name, status, date_applied: "2026-10-20" });
+  assert.deepEqual(referralAsks([row("Ghost", "ghosted"), row("Won", "accepted"), row("Open", "applied")]).map((r) => r.company_name), ["Open"]);
+});

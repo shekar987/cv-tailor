@@ -1,9 +1,11 @@
 "use client";
 
 // Add or reschedule one event. The clash warning runs as the user types and never
-// blocks. Adding an event to an application that is not active moves it to the
-// matching stage, and says so first: otherwise the event would be hidden at once by
-// the plan's own rule. Shared by /app/next and the tracker's stage tabs.
+// blocks. A call, interview, assessment or offer on an application that is not
+// active means it has reached that stage, so saving moves it there (the user can
+// untick that). A reminder or a networking call says nothing about the stage, so it
+// moves nothing, and the form says it stays off the plan until the row is active.
+// Shared by /app/next and the tracker's stage tabs.
 import { useEffect, useMemo, useRef, useState } from "react";
 import Button from "@/components/ui/Button";
 import StatusText from "@/components/ui/StatusText";
@@ -16,21 +18,19 @@ import { STATUS_LABELS, isActiveStatus, normalizeStatus, statusLabel, type Statu
 
 export type EventFormMode =
   | { type: "new"; application?: Pick<PlanApplication, "id" | "company_name" | "role" | "status"> | null; preset?: Partial<PlanEvent> }
-  | { type: "edit"; event: PlanEvent; application?: Pick<PlanApplication, "id" | "company_name" | "role" | "status"> | null };
+  | { type: "edit"; event: PlanEvent; application?: Pick<PlanApplication, "id" | "company_name" | "role" | "status"> | null; when?: "time" };
 
 type When = "time" | "deadline" | "book";
 type PickerRow = Pick<PlanApplication, "id" | "company_name" | "role" | "status">;
 
 const DEADLINE_KINDS: ReadonlySet<EventKind> = new Set<EventKind>(["assessment", "take_home", "deadline", "offer_deadline", "follow_up"]);
-const STAGE_FOR_KIND: Record<EventKind, Status> = {
+// The stage an event proves. A deadline, a follow-up or a networking call proves none.
+const STAGE_FOR_KIND: Partial<Record<EventKind, Status>> = {
   screening_call: "screening",
   interview: "interview",
   assessment: "assessment",
   take_home: "assessment",
-  deadline: "screening",
-  follow_up: "screening",
   offer_deadline: "offer",
-  networking: "screening",
 };
 const DEFAULT_TITLES: Record<EventKind, string> = { ...EVENT_KIND_LABELS };
 
@@ -46,6 +46,7 @@ export function describeConflict(c: Conflict, tz: string): string {
 }
 
 function initialWhen(mode: EventFormMode): When {
+  if (mode.type === "edit" && mode.when) return mode.when;
   const e = mode.type === "edit" ? mode.event : mode.preset;
   if (e?.status === "to_book") return "book";
   if (e?.due_at && !e.starts_at) return "deadline";
@@ -63,7 +64,7 @@ export default function EventForm({
   otherEvents: readonly PlanEvent[];
   windows: readonly AvailabilityWindow[];
   onClose: () => void;
-  onSaved: (message: string) => void;
+  onSaved: (message: string, moved?: { id: string; status: Status }) => void;
 }) {
   const existing = mode.type === "edit" ? mode.event : null;
   const seed = existing ?? (mode.type === "new" ? mode.preset : undefined);
@@ -82,7 +83,8 @@ export default function EventForm({
   const [date, setDate] = useState(Number.isFinite(seedAt) ? dayKey(seedAt, zone) : "");
   const [time, setTime] = useState(Number.isFinite(seedAt) && !seed?.date_only ? clockTime(seedAt, zone) : "");
   const [noTime, setNoTime] = useState(seed?.date_only === true);
-  const [duration, setDuration] = useState(Number.isFinite(seedAt) && Number.isFinite(seedEnd) ? Math.max(5, Math.round((seedEnd - seedAt) / MINUTE_MS)) : 30);
+  // Blank unless they said how long: a length nobody gave is never stored.
+  const [duration, setDuration] = useState(Number.isFinite(seedAt) && Number.isFinite(seedEnd) ? String(Math.max(5, Math.round((seedEnd - seedAt) / MINUTE_MS))) : "");
   const [timezone, setTimezone] = useState(zone);
   const [link, setLink] = useState(seed?.location_or_link ?? "");
   const [contact, setContact] = useState(seed?.contact_name ?? "");
@@ -91,6 +93,9 @@ export default function EventForm({
     const ms = Date.parse(s.starts_at);
     return { date: dayKey(ms, zone), time: clockTime(ms, zone) };
   }));
+  const [moveIt, setMoveIt] = useState(true);
+  // Set once the event is saved, so a retry after a failed move never adds a second one.
+  const [savedId, setSavedId] = useState<string | null>(existing?.id ?? null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -132,11 +137,14 @@ export default function EventForm({
     if (when !== "time" || !date || !time) return null;
     const start = zonedTimeToMs(date, time, timezone);
     if (!Number.isFinite(start)) return null;
-    return { id: existing?.id ?? "new", application_id: application?.id ?? null, kind, title: title || EVENT_KIND_LABELS[kind], status: "scheduled", starts_at: new Date(start).toISOString(), ends_at: new Date(start + duration * MINUTE_MS).toISOString() };
+    const minutes = Number(duration);
+    return { id: existing?.id ?? "new", application_id: application?.id ?? null, kind, title: title || EVENT_KIND_LABELS[kind], status: "scheduled", starts_at: new Date(start).toISOString(), ends_at: minutes > 0 ? new Date(start + minutes * MINUTE_MS).toISOString() : null };
   }, [when, date, time, timezone, duration, kind, title, existing, application]);
   const clashes = candidate ? conflictsFor(candidate, otherEvents, windows, { tz }) : [];
 
-  const movesTo = application && !isActiveStatus(application.status) && kind !== "networking" ? STAGE_FOR_KIND[kind] : null;
+  const inactive = !!application && !isActiveStatus(application.status);
+  const impliedStage = inactive ? STAGE_FOR_KIND[kind] ?? null : null;
+  const movesTo = impliedStage && moveIt ? impliedStage : null;
 
   function trapTab(e: React.KeyboardEvent) {
     if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
@@ -172,24 +180,28 @@ export default function EventForm({
     }
     if (!time) return "Pick a time.";
     const start = zonedTimeToMs(date, time, timezone);
-    return { ...base, status: "scheduled", starts_at: new Date(start).toISOString(), ends_at: new Date(start + duration * MINUTE_MS).toISOString(), due_at: null, date_only: false, offered_slots: [] };
+    const minutes = Number(duration);
+    return { ...base, status: "scheduled", starts_at: new Date(start).toISOString(), ends_at: minutes > 0 ? new Date(start + minutes * MINUTE_MS).toISOString() : null, due_at: null, date_only: false, offered_slots: [] };
   }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (!application && kind !== "networking") { setError("Pick the application this event belongs to."); return; }
+    if (!existing && !application && kind !== "networking") { setError("Pick the application this event belongs to."); return; }
     const body = payload();
     if (typeof body === "string") { setError(body); return; }
     setSaving(true);
+    let savedNow = savedId;
     try {
       const res = await fetch("/api/events", {
-        method: existing ? "PUT" : "POST",
+        method: savedId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(existing ? { id: existing.id, ...body } : { ...body, application_id: application?.id ?? null }),
+        body: JSON.stringify(savedId ? { id: savedId, ...body } : { ...body, application_id: application?.id ?? null }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error || "Could not save that event."); return; }
+      savedNow = data.event?.id ?? savedId;
+      setSavedId(savedNow);
       if (movesTo && application) {
         const moved = await fetch("/api/applications", {
           method: "PUT",
@@ -198,13 +210,21 @@ export default function EventForm({
         });
         if (!moved.ok) {
           const detail = await moved.json().catch(() => ({}));
-          setError(detail.error || `The event is saved, but ${application.company_name} could not move to ${STATUS_LABELS[movesTo]}, so it stays hidden.`);
+          setError(`The event is saved, but ${application.company_name} did not move to ${STATUS_LABELS[movesTo]}, so it stays off your plan.${detail.error ? ` ${detail.error}` : ""} Saving again will not add a second event.`);
           return;
         }
       }
-      onSaved(existing ? "Event updated." : movesTo ? `Event added, and ${application?.company_name} moved to ${STATUS_LABELS[movesTo]}.` : "Event added.");
+      const hidden = inactive && !movesTo;
+      const message = existing
+        ? "Event updated."
+        : movesTo
+          ? `Event added, and ${application?.company_name} moved to ${STATUS_LABELS[movesTo]}.`
+          : hidden
+            ? `Event saved. It stays off your plan until ${application?.company_name} reaches Screening or later.`
+            : "Event added.";
+      onSaved(message, movesTo && application ? { id: application.id, status: movesTo } : undefined);
     } catch {
-      setError("Couldn't reach the server. Try again.");
+      setError(savedNow ? "The event is saved, but the application could not be moved: couldn't reach the server. Saving again will not add a second event." : "Couldn't reach the server. Try again.");
     } finally {
       setSaving(false);
     }
@@ -247,7 +267,7 @@ export default function EventForm({
 
           <div className="planField">
             <label className="label" htmlFor="evKind">Kind</label>
-            <select id="evKind" className="textInput" value={kind} onChange={(e) => {
+            <select id="evKind" className="textInput" value={kind} disabled={!!existing && !existing.application_id} onChange={(e) => {
               const next = e.target.value as EventKind;
               setKind(next);
               if (!existing && !date) setWhen(DEADLINE_KINDS.has(next) ? "deadline" : "time");
@@ -295,7 +315,7 @@ export default function EventForm({
           {when === "time" && (
             <div className="planField">
               <label className="label" htmlFor="evDuration">Length (minutes)</label>
-              <input id="evDuration" type="number" min={5} max={480} step={5} className="textInput" value={duration} onChange={(e) => setDuration(Number(e.target.value) || 30)} />
+              <input id="evDuration" type="number" min={5} max={480} step={5} className="textInput" value={duration} placeholder="Not stated" onChange={(e) => setDuration(e.target.value)} data-event-duration />
             </div>
           )}
           <div className="planField">
@@ -338,9 +358,15 @@ export default function EventForm({
               <li className="cvHelp">You can still save it.</li>
             </ul>
           )}
-          {movesTo && application && (
-            <p className="cvHelp planField--wide" data-event-move>
-              {application.company_name} is {statusLabel(normalizeStatus(application.status))}. Saving moves it to {STATUS_LABELS[movesTo]}, so this event shows on your plan.
+          {inactive && application && impliedStage && (
+            <label className="planRadio planField--wide" data-event-move>
+              <input type="checkbox" checked={moveIt} onChange={(e) => setMoveIt(e.target.checked)} data-event-move-toggle />
+              {application.company_name} is {statusLabel(normalizeStatus(application.status))}. Move it to {STATUS_LABELS[impliedStage]}, so this shows on your plan.
+            </label>
+          )}
+          {inactive && application && !movesTo && (
+            <p className="cvHelp planField--wide" data-event-hidden>
+              This stays off your plan until {application.company_name} reaches Screening or later.
             </p>
           )}
           {error && <StatusText tone="error" role="alert" className="planField--wide">{error}</StatusText>}

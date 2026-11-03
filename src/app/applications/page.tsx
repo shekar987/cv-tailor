@@ -33,6 +33,7 @@ import {
   normalizeStatus,
   statusLabel,
   hasProgressed,
+  endedWithoutProgress,
   READY_TO_SUBMIT,
   isFollowupDue,
   findDuplicateApplication,
@@ -302,7 +303,7 @@ export function laneStats(rows: { role: string; status: string }[]): Lane[] {
   return (["junior", "mid", "senior"] as Seniority[]).map((level) => {
     const lane = rows.filter((r) => { const s = normalizeStatus(r.status); return s !== "saved" && s !== "withdrawn" && seniorityOf(r.role) === level; });
     const progressed = lane.filter((r) => hasProgressed(r.status)).length;
-    const decided = progressed + lane.filter((r) => normalizeStatus(r.status) === "rejected").length;
+    const decided = progressed + lane.filter((r) => endedWithoutProgress(r.status)).length;
     return { level, applied: lane.length, decided, progressed, rate: decided >= MIN_DECIDED ? progressed / decided : null };
   });
 }
@@ -1871,7 +1872,7 @@ export default function ApplicationsPage() {
             </button>
           </div>
         )}
-        {statusFilter !== "All" && isStageTab(statusFilter) && !stageSheet ? (
+        {statusFilter !== "All" && isStageTab(statusFilter) && !stageSheet && !newRow ? (
           visible.length > 0 && (
             <StageTable
               key={statusFilter}
@@ -1888,7 +1889,14 @@ export default function ApplicationsPage() {
               onOpenSheet={(row) => {
                 setStageSheet(true);
                 const full = rowsRef.current.find((r) => r.id === row.id);
-                if (full) togglePanel(full, "notes");
+                if (!full) return;
+                // A past row is not on this tab's sheet: open its own, so the panel shows.
+                if (!inStageTab(full.status, statusFilter)) setStatusFilter(full.status);
+                togglePanel(full, "notes");
+              }}
+              onMoved={(id, status, message) => {
+                setRows((rs) => rs.map((r) => (r.id === id ? { ...r, status } : r)));
+                showFlash(message);
               }}
             />
           )

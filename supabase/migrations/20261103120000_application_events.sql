@@ -29,7 +29,11 @@ alter table public.applications add constraint applications_status_check check (
 
 -- A trigger, not the API, so a status written by anything is recorded. No
 -- history exists before this migration: an earlier rejection reads as
--- ['applied', 'rejected'], and the funnel says so.
+-- ['applied', 'rejected'], and the funnel says so. The history stays true when a
+-- status is corrected: an application has one ending, so leaving Rejected removes
+-- it, and a move back to an earlier stage drops the later ones (an undo, or a
+-- mis-pick in the status list). Interview and assessment share a rank, because
+-- they come in either order. An ending keeps the path that led to it.
 create or replace function public.applications_record_stage()
 returns trigger
 language plpgsql
@@ -37,10 +41,21 @@ set search_path = ''
 as $func$
 declare
   stage text := case new.status when 'Ready to submit' then 'saved' else lower(new.status) end;
+  endings constant text[] := array['rejected', 'withdrawn', 'ghosted'];
+  history text[];
 begin
-  if not (coalesce(new.stages_reached, '{}') @> array[stage]) then
-    new.stages_reached := coalesce(new.stages_reached, '{}') || stage;
+  select coalesce(array_agg(s order by o), '{}') into history
+  from unnest(coalesce(new.stages_reached, '{}')) with ordinality as t(s, o)
+  where s <> all (endings)
+    and (
+      stage = any (endings)
+      or case s when 'saved' then 0 when 'applied' then 1 when 'screening' then 2 when 'interview' then 3 when 'assessment' then 3 when 'offer' then 4 when 'accepted' then 5 else 9 end
+        <= case stage when 'saved' then 0 when 'applied' then 1 when 'screening' then 2 when 'interview' then 3 when 'assessment' then 3 when 'offer' then 4 when 'accepted' then 5 else 9 end
+    );
+  if not (history @> array[stage]) then
+    history := history || stage;
   end if;
+  new.stages_reached := history;
   return new;
 end;
 $func$;

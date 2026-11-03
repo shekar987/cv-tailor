@@ -6,10 +6,10 @@ import { useState } from "react";
 import Link from "next/link";
 import Icon from "@/components/ui/Icon";
 import {
-  bookingReply, eventEndMs, isDeadline, suggestSlots,
+  bookingReply, describeTiming, suggestSlots,
   type AvailabilityWindow, type PlanEvent, type PlanItem, type SuggestedSlot,
 } from "@/lib/plan";
-import { clockTime, countdown, dayKey, formatWhen, longDay } from "@/lib/planTime";
+import { clockTime, dayKey, longDay } from "@/lib/planTime";
 import { CompanyInitial, KindTag, StageChip, copyText, safeHttpUrl } from "./planUi";
 
 export type CardActions = {
@@ -47,7 +47,11 @@ function SlotHelper({ item, events, windows, now, tz, onBook }: { item: PlanItem
     <div className="planSlots" data-slot-helper>
       {slots.length === 0 ? (
         <p className="cvHelp">
-          {offered.length > 0 ? "None of the slots they offered is free: each clashes with something on your plan or falls too close to it." : "No free time in the next two weeks. Add your free times in the Week view."}
+          {offered.length === 0
+            ? "No free time in the next two weeks. Add your free times in the Week view."
+            : offered.every((o) => Date.parse(o.starts_at) <= now)
+              ? "Every slot they offered has passed."
+              : "None of the slots still open is free: each clashes with something on your plan or falls too close to it."}
         </p>
       ) : (
         <>
@@ -79,16 +83,13 @@ export default function EventCard({
   windows: readonly AvailabilityWindow[];
   actions: CardActions;
 }) {
-  const { event, application, at } = item;
+  const { event, application } = item;
   const [showSlots, setShowSlots] = useState(false);
   const [showOutcome, setShowOutcome] = useState(false);
   const toBook = event.status === "to_book";
-  const deadline = isDeadline(event);
   const url = safeHttpUrl(event.location_or_link);
   const hasOffers = (event.offered_slots ?? []).length > 0;
-  // A call under way is happening now; once it has ended it wants an outcome.
-  const underWay = !toBook && !deadline && at !== null && at <= now && (eventEndMs(event) ?? at) >= now;
-  const overdue = !toBook && at !== null && !underWay && at < now;
+  const timing = toBook ? null : describeTiming(event, now, tz);
   const heading = application?.company_name ?? event.title;
 
   return (
@@ -118,12 +119,12 @@ export default function EventCard({
           <p className="planCardWhen" data-event-when>
             <Icon name="clock" /> <strong>{hasOffers ? "Slots offered: reply to book" : "Not booked yet: reply with your times"}</strong>
           </p>
-        ) : at !== null ? (
+        ) : timing ? (
           <p className="planCardWhen" data-event-when>
             <Icon name="clock" />
-            <strong>{formatWhen(at, tz, event.date_only)}</strong>
-            <span className="planCountdown" data-overdue={overdue ? "" : undefined} data-event-countdown>
-              {underWay ? "happening now" : countdown(at, now, { due: deadline, dateOnly: event.date_only, tz })}
+            <strong>{timing.when}</strong>
+            <span className="planCountdown" data-overdue={timing.state === "overdue" ? "" : undefined} data-event-countdown>
+              {timing.left}
             </span>
           </p>
         ) : null}
