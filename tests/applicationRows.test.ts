@@ -124,7 +124,8 @@ test("a list row carries no JD, no full notes, no triage and no null keys", () =
   assert.equal((row.notes_preview as string).length, NOTES_PREVIEW_CHARS);
   assert.equal(row.notes_more, true);
   for (const key of ["updated_at", "tailor_session_id", "req_id", "sent_cv_name"]) assert.equal(key in row, false, key);
-  assert.equal(JSON.stringify(row).includes("triage"), false);
+  assert.equal("triage" in (row.gates as object), false, "the sentences stay in the detail read");
+  assert.equal(row.triage_verdict, "skip", "the sheet still gets the verdict");
   assert.equal(row.referral, false, "false is a value, only null is left out");
   const bare = toListRow({ ...ROW_BASE, job_description: "  \n ", notes: null, gates: null });
   assert.equal("has_job_description" in bare, false, "blank text is no JD");

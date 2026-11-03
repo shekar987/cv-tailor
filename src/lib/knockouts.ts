@@ -43,7 +43,7 @@ export type DegreeClass = "first" | "2:1" | "2:2";
 export type EmploymentType = "permanent" | "contract" | "fixed_term" | "internship" | "part_time";
 
 export type GateValue =
-  | { kind: "sponsorship"; sponsorship: "unavailable" | "available" | "unstated"; citizenship: boolean; country: string | null }
+  | { kind: "sponsorship"; sponsorship: "unavailable" | "available" | "unstated"; citizenship: boolean; country: string | null; future?: boolean }
   | { kind: "clearance"; level: ClearanceLevel; mustHold: boolean }
   | { kind: "years"; years: number; subject: string | null }
   | {
@@ -375,9 +375,14 @@ const RTW_REQ_RE =
 // Permanent status: citizenship, ILR / settled status, or a "permanent /
 // indefinite right to work" — a time-limited visa never satisfies these.
 const CITIZEN_RE =
-  /\b(?:british|uk|u\.?s\.?|american|irish|eu|australian|canadian)\s+citizen(?:s|ship)?\b|\bindefinite leave to remain\b|\bILR\b|\bsettled status\b|\bgreen card\b|\bpermanent residen(?:t|cy)\b|\bcitizenship\s+(?:is\s+)?required\b|\b(?:permanent|indefinite)\s+(?:right to (?:live and )?work|work authori[sz]ation)\b/i;
+  /\b(?:british|uk|u\.?s\.?|american|irish|eu|australian|canadian)\s+citizen(?:s|ship)?\b|\bindefinite leave to remain\b|\bILR\b|\bsettled status\b|\bgreen card\b|\bpermanent residen(?:t|cy)\b|\bcitizenship\s+(?:is\s+)?required\b|\b(?:permanent|indefinite|unrestricted)\s+(?:right to (?:live and )?work|work authori[sz]ation)\b/i;
 const RTW_COUNTRY_RE =
-  /\b(?:right|rights|eligib\w+|entitle\w+|authori[sz]\w+|able|permitted|allowed)\s+to\s+(?:live\s+and\s+)?work\s+in\s+(?:the\s+)?([a-z][a-z .]{1,30}?)(?=\s+(?:without|and|is|are|with|at|from|on|for|who)\b|[,.;:)!?]|$)/i;
+  /\b(?:right|rights|eligib\w+|entitle\w+|authori[sz]\w+|able|permitted|allowed)\s+to\s+(?:live\s+and\s+)?work\s+in\s+(?:the\s+)?([a-z][a-z .]{1,30}?)(?=\s+(?:now|without|and|is|are|with|at|from|on|for|who)\b|[,.;:)!?]|$)/i;
+
+// The right to work, or no sponsorship, "now and in the future": a time-limited
+// visa meets the first half only. "At this time" says nothing about later.
+const FUTURE_RTW_RE = /\b(?:right|authori[sz]ed|eligible|entitled)\s+to\s+(?:live\s+and\s+)?work\b[^.;\n]*?\bnow\s+and\s+(?:in\s+)?(?:the\s+)?future\b/i;
+const FUTURE_NO_SPONSOR_RE = /\b(?:now\s+(?:or|and)\s+in\s+(?:the\s+)?future|at\s+any\s+(?:point|time))\b/i;
 
 // "We cannot sponsor clearance" is about vetting, not visas.
 const CLEARANCE_SPONSOR_RE = /\bsponsor\w*\s+(?:(?:the|your|an?|for)\s+)?(?:sc|dv|ctc|bpss|security|clearance|vetting)\b/i;
@@ -392,7 +397,9 @@ function detectSponsorship(u: Unit): Gate | null {
   const country = countryMatch ? normalizeCountry(countryMatch[1]) : null;
   const citizenship = CITIZEN_RE.test(t);
   let sponsorship: "unavailable" | "available" | "unstated" = "unstated";
-  if (NO_SPONSOR_RE.test(t) || RTW_REQ_RE.test(t) || citizenship) sponsorship = "unavailable";
+  const noSponsor = NO_SPONSOR_RE.test(t);
+  const future = FUTURE_RTW_RE.test(t) || (noSponsor && FUTURE_NO_SPONSOR_RE.test(t));
+  if (noSponsor || RTW_REQ_RE.test(t) || citizenship || future) sponsorship = "unavailable";
   else if (SPONSOR_OK_RE.test(t)) sponsorship = "available";
   else if (!/\bsponsor/i.test(t) && !countryMatch) return null; // a stray "citizen"-ish word with nothing to say
   const { preferred } = contextOf(u);
@@ -401,7 +408,7 @@ function detectSponsorship(u: Unit): Gate | null {
     requirement: snippet(t),
     strictness: preferred ? "preferred" : "must",
     source: "detector",
-    value: { kind: "sponsorship", sponsorship, citizenship, country },
+    value: { kind: "sponsorship", sponsorship, citizenship, country, ...(future ? { future } : {}) },
   };
 }
 
@@ -851,6 +858,8 @@ export function compareGate(gate: Gate, e: Eligibility, now: Date = new Date()):
         const ends = e.rightToWork.permissionEnds ? ` (until ${monthLabel(e.rightToWork.permissionEnds)})` : "";
         if (val.citizenship)
           return hard(`This asks for permanent right to work, settled status or citizenship; your permission is time-limited${ends}. Applications failing this are usually rejected automatically, without the CV being read.`);
+        if (val.future)
+          return hard(`This needs the right to work now and in the future, with no sponsorship; your permission is time-limited${ends}. Applications failing this are usually rejected automatically, without the CV being read.`);
         const ok = countryOk(val.country, e.rightToWork.countries);
         if (ok === false) return v(gate, "unknown", `You've listed right to work in ${e.rightToWork.countries.join(", ")}; this role needs it in ${val.country}. Check before applying.`);
         if (val.sponsorship === "unavailable")

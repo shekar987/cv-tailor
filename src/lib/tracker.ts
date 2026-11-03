@@ -109,6 +109,42 @@ export function notesSayNotSubmitted(notes: string | null | undefined): boolean 
   return !!notes && NOT_SUBMITTED_RE.test(notes);
 }
 
+// A live conversation with no record of what was applied to or sent: the row
+// in Screening or Interview you will want to read back before the call. A
+// tailored row carries its CV in the snapshot; a hand-added one needs the file.
+export const ATTACHMENT_STATUSES: ReadonlySet<string> = new Set(["Screening", "Interview"]);
+export type RowFlagFields = {
+  status: string;
+  source?: string;
+  has_job_description?: boolean;
+  sent_cv_name?: string | null;
+  triage_verdict?: "apply" | "review" | "skip";
+  triage_reasons?: string[];
+};
+export function missingAttachments(row: RowFlagFields): ("Missing JD" | "Missing CV")[] {
+  if (!ATTACHMENT_STATUSES.has(row.status)) return [];
+  const out: ("Missing JD" | "Missing CV")[] = [];
+  if (!row.has_job_description) out.push("Missing JD");
+  if (row.source !== "tailored" && !row.sent_cv_name) out.push("Missing CV");
+  return out;
+}
+
+// What the sheet says about a row's triage. A row made outside /app was never
+// checked, so it says so and offers the check; a tailored row went through the
+// pre-check and only speaks up when its stored read found something.
+export type RowCheck =
+  | { kind: "checked"; verdict: "apply" | "review" | "skip"; reasons: string[] }
+  | { kind: "run" }
+  | { kind: "add_jd" };
+export function rowCheck(row: RowFlagFields): RowCheck | null {
+  const manual = row.source !== "tailored";
+  if (row.triage_verdict && (manual || row.triage_verdict !== "apply")) {
+    return { kind: "checked", verdict: row.triage_verdict, reasons: row.triage_reasons ?? [] };
+  }
+  if (!manual || row.triage_verdict) return null;
+  return row.has_job_description ? { kind: "run" } : { kind: "add_jd" };
+}
+
 // The sheet shows this many rows at a time. Search, filters and the CSV
 // export always cover the whole set; only the painted rows are paged.
 export const PAGE_SIZE = 50;

@@ -88,6 +88,18 @@ function listGates(value: unknown): Record<string, unknown> | undefined {
   return { read: g.read, hard: g.hard, soft: g.soft, unknown: g.unknown, ...(quoted ? { items: [quoted] } : {}) };
 }
 
+/**
+ * The triage the sheet draws, from stored gates: the verdict and up to two
+ * reasons, no sentences (the JD panel reads those from the detail read). Every
+ * key is present, so a client can spread it over a row to clear old values.
+ */
+export function listTriageFields(gates: unknown): { triage_verdict: "apply" | "review" | "skip" | undefined; triage_reasons: string[] | undefined } {
+  const t = gates && typeof gates === "object" ? (gates as { triage?: { verdict?: unknown; reasons?: unknown } }).triage : undefined;
+  const verdict = t?.verdict === "apply" || t?.verdict === "review" || t?.verdict === "skip" ? t.verdict : undefined;
+  const reasons = verdict && verdict !== "apply" && Array.isArray(t?.reasons) ? t.reasons.filter((r): r is string => typeof r === "string").slice(0, 2) : [];
+  return { triage_verdict: verdict, triage_reasons: reasons.length ? reasons : undefined };
+}
+
 // Replaced below, or read by no page from the list; all are in the detail read.
 const NOT_IN_LIST = new Set(["job_description", "notes", "gates", "updated_at", "tailor_session_id"]);
 
@@ -104,5 +116,8 @@ export function toListRow(row: Record<string, unknown>): Record<string, unknown>
   }
   const gates = listGates(row.gates);
   if (gates) out.gates = gates;
+  for (const [key, value] of Object.entries(listTriageFields(row.gates))) {
+    if (value !== undefined) out[key] = value;
+  }
   return out;
 }

@@ -26,12 +26,24 @@
 // contractor wording beside it) — the reason reads "Fixed-term contract
 // (N months)" (owner's call, 1 Nov).
 //
-// Deterministic and import-free (node:test runs it). Each reason is the
-// phrase the rule matched, at most 120 characters; each hit also keeps its
-// sentence so the badge can show where it was read. An optional profile
-// drops what plainly does not apply to the person: a "Skip" for sponsorship
-// when their right to work is full, and a years "Skip" when their stated
-// years meet the minimum. With no profile the rules run exactly as above.
+// Owner's rules of 2 Nov, each shown with the exact sentence it was read from:
+// for a time-limited visa, "right to work now and in the future", "unrestricted
+// / permanent right to work", "indefinite leave to remain" and "British
+// citizenship required" are a Skip; a right to work "for the full duration" of a
+// scheme is a Review. A language or framework (a closed list) that a requirement
+// list names, or "N+ years of X", and the master CV's work experience does not
+// show is a Skip, the same on a Desirable list a Review; "Currently learning: X"
+// is not experience. One option of several the CV has is enough ("Python or Go").
+//
+// Deterministic (node:test runs it; imports only ../bulletIds.ts). Each reason
+// is the phrase the rule matched, at most 120 characters; each hit keeps its
+// sentence. The profile (buildTriageProfile) decides what applies: a full right
+// to work drops the sponsorship and right-to-work rules, stated years that meet
+// a minimum drop that Skip, an unanswered right to work makes those rules a
+// Review (never guessed), and with no CV experience the language rule stays off.
+// The sponsorship rule alone stays a Skip when unanswered, as first specified.
+import { parseMasterExperience } from "../bulletIds.ts";
+
 
 export type TriageVerdict = "apply" | "review" | "skip";
 export type TriageRule =
@@ -43,7 +55,10 @@ export type TriageRule =
   | "years_review"
   | "rtw_duration"
   | "languages"
-  | "fixed_term";
+  | "fixed_term"
+  | "rtw_permanent"
+  | "tech_required"
+  | "tech_desirable";
 export type TriageHit = { level: "skip" | "review"; rule: TriageRule; phrase: string; sentence: string };
 export type JdTriage = { verdict: TriageVerdict; reasons: string[]; hits: TriageHit[] };
 export type TriageProfile = {
@@ -51,12 +66,15 @@ export type TriageProfile = {
   rightToWork?: string | null;
   // lib/knockouts Eligibility.yearsExperience: meeting a stated minimum drops that years "Skip".
   yearsExperience?: number | null;
+  // masterExperienceText(): what the CV's work experience shows. With none the
+  // language and framework rule stays off rather than failing every posting.
+  experience?: string;
 };
 
 export const MAX_PHRASE_CHARS = 120;
-const MAX_SENTENCE_CHARS = 240;
+const MAX_SENTENCE_CHARS = 400;
 const MAX_REASONS = 6;
-const MAX_HITS = 12;
+const MAX_HITS = 16;
 
 export const TRIAGE_LABELS: Record<TriageVerdict, string> = { apply: "Apply", review: "Review", skip: "Skip" };
 export const TRIAGE_RULE_LABELS: Record<TriageRule, string> = {
@@ -69,6 +87,9 @@ export const TRIAGE_RULE_LABELS: Record<TriageRule, string> = {
   rtw_duration: "Right to work for the duration",
   languages: "Core language",
   fixed_term: "Fixed-term contract",
+  rtw_permanent: "Right to work",
+  tech_required: "Required language or framework",
+  tech_desirable: "Desirable language or framework",
 };
 
 type Section = "req" | "nice" | "other" | null;
@@ -105,7 +126,7 @@ const LABEL_RE = /^([A-Za-z][A-Za-z '’&/-]{1,40}):\s+\S/;
 // ── Sentence cues ───────────────────────────────────────────────────────────
 
 const REQ_CUE = /\b(?:essential|required|requirements?|must(?:\s+have)?|you(?:['’]ll|\s+will)?\s+(?:have|need|bring)|we(?:['’]re|\s+are)\s+looking\s+for|have\s+(?:[\w-]+\s+){0,2}?experience|minimum(?:\s+of)?|at\s+least|proven|demonstrable)\b/i;
-const NICE_CUE = /\b(?:desirable|nice[\s-]to[\s-]have|bonus|preferred|ideally|a\s+plus|advantageous|beneficial|not\s+(?:a\s+)?(?:required|requirement|essential))\b/i;
+const NICE_CUE = /\b(?:desirable|nice[\s-]to[\s-]have|bonus|preferred|ideally|a\s+plus|an?\s+advantage|advantageous|beneficial|not\s+(?:a\s+)?(?:required|requirement|essential))\b/i;
 
 // ── Years ───────────────────────────────────────────────────────────────────
 
@@ -124,7 +145,7 @@ const YEARS_RE = new RegExp(
 // "for over 10 years", "18 years old", "5 years ago".
 const YEARS_BEFORE_SKIP = /(?:within|in\s+the\s+(?:last|past|next|first)|over\s+the\s+(?:last|past|next)|(?:last|past|next|first)|every|up\s+to|less\s+than|under|after|for(?:\s+(?:over|more\s+than|nearly|almost))?|aged?|since)\s*$/i;
 // … and the length of a contract ("a 2 year fixed-term contract", "1 year FTC").
-const YEARS_AFTER_SKIP = /^\s*(?:old\b|of\s+age\b|ago\b|later\b|from\s+now\b|['’]?\s*(?:fixed|FTC\b|contract|maternity|secondment|placement))/i;
+const YEARS_AFTER_SKIP = /^\s*(?:old\b|of\s+age\b|ago\b|later\b|from\s+now\b|['’]?\s*(?:fixed|FTC\b|contract|maternity|secondment|placement|scheme|programme|program\b|graduate|rotation))/i;
 // What follows a requirement: "of experience", "' experience", "in software",
 // "as a developer", "of software engineering".
 const YEARS_AFTER_REQ = /^\s*(?:['’]\s*)?(?:(?:of\s+)?(?:[\w-]+\s+){0,4}?(?:experience|engineering|development|programming|coding)\b|exp\b|in\s+(?:a|an|the|software|industry|engineering|commercial|professional|production|web|backend|frontend|data)\b|working\b|as\s+an?\b|building\b|developing\b|commercial\b|professional\b|hands-on\b|industry\b|relevant\b|post-?qualification\b)/i;
@@ -180,9 +201,134 @@ function fixedTermReason(sentence: string): string | null {
 }
 
 const NO_SPONSOR =/\b(?:unable|not\s+able|cannot|can\s*not|can['’]t|do\s+not|don['’]t|does\s+not|doesn['’]t|will\s+not|won['’]t|not\s+in\s+a\s+position|are\s+not|aren['’]t|is\s+not|isn['’]t|no)\b[^.?!]{0,60}?\bsponsor\w*/i;
-const SPONSOR_FUTURE = /\bnow\s+or\s+(?:at\s+any\s+(?:point|time)\s+)?in\s+the\s+future\b|\bnow\s+or\s+at\s+any\s+(?:point|time)\b|\bat\s+any\s+(?:point|time)\b|\bcurrently\s+or\s+in\s+the\s+future\b/i;
+const SPONSOR_FUTURE = /\bnow\s+(?:or|and)\s+(?:at\s+any\s+(?:point|time)\s+)?in\s+(?:the\s+)?future\b|\bnow\s+or\s+at\s+any\s+(?:point|time)\b|\bat\s+any\s+(?:point|time)\b|\bcurrently\s+or\s+in\s+the\s+future\b/i;
 
-const RTW_DURATION = /\bright\s+to\s+work\b[^.?!]{0,80}?\bfor\s+the\s+(?:full\s+|entire\s+|whole\s+)?duration\b|\bfor\s+the\s+(?:full\s+|entire\s+|whole\s+)?duration\b[^.?!]{0,80}?\bright\s+to\s+work\b/i;
+type Ctx = { section: Section; sentence: string; isTitle: boolean };
+
+const WORK_RIGHT = String.raw`(?:right|rights|authori[sz]ed|eligible|entitled|permission|permitted)\s+to\s+(?:live\s+and\s+)?work`;
+const RTW_DURATION = new RegExp(
+  [
+    String.raw`\b${WORK_RIGHT}\b[^.?!]{0,100}?\bfor\s+the\s+(?:full\s+|entire\s+|whole\s+)?(?:duration|length)\b`,
+    String.raw`\bfor\s+the\s+(?:full\s+|entire\s+|whole\s+)?(?:duration|length)\b[^.?!]{0,100}?\b${WORK_RIGHT}\b`,
+  ].join("|"),
+  "i"
+);
+
+// Right to work a time-limited visa cannot give. Each is read off one sentence
+// and shown with it. "Will you now or in the future require sponsorship?" asks
+// about sponsorship, not a right, and is not here.
+const NOW_AND_FUTURE = String.raw`\bnow\s+and\s+(?:in\s+)?(?:the\s+)?future\b`;
+const RTW_NOW_FUTURE = new RegExp(
+  [
+    String.raw`\b${WORK_RIGHT}\b[^.?!]*?${NOW_AND_FUTURE}`,
+    String.raw`\bwork\s+authori[sz]ation\b[^.?!]*?${NOW_AND_FUTURE}`,
+    String.raw`${NOW_AND_FUTURE}[^.?!]*?\b(?:${WORK_RIGHT}|work\s+authori[sz]ation)\b`,
+  ].join("|"),
+  "i"
+);
+const RTW_UNRESTRICTED = /\b(?:unrestricted|permanent|indefinite|unlimited)(?:\s+(?:UK|British))?\s+(?:rights?\s+to\s+(?:live\s+and\s+)?work|work\s+(?:rights|authori[sz]ation|permission))\b|\bright\s+to\s+work\b[^.?!]{0,40}?\bwithout\s+(?:any\s+)?restrictions?\b/i;
+const RTW_ILR = /\bindefinite\s+leave\s+to\s+remain\b|\bILR\b/;
+const RTW_CITIZEN = /\b(?:British|UK)\s+(?:citizen(?:s|ship)?|national(?:s|ity)?)\b/i;
+// ILR and citizenship count only as a requirement, not as one way to meet it
+// ("ILR or a valid visa") or as a list of examples.
+const RTW_DEMAND = /\b(?:must|requires?|required|needs?|needed|only|essential|have\s+to)\b/i;
+const RTW_ALTERNATIVE = /\bor\b[^.?!]*\b(?:visa|permit)\b|\b(?:visa|permit)\b[^.?!]*\bor\b|\be\.g\b|\bsuch\s+as\b|\bfor\s+example\b|\bincluding\b/i;
+const RTW_NOT = /\b(?:not|no\s+need)\b[^.?!]{0,40}\b(?:required|needed|necessary|need|require|have)\b|n['’]t\s+(?:need|require|have)\b/i;
+
+// Languages and frameworks only: a closed list, so a posting's free text never
+// becomes a requirement by accident. C and R are left out (a stray capital), and
+// the words that are also ordinary words match only in their product form
+// ("Spring Boot", never "Spring 2027"; "Go", never "Go to market").
+type Tech = { name: string; re: RegExp; impliedBy?: string[] };
+const TECHS: Tech[] = [
+  { name: "Python", re: /\bPython\b/i, impliedBy: ["Django", "Flask", "FastAPI"] },
+  { name: "TypeScript", re: /\bTypeScript\b/i },
+  { name: "JavaScript", re: /\bJavaScript\b|\bJS\b/, impliedBy: ["TypeScript", "React", "Next.js", "Node.js", "Vue", "Angular", "Svelte", "Express", "NestJS"] },
+  { name: "Go", re: /\bGolang\b|\bGo\b(?![-\s]+(?:to|above|beyond|live|further|deep|back|ahead|the|on|out|through|for|from|with|and\s+(?:see|get)))/ },
+  { name: "Java", re: /\bJava\b(?![\s-]?[Ss]cript)/i, impliedBy: ["Spring"] },
+  { name: "Kotlin", re: /\bKotlin\b/i },
+  { name: "Scala", re: /\bScala\b/ },
+  { name: "C#", re: /(?<![\w#])C#(?![\w#])/, impliedBy: [".NET"] },
+  { name: ".NET", re: /\.NET\b|\bdotnet\b/, impliedBy: ["C#"] },
+  { name: "C++", re: /(?<![\w+])C\+\+(?![\w+])/ },
+  { name: "Rust", re: /\bRust\b/ },
+  { name: "Ruby", re: /\bRuby\b/, impliedBy: ["Rails"] },
+  { name: "Rails", re: /\bRails\b/ },
+  { name: "PHP", re: /\bPHP\b/, impliedBy: ["Laravel", "Symfony"] },
+  { name: "Swift", re: /\bSwift\b/ },
+  { name: "Objective-C", re: /\bObjective-C\b/i },
+  { name: "Elixir", re: /\bElixir\b/ },
+  { name: "Erlang", re: /\bErlang\b/ },
+  { name: "Haskell", re: /\bHaskell\b/ },
+  { name: "Clojure", re: /\bClojure\b/ },
+  { name: "Perl", re: /\bPerl\b/ },
+  { name: "Dart", re: /\bDart\b/, impliedBy: ["Flutter"] },
+  { name: "Lua", re: /\bLua\b/ },
+  { name: "Solidity", re: /\bSolidity\b/ },
+  { name: "MATLAB", re: /\bMATLAB\b/i },
+  { name: "React", re: /\bReact(?:\.js|JS)?\b(?!\s+Native)/, impliedBy: ["Next.js"] },
+  { name: "React Native", re: /\bReact\s+Native\b/ },
+  { name: "Next.js", re: /\bNext\.?js\b/i },
+  { name: "Angular", re: /\bAngular(?:JS)?\b/ },
+  { name: "Vue", re: /\bVue(?:\.?js)?\b/i },
+  { name: "Svelte", re: /\bSvelte(?:Kit)?\b/i },
+  { name: "Node.js", re: /\bNode(?:\.?js)?\b/, impliedBy: ["Express", "NestJS"] },
+  { name: "Express", re: /\bExpress\.?js\b/i },
+  { name: "NestJS", re: /\bNest\.?js\b/i },
+  { name: "Django", re: /\bDjango\b/i },
+  { name: "Flask", re: /\bFlask\b/ },
+  { name: "FastAPI", re: /\bFastAPI\b/i },
+  { name: "Spring", re: /\bSpring\s+(?:Boot|Framework|MVC|Cloud|Security)\b/i },
+  { name: "Laravel", re: /\bLaravel\b/i },
+  { name: "Symfony", re: /\bSymfony\b/i },
+  { name: "Flutter", re: /\bFlutter\b/ },
+  { name: "PyTorch", re: /\bPyTorch\b/i },
+  { name: "TensorFlow", re: /\bTensorFlow\b/i },
+];
+const TECH_BY_NAME = new Map(TECHS.map((t) => [t.name, t]));
+
+function inExperience(t: Tech, experience: string): boolean {
+  return t.re.test(experience) || (t.impliedBy ?? []).some((name) => TECH_BY_NAME.get(name)?.re.test(experience));
+}
+
+// "1+ year of Go", "at least 2 years with Rust".
+const YEAR_COUNT = new RegExp(String.raw`\b${NUM}\s*\+?\s*(?:-\s*\d+\s*)?years?\b`, "i");
+// With no headings at all, these words mark a requirement list.
+const TECH_ASK = /\b(?:experience|proficien\w+|expertise|knowledge|strong|solid)\b/i;
+// A list of options or examples: one the candidate has is enough, and none of
+// them is not a knockout when the posting says "or similar".
+const TECH_EXAMPLES = /\bsuch\s+as\b|\be\.g\b|\bfor\s+(?:example|instance)\b|\betc\b|\blike\b|\bsimilar\b|\bequiv(?:alent)?\b|\bcomparable\b|\banother\b|\bor\s+other\b|\bany\b|\bone\s+of\b|\bat\s+least\s+one\b|\bincluding\b|\bsome\b/i;
+// A trailing comma: the list carries on past the line, so it is not read whole.
+const TECH_EITHER = /\bor\b|\w[#+]*\s*\/\s*[\w.]|,\s*$/i;
+const NOT_TECH_SLASH = /\b[A-Z]{1,4}\/[A-Z]{1,4}\b/g; // CI/CD, UI/UX, TCP/IP
+
+function techHits(ctx: Ctx, experience: string, add: (h: TriageHit) => void) {
+  const s = ctx.sentence;
+  const named = TECHS.filter((t) => t.re.test(s));
+  if (!named.length) return;
+  const nice = ctx.section === "nice" || NICE_CUE.test(s);
+  const req = !nice && (ctx.section === "req" || REQ_CUE.test(s) || YEAR_COUNT.test(s) || (ctx.section === null && TECH_ASK.test(s)));
+  if (!req && !nice) return;
+  const absent = named.filter((t) => !inExperience(t, experience));
+  if (!absent.length) return;
+  // "PyTorch, LLM systems or evals": the one technology named has a way round it.
+  const examples = TECH_EXAMPLES.test(s) || (named.length === 1 && /\bor\b/i.test(s));
+  // One of the options is theirs.
+  if ((examples || TECH_EITHER.test(s.replace(NOT_TECH_SLASH, ""))) && absent.length < named.length) return;
+  const soft = nice || examples;
+  const note = nice ? "desirable, not in your experience" : examples ? "one option, not in your experience" : "not in your experience";
+  for (const t of absent) add({ level: soft ? "review" : "skip", rule: soft ? "tech_desirable" : "tech_required", phrase: `${t.name} (${note})`, sentence: s });
+}
+
+const LEARNING_LINE = /\b(?:currently\s+)?(?:learning|studying)\b|\bself[-\s]?teaching\b/i;
+
+/** What the master CV's work experience shows: role headers and bullets, without "Currently learning: X". Undefined when no role can be read. */
+export function masterExperienceText(cvText: unknown): string | undefined {
+  if (typeof cvText !== "string" || !cvText.trim()) return undefined;
+  const roles = parseMasterExperience(cvText);
+  const lines = roles.flatMap((r) => [r.header, ...r.bullets.map((b) => b.text)]).filter((l) => !LEARNING_LINE.test(l));
+  return lines.length ? lines.join("\n") : undefined;
+}
 
 const CORE_LANGS: { name: string; re: RegExp }[] = [
   { name: "C#", re: /(?<![\w#])C#(?![\w#])/ },
@@ -209,8 +355,6 @@ function sentencesOf(line: string): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 }
-
-type Ctx = { section: Section; sentence: string; isTitle: boolean };
 
 function yearsHits(ctx: Ctx, profile: TriageProfile | undefined, add: (h: TriageHit) => void) {
   const s = ctx.sentence;
@@ -259,11 +403,14 @@ export function triageJd(text: string, profile?: TriageProfile): JdTriage {
   const seen = new Set<string>();
   const add = (h: TriageHit) => {
     const key = `${h.rule}|${h.phrase.toLowerCase().replace(/\s+/g, " ")}`;
-    if (seen.has(key) || hits.length >= MAX_HITS) return;
+    // A long Desirable list must not crowd out a Skip further down the posting.
+    if (seen.has(key) || hits.filter((x) => x.level === h.level).length >= MAX_HITS) return;
     seen.add(key);
     hits.push({ ...h, phrase: clip(h.phrase, MAX_PHRASE_CHARS), sentence: clip(h.sentence, MAX_SENTENCE_CHARS) });
   };
 
+  const status = profile?.rightToWork ?? null;
+  const experience = profile?.experience;
   let section: Section = null;
   let titleSeen = false;
   for (const raw of (text || "").split(/\r?\n/)) {
@@ -318,12 +465,25 @@ export function triageJd(text: string, profile?: TriageProfile): JdTriage {
       }
 
       const rtw = sentence.match(RTW_DURATION);
-      if (rtw) add({ level: "review", rule: "rtw_duration", phrase: rtw[0], sentence });
+      if (rtw && status !== "full") add({ level: "review", rule: "rtw_duration", phrase: rtw[0], sentence });
 
-      const core = isTitle || (lineSection !== "nice" && !NICE_CUE.test(sentence) && (lineSection === "req" || REQ_CUE.test(sentence)));
+      // A time-limited visa cannot give these. Full right to work meets them
+      // (citizenship is still its own question); unanswered is never guessed.
+      const permanent = sentence.match(RTW_NOW_FUTURE) ?? sentence.match(RTW_UNRESTRICTED);
+      const named = RTW_DEMAND.test(sentence) && !RTW_ALTERNATIVE.test(sentence) && !RTW_NOT.test(sentence);
+      const citizen = named ? sentence.match(RTW_CITIZEN) : null;
+      const leave = permanent ?? (named ? sentence.match(RTW_ILR) : null);
+      const short = status === "time_limited" || status === "needs_sponsorship";
+      if (leave && status !== "full" && !RTW_NOT.test(sentence)) add({ level: short ? "skip" : "review", rule: "rtw_permanent", phrase: leave[0], sentence });
+      if (citizen) add({ level: short ? "skip" : "review", rule: "rtw_permanent", phrase: citizen[0], sentence });
+
+      // With the CV's experience known, the language rule below it is whatever
+      // a title names and the CV lacks; the requirement lists are techHits'.
+      if (experience !== undefined && !isTitle) techHits(ctx, experience, add);
+      const core = isTitle || (experience === undefined && lineSection !== "nice" && !NICE_CUE.test(sentence) && (lineSection === "req" || REQ_CUE.test(sentence)));
       if (core && !OTHER_LANG_OPTION.test(sentence)) {
         for (const lang of CORE_LANGS) {
-          if (lang.re.test(sentence)) add({ level: "review", rule: "languages", phrase: lang.name, sentence });
+          if (lang.re.test(sentence) && !(experience !== undefined && lang.re.test(experience))) add({ level: "review", rule: "languages", phrase: lang.name, sentence });
         }
       }
     }
@@ -344,7 +504,7 @@ export function triageJd(text: string, profile?: TriageProfile): JdTriage {
     if (!reasons.some((r) => r.toLowerCase() === h.phrase.toLowerCase())) reasons.push(h.phrase);
     if (reasons.length >= MAX_REASONS) break;
   }
-  return { verdict, reasons, hits };
+  return { verdict, reasons, hits: [...skip, ...hits.filter((h) => h.level !== "skip")].slice(0, MAX_HITS) };
 }
 
 /** "Skip: 5+ years; security clearance" — the badge's text. */
@@ -387,7 +547,14 @@ export function eligibilityTriageProfile(eligibility: unknown): TriageProfile | 
   return triageProfileOf({ rightToWork: e.rightToWork?.status, yearsExperience: e.yearsExperience });
 }
 
-/** The profile as a request body carries it ({ rightToWork, yearsExperience }), bounded. */
+/** The whole profile: the Eligibility answers plus what the master CV's experience shows. One builder for /app and the server. */
+export function buildTriageProfile(eligibility: unknown, cvText: unknown): TriageProfile | undefined {
+  const experience = masterExperienceText(cvText);
+  const answers = eligibilityTriageProfile(eligibility);
+  return answers || experience ? { ...answers, ...(experience ? { experience } : {}) } : undefined;
+}
+
+/** The answers read from { rightToWork, yearsExperience }, bounded. */
 export function triageProfileOf(value: unknown): TriageProfile | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const v = value as Record<string, unknown>;

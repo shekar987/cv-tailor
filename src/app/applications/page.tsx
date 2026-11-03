@@ -8,10 +8,11 @@ import SentCvBlock from "./SentCvBlock";
 import { ReferralAsks, ReferralEditor } from "./ReferralAsks";
 import { REFERRAL_STATUS_LABELS, type ReferralFields, type ReferralRow, type ReferralStatus } from "@/lib/referrals";
 import type { SentCvInfo } from "@/lib/sentCv";
-import { getProfile, getUserSettings, type Profile } from "@/lib/cvStore";
+import { getProfile, type Profile } from "@/lib/cvStore";
 import TriageBadge from "../TriageBadge";
-import { triageJd, normalizeTriage, eligibilityTriageProfile, type TriageProfile } from "@/lib/triage/jdTriage";
-import { notesListFields } from "@/lib/applicationRows";
+import { normalizeTriage } from "@/lib/triage/jdTriage";
+import { notesListFields, listTriageFields } from "@/lib/applicationRows";
+import RowFlags from "./RowFlags";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
@@ -33,6 +34,7 @@ import {
   PAGE_SIZE,
   isReplyOwed,
   replyOwedFirst,
+  missingAttachments,
   type Status,
 } from "@/lib/tracker";
 import AppHeader from "@/components/ui/AppHeader";
@@ -64,6 +66,9 @@ type Application = {
   notes_preview?: string;
   notes_more?: boolean;
   notes_not_submitted?: boolean;
+  // The stored triage's verdict and reasons (lib/applicationRows listTriageFields).
+  triage_verdict?: "apply" | "review" | "skip";
+  triage_reasons?: string[];
   source: "tailored" | "manual";
   created_at: string;
   // Stage 4: set (via a JSON-path alias in the list query) when a prep pack
@@ -665,6 +670,10 @@ export default function ApplicationsPage() {
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // "Follow-ups due" computed filter — combines with, not replaces, status/period.
   const [dueOnly, setDueOnly] = useState(false);
+  // Screening or Interview rows with no JD or no CV (lib/tracker missingAttachments).
+  const [missingOnly, setMissingOnly] = useState(false);
+  // The row whose "Run check" is running.
+  const [checkingId, setCheckingId] = useState<string | null>(null);
   // Free-text search over company, role and date applied (lib/trackerSearch —
   // the same matcher the CSV export applies, so the file matches the screen).
   const [query, setQuery] = useState("");
@@ -672,7 +681,6 @@ export default function ApplicationsPage() {
   // The row that just saved, for a brief success flash on its cells.
   const [flashRowId, setFlashRowId] = useState<string | null>(null);
   const rowFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [triageProfile, setTriageProfile] = useState<TriageProfile | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -688,10 +696,6 @@ export default function ApplicationsPage() {
     });
     getProfile().then((p) => {
       if (!cancelled) setProfile(p);
-    });
-    // The eligibility answers the JD triage may use (lib/triage/jdTriage).
-    getUserSettings().then((s) => {
-      if (!cancelled) setTriageProfile(eligibilityTriageProfile(s.eligibility));
     });
     getUsage().then((u) => {
       if (!cancelled) setIsOwner(!!u?.unlimited);
@@ -744,6 +748,7 @@ export default function ApplicationsPage() {
     return counts;
   }, [rows]);
   const dueCount = useMemo(() => rows.filter(isDue).length, [rows]);
+  const missingCount = useMemo(() => rows.filter((r) => missingAttachments(r).length > 0).length, [rows]);
 
   const visible = useMemo(() => {
     const filtered = rows.filter(
@@ -752,6 +757,7 @@ export default function ApplicationsPage() {
         (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) &&
         (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
         (!dueOnly || isDue(r)) &&
+        (!missingOnly || missingAttachments(r).length > 0) &&
         matchesSearch(r, searchTerm)
     );
     // Empty values always sort last, whichever direction is active. Status
@@ -782,11 +788,11 @@ export default function ApplicationsPage() {
     });
     // A reply owed outranks any sort: those rows come first, in sort order.
     return replyOwedFirst(sorted, now);
-  }, [rows, statusFilter, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, searchTerm, now]);
+  }, [rows, statusFilter, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, missingOnly, searchTerm, now]);
 
   // Only PAGE_SIZE rows are painted at a time; search, filters, counts and the
   // export cover the whole set. A different filter/sort state starts at page 1.
-  const pageKey = [statusFilter, styleFilter, periodFilter, sortKey, sortDir, dueOnly ? "due" : "", searchTerm].join("\u0000");
+  const pageKey = [statusFilter, styleFilter, periodFilter, sortKey, sortDir, dueOnly ? "due" : "", missingOnly ? "missing" : "", searchTerm].join("\u0000");
   const sheet = pageSlice(visible, paging.key === pageKey ? paging.page : 1);
   const pageRows = sheet.items;
   function goToPage(page: number) {
@@ -917,7 +923,7 @@ export default function ApplicationsPage() {
     // A JD edit re-triaged the row on the server (gates.triage); mirror it. With
     // no answer (the snapshot column is missing) the old triage no longer
     // describes this JD, and the panel reads the new text live instead.
-    if ("gates" in data) setRows((rs) => rs.map((r) => (r.id === id ? { ...r, gates: data.gates } : r)));
+    if ("gates" in data) setRows((rs) => rs.map((r) => (r.id === id ? { ...r, gates: data.gates, ...listTriageFields(data.gates) } : r)));
     if ("job_description" in body) rememberText(id, { job_description: body.job_description as string | null, gates: data.gates });
     if ("notes" in body) rememberText(id, { notes: body.notes as string | null });
     flashRow(id);
@@ -1100,6 +1106,23 @@ export default function ApplicationsPage() {
     showFlash(next ? "CV saved with this application." : "CV file removed.");
   }
 
+  // "Run check": the server triages the row's stored JD with the user's current
+  // answers and CV, and stores it. Nothing is blocked by the answer.
+  async function runCheck(row: Application) {
+    setCheckingId(row.id);
+    const { ok, status, data } = await api("PUT", { id: row.id, runCheck: true });
+    setCheckingId(null);
+    if (!ok) {
+      if (status === 401) setSessionExpired(true);
+      setActionError(status === 401 ? SESSION_EXPIRED : data.error || "Could not check that application.");
+      return;
+    }
+    setActionError("");
+    setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, gates: data.gates, ...listTriageFields(data.gates) } : r)));
+    rememberText(row.id, { gates: data.gates });
+    flashRow(row.id);
+  }
+
   async function saveJd(row: Application) {
     const jd = jdDraft.trim();
     if (jd.length > MAX_JD_CHARS) {
@@ -1108,7 +1131,7 @@ export default function ApplicationsPage() {
     }
     setPanelBusy(true);
     setPanelError("");
-    const message = await patchRow(row.id, { has_job_description: !!jd }, { job_description: jd || null, ...(triageProfile ? { triageProfile } : {}) });
+    const message = await patchRow(row.id, { has_job_description: !!jd }, { job_description: jd || null });
     setPanelBusy(false);
     if (message) {
       setPanelError(message);
@@ -1453,6 +1476,11 @@ export default function ApplicationsPage() {
           <div className="appsPanelHead">
             <span className="appsPanelTitle">Job description</span>
             <div className="appsPanelActions">
+              {!jdEditing && jdText && (
+                <button type="button" className="appsActionBtn" onClick={() => void runCheck(row)} disabled={checkingId === row.id} data-panel-check>
+                  {checkingId === row.id ? "Checking…" : row.triage_verdict ? "Check again" : "Run check"}
+                </button>
+              )}
               {!jdEditing && (
                 <button
                   type="button"
@@ -1507,13 +1535,8 @@ export default function ApplicationsPage() {
             )
           ) : (
             <>
-              {/* The triage stored with the row; a row saved before Chunk 8 is read live. */}
-              <TriageBadge
-                triage={
-                  normalizeTriage((rowText[row.id]?.gates as { triage?: unknown } | null | undefined)?.triage) ??
-                  (jdText ? triageJd(jdText, triageProfile) : null)
-                }
-              />
+              {/* The triage stored with the row; a row from before it existed asks for the check. */}
+              <TriageBadge triage={normalizeTriage((rowText[row.id]?.gates as { triage?: unknown } | null | undefined)?.triage)} />
               <pre className="appsJd">{jdText}</pre>
             </>
           )}
@@ -1693,6 +1716,18 @@ export default function ApplicationsPage() {
                     {dueCount} follow-up{dueCount === 1 ? "" : "s"} due
                   </button>
                 )}
+                {(missingCount > 0 || missingOnly) && (
+                  <button
+                    type="button"
+                    className={"appsFunnelChip due" + (missingOnly ? " active" : "")}
+                    onClick={() => setMissingOnly((v) => !v)}
+                    aria-pressed={missingOnly}
+                    title="Rows in Screening or Interview with no job description or no CV"
+                    data-missing-filter
+                  >
+                    {missingCount} missing JD or CV
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1787,13 +1822,14 @@ export default function ApplicationsPage() {
                   {statusFilter !== "All" ? ` with status “${statusFilter}”` : ""}
                   {styleFilter !== "all" ? ` in the ${ROW_STYLE_LABELS[styleFilter]} style` : ""}
                   {dueOnly ? " with a follow-up due" : ""}
+                  {missingOnly ? " missing a JD or CV" : ""}
                   {searchTerm ? ` matching “${searchTerm}”` : ""}
                 </>
               }
               actions={
                 <Button
                   variant="secondary"
-                  onClick={() => { setPeriodFilter("all"); setStatusFilter("All"); setStyleFilter("all"); setDueOnly(false); setQuery(""); }}
+                  onClick={() => { setPeriodFilter("all"); setStatusFilter("All"); setStyleFilter("all"); setDueOnly(false); setMissingOnly(false); setQuery(""); }}
                 >
                   Clear filters
                 </Button>
@@ -1979,6 +2015,12 @@ export default function ApplicationsPage() {
                       <tr className={"appsRow" + (open ? " open" : "") + (flashRowId === row.id ? " flashSave" : "")}>
                         <td data-label="Company Name">
                           {textCell(row, "company_name")}
+                          <RowFlags
+                            row={row}
+                            checking={checkingId === row.id}
+                            onRunCheck={() => void runCheck(row)}
+                            onAddJd={() => { if (!panelIs("jd")) togglePanel(row, "jd"); }}
+                          />
                           {isReplyOwed(row, now) && (
                             <span className="replyOwed" data-reply-owed>
                               <span
