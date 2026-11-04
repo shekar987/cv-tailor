@@ -12,7 +12,7 @@
 // keys, 434 without: dropping the JD alone left 2.2 MB at the 2,000-row cap. So
 // the JD becomes a flag, notes a preview, and null keys are not sent. Full
 // text comes from the detail read (GET /api/applications?id=).
-import { notesSayNotSubmitted } from "./tracker.ts";
+import { apiStatus, notesSayNotSubmitted } from "./tracker.ts";
 
 export const MAX_APPLICATIONS = 2000;
 // PostgREST's own per-request ceiling.
@@ -110,6 +110,8 @@ export function toListRow(row: Record<string, unknown>): Record<string, unknown>
     if (value === null || value === undefined || NOT_IN_LIST.has(key)) continue;
     out[key] = value;
   }
+  // The API's spelling, whichever one is stored (lib/tracker API_STATUS).
+  if (typeof row.status === "string") out.status = apiStatus(row.status);
   if (typeof row.job_description === "string" && row.job_description.trim()) out.has_job_description = true;
   for (const [key, value] of Object.entries(notesListFields(row.notes))) {
     if (value !== undefined) out[key] = value;

@@ -12,7 +12,7 @@ import {
 } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
 import { companyNamesMatch } from "@/lib/companyMatch";
-import { findDuplicateApplication, sendConfirmReasons } from "@/lib/tracker";
+import { findDuplicateApplication, sendConfirmReasons, statusLabel } from "@/lib/tracker";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
@@ -1594,7 +1594,7 @@ export default function Home() {
           role: realValue(analysis?.role_title) || importedFor?.title || "Unknown role",
           cv_reference: buildFileBaseName(displayProfile, analysis, "CV"),
           tailor_session_id: sid,
-          status: "Applied",
+          status: "applied",
           source: "tailored",
           // The JD's literal figure with its unit ("£480 per day"),
           // "Voluntary (unpaid)", or an explicit "Not Specified".
@@ -2100,7 +2100,7 @@ export default function Home() {
                     You have already applied to <strong>{gateExtras.sameCompany.company}</strong>{" "}
                     {gateExtras.sameCompany.count === 1 ? "once" : `${gateExtras.sameCompany.count} times`}
                     {" "}(last: {gateExtras.sameCompany.last.role}, {formatDay(gateExtras.sameCompany.last.date_applied)}
-                    {gateExtras.sameCompany.last.status ? `, ${gateExtras.sameCompany.last.status}` : ""}). Recruiters see every application to
+                    {gateExtras.sameCompany.last.status ? `, ${statusLabel(gateExtras.sameCompany.last.status)}` : ""}). Recruiters see every application to
                     their company in one screen; apply again only for a genuinely different role.
                   </div>
                 )}

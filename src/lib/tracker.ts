@@ -8,47 +8,189 @@
 
 import { companyNamesMatch } from "./companyMatch.ts";
 
-// "Ready to submit" is a row the user has prepared but not yet sent: it sits
-// in the tracker so nothing is lost, but it is not an application yet — the
-// insights, the follow-up chip and the "applied" counts leave it out.
+// "saved" is a row the user has prepared but not yet sent (shown as "Ready to
+// submit"): it sits in the tracker so nothing is lost, but it is not an
+// application yet — the insights, the follow-up chip and the "applied" counts
+// leave it out. "accepted" is shown as "Won".
 // Order matters: the sheet sorts status in funnel order and the chips follow it.
-export const STATUSES = ["Ready to submit", "Applied", "Screening", "Interview", "Offer", "Rejected", "Withdrawn"] as const;
+export const STATUSES = ["saved", "applied", "screening", "interview", "assessment", "offer", "accepted", "rejected", "withdrawn", "ghosted"] as const;
 export type Status = (typeof STATUSES)[number];
-export const READY_TO_SUBMIT: Status = "Ready to submit";
+export const READY_TO_SUBMIT: Status = "saved";
+
+export const STATUS_LABELS: Record<Status, string> = {
+  saved: "Ready to submit",
+  applied: "Applied",
+  screening: "Screening",
+  interview: "Interview",
+  assessment: "Assessment",
+  offer: "Offer",
+  accepted: "Won",
+  rejected: "Rejected",
+  withdrawn: "Withdrawn",
+  ghosted: "Ghosted",
+};
+
+// Stored rows may still hold the old labels ("Applied", "Ready to submit"):
+// migration 20261103130000 rewrites them after the deploy, and the owner's sweeps still
+// write them through the API. Every read inside the app goes through here.
+const OLD_LABELS: Record<string, Status> = { "ready to submit": "saved" };
+
+export function normalizeStatus(value: unknown): Status | null {
+  if (typeof value !== "string") return null;
+  const key = value.trim().toLowerCase();
+  if ((STATUSES as readonly string[]).includes(key)) return key as Status;
+  return OLD_LABELS[key] ?? null;
+}
+
+// What /api/applications answers with, whichever spelling the row is stored in. The
+// owner's sweeps read and write these exact strings, so this list is a contract: the
+// first six never change, whatever the database holds. Pages convert to the keys on load.
+export const API_STATUS: Record<Status, string> = {
+  saved: "Ready to submit",
+  applied: "Applied",
+  screening: "Screening",
+  interview: "Interview",
+  assessment: "Assessment",
+  offer: "Offer",
+  accepted: "Accepted",
+  rejected: "Rejected",
+  withdrawn: "Withdrawn",
+  ghosted: "Ghosted",
+};
+
+export function apiStatus(value: unknown): string {
+  const status = normalizeStatus(value);
+  return status ? API_STATUS[status] : typeof value === "string" ? value : "";
+}
 
 export function isStatus(value: unknown): value is Status {
-  return typeof value === "string" && (STATUSES as readonly string[]).includes(value);
+  return normalizeStatus(value) !== null;
+}
+
+export function statusLabel(value: unknown): string {
+  const status = normalizeStatus(value);
+  return status ? STATUS_LABELS[status] : typeof value === "string" ? value : "";
+}
+
+// The label a database still on the old CHECK accepts; null for a status it has
+// no label for. Also what a filter on a stored column must match beside the key.
+const OLD_STATUS_LABELS: Partial<Record<Status, string>> = {
+  saved: "Ready to submit",
+  applied: "Applied",
+  screening: "Screening",
+  interview: "Interview",
+  offer: "Offer",
+  rejected: "Rejected",
+  withdrawn: "Withdrawn",
+};
+export function oldStatusLabel(status: Status): string | null {
+  return OLD_STATUS_LABELS[status] ?? null;
+}
+export function storedStatusValues(status: Status): string[] {
+  const old = oldStatusLabel(status);
+  return old ? [status, old] : [status];
 }
 
 // Submitted = an application the user actually sent. Everything but the
 // not-yet-sent row.
 export function isSubmitted(status: string): boolean {
-  return status !== READY_TO_SUBMIT;
+  return normalizeStatus(status) !== READY_TO_SUBMIT;
+}
+
+// The one rule for the plan and the stage tabs: an application is active only
+// at one of these statuses. Anything else never reaches the plan, and its events
+// are hidden, not deleted, so moving the row back brings them back.
+export const ACTIVE_STATUSES: ReadonlySet<string> = new Set<Status>(["screening", "interview", "assessment", "offer"]);
+export function isActiveStatus(status: unknown): boolean {
+  const s = normalizeStatus(status);
+  return !!s && ACTIVE_STATUSES.has(s);
+}
+
+// A row's stage history after a status change: what the database trigger writes
+// (migration 20261103120000), for a page that keeps the row in memory. One ending at a
+// time; a move back drops later stages; an ending keeps the path that led to it.
+const STAGE_RANK: Partial<Record<Status, number>> = { saved: 0, applied: 1, screening: 2, interview: 3, assessment: 3, offer: 4, accepted: 5 };
+const ENDINGS: ReadonlySet<string> = new Set<Status>(["rejected", "withdrawn", "ghosted"]);
+export function stagesAfterMove(stages: readonly string[] | null | undefined, status: unknown): string[] {
+  const stage = normalizeStatus(status);
+  const known = (stages ?? []).map(normalizeStatus).filter((s): s is Status => !!s);
+  if (!stage) return known;
+  const kept = known.filter((s) => {
+    if (ENDINGS.has(s) || s === stage) return false;
+    return ENDINGS.has(stage) || (STAGE_RANK[s] ?? 9) <= (STAGE_RANK[stage] ?? 9);
+  });
+  return [...kept, stage];
+}
+
+// The tabs with date columns. Won holds offers too, so an offer is celebrated from
+// the day it lands.
+export const STAGE_TABS: readonly Status[] = ["screening", "interview", "assessment", "offer", "rejected", "accepted"];
+export function isStageTab(value: unknown): value is Status {
+  return (STAGE_TABS as readonly unknown[]).includes(value);
+}
+
+/** A tab holds a row by its CURRENT status only. */
+export function inStageTab(status: unknown, tab: Status): boolean {
+  const s = normalizeStatus(status);
+  return tab === "accepted" ? s === "accepted" || s === "offer" : s === tab;
+}
+
+/** With "Include past stages" on, also a row that has been through this stage. */
+export function inStageTabOrPast(row: { status: unknown; stages_reached?: readonly string[] | null }, tab: Status): boolean {
+  if (inStageTab(row.status, tab)) return true;
+  return (row.stages_reached ?? []).some((s) => inStageTab(s, tab));
+}
+
+/** The stored values a tab's filter matches, old labels included. */
+export function stageTabValues(tab: Status): string[] {
+  return tab === "accepted" ? [...storedStatusValues("accepted"), ...storedStatusValues("offer")] : storedStatusValues(tab);
 }
 
 // Past the screen. Rejected is the other outcome; Applied is still pending.
-export const PROGRESSED: ReadonlySet<string> = new Set(["Screening", "Interview", "Offer"]);
+export const PROGRESSED: ReadonlySet<string> = new Set<Status>(["screening", "interview", "assessment", "offer", "accepted"]);
+export function hasProgressed(status: unknown): boolean {
+  const s = normalizeStatus(status);
+  return !!s && PROGRESSED.has(s);
+}
+
+// An outcome with no progress: a rejection, or a silence the user has called Ghosted.
+export function endedWithoutProgress(status: unknown): boolean {
+  const s = normalizeStatus(status);
+  return s === "rejected" || s === "ghosted";
+}
 
 // A follow-up is "due" while the application is still moving — a date in the
 // past on a Rejected row is history, and a row that was never sent has nothing
 // to follow up.
-export const LIVE_STATUSES: ReadonlySet<string> = new Set(["Applied", "Screening", "Interview"]);
+export const LIVE_STATUSES: ReadonlySet<string> = new Set<Status>(["applied", "screening", "interview", "assessment"]);
 
 export function isFollowupDue(row: { followup_date: string | null; status: string }, today: string): boolean {
-  return !!row.followup_date && row.followup_date <= today && LIVE_STATUSES.has(row.status);
+  return !!row.followup_date && row.followup_date <= today && LIVE_STATUSES.has(normalizeStatus(row.status) ?? "");
 }
 
-// Marking a row Rejected or Withdrawn ends it: an open follow-up date would
-// only keep it in the "due" chip. The date is cleared and recorded in the
-// notes so nothing is lost.
-export const CLOSED_STATUSES: ReadonlySet<string> = new Set(["Rejected", "Withdrawn"]);
+// A row marked Rejected, Withdrawn, Ghosted or Won has ended: an open follow-up
+// date would only keep it in the "due" chip. The date is cleared and recorded in
+// the notes so nothing is lost.
+export const CLOSED_STATUSES: ReadonlySet<string> = new Set<Status>(["rejected", "withdrawn", "ghosted", "accepted"]);
 
 export function clearsFollowup(status: string): boolean {
-  return CLOSED_STATUSES.has(status);
+  return CLOSED_STATUSES.has(normalizeStatus(status) ?? "");
 }
 
 export function followupClearedNote(followup: string, status: string, today: string): string {
-  return `Follow-up ${followup} cleared when marked ${status} on ${today}.`;
+  return `Follow-up ${followup} cleared when marked ${statusLabel(status)} on ${today}.`;
+}
+
+/** Takes back the line followupClearedNote added, for an undo. Every other line stays. */
+export function removeFollowupClearedNote(notes: string | null | undefined, followup: string): string {
+  const lines = (notes ?? "").split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].trim().startsWith(`Follow-up ${followup} cleared when marked `)) {
+      lines.splice(i, 1);
+      break;
+    }
+  }
+  return lines.join("\n").trimEnd();
 }
 
 // Appends a line to free-text notes, never duplicating an identical line.
@@ -112,7 +254,7 @@ export function notesSayNotSubmitted(notes: string | null | undefined): boolean 
 // A live conversation with no record of what was applied to or sent: the row
 // in Screening or Interview you will want to read back before the call. A
 // tailored row carries its CV in the snapshot; a hand-added one needs the file.
-export const ATTACHMENT_STATUSES: ReadonlySet<string> = new Set(["Screening", "Interview"]);
+export const ATTACHMENT_STATUSES: ReadonlySet<string> = new Set<Status>(["screening", "interview", "assessment"]);
 export type RowFlagFields = {
   status: string;
   source?: string;
@@ -122,7 +264,7 @@ export type RowFlagFields = {
   triage_reasons?: string[];
 };
 export function missingAttachments(row: RowFlagFields): ("Missing JD" | "Missing CV")[] {
-  if (!ATTACHMENT_STATUSES.has(row.status)) return [];
+  if (!ATTACHMENT_STATUSES.has(normalizeStatus(row.status) ?? "")) return [];
   const out: ("Missing JD" | "Missing CV")[] = [];
   if (!row.has_job_description) out.push("Missing JD");
   if (row.source !== "tailored" && !row.sent_cv_name) out.push("Missing CV");
@@ -175,7 +317,7 @@ export function sendConfirmReasons(input: SendConfirmInput): string[] {
   if (input.duplicate) {
     const d = input.duplicate;
     const when = d.date_applied ? ` on ${d.date_applied}` : "";
-    const status = d.status ? ` (${d.status})` : "";
+    const status = d.status ? ` (${statusLabel(d.status)})` : "";
     reasons.push(`You already have ${d.company_name} — ${d.role}${when}${status} in the tracker.`);
   }
   return reasons;
@@ -202,7 +344,7 @@ export type ContactFields = { last_contact_from?: string | null; last_contact_at
 
 export function isReplyOwed(row: ContactFields, now: Date | number = Date.now()): boolean {
   if (row.last_contact_from !== "them" || !row.last_contact_at) return false;
-  if (row.status && CLOSED_STATUSES.has(row.status)) return false;
+  if (row.status && CLOSED_STATUSES.has(normalizeStatus(row.status) ?? "")) return false;
   const at = Date.parse(row.last_contact_at);
   if (!Number.isFinite(at)) return false;
   return (typeof now === "number" ? now : now.getTime()) - at > REPLY_OWED_AFTER_MS;

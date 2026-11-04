@@ -34,6 +34,16 @@ export async function GET() {
       const { data, error } = await q.limit(5000);
       return section(table, data, error);
     }
+    // Finished events stay, so this table can pass PostgREST's 1000 rows per request.
+    async function readEvents(): Promise<Section> {
+      const rows: unknown[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from("application_events").select("*").eq("user_id", userId).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, from + 999);
+        if (error) return section("application_events", null, error);
+        rows.push(...(data ?? []));
+        if ((data ?? []).length < 1000) return section("application_events", rows, null);
+      }
+    }
     // The tracker can pass PostgREST's 1000 rows per request; the other tables
     // are one row or a handful.
     async function readApplications(): Promise<Section> {
@@ -43,7 +53,7 @@ export async function GET() {
       return section("applications", rows, error);
     }
 
-    const [profile, masterCv, cvProfile, settings, applications, interviews, research, keys] = await Promise.all([
+    const [profile, masterCv, cvProfile, settings, applications, interviews, research, keys, events, availability] = await Promise.all([
       read("profiles", "tailor_count, tailor_count_reset_at, claude_tailors_used, is_unlimited, section_order"),
       read("master_cvs", "text, projects_pool, updated_at"),
       read("cv_profiles", "data, updated_at"),
@@ -52,6 +62,8 @@ export async function GET() {
       read("mock_interviews", "id, application_id, type, persona, llm_path, status, plan, transcript, feedback, created_at, finished_at", "created_at"),
       read("company_profiles", "domain, data, fetched_at", "fetched_at"),
       read("user_api_keys", "provider, key_hint, updated_at"),
+      readEvents(),
+      read("availability_windows", "*", "created_at"),
     ]);
 
     // An unfinished interview's plan holds the questions not yet asked; the
@@ -81,6 +93,8 @@ export async function GET() {
       applications,
       mockInterviews: interviews,
       companyResearch: research,
+      planEvents: events,
+      availability,
       providerKeys: { ...keys, note: keys.note ?? "hints only — the keys themselves are encrypted and never exported" },
     };
     const day = payload.exportedAt.slice(0, 10);

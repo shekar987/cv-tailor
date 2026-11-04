@@ -7,7 +7,7 @@ import { seniorityOf } from "@/lib/insights";
 import { GATE_CATEGORIES } from "@/lib/knockouts";
 import { SENT_CV_BUCKET, normalizeSentCv, publicSentCv, ownsPath } from "@/lib/sentCv";
 import {
-  isStatus, READY_TO_SUBMIT, clearsFollowup, followupClearedNote, appendNoteLine, isLastContactFrom, parseContactAt,
+  apiStatus, normalizeStatus, oldStatusLabel, clearsFollowup, followupClearedNote, appendNoteLine, isLastContactFrom, parseContactAt,
   type Status, type LastContactFrom,
 } from "@/lib/tracker";
 import { isFormatStyleId, type FormatStyleId } from "@/lib/formatStyles/ids";
@@ -38,13 +38,16 @@ function isUuid(value: unknown): value is string {
 }
 
 // The status list lives in lib/tracker (one copy for the sheet, this route,
-// the export and the insights). "Ready to submit" needs migration
-// 20261001120000; until it is applied the CHECK constraint rejects it
-// (23514) and the write answers 503 needs_migration instead of a 500.
+// the export and the insights). A database without migration 20261103120000
+// refuses the new keys (23514): a status with an old label is written with that
+// label instead, and one without (Assessment, Won, Ghosted) answers 503
+// needs_migration rather than a 500.
 const STATUS_MIGRATION_HINT =
-  "The database is missing migration supabase/migrations/20261001120000_ready_to_submit_status.sql, which adds the \"Ready to submit\" status. Run it in the Supabase SQL editor, then try again.";
-function isStatusCheckViolation(error: { code?: string; message?: string } | null, status: Status | undefined): boolean {
-  return !!error && error.code === "23514" && status === READY_TO_SUBMIT;
+  "That status needs the database migration supabase/migrations/20261103120000_application_events.sql. Run it in the Supabase SQL editor, then try again.";
+const OUTCOME_MIGRATION_HINT = STATUS_MIGRATION_HINT.replace("That status needs", "Saving a rejection reason needs");
+const MAX_OUTCOME_REASON = 500;
+function isStatusCheckViolation(error: { code?: string; message?: string } | null): boolean {
+  return !!error && error.code === "23514";
 }
 
 // The list omits tailored_cv and prep_pack (multi-KB JSON per row); GET ?id=
@@ -69,6 +72,8 @@ const LIST_COLUMNS_SENT = `${LIST_COLUMNS}, sent_cv_name:sent_cv->>fileName`;
 const LIST_COLUMNS_CONTACT = `${LIST_COLUMNS_SENT}, last_contact_from, last_contact_at`;
 // The referral columns (lib/referrals, migration 20261031120000) on top.
 const LIST_COLUMNS_REFERRAL = `${LIST_COLUMNS_CONTACT}, referral, referrer_name, req_id, referral_status`;
+// The stages a row has passed through and why it ended (migration 20261103120000).
+const LIST_COLUMNS_STAGES = `${LIST_COLUMNS_REFERRAL}, stages_reached, outcome_reason`;
 const CONTACT_MIGRATION_HINT =
   "Recording who spoke last needs the database migration supabase/migrations/20261030120000_applications_last_contact.sql. Run it in the Supabase SQL editor, then try again.";
 const DETAIL_COLUMNS_NO_PREP = `${SELECT_COLUMNS}, tailored_cv`;
@@ -254,6 +259,7 @@ function clampOptional(value: unknown, max: number): string | null {
 }
 
 type Editable = {
+  outcome_reason?: string | null;
   company_name?: string;
   role?: string;
   status?: Status;
@@ -300,11 +306,11 @@ function validateEditable(body: Record<string, unknown>, partial: boolean): Vali
 
   if (!partial || "status" in body) {
     if (!partial && body.status === undefined) {
-      fields.status = "Applied";
-    } else if (!isStatus(body.status)) {
-      return { error: "Pick a valid status." };
+      fields.status = "applied";
     } else {
-      fields.status = body.status;
+      const status = normalizeStatus(body.status);
+      if (!status) return { error: "Pick a valid status." };
+      fields.status = status;
     }
   }
 
@@ -357,6 +363,14 @@ function validateEditable(body: Record<string, unknown>, partial: boolean): Vali
   }
   if ("last_contact_from" in fields && !("last_contact_at" in fields)) {
     fields.last_contact_at = fields.last_contact_from ? new Date().toISOString() : null;
+  }
+
+  // Why the application ended, in the user's own words. Update only.
+  if (partial && "outcome_reason" in body) {
+    const reason = typeof body.outcome_reason === "string" ? body.outcome_reason.trim() : "";
+    if (body.outcome_reason !== null && typeof body.outcome_reason !== "string") return { error: "Enter the reason as text." };
+    if (reason.length > MAX_OUTCOME_REASON) return { error: `Keep the reason under ${MAX_OUTCOME_REASON} characters.` };
+    fields.outcome_reason = reason || null;
   }
 
   // Referral, referrer, req id and the ask's status (lib/referrals). Update only.
@@ -421,7 +435,7 @@ export async function GET(req: NextRequest) {
       // The uploaded CV's record without its storage path (lib/sentCv).
       const sentCv = publicSentCv(normalizeSentCv(row.sent_cv));
       return NextResponse.json({
-        application: { ...row, tailored_cv: snapshot, prep_pack: prepPack, sent_cv: sentCv },
+        application: { ...row, status: apiStatus(row.status), tailored_cv: snapshot, prep_pack: prepPack, sent_cv: sentCv },
         ...(warning ? { warning } : {}),
       });
     }
@@ -431,7 +445,7 @@ export async function GET(req: NextRequest) {
     // and the upload route name the migration when it matters.
     let rows: Record<string, unknown>[] | null = null;
     let readError: { code?: string; message: string } | null = null;
-    const listLadder = [LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
+    const listLadder = [LIST_COLUMNS_STAGES, LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
     for (let rung = 0; rung < listLadder.length; rung++) {
       const read = await readApplicationPages(
         () => supabase.from("applications").select(listLadder[rung]) as unknown as OrderableQuery
@@ -557,6 +571,15 @@ export async function POST(req: NextRequest) {
       if (!insertError) warning = SNAPSHOT_WARNING;
     }
 
+    const oldInsertLabel = isStatusCheckViolation(insertError) && fields.status ? oldStatusLabel(fields.status) : null;
+    if (oldInsertLabel) {
+      ({ data: inserted, error: insertError } = await supabase
+        .from("applications")
+        .insert({ ...record, status: oldInsertLabel, user_id: userId })
+        .select("id")
+        .single());
+    }
+
     if (insertError) {
       // 23505 = the partial unique index fired: two clicks raced past the
       // check above. Resolve to the row that won.
@@ -571,7 +594,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true, id: winner.id, alreadySaved: true });
         }
       }
-      if (isStatusCheckViolation(insertError, fields.status)) {
+      if (isStatusCheckViolation(insertError) && fields.status) {
         return NextResponse.json({ error: STATUS_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
       }
       console.error("applications insert error:", insertError.message);
@@ -738,16 +761,29 @@ export async function PUT(req: NextRequest) {
     // another user's row rather than erroring, so an empty result means
     // "not yours or not there".
     const update: Record<string, unknown> = { ...fields, ...(snapshotPatch !== undefined ? { tailored_cv: snapshotPatch } : {}) };
-    const { data: updated, error: updateError } = await supabase
+    let { data: updated, error: updateError } = await supabase
       .from("applications")
       .update(update)
       .eq("id", id)
       .eq("user_id", userId)
       .select("id");
 
+    const oldUpdateLabel = isStatusCheckViolation(updateError) && fields.status ? oldStatusLabel(fields.status) : null;
+    if (oldUpdateLabel) {
+      ({ data: updated, error: updateError } = await supabase
+        .from("applications")
+        .update({ ...update, status: oldUpdateLabel })
+        .eq("id", id)
+        .eq("user_id", userId)
+        .select("id"));
+    }
+
     if (updateError) {
-      if (isStatusCheckViolation(updateError, fields.status)) {
+      if (isStatusCheckViolation(updateError) && fields.status) {
         return NextResponse.json({ error: STATUS_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+      }
+      if (isMissingColumn(updateError) && "outcome_reason" in fields) {
+        return NextResponse.json({ error: OUTCOME_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
       }
       if (isMissingColumn(updateError) && ("last_contact_from" in fields || "last_contact_at" in fields)) {
         return NextResponse.json({ error: CONTACT_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });

@@ -4,6 +4,21 @@ import assert from "node:assert/strict";
 import {
   STATUSES,
   READY_TO_SUBMIT,
+  STATUS_LABELS,
+  normalizeStatus,
+  statusLabel,
+  oldStatusLabel,
+  storedStatusValues,
+  isActiveStatus,
+  apiStatus,
+  removeFollowupClearedNote,
+  stagesAfterMove,
+  endedWithoutProgress,
+  inStageTab,
+  inStageTabOrPast,
+  isStageTab,
+  stageTabValues,
+  STAGE_TABS,
   isStatus,
   isSubmitted,
   isFollowupDue,
@@ -25,14 +40,115 @@ import {
   REPLY_OWED_AFTER_MS,
 } from "../src/lib/tracker.ts";
 
-test("the status list carries Ready to submit first and validates strictly", () => {
+test("the status list is the lower-case keys; old labels still read", () => {
   assert.equal(STATUSES[0], READY_TO_SUBMIT);
-  assert.equal(STATUSES.length, 7);
-  assert.ok(isStatus("Ready to submit"));
-  assert.ok(isStatus("Withdrawn"));
-  assert.ok(!isStatus("ready to submit"), "case matters: the CHECK constraint is exact");
+  assert.deepEqual([...STATUSES], ["saved", "applied", "screening", "interview", "assessment", "offer", "accepted", "rejected", "withdrawn", "ghosted"]);
+  assert.equal(normalizeStatus("Ready to submit"), "saved");
+  assert.equal(normalizeStatus("Withdrawn"), "withdrawn");
+  assert.equal(normalizeStatus(" screening "), "screening");
+  assert.ok(isStatus("ghosted"));
   assert.ok(!isStatus("Pending"));
   assert.ok(!isStatus(null));
+  assert.equal(normalizeStatus("Pending"), null);
+});
+
+test("a stage tab holds a row by its CURRENT status only: a rejected row is never under Screening", () => {
+  assert.equal(inStageTab("rejected", "screening"), false);
+  assert.equal(inStageTab("Rejected", "screening"), false);
+  assert.equal(inStageTab("screening", "screening"), true);
+  assert.equal(inStageTab("Screening", "screening"), true, "an old label reads the same");
+  // A row that passed through Screening and was then rejected stays out unless asked for.
+  const row = { status: "rejected", stages_reached: ["applied", "screening", "rejected"] };
+  assert.equal(inStageTab(row.status, "screening"), false);
+  assert.equal(inStageTabOrPast(row, "screening"), true, "Include past stages");
+  assert.equal(inStageTabOrPast(row, "interview"), false);
+  assert.equal(inStageTabOrPast({ status: "screening" }, "screening"), true);
+  assert.equal(inStageTabOrPast({ status: "applied", stages_reached: null }, "screening"), false);
+});
+
+test("the Won tab holds accepted and offer; every other tab one status", () => {
+  assert.equal(inStageTab("accepted", "accepted"), true);
+  assert.equal(inStageTab("offer", "accepted"), true);
+  assert.equal(inStageTab("offer", "offer"), true);
+  assert.equal(inStageTab("accepted", "offer"), false);
+  assert.deepEqual(stageTabValues("accepted"), ["accepted", "offer", "Offer"]);
+  assert.deepEqual(stageTabValues("screening"), ["screening", "Screening"]);
+  assert.deepEqual([...STAGE_TABS], ["screening", "interview", "assessment", "offer", "rejected", "accepted"]);
+  assert.equal(isStageTab("applied"), false);
+});
+
+test("the API answers the sweeps' exact strings, whichever spelling is stored", () => {
+  // A contract: the owner's sweeps read and write these. Never change them.
+  const pairs: [string, string][] = [["Applied", "applied"], ["Screening", "screening"], ["Interview", "interview"], ["Rejected", "rejected"], ["Withdrawn", "withdrawn"], ["Ready to submit", "saved"]];
+  for (const [sweep, key] of pairs) {
+    assert.equal(apiStatus(sweep), sweep, "stored as the old label");
+    assert.equal(apiStatus(key), sweep, "stored as the key");
+    assert.equal(normalizeStatus(sweep), key, "written by a sweep");
+    assert.equal(STATUS_LABELS[key as keyof typeof STATUS_LABELS], key === "saved" ? "Ready to submit" : sweep);
+  }
+  assert.equal(apiStatus("assessment"), "Assessment");
+  assert.equal(apiStatus("accepted"), "Accepted");
+  assert.equal(apiStatus("ghosted"), "Ghosted");
+  assert.equal(apiStatus("offer"), "Offer");
+  for (const status of STATUSES) assert.equal(normalizeStatus(apiStatus(status)), status, "every answer reads back as its key");
+});
+
+test("every status has a label, and the two renamed ones read as the user knows them", () => {
+  for (const s of STATUSES) assert.ok(STATUS_LABELS[s], s);
+  assert.equal(statusLabel("saved"), "Ready to submit");
+  assert.equal(statusLabel("accepted"), "Won");
+  assert.equal(statusLabel("Rejected"), "Rejected");
+  assert.equal(statusLabel("Pending"), "Pending");
+});
+
+test("a database on the old CHECK gets the old label; a filter matches both spellings", () => {
+  assert.equal(oldStatusLabel("saved"), "Ready to submit");
+  assert.equal(oldStatusLabel("assessment"), null);
+  assert.deepEqual(storedStatusValues("screening"), ["screening", "Screening"]);
+  assert.deepEqual(storedStatusValues("ghosted"), ["ghosted"]);
+});
+
+test("active means screening, interview, assessment or offer, and nothing else", () => {
+  const active = STATUSES.filter(isActiveStatus);
+  assert.deepEqual(active, ["screening", "interview", "assessment", "offer"]);
+  assert.ok(isActiveStatus("Screening"));
+  assert.ok(!isActiveStatus("Rejected"));
+  assert.ok(!isActiveStatus(null));
+});
+
+test("a ghosted row has ended without progress, so it is not still open", () => {
+  assert.equal(endedWithoutProgress("ghosted"), true);
+  assert.equal(endedWithoutProgress("Rejected"), true);
+  assert.equal(endedWithoutProgress("screening"), false);
+  assert.equal(endedWithoutProgress("accepted"), false);
+});
+
+test("undo takes back only the follow-up line it added", () => {
+  const notes = "First line.\nFollow-up 2026-11-10 cleared when marked Rejected on 2026-11-03.";
+  assert.equal(removeFollowupClearedNote(notes, "2026-11-10"), "First line.");
+  assert.equal(removeFollowupClearedNote("Follow-up 2026-11-10 cleared when marked Rejected on 2026-11-03.", "2026-11-10"), "");
+  assert.equal(removeFollowupClearedNote("Keep this.", "2026-11-10"), "Keep this.");
+  assert.equal(removeFollowupClearedNote(notes, "2026-12-01"), notes, "another date's line stays");
+  assert.equal(removeFollowupClearedNote(null, "2026-11-10"), "");
+});
+
+test("the stage history after a move matches what the database trigger writes", () => {
+  const walk = (start: string[], ...moves: string[]) => moves.reduce((h, m) => stagesAfterMove(h, m), start).join();
+  assert.equal(walk(["applied"], "screening", "rejected"), "applied,screening,rejected", "an ending keeps the path");
+  assert.equal(walk(["applied"], "screening", "rejected", "screening"), "applied,screening", "undoing Rejected removes it");
+  assert.equal(walk(["applied"], "screening", "offer", "screening"), "applied,screening", "undoing Offer removes it");
+  assert.equal(walk(["applied"], "screening", "assessment", "interview"), "applied,screening,assessment,interview");
+  assert.equal(walk(["applied"], "screening", "assessment", "interview", "assessment"), "applied,screening,interview,assessment", "going back puts it last");
+  assert.equal(walk(["applied"], "screening", "ghosted", "rejected"), "applied,screening,rejected", "one ending at a time");
+  assert.equal(walk(["applied", "Screening"], "Applied"), "applied", "old labels too");
+  assert.equal(walk(["applied"], "screening", "screening"), "applied,screening", "an unchanged status changes nothing");
+  assert.deepEqual(stagesAfterMove(null, "applied"), ["applied"]);
+});
+
+test("ghosted and won rows have ended, so their follow-ups clear", () => {
+  for (const s of ["rejected", "withdrawn", "ghosted", "accepted", "Rejected"]) assert.equal(clearsFollowup(s), true, s);
+  for (const s of ["applied", "screening", "interview", "assessment", "offer"]) assert.equal(clearsFollowup(s), false, s);
+  assert.equal(followupClearedNote("2026-11-04", "accepted", "2026-11-03"), "Follow-up 2026-11-04 cleared when marked Won on 2026-11-03.");
 });
 
 test("Ready to submit is not a submitted application; everything else is", () => {

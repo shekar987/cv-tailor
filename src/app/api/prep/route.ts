@@ -43,6 +43,7 @@ import {
 } from "@/lib/prepPack";
 import { checkPrepPack, prepCopyTerms, flaggedForTarget, normalizePrepRewrites, applyPrepRewrites, type PrepRewriteTarget, type PrepCheckContext } from "@/lib/prepCheck";
 import { toBritishDeep } from "@/lib/britishSpelling";
+import { statusLabel } from "@/lib/tracker";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -297,7 +298,7 @@ export async function POST(req: NextRequest) {
     const userInput = JSON.stringify({
       company: row.company_name,
       role: row.role,
-      status: row.status,
+      status: statusLabel(row.status),
       job_description: jd,
       ...(tailoredCvText ? { tailored_cv_text: tailoredCvText } : {}),
       ...(research ? { company_research: research } : {}),

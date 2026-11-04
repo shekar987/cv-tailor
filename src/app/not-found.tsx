@@ -12,7 +12,7 @@ export default function NotFound() {
           The link may be old or mistyped. Everything you need is one click away.
         </p>
         <div className="actions" style={{ marginTop: 0 }}>
-          <Button href="/app">Open the app</Button>
+          <Button href="/app/next">Open the app</Button>
           <Button variant="secondary" href="/">Home</Button>
         </div>
       </div>

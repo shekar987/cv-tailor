@@ -175,3 +175,9 @@ test("even a knockout quote on all 2,000 rows stays far under Vercel's 4.5 MB li
   const mb = listMb(GATES);
   assert.ok(mb < 2, `${mb.toFixed(2)} MB`);
 });
+test("the list answers in the API's spelling, whichever one is stored", () => {
+  assert.equal(toListRow({ id: "a", status: "Applied" }).status, "Applied");
+  assert.equal(toListRow({ id: "a", status: "applied" }).status, "Applied");
+  assert.equal(toListRow({ id: "a", status: "saved" }).status, "Ready to submit");
+  assert.equal(toListRow({ id: "a", status: "Ready to submit" }).status, "Ready to submit");
+});

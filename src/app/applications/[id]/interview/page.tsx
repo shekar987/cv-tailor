@@ -18,6 +18,7 @@ import { loadKokoroVoice, loadBrowserVoices, pickBrowserVoice, browserVoice, sil
 import AvatarStage, { type AvatarHandle } from "./AvatarStage";
 import InterviewRoom, { type StartedInterview } from "./InterviewRoom";
 import FeedbackView from "./FeedbackView";
+import { normalizeStatus } from "@/lib/tracker";
 
 // /applications/[id]/interview — a mock interview with an AI interviewer for
 // one tracked application: pick the UK round, get interviewed out loud (or by
@@ -34,7 +35,7 @@ type LoadState = "loading" | "ready" | "missing" | "expired" | "error";
 type KokoroState = { state: "idle" } | { state: "loading"; pct: number } | { state: "ready"; factor: number } | { state: "too_slow"; factor: number } | { state: "failed"; reason: string };
 
 function defaultRound(status: string): InterviewType {
-  return status === "Interview" ? "competency" : "screening";
+  return normalizeStatus(status) === "interview" ? "competency" : "screening";
 }
 
 function formatDate(iso: string): string {

@@ -61,7 +61,7 @@ export default function UpdatePasswordPage() {
       return
     }
     setDone(true)
-    redirectTimer.current = setTimeout(() => router.push('/app'), 1500)
+    redirectTimer.current = setTimeout(() => router.push('/app/next'), 1500)
   }
 
   if (session === 'none') {
@@ -89,7 +89,7 @@ export default function UpdatePasswordPage() {
           <p className="authEyebrow">Password updated</p>
           <h1 className="authTitle">You&apos;re all set</h1>
           <p className="authMuted">Your new password is saved. Taking you to the app…</p>
-          <Button href="/app">Open the app</Button>
+          <Button href="/app/next">Open the app</Button>
         </div>
       </main>
     )

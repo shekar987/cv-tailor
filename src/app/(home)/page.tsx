@@ -156,7 +156,7 @@ export default function Landing() {
           <Wordmark href="/" className="wordmark lpWordmark" />
           <div className="lpNavActions">
             {signedIn ? (
-              <Link href="/app" className="customizeLink">Open the app →</Link>
+              <Link href="/app/next" className="customizeLink">Open the app →</Link>
             ) : (
               <>
                 <Link href="/auth/login" className="lpNavLink">Sign in</Link>

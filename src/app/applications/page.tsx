@@ -23,8 +23,18 @@ import { gateLine, type GatesSummary } from "@/lib/knockouts";
 import { rowStyle, isFormatStyleId, normalizeFormatStyle, ROW_STYLE_LABELS, type RowStyle } from "@/lib/formatStyles/ids";
 import { normalizeStyleCheck, summarizeStyleCheck } from "@/lib/styleCheck";
 import { getUsage } from "@/lib/usage";
+import StageTable from "./StageTable";
 import {
   STATUSES,
+  STATUS_LABELS,
+  inStageTab,
+  inStageTabOrPast,
+  stagesAfterMove,
+  isStageTab,
+  normalizeStatus,
+  statusLabel,
+  hasProgressed,
+  endedWithoutProgress,
   READY_TO_SUBMIT,
   isFollowupDue,
   findDuplicateApplication,
@@ -94,6 +104,9 @@ type Application = {
   // manual row (lib/formatStyles; a JSON-path alias in the list query);
   // absent or null = not recorded.
   format_style?: string | null;
+  // The stages this row has been through and why it ended (migration 20261103120000).
+  stages_reached?: string[] | null;
+  outcome_reason?: string | null;
 };
 
 // What the Applied button stored: the generated sections plus the profile and
@@ -288,11 +301,10 @@ type Lane = { level: Seniority; applied: number; decided: number; progressed: nu
 // nothing else in the tracker separated outcomes at all. A rate shows only
 // from MIN_DECIDED decided applications, as every other bucket.
 export function laneStats(rows: { role: string; status: string }[]): Lane[] {
-  const PROG = new Set(["Screening", "Interview", "Offer"]);
   return (["junior", "mid", "senior"] as Seniority[]).map((level) => {
-    const lane = rows.filter((r) => r.status !== "Ready to submit" && r.status !== "Withdrawn" && seniorityOf(r.role) === level);
-    const progressed = lane.filter((r) => PROG.has(r.status)).length;
-    const decided = progressed + lane.filter((r) => r.status === "Rejected").length;
+    const lane = rows.filter((r) => { const s = normalizeStatus(r.status); return s !== "saved" && s !== "withdrawn" && seniorityOf(r.role) === level; });
+    const progressed = lane.filter((r) => hasProgressed(r.status)).length;
+    const decided = progressed + lane.filter((r) => endedWithoutProgress(r.status)).length;
     return { level, applied: lane.length, decided, progressed, rate: decided >= MIN_DECIDED ? progressed / decided : null };
   });
 }
@@ -485,13 +497,16 @@ function isDue(row: Application): boolean {
 
 // Data colour only: outcomes get colour, in-flight statuses stay neutral.
 const STATUS_TONES: Record<Status, string> = {
-  "Ready to submit": "muted",
-  Applied: "neutral",
-  Screening: "neutral",
-  Interview: "neutral",
-  Offer: "success",
-  Rejected: "danger",
-  Withdrawn: "muted",
+  saved: "muted",
+  applied: "neutral",
+  screening: "neutral",
+  interview: "neutral",
+  assessment: "neutral",
+  offer: "success",
+  accepted: "success",
+  rejected: "danger",
+  withdrawn: "muted",
+  ghosted: "muted",
 };
 
 // Period filter on date_applied, in the user's own timezone. Calendar periods:
@@ -560,7 +575,8 @@ async function fetchApplications(): Promise<{ rows: Application[] } | { error: s
   if (!ok) return { error: data.error || "Could not load your applications." };
   // The list leaves out null keys to stay small; the sheet's required fields
   // read as null again here.
-  const rows = (data.applications as Application[] | undefined) ?? [];
+  // The API answers in its own spelling (lib/tracker API_STATUS); this page works in keys.
+  const rows = ((data.applications as Application[] | undefined) ?? []).map((r) => ({ ...r, status: normalizeStatus(r.status) ?? r.status }));
   return { rows: rows.map((r) => ({ ...EMPTY_LIST_FIELDS, ...r })) };
 }
 
@@ -604,6 +620,12 @@ export default function ApplicationsPage() {
   const [sectionOrder, setSectionOrder] = useState<unknown>(null);
 
   const [statusFilter, setStatusFilter] = useState<"All" | Status>("All");
+  // On a stage tab: the dated table, or the full sheet with its panels.
+  const [stageSheet, setStageSheet] = useState(false);
+  const [includePast, setIncludePast] = useState(false);
+  // Opening a row in the sheet searches for it, so it is on the sheet's first page.
+  const [sheetSearchFromStage, setSheetSearchFromStage] = useState(false);
+  const [stageRefresh, setStageRefresh] = useState(0);
   const [periodFilter, setPeriodFilter] = useState<Period>("all");
   // The format-style tag, filter, picker and tile are the owner's while the
   // two styles are compared (profiles.is_unlimited, read fail-soft).
@@ -711,6 +733,9 @@ export default function ApplicationsPage() {
       .catch(() => {
         /* the card simply doesn't show */
       });
+    // A link from the pipeline opens that stage's tab (lib/plan buildFunnel's nodes).
+    const linked = normalizeStatus(new URLSearchParams(window.location.search).get("status"));
+    if (linked) setStatusFilter(linked);
     fetch("/api/section-order")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -745,6 +770,8 @@ export default function ApplicationsPage() {
   const statusCounts = useMemo(() => {
     const counts = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<Status, number>;
     for (const r of rows) if (r.status in counts) counts[r.status] += 1;
+    // The Won tab holds offers too; every count is the row's current stage.
+    counts.accepted += counts.offer;
     return counts;
   }, [rows]);
   const dueCount = useMemo(() => rows.filter(isDue).length, [rows]);
@@ -753,7 +780,7 @@ export default function ApplicationsPage() {
   const visible = useMemo(() => {
     const filtered = rows.filter(
       (r) =>
-        (statusFilter === "All" || r.status === statusFilter) &&
+        (statusFilter === "All" || (includePast && isStageTab(statusFilter) && !stageSheet ? inStageTabOrPast(r, statusFilter) : inStageTab(r.status, statusFilter))) &&
         (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) &&
         (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
         (!dueOnly || isDue(r)) &&
@@ -788,7 +815,7 @@ export default function ApplicationsPage() {
     });
     // A reply owed outranks any sort: those rows come first, in sort order.
     return replyOwedFirst(sorted, now);
-  }, [rows, statusFilter, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, missingOnly, searchTerm, now]);
+  }, [rows, statusFilter, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, missingOnly, searchTerm, now, includePast, stageSheet]);
 
   // Only PAGE_SIZE rows are painted at a time; search, filters, counts and the
   // export cover the whole set. A different filter/sort state starts at page 1.
@@ -810,7 +837,7 @@ export default function ApplicationsPage() {
   const lanes = useMemo(() => laneStats(rows), [rows]);
 
   // Rows marked Applied whose notes say they were never sent (lib/tracker).
-  const notSubmitted = useMemo(() => rows.filter((r) => r.status === "Applied" && r.notes_not_submitted), [rows]);
+  const notSubmitted = useMemo(() => rows.filter((r) => r.status === "applied" && r.notes_not_submitted), [rows]);
 
   // Live warnings on the add-row form: a row this company + role already has,
   // and a role long enough to be a title plus extras.
@@ -838,7 +865,7 @@ export default function ApplicationsPage() {
     () =>
       rows.filter(
         (r) =>
-          (statusFilter === "All" || r.status === statusFilter) &&
+          (statusFilter === "All" || inStageTab(r.status, statusFilter)) &&
           (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) &&
           (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
           matchesSearch(r, searchTerm)
@@ -1021,7 +1048,10 @@ export default function ApplicationsPage() {
 
   function changeStatus(row: Application, status: Status) {
     if (status === row.status) return;
-    void patchRow(row.id, { status }).then((message) => setActionError(message ?? ""));
+    void patchRow(row.id, { status, stages_reached: stagesAfterMove(row.stages_reached, status) }).then((message) => {
+      setActionError(message ?? "");
+      setStageRefresh((n) => n + 1);
+    });
   }
 
   // ── Panels (CV / JD / Notes) ──────────────────────────────────────────────
@@ -1224,7 +1254,8 @@ export default function ApplicationsPage() {
     setNewRow({
       company_name: "",
       role: "",
-      status: "Applied",
+      // On a stage tab a new row belongs to that stage, or it would vanish from view on save.
+      status: statusFilter === "All" ? "applied" : statusFilter,
       salary: "",
       date_applied: todayLocal(),
       followup_date: "",
@@ -1700,10 +1731,18 @@ export default function ApplicationsPage() {
                       (statusFilter === s ? " active" : "") +
                       (statusCounts[s] === 0 ? " zero" : "")
                     }
-                    onClick={() => setStatusFilter(statusFilter === s ? "All" : s)}
+                    onClick={() => {
+                      setStatusFilter(statusFilter === s ? "All" : s);
+                      setStageSheet(false);
+                      if (sheetSearchFromStage) {
+                        setQuery("");
+                        setSheetSearchFromStage(false);
+                      }
+                    }}
                     aria-pressed={statusFilter === s}
+                    data-status-chip={s}
                   >
-                    {s} <strong>{statusCounts[s]}</strong>
+                    {STATUS_LABELS[s]} <strong>{statusCounts[s]}</strong>
                   </button>
                 ))}
                 {dueCount > 0 && (
@@ -1819,7 +1858,7 @@ export default function ApplicationsPage() {
                 <>
                   No applications
                   {periodFilter !== "all" ? ` ${PERIODS.find((p) => p.key === periodFilter)?.label.toLowerCase()}` : ""}
-                  {statusFilter !== "All" ? ` with status “${statusFilter}”` : ""}
+                  {statusFilter !== "All" ? ` with status “${STATUS_LABELS[statusFilter]}”` : ""}
                   {styleFilter !== "all" ? ` in the ${ROW_STYLE_LABELS[styleFilter]} style` : ""}
                   {dueOnly ? " with a follow-up due" : ""}
                   {missingOnly ? " missing a JD or CV" : ""}
@@ -1838,7 +1877,61 @@ export default function ApplicationsPage() {
           </Card>
         )}
 
-        {showTable && (
+        {statusFilter !== "All" && isStageTab(statusFilter) && (
+          <div className="stageTabBar" data-stage-bar>
+            <label className="planRadio" hidden={stageSheet}>
+              <input type="checkbox" checked={includePast} onChange={(e) => setIncludePast(e.target.checked)} data-include-past />
+              Include past stages
+            </label>
+            <button
+              type="button"
+              className="linkBtn"
+              onClick={() => {
+                if (stageSheet && sheetSearchFromStage) {
+                  setQuery("");
+                  setSheetSearchFromStage(false);
+                }
+                setStageSheet((v) => !v);
+              }}
+              data-stage-sheet
+            >
+              {stageSheet ? "Back to dates" : "Open the full sheet"}
+            </button>
+          </div>
+        )}
+        {statusFilter !== "All" && isStageTab(statusFilter) && !stageSheet && !newRow ? (
+          visible.length > 0 && (
+            <StageTable
+              key={statusFilter}
+              rows={visible}
+              stage={statusFilter}
+              includePast={includePast}
+              refreshKey={stageRefresh}
+              onStatus={(row, status) => {
+                const full = rowsRef.current.find((r) => r.id === row.id);
+                if (full) changeStatus(full, status);
+              }}
+              onReason={(row, reason) => {
+                void patchRow(row.id, { outcome_reason: reason || null }).then((message) => setActionError(message ?? ""));
+              }}
+              onOpenSheet={(row) => {
+                setStageSheet(true);
+                const full = rowsRef.current.find((r) => r.id === row.id);
+                if (!full) return;
+                // The panel draws only on the sheet's painted page, and a past row is not on
+                // this tab's sheet at all: go to its own tab and search for it.
+                if (!inStageTab(full.status, statusFilter)) setStatusFilter(full.status);
+                setQuery(full.company_name);
+                setSheetSearchFromStage(true);
+                if (!(panel && panel.id === full.id && panel.kind === "notes")) togglePanel(full, "notes");
+              }}
+              onEventSaved={(message, moved) => {
+                if (moved) setRows((rs) => rs.map((r) => (r.id === moved.id ? { ...r, status: moved.status, stages_reached: stagesAfterMove(r.stages_reached, moved.status) } : r)));
+                showFlash(message);
+              }}
+            />
+          )
+        ) : showTable && (
           <div className="appsTableWrap riseIn riseIn--delayed">
             <table className="appsTable">
               <thead>
@@ -1930,7 +2023,7 @@ export default function ApplicationsPage() {
                           disabled={savingNew}
                         >
                           {STATUSES.map((s) => (
-                            <option key={s} value={s}>{s}</option>
+                            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
                           ))}
                         </select>
                       </td>
@@ -1991,7 +2084,7 @@ export default function ApplicationsPage() {
                         <td colSpan={COL_COUNT}>
                           {newRowDuplicate && (
                             <span className="appsCellHint" role="status" data-dup-warning>
-                              You already have <strong>{newRowDuplicate.company_name}</strong> — {newRowDuplicate.role} ({formatDate(newRowDuplicate.date_applied)}, {newRowDuplicate.status}).
+                              You already have <strong>{newRowDuplicate.company_name}</strong> — {newRowDuplicate.role} ({formatDate(newRowDuplicate.date_applied)}, {statusLabel(newRowDuplicate.status)}).
                               Save anyway only if this is a different posting.
                             </span>
                           )}
@@ -2115,7 +2208,7 @@ export default function ApplicationsPage() {
                               aria-label={`Status for ${row.company_name}`}
                             >
                               {STATUSES.map((s) => (
-                                <option key={s} value={s}>{s}</option>
+                                <option key={s} value={s}>{STATUS_LABELS[s]}</option>
                               ))}
                             </select>
                           </span>
@@ -2160,7 +2253,7 @@ export default function ApplicationsPage() {
                                 href={`/applications/${row.id}/prep`}
                                 className={
                                   "appsActionBtn" +
-                                  (row.prep_generated_at || row.status === "Screening" || row.status === "Interview" ? " primary" : "")
+                                  (row.prep_generated_at || row.status === "screening" || row.status === "interview" ? " primary" : "")
                                 }
                                 aria-label={`Interview prep for ${row.company_name}`}
                                 title={row.prep_generated_at ? "Open your prep pack" : "Prepare for the interview"}
