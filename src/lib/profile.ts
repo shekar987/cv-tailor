@@ -11,7 +11,7 @@ import { CAREERSET_TOOL_GROUPS } from "./formatStyles/ids.ts";
 
 export type Education = { degree: string; dates: string; institution: string; note: string };
 export type ProjectLink = { label: string; url: string; text: string };
-export type CvProject = { name: string; tech: string; links: ProjectLink[]; originalBullets: string[] };
+export type CvProject = { name: string; tech: string; links: ProjectLink[]; originalBullets: string[]; labelFixed?: boolean };
 export type ExtraSection = { title: string; bullets: string[] };
 export type Profile = {
   name: string; tagline: string; location: string; phone: string;
@@ -160,7 +160,7 @@ export function normalizeProfile(input: unknown): Profile {
               .filter((l) => l.url || l.text)
               .slice(0, 6)
           : [];
-        return { name: str(o.name, 300), tech: str(o.tech, 500), links, originalBullets: strList(o.originalBullets, 12, 600) };
+        return { name: str(o.name, 300), tech: str(o.tech, 500), links, originalBullets: strList(o.originalBullets, 12, 600), ...(o.labelFixed === true ? { labelFixed: true } : {}) };
       })
     : [];
 

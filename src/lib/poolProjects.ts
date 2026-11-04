@@ -13,6 +13,8 @@ export type SelectedProject = {
   date: string;
   tech: string;
   bullets: string[];
+  // Which pool card it came from (lib/projectPool), when the pool is cards.
+  cardId?: string;
 };
 
 const MAX_SELECTED = 2;
@@ -31,7 +33,7 @@ function str(v: unknown, max: number): string {
 // " | " from names — the client joins "name | date" and splitTrailingDate
 // re-splits on the LAST separator, so a separator inside the name would split
 // in the wrong place.
-export function normalizeSelectedProjects(raw: unknown, poolText?: string | null): SelectedProject[] {
+export function normalizeSelectedProjects(raw: unknown, poolText?: string | null, maxSelected: number = MAX_SELECTED): SelectedProject[] {
   const selected =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>).selected
@@ -40,7 +42,7 @@ export function normalizeSelectedProjects(raw: unknown, poolText?: string | null
 
   const out: SelectedProject[] = [];
   for (const entry of selected) {
-    if (out.length >= MAX_SELECTED) break;
+    if (out.length >= maxSelected) break;
     if (!entry || typeof entry !== "object") continue;
     const o = entry as Record<string, unknown>;
     const bare = str(o.name, MAX_NAME).replace(/\s*\|\s*/g, " – ");

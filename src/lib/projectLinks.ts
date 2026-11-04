@@ -202,6 +202,13 @@ export function linksText(links: unknown): string {
     .join(" | ");
 }
 
+/** "ridex-rho.vercel.app + SomeOne/RideX": one choice between two sets of links. */
+export function linkPairLabel(pair: LinkPair): string {
+  const live = cleanUrl(pair.live);
+  const github = cleanUrl(pair.github);
+  return [live ? displayUrl(live) : "", github ? displayUrl(github).replace(/^github\.com\//i, "") : ""].filter(Boolean).join(" + ");
+}
+
 export function pairToLinks(pair: LinkPair): ShownLink[] {
   const out: ShownLink[] = [];
   const live = cleanUrl(pair.live);

@@ -231,6 +231,8 @@ try {
   await input.press("Enter");
   await page.locator('[data-stage-row="Made Up Ratings Ltd"]').waitFor({ timeout: 8000 });
   check("clicking the company still edits it", true);
+  // The row changes on screen at once; give the save a moment to land before reading it back.
+  await page.waitForTimeout(1500);
 
   // ── Export ───────────────────────────────────────────────────────────────
   const [download] = await Promise.all([page.waitForEvent("download"), page.locator("[data-apps-export]").click()]);

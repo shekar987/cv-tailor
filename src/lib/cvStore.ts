@@ -142,6 +142,8 @@ export type UserSettings = {
   // Normalized by lib/preferences at the call site. Column added by migration
   // 20260918120000; reads retry without it (defaults apply).
   preferences: unknown
+  // The read itself failed: "no settings" here says nothing about what is stored.
+  readFailed: boolean
   missingTable: boolean
   variantsColumnMissing: boolean
   preferencesColumnMissing: boolean
@@ -152,9 +154,10 @@ function isMissingTable(code: string | undefined): boolean {
 }
 
 export async function getUserSettings(): Promise<UserSettings> {
+  settingsReadFailed = false
   const empty: UserSettings = {
     eligibility: null, claims: null, variants: null, preferences: null,
-    missingTable: false, variantsColumnMissing: false, preferencesColumnMissing: false,
+    missingTable: false, variantsColumnMissing: false, preferencesColumnMissing: false, readFailed: false,
   }
   try {
     const supabase = createClient()
@@ -178,7 +181,8 @@ export async function getUserSettings(): Promise<UserSettings> {
     if (error) {
       if (isMissingTable(error.code)) return { ...empty, missingTable: true }
       console.error('user_settings read error:', error.message)
-      return empty
+      settingsReadFailed = true
+      return { ...empty, readFailed: true }
     }
     if (!data) return { ...empty, variantsColumnMissing, preferencesColumnMissing }
     const row = data as { eligibility?: unknown; claims?: unknown; variants?: unknown; preferences?: unknown }
@@ -190,16 +194,23 @@ export async function getUserSettings(): Promise<UserSettings> {
       missingTable: false,
       variantsColumnMissing,
       preferencesColumnMissing,
+      readFailed: false,
     }
   } catch (err) {
     console.error('user_settings read error:', err instanceof Error ? err.message : 'Unknown error')
-    return empty
+    settingsReadFailed = true
+    return { ...empty, readFailed: true }
   }
 }
+
+// Set when the last read failed. A failed read looks like "nothing saved", and every value
+// here is written whole, so a write after one would put defaults over the user's own.
+let settingsReadFailed = false
 
 async function upsertUserSettings(
   patch: { eligibility?: Eligibility | null; claims?: unknown; variants?: unknown; preferences?: unknown }
 ): Promise<{ ok: boolean; missingTable?: boolean; missingColumn?: boolean }> {
+  if (settingsReadFailed) return { ok: false }
   try {
     const userId = await getUserId()
     if (!userId) return { ok: false }
@@ -243,6 +254,17 @@ export async function clearMasterCV(): Promise<void> {
     const userId = await getUserId()
     if (!userId) return
     const supabase = createClient()
+    // The pool shares this row and is the user's own work: with one saved, only the CV
+    // goes. Replacing a CV must never delete it.
+    const { data, error } = await supabase.from('master_cvs').select('projects_pool').eq('user_id', userId).maybeSingle()
+    // Only a database without the column can have no pool to keep: any other failed read
+    // says nothing about the pool, so nothing is deleted.
+    if (error && error.code !== '42703') return
+    const pool = error ? null : (data as { projects_pool?: unknown } | null)?.projects_pool
+    if (typeof pool === 'string' && pool.trim()) {
+      await supabase.from('master_cvs').update({ text: '', updated_at: new Date().toISOString() }).eq('user_id', userId)
+      return
+    }
     await supabase.from('master_cvs').delete().eq('user_id', userId)
   } catch { /* ignore */ }
 }

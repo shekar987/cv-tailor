@@ -627,6 +627,17 @@ export function distinctiveTokens(name: string): string[] {
   }
   return out;
 }
+/**
+ * A tech item the registry holds as learning never prints: a learning skill never appears. By
+ * the whole name, so a learning "AWS Certified Solutions Architect" leaves "AWS Lambda" alone,
+ * and a name also registered at another level wins.
+ */
+export function isLearningTech(item: string, registry: ClaimsRegistry | null | undefined): boolean {
+  const skills = registry?.skills ?? [];
+  const named = (name: string) => matchAtsKeywords(item, [name]).matched > 0;
+  return skills.some((s) => s.level === "learning" && named(s.name)) && !skills.some((s) => s.level !== "learning" && named(s.name));
+}
+
 export function skillMentioned(text: string, name: string): boolean {
   if (!text) return false;
   if (matchAtsKeywords(text, [name]).matched > 0) return true;

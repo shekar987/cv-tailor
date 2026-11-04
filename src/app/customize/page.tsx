@@ -61,6 +61,11 @@ import {
 } from "@/lib/variants";
 import { normalizePreferences, DEFAULT_PREFERENCES, type Preferences, type CvLength } from "@/lib/preferences";
 import { formatRetiredClaims, parseRetiredClaims, MAX_RETIRED_CLAIMS } from "@/lib/retiredClaims";
+import { cardsToPoolText, type PoolCard, type PoolSettings } from "@/lib/projectPool";
+import { parseMasterExperience } from "@/lib/bulletIds";
+import ProjectPoolEditor from "./ProjectPoolEditor";
+
+const SETTINGS_NOT_READ = "We couldn't read your saved settings, so this wasn't saved. Reload the page and try again.";
 import { FORMAT_STYLE_LABELS, type FormatStyleId } from "@/lib/formatStyles/ids";
 import { getUsage } from "@/lib/usage";
 import {
@@ -70,6 +75,8 @@ import {
   pairToLinks,
   projectCoreName,
   projectKey,
+  displayUrl,
+  linkPairLabel,
   type LinkPair,
   type ProjectLinkLike,
   type SavedProjectLinks,
@@ -259,6 +266,11 @@ export default function CustomizePage() {
   const [poolSaving, setPoolSaving] = useState(false);
   const [poolMsg, setPoolMsg] = useState("");
   const [poolError, setPoolError] = useState("");
+  const [confirmRemovePool, setConfirmRemovePool] = useState(false);
+  // Links that answered 404, by project (the reachability check after a save).
+  const [linkWarnings, setLinkWarnings] = useState<Record<string, string[]>>({});
+  const [linksUnchecked, setLinksUnchecked] = useState(false);
+  const [settingsReadFailed, setSettingsReadFailed] = useState(false);
 
   // Eligibility profile (user_settings.eligibility): the answers an
   // application form asks before anyone reads the CV. The pre-check on /app
@@ -303,7 +315,7 @@ export default function CustomizePage() {
   const [prefsMsg, setPrefsMsg] = useState("");
   const [prefsError, setPrefsError] = useState("");
   // Which section the last preference save message belongs to.
-  const [prefsMsgAt, setPrefsMsgAt] = useState<"rtw" | "length" | "links" | "style" | "retired">("rtw");
+  const [prefsMsgAt, setPrefsMsgAt] = useState<"rtw" | "length" | "links" | "style" | "retired" | "pool">("rtw");
   // The format-style default is the owner's for now (profiles.is_unlimited,
   // read fail-soft through lib/usage): everyone else sees nothing of it.
   const [isOwner, setIsOwner] = useState(false);
@@ -355,27 +367,42 @@ export default function CustomizePage() {
       if (!next.delete(id)) next.add(id);
       return next;
     });
+    if (id === "project-links" && !linkCheckRan.current) void checkSavedLinks(prefsRef.current.projectLinks);
   }
   function goToSection(id: string, always?: boolean) {
     if (!always) setOpenSections((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+    if (id === "project-links" && !linkCheckRan.current) void checkSavedLinks(prefsRef.current.projectLinks);
     // Scrolling to the header is safe before the expansion paints: a section
     // grows downward, so its own top doesn't move.
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   const [retiredDraft, setRetiredDraft] = useState("");
-  async function updatePrefs(patch: Partial<Omit<Preferences, "version">>, at: "rtw" | "length" | "links" | "style" | "retired", okMsg: string): Promise<boolean> {
-    const previous = prefs;
-    const updated: Preferences = { ...prefs, ...patch };
-    setPrefs(updated);
+  // Preferences are written whole, so a write starts from the latest of what is stored,
+  // and never before that has been read: a failed read looks like "no settings", and
+  // writing then would put defaults over the user's cards, pins, links and wording list.
+  const prefsRef = useRef<Preferences>(DEFAULT_PREFERENCES);
+  const prefsReady = useRef(false);
+  async function updatePrefs(patch: Partial<Omit<Preferences, "version">>, at: "rtw" | "length" | "links" | "style" | "retired" | "pool", okMsg: string): Promise<boolean> {
     setPrefsMsg("");
     setPrefsError("");
     setPrefsMsgAt(at);
+    if (!prefsReady.current) {
+      setPrefsError(SETTINGS_NOT_READ);
+      return false;
+    }
+    const previous = prefsRef.current;
+    const updated: Preferences = { ...previous, ...patch };
+    prefsRef.current = updated;
+    setPrefs(updated);
     const res = await savePreferences(updated);
     if (res.ok) {
       setPrefsMsg(okMsg);
       return true;
     }
-    setPrefs(previous);
+    // Only what this call changed goes back: a toggle made meanwhile stays.
+    const restored = { ...prefsRef.current, ...Object.fromEntries(Object.keys(patch).map((k) => [k, previous[k as keyof Preferences]])) } as Preferences;
+    prefsRef.current = restored;
+    setPrefs(restored);
     if (res.missingTable) setPrefsError("Your database doesn't have the user_settings table yet — run supabase/migrations/20260917120000_user_settings_and_jd_lookup.sql first.");
     else if (res.missingColumn) {
       setPrefsColumnMissing(true);
@@ -434,7 +461,44 @@ export default function CustomizePage() {
       "Saved — these links appear under your projects on every CV you tailor from now on."
     );
     setLinksSaving(false);
-    if (ok) setLinkDrafts({});
+    if (ok) {
+      setLinkDrafts({});
+      void checkSavedLinks(next);
+    }
+  }
+
+  // A link that answers 404 is a warning, never a block (/api/check-link). Four to a
+  // request, one request at a time, so a long list stays inside the burst limit; a check
+  // that could not run says nothing about the link, and the page says it did not run.
+  const linkCheckRan = useRef(false);
+  async function checkSavedLinks(saved: SavedProjectLinks) {
+    linkCheckRan.current = true;
+    const owners = new Map<string, string[]>();
+    for (const row of linkRows) {
+      const pair = saved[row.key] ?? row.auto;
+      for (const url of [pair.github, pair.live].filter(Boolean)) owners.set(url, [...(owners.get(url) ?? []), row.key]);
+    }
+    const urls = [...owners.keys()];
+    const warnings: Record<string, string[]> = {};
+    let unchecked = false;
+    for (let i = 0; i < urls.length; i += 4) {
+      try {
+        const res = await fetch("/api/check-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls: urls.slice(i, i + 4) }) });
+        if (!res.ok) {
+          unchecked = true;
+          continue;
+        }
+        const data = await res.json();
+        for (const r of (data.results ?? []) as { url: string; missing: boolean }[]) {
+          if (!r.missing) continue;
+          for (const key of owners.get(r.url) ?? []) warnings[key] = [...(warnings[key] ?? []), r.url];
+        }
+      } catch {
+        unchecked = true;
+      }
+    }
+    setLinkWarnings(warnings);
+    setLinksUnchecked(unchecked);
   }
   const claimsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (claimsSaveTimer.current) clearTimeout(claimsSaveTimer.current); }, []);
@@ -511,6 +575,8 @@ export default function CustomizePage() {
           setPoolDraft(stored.projectsPool);
           setPoolSaved(true);
         }
+        // A pool kept through a CV replacement leaves a row with no CV in it.
+        if (!stored.text.trim()) setEditingCv(true);
       } else {
         setEditingCv(true); // no CV yet — open the editor so they set one
       }
@@ -540,7 +606,10 @@ export default function CustomizePage() {
         }
         setClaims(registry);
         setVariantsColumnMissing(settings.variantsColumnMissing);
-        setPrefs(normalizePreferences(settings.preferences));
+        prefsReady.current = !settings.readFailed;
+        setSettingsReadFailed(settings.readFailed);
+        prefsRef.current = normalizePreferences(settings.preferences);
+        setPrefs(prefsRef.current);
         setRetiredDraft(formatRetiredClaims(normalizePreferences(settings.preferences).retiredClaims));
         setPrefsColumnMissing(settings.preferencesColumnMissing);
         const vc = normalizeVariants(settings.variants);
@@ -601,10 +670,55 @@ export default function CustomizePage() {
   // Save (or clear, with empty text) the project pool. A result tailored
   // against the old pool is stale for the same reason a CV edit makes one
   // stale, so both paths invalidate the workspace result.
+  async function savePoolSettings(next: PoolSettings) {
+    await updatePrefs({ projectPoolSettings: next }, "pool", "Saved.");
+  }
+
+  // The cards are the source once confirmed; the pool text is regenerated from them, so
+  // everything that reads the pool keeps working. The first confirm keeps the old text.
+  async function savePoolCards(cards: PoolCard[]): Promise<boolean> {
+    const text = cardsToPoolText(cards);
+    setPoolMsg("");
+    setPoolError("");
+    if (!prefsReady.current) {
+      setPoolError(SETTINGS_NOT_READ);
+      return false;
+    }
+    setPoolSaving(true);
+    // The cards and the backup first. If this write fails, the user's text is untouched; if
+    // the one after it fails, the cards are still what tailoring reads (/api/tailor).
+    const before = prefsRef.current;
+    const ok = await updatePrefs(
+      { projectCards: cards, poolTextBeforeCards: before.projectCards.length === 0 ? poolDraft : before.poolTextBeforeCards },
+      "pool",
+      `Saved ${cards.length} ${cards.length === 1 ? "project" : "projects"}.`
+    );
+    if (!ok) {
+      setPoolSaving(false);
+      return false;
+    }
+    const res = await saveProjectsPool(text);
+    setPoolSaving(false);
+    if (!res.ok) {
+      setPoolError(res.missingColumn
+        ? "Your cards are saved. The pool's text column is missing — run supabase/migrations/20260911120000_master_cvs_projects_pool.sql in the Supabase SQL editor, then save again."
+        : "Your cards are saved and tailoring uses them, but the pool's text didn't update. Save again when you're back online.");
+    }
+    setPoolDraft(text);
+    setPoolSaved(!!text);
+    invalidateWorkspaceResult();
+    return true;
+  }
+
   async function handleSavePool(clear: boolean) {
     const pool = clear ? "" : poolDraft.trim();
     setPoolMsg("");
     setPoolError("");
+    // Unread settings look like "no cards", and this would then say removed and leave them stored.
+    if (clear && !prefsReady.current) {
+      setPoolError(SETTINGS_NOT_READ);
+      return;
+    }
     if (!clear && !pool) {
       setPoolError("Paste your projects first, or use Remove pool to switch this off.");
       return;
@@ -614,15 +728,25 @@ export default function CustomizePage() {
       return;
     }
     setPoolSaving(true);
+    // Removing the pool removes its cards and the kept original too. First, because the
+    // cards are what tailoring reads, and a later pool keeps its own original.
+    if (clear && (prefsRef.current.projectCards.length > 0 || prefsRef.current.poolTextBeforeCards)) {
+      const ok = await updatePrefs({ projectCards: [], poolTextBeforeCards: "" }, "pool", "Pool removed.");
+      if (!ok) {
+        setPoolSaving(false);
+        return;
+      }
+    }
     const res = await saveProjectsPool(pool);
     setPoolSaving(false);
     if (res.ok) {
       setPoolDraft(pool);
       setPoolSaved(!clear);
+      setConfirmRemovePool(false);
       invalidateWorkspaceResult();
       setPoolMsg(clear
         ? "Pool removed. Tailoring uses the projects from your master CV again."
-        : "Saved. Every tailor run now picks the 2 most relevant projects from this pool.");
+        : "Saved. Your projects below can now be checked as cards.");
     } else if (res.missingColumn) {
       setPoolError("Your database doesn't have this feature's column yet — run supabase/migrations/20260911120000_master_cvs_projects_pool.sql in the Supabase SQL editor, then save again.");
     } else {
@@ -920,9 +1044,7 @@ export default function CustomizePage() {
     setCvDraft("");
     setEditingCv(true);
     setUploadNotice(null);
-    // The row delete below takes projects_pool with it — mirror that in the UI.
-    setPoolDraft("");
-    setPoolSaved(false);
+    // The pool and its settings are kept: lib/cvStore clearMasterCV blanks the CV only.
     setPoolMsg("");
     setPoolError("");
     invalidateWorkspaceResult();
@@ -1034,6 +1156,11 @@ export default function CustomizePage() {
           title="Customize"
           tagline="Manage your master CV, your details, and how your tailored CV is laid out."
         />
+        {settingsReadFailed && (
+          <div className="limitNotice" role="alert" data-settings-read-failed>
+            We couldn&apos;t read your saved settings. What you see may be out of date, and changes won&apos;t save until you reload the page.
+          </div>
+        )}
 
         <div className="cstLayout">
           <nav className="cstNav" aria-label="Sections">
@@ -1129,7 +1256,7 @@ export default function CustomizePage() {
               <div className="cvSavedActions">
                 {confirmReplace ? (
                   <>
-                    <StatusText as="span">Delete your saved CV and extracted details?</StatusText>
+                    <StatusText as="span">Delete your saved CV and extracted details? Your project pool is kept.</StatusText>
                     <Button variant="ghost" className="keyRemove" onClick={handleClearCv}>
                       Yes, replace
                     </Button>
@@ -2130,14 +2257,41 @@ export default function CustomizePage() {
                         {!row.saved && !linkDrafts[row.key] && cvGives ? " (found in your CV)" : ""}
                       </p>
                     )}
-                    {differsFromCv && !linkDrafts[row.key] && (
-                      <p className="fitEvidence">
-                        Your CV writes {cvGives}.{" "}
-                        <button type="button" className="inlineLink" onClick={() => setLinkDraft(row.key, base, row.auto)}>
-                          Use those instead
-                        </button>
-                      </p>
+                    {differsFromCv && row.saved && (
+                      <fieldset className="linkChoice" data-link-choice>
+                        <legend className="fitEvidence">Which link is correct?</legend>
+                        <label className="planRadio">
+                          <input
+                            type="radio"
+                            name={`link-choice-${row.key}`}
+                            checked={!linkDrafts[row.key]}
+                            onChange={() => setLinkDrafts((drafts) => {
+                              const next = { ...drafts };
+                              delete next[row.key];
+                              return next;
+                            })}
+                            data-link-choice-saved
+                          />
+                          {linkPairLabel(row.saved) || "No links on this project"}
+                        </label>
+                        <label className="planRadio">
+                          <input
+                            type="radio"
+                            name={`link-choice-${row.key}`}
+                            checked={!!linkDrafts[row.key] && cleanUrl(linkDrafts[row.key].github) === row.auto.github && cleanUrl(linkDrafts[row.key].live) === row.auto.live}
+                            onChange={() => setLinkDraft(row.key, base, row.auto)}
+                            data-link-choice-cv
+                          />
+                          {linkPairLabel(row.auto) || "No links on this project"}
+                        </label>
+                        <p className="fitEvidence">Your choice is used everywhere once you save.</p>
+                      </fieldset>
                     )}
+                    {(linkWarnings[row.key] ?? []).map((url) => (
+                      <StatusText key={url} className="msgBelow" role="status" data-link-missing>
+                        {displayUrl(url)} answered &quot;not found&quot;. Check the address.
+                      </StatusText>
+                    ))}
                   </div>
                 );
               })}
@@ -2159,6 +2313,7 @@ export default function CustomizePage() {
               )}
             </div>
           )}
+          {linksUnchecked && <p className="fitEvidence" data-links-unchecked>Some links couldn&apos;t be checked just now. That says nothing about the links themselves.</p>}
           {prefsMsgAt === "links" && prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
           {prefsMsgAt === "links" && prefsError && <StatusText as="span" role="alert">{prefsError}</StatusText>}
         </CollapsibleSection>
@@ -2183,9 +2338,27 @@ export default function CustomizePage() {
             {/* No inner "Advanced customization" button any more: the section
                 header IS the disclosure, and a disclosure inside a disclosure
                 made the user click twice to reach one textarea. */}
+            <ProjectPoolEditor
+              poolText={poolSaved ? poolDraft : ""}
+              cards={prefs.projectCards}
+              settings={prefs.projectPoolSettings}
+              pageTarget={prefs.cvLength === "one" ? 1 : 2}
+              roles={parseMasterExperience(masterCvText).length}
+              oldText={prefs.poolTextBeforeCards}
+              saving={poolSaving}
+              linksFor={(name) => {
+                const row = linkRows.find((r) => r.key === projectKey(name));
+                return row ? linksText(pairToLinks(row.saved ?? row.auto)) : "";
+              }}
+              onSaveSettings={(next) => void savePoolSettings(next)}
+              onSaveCards={savePoolCards}
+            />
+            {prefsMsgAt === "pool" && prefsMsg && <StatusText className="msgBelow" tone="success" role="status" data-pool-saved>{prefsMsg}</StatusText>}
+            {prefsMsgAt === "pool" && prefsError && <StatusText className="msgBelow" role="alert">{prefsError}</StatusText>}
+            {prefs.projectCards.length === 0 && (
             <FormField
                 label="Project pool"
-                help="Paste ALL your projects here, in your own words — names, dates, tech, and what you did. On every tailor run the 2 most relevant to that job (1 if you only add one) are selected and get tailored bullets, replacing the projects from your master CV for that run. Remove the pool to switch back. Replacing your master CV also deletes the pool."
+                help="Paste ALL your projects here, in your own words — names, dates, tech, and what you did. Once saved they read into cards you can check, pin and order. Until then, on every tailor run the 2 most relevant to that job (1 if you only add one) are selected and get tailored bullets, replacing the projects from your master CV for that run. Remove the pool to switch back. Replacing your master CV keeps the pool."
               >
                 <Textarea
                   rows={12}
@@ -2201,18 +2374,27 @@ export default function CustomizePage() {
                   <Button onClick={() => handleSavePool(false)} disabled={poolSaving}>
                     {poolSaving ? "Saving…" : "Save project pool"}
                   </Button>
-                  {poolSaved && (
-                    <Button variant="ghost" className="keyRemove" onClick={() => handleSavePool(true)} disabled={poolSaving}>
-                      Remove pool
-                    </Button>
-                  )}
                   <Button variant="ghost" onClick={() => toggleSection("advanced")} disabled={poolSaving}>
                     Close
                   </Button>
                 </div>
-                {poolError && <StatusText className="msgBelow" role="alert">{poolError}</StatusText>}
-                {poolMsg && <StatusText tone="success" className="msgBelow" role="status">{poolMsg}</StatusText>}
             </FormField>
+            )}
+            {poolSaved && (
+              <div className="actions" data-pool-remove-area>
+                {confirmRemovePool ? (
+                  <>
+                    <StatusText as="span">Delete your whole project pool?</StatusText>
+                    <Button variant="secondary" autoFocus onClick={() => setConfirmRemovePool(false)} data-pool-keep>Keep pool</Button>
+                    <Button variant="ghost" className="keyRemove" onClick={() => handleSavePool(true)} disabled={poolSaving} data-pool-remove-confirm>Delete it</Button>
+                  </>
+                ) : (
+                  <Button variant="ghost" className="keyRemove" onClick={() => setConfirmRemovePool(true)} disabled={poolSaving} data-pool-remove-all>Remove pool</Button>
+                )}
+              </div>
+            )}
+            {poolError && <StatusText className="msgBelow" role="alert">{poolError}</StatusText>}
+            {poolMsg && <StatusText tone="success" className="msgBelow" role="status">{poolMsg}</StatusText>}
           </CollapsibleSection>
         )}
           </div>
