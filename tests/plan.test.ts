@@ -427,11 +427,20 @@ test("the calendar's dots and the stage tabs' next event", () => {
   ];
   assert.equal(eventDays(events).get("2026-11-04"), 1);
   assert.equal(eventDays(events).has("2026-11-05"), true);
-  const next = nextEventByApplication(events);
+  const next = nextEventByApplication(events, NOW);
   assert.equal(next.get("a1")?.next?.id, "a");
   assert.equal(next.get("a1")?.deadline?.id, "b");
   assert.equal(next.get("a2")?.next?.id, "c", "an open event in the past stays, as it does on the plan");
-  const overdueDeadline = nextEventByApplication([ev("late", { application_id: "a9", kind: "take_home", due_at: at("2026-10-31", "18:00") })]);
+  const both = nextEventByApplication([
+    ev("old", { application_id: "a8", starts_at: at("2026-10-20", "10:00") }),
+    ev("older", { application_id: "a8", starts_at: at("2026-10-10", "10:00") }),
+    ev("soon", { application_id: "a8", starts_at: at("2026-11-04", "10:00") }),
+    ev("later", { application_id: "a8", starts_at: at("2026-11-09", "10:00") }),
+  ], NOW);
+  assert.equal(both.get("a8")?.next?.id, "soon", "tomorrow's interview, not one from last month");
+  const onlyPast = nextEventByApplication([ev("older", { application_id: "a7", starts_at: at("2026-10-10", "10:00") }), ev("old", { application_id: "a7", starts_at: at("2026-10-20", "10:00") })], NOW);
+  assert.equal(onlyPast.get("a7")?.next?.id, "old", "with nothing ahead, the latest one past");
+  const overdueDeadline = nextEventByApplication([ev("late", { application_id: "a9", kind: "take_home", due_at: at("2026-10-31", "18:00") })], NOW);
   assert.equal(overdueDeadline.get("a9")?.deadline?.id, "late", "a missed deadline stays visible");
   assert.equal(next.has("a3"), false);
   assert.equal(next.get("a4")?.next?.id, "e");
@@ -546,4 +555,66 @@ test("a call with no stated length is judged by its kind's usual length", () => 
 
 test("an offered slot cannot end before it starts", () => {
   assert.ok("error" in readEventInput({ offered_slots: [{ starts_at: at("2026-11-04", "11:00"), ends_at: at("2026-11-04", "10:00") }] }, true));
+});
+
+// ── The second review's findings ─────────────────────────────────────────────
+
+test("when they spoke last the reply is the user's, never waiting on them", () => {
+  const plan = buildPlan({
+    events: [],
+    applications: [
+      app("owed", "screening", { last_contact_from: "them", last_contact_at: at("2026-10-10", "10:00") }),
+      app("sent", "screening", { last_contact_from: "me", last_contact_at: at("2026-10-10", "10:00") }),
+    ],
+    now: NOW,
+  });
+  assert.deepEqual(plan.replyOwed.map((w) => w.application.id), ["owed"]);
+  assert.equal(plan.replyOwed[0].nudge, null, "no nudge to chase or to ghost");
+  assert.deepEqual(plan.waiting.map((w) => w.application.id), ["sent"]);
+  assert.equal(plan.waiting[0].nudge, 21);
+});
+
+test("interview and assessment come in either order, and no step is invented", () => {
+  const f = buildFunnel([{ status: "interview", stages_reached: ["applied", "assessment", "interview"] }]);
+  const node = (key: string) => f.nodes.find((n) => n.key === key)!;
+  assert.equal(node("interview").here, 1);
+  assert.equal(node("interview").decided, 0, "still at interview: nothing decided");
+  assert.equal(node("assessment").decided, 1, "the assessment led on to the interview");
+  assert.ok(!f.links.some((l) => (l.from === "interview" && l.to === "assessment") || (l.from === "assessment" && l.to === "interview")));
+  assert.equal(f.links.find((l) => l.from === "applied" && l.to === "interview")?.count, 1);
+  assert.equal(f.links.find((l) => l.from === "applied" && l.to === "assessment")?.count, 1);
+});
+
+test("a rejection counts at the stage it really came from", () => {
+  const f = buildFunnel([{ status: "rejected", stages_reached: ["applied", "assessment", "interview", "rejected"] }]);
+  const node = (key: string) => f.nodes.find((n) => n.key === key)!;
+  assert.equal(node("interview").rejected, 1);
+  assert.equal(node("assessment").rejected, 0);
+  assert.equal(f.links.find((l) => l.to === "rejected")?.from, "interview");
+});
+
+test("nine rows sitting at interview do not read as 100% went further", () => {
+  const rows = Array.from({ length: 9 }, () => ({ status: "interview", stages_reached: ["applied", "assessment", "interview"] }));
+  const interview = buildFunnel(rows).nodes.find((n) => n.key === "interview")!;
+  assert.equal(interview.furtherRate, null);
+  assert.equal(interview.tooFew, true);
+});
+
+test("the map stays acyclic whatever order rows took", () => {
+  const data = funnelChartData(buildFunnel([
+    { status: "offer", stages_reached: ["applied", "interview", "assessment", "offer"] },
+    { status: "offer", stages_reached: ["applied", "assessment", "interview", "offer"] },
+  ]));
+  const seen = new Set(data.links.map((l) => `${l.source}>${l.target}`));
+  for (const l of data.links) assert.ok(!seen.has(`${l.target}>${l.source}`));
+});
+
+test("a networking call that ended is not told to set an outcome it has no button for", () => {
+  const e = ev("x", { application_id: null, kind: "networking", starts_at: at("2026-11-03", "07:00"), ends_at: at("2026-11-03", "08:00") });
+  assert.equal(describeTiming(e, NOW, LONDON)?.left, "ended 1h ago: mark it done");
+});
+
+test("the day the clocks go back never says in 0 days", () => {
+  const morning = zonedTimeToMs("2026-10-25", "00:10", LONDON);
+  assert.equal(countdown(zonedTimeToMs("2026-10-25", "23:30", LONDON), morning, { tz: LONDON }), "in 24h");
 });

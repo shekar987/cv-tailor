@@ -85,6 +85,22 @@ export function isActiveStatus(status: unknown): boolean {
   return !!s && ACTIVE_STATUSES.has(s);
 }
 
+// A row's stage history after a status change: what the database trigger writes
+// (migration 20261103120000), for a page that keeps the row in memory. One ending at a
+// time; a move back drops later stages; an ending keeps the path that led to it.
+const STAGE_RANK: Partial<Record<Status, number>> = { saved: 0, applied: 1, screening: 2, interview: 3, assessment: 3, offer: 4, accepted: 5 };
+const ENDINGS: ReadonlySet<string> = new Set<Status>(["rejected", "withdrawn", "ghosted"]);
+export function stagesAfterMove(stages: readonly string[] | null | undefined, status: unknown): string[] {
+  const stage = normalizeStatus(status);
+  const known = (stages ?? []).map(normalizeStatus).filter((s): s is Status => !!s);
+  if (!stage) return known;
+  const kept = known.filter((s) => {
+    if (ENDINGS.has(s) || s === stage) return false;
+    return ENDINGS.has(stage) || (STAGE_RANK[s] ?? 9) <= (STAGE_RANK[stage] ?? 9);
+  });
+  return [...kept, stage];
+}
+
 // The tabs with date columns. Won holds offers too, so an offer is celebrated from
 // the day it lands.
 export const STAGE_TABS: readonly Status[] = ["screening", "interview", "assessment", "offer", "rejected", "accepted"];
@@ -142,6 +158,18 @@ export function clearsFollowup(status: string): boolean {
 
 export function followupClearedNote(followup: string, status: string, today: string): string {
   return `Follow-up ${followup} cleared when marked ${statusLabel(status)} on ${today}.`;
+}
+
+/** Takes back the line followupClearedNote added, for an undo. Every other line stays. */
+export function removeFollowupClearedNote(notes: string | null | undefined, followup: string): string {
+  const lines = (notes ?? "").split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].trim().startsWith(`Follow-up ${followup} cleared when marked `)) {
+      lines.splice(i, 1);
+      break;
+    }
+  }
+  return lines.join("\n").trimEnd();
 }
 
 // Appends a line to free-text notes, never duplicating an identical line.

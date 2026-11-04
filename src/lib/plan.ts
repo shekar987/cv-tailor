@@ -146,7 +146,7 @@ export function describeTiming(e: PlanEvent, now: number, tz: string): Timing | 
   if (e.starts_at) {
     const end = eventEndMs(e) ?? at;
     if (at <= now && now <= end) return { when, left: "happening now", state: "now" };
-    if (end < now) return { when, left: `ended ${span(now - end)} ago: set the outcome`, state: "overdue" };
+    if (end < now) return { when, left: `ended ${span(now - end)} ago: ${e.application_id ? "set the outcome" : "mark it done"}`, state: "overdue" };
     return { when, left: countdown(at, now, { tz: zone }), state: "upcoming" };
   }
   return { when, left: countdown(at, now, { due: true, tz: zone }), state: at < now ? "overdue" : "upcoming" };
@@ -194,6 +194,8 @@ export type Plan = {
   // What the page draws, top to bottom: an unanswered slot offer sits straight after
   // today, because it can lose the interview.
   sections: PlanSection[];
+  // They spoke last, so the next move is the user's: never "waiting on them".
+  replyOwed: WaitingItem[];
   waiting: WaitingItem[];
   nextUp: PlanItem | null;
   // Every item in the order the page draws it, and the keyboard walks it.
@@ -252,13 +254,16 @@ export function buildPlan(input: { events: readonly PlanEvent[]; applications: r
   const groups = PLAN_GROUPS.map((key) => ({ key, label: PLAN_GROUP_LABELS[key], items: buckets.get(key)! })).filter((g) => g.items.length > 0);
 
   const busy = new Set(live.map((e) => e.application_id));
-  const waiting = activeApplications(applications)
+  const quiet = activeApplications(applications)
     .filter((a) => !busy.has(a.id))
     .map((application) => {
       const days = daysSinceContact(application, now, tz);
       return { application, daysSinceContact: days, basis: application.last_contact_at ? ("contact" as const) : ("applied" as const), nudge: followUpNudge(days) };
     })
     .sort((a, b) => (b.daysSinceContact ?? -1) - (a.daysSinceContact ?? -1) || a.application.company_name.localeCompare(b.application.company_name));
+
+  const replyOwed = quiet.filter((w) => w.application.last_contact_from === "them").map((w) => ({ ...w, nudge: null }));
+  const waiting = quiet.filter((w) => w.application.last_contact_from !== "them");
 
   const sections: PlanSection[] = [...groups];
   if (needsBooking.length > 0) {
@@ -267,7 +272,7 @@ export function buildPlan(input: { events: readonly PlanEvent[]; applications: r
   }
   const ordered = sections.flatMap((s) => s.items);
   const nextUp = [...items].filter((i) => i.event.status === "scheduled" && i.at !== null && (eventEndMs(i.event) ?? i.at) >= now).sort((a, b) => (a.at ?? 0) - (b.at ?? 0))[0] ?? null;
-  return { groups, needsBooking, sections, waiting, nextUp, ordered };
+  return { groups, needsBooking, sections, replyOwed, waiting, nextUp, ordered };
 }
 
 // ── Conflicts ───────────────────────────────────────────────────────────────
@@ -511,14 +516,19 @@ export type Funnel = { nodes: FunnelNode[]; links: FunnelLink[]; rejected: numbe
 
 type FunnelRow = Pick<PlanApplication, "status" | "stages_reached">;
 
+// Interview and assessment come in either order, so they share a rank: a row keeps
+// the order it went through them, and the map draws them side by side. Linking one to
+// the other would invent a step, and could loop, which a Sankey cannot lay out.
+const STEP_RANK: Record<FunnelStep, number> = { applied: 0, screening: 1, interview: 2, assessment: 2, offer: 3, accepted: 4 };
+
 function pathOf(row: FunnelRow, status: Status): FunnelStep[] {
-  const reached = new Set<string>(["applied"]);
-  for (const s of row.stages_reached ?? []) {
-    const key = normalizeStatus(s);
-    if (key) reached.add(key);
-  }
-  reached.add(status);
-  return FUNNEL_STEPS.filter((s) => reached.has(s));
+  const path: FunnelStep[] = ["applied"];
+  const add = (s: Status | null) => {
+    if (s && s in STEP_RANK && !path.includes(s as FunnelStep)) path.push(s as FunnelStep);
+  };
+  for (const s of row.stages_reached ?? []) add(normalizeStatus(s));
+  add(status);
+  return path.sort((a, b) => STEP_RANK[a] - STEP_RANK[b]);
 }
 
 /**
@@ -549,7 +559,11 @@ export function buildFunnel(rows: readonly FunnelRow[]): Funnel {
     path.forEach((step, i) => {
       const c = counts.get(step)!;
       c.count++;
-      if (i < path.length - 1) { c.further++; addLink(step, path[i + 1]); }
+      if (i < path.length - 1) c.further++;
+      if (i === 0) return;
+      let from = i - 1;
+      while (STEP_RANK[path[from]] === STEP_RANK[step]) from--;
+      addLink(path[from], step);
     });
     const last = counts.get(path[path.length - 1])!;
     if (status === "rejected") { last.rejected++; rejected++; addLink(path[path.length - 1], "rejected"); }
@@ -706,15 +720,22 @@ export function eventDays(events: readonly PlanEvent[], tz: string = DEFAULT_TIM
   return days;
 }
 
-/** The next open event per application, overdue included, as the plan shows it, for the stage tabs' columns. */
-export function nextEventByApplication(events: readonly PlanEvent[]): Map<string, { next: PlanEvent | null; deadline: PlanEvent | null }> {
+/**
+ * For the stage tabs' columns: the next open event per application (the soonest ahead,
+ * else the latest one past, which the plan still shows as overdue) and its earliest
+ * open deadline, overdue included.
+ */
+export function nextEventByApplication(events: readonly PlanEvent[], now: number): Map<string, { next: PlanEvent | null; deadline: PlanEvent | null }> {
   const out = new Map<string, { next: PlanEvent | null; deadline: PlanEvent | null }>();
   const sorted = events
     .filter((e) => e.application_id && OPEN_EVENT.has(e.status))
     .sort((a, b) => (eventMs(a) ?? Infinity) - (eventMs(b) ?? Infinity));
   for (const e of sorted) {
     const entry = out.get(e.application_id!) ?? { next: null, deadline: null };
-    if (!entry.next) entry.next = e;
+    const at = eventMs(e);
+    const ahead = at === null || at >= now;
+    const nextIsAhead = !!entry.next && (eventMs(entry.next) ?? Infinity) >= now;
+    if (!nextIsAhead && (ahead || !entry.next || (eventMs(entry.next) ?? 0) <= (at ?? 0))) entry.next = e;
     if (!entry.deadline && e.due_at) entry.deadline = e;
     out.set(e.application_id!, entry);
   }

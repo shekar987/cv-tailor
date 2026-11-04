@@ -191,7 +191,7 @@ export default function EventForm({
     const body = payload();
     if (typeof body === "string") { setError(body); return; }
     setSaving(true);
-    let savedNow = savedId;
+    let eventWritten = false;
     try {
       const res = await fetch("/api/events", {
         method: savedId ? "PUT" : "POST",
@@ -200,8 +200,8 @@ export default function EventForm({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error || "Could not save that event."); return; }
-      savedNow = data.event?.id ?? savedId;
-      setSavedId(savedNow);
+      eventWritten = true;
+      setSavedId(data.event?.id ?? savedId);
       if (movesTo && application) {
         const moved = await fetch("/api/applications", {
           method: "PUT",
@@ -224,7 +224,7 @@ export default function EventForm({
             : "Event added.";
       onSaved(message, movesTo && application ? { id: application.id, status: movesTo } : undefined);
     } catch {
-      setError(savedNow ? "The event is saved, but the application could not be moved: couldn't reach the server. Saving again will not add a second event." : "Couldn't reach the server. Try again.");
+      setError(eventWritten ? "The event is saved, but the application could not be moved: couldn't reach the server. Saving again will not add a second event." : "Couldn't reach the server. Try again.");
     } finally {
       setSaving(false);
     }
@@ -241,7 +241,8 @@ export default function EventForm({
               {application ? (
                 <p className="planPicked">
                   <strong>{application.company_name}</strong> · {application.role}{" "}
-                  <button type="button" className="inlineLink" onClick={() => setApplication(null)}>Change</button>
+                  {/* Once saved, the event belongs to this row, so a retry must not move another. */}
+                  {!savedId && <button type="button" className="inlineLink" onClick={() => setApplication(null)}>Change</button>}
                 </p>
               ) : (
                 <>

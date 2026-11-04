@@ -4,7 +4,7 @@
 // assessment and deadline in priority order, always current: a mutation refetches,
 // so an application marked Rejected leaves at once, with an undo. The rules are
 // lib/plan's; this file draws them and owns the actions. /api/plan is free.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import AppHeader from "@/components/ui/AppHeader";
@@ -19,7 +19,7 @@ import {
   type AvailabilityWindow, type Funnel, type PlanApplication, type PlanEvent, type PlanItem, type SuggestedSlot,
 } from "@/lib/plan";
 import { addDays, dayKey, formatWhen, mondayOf, monthName, shortDay, weekdayOf } from "@/lib/planTime";
-import { normalizeStatus, type Status } from "@/lib/tracker";
+import { normalizeStatus, removeFollowupClearedNote, type Status } from "@/lib/tracker";
 import EventCard, { type CardActions } from "./EventCard";
 import EventForm, { describeConflict, type EventFormMode } from "./EventForm";
 import { CompanyInitial, StageChip, browserTimeZone, copyText } from "./planUi";
@@ -30,6 +30,7 @@ const PipelineChart = dynamic(() => import("./PipelineChart"), {
   loading: () => <Skeleton lines={5} label="Loading the pipeline" />,
 });
 
+type PlanWaiting = ReturnType<typeof buildPlan>["waiting"][number];
 type PlanData = { applications: PlanApplication[]; events: PlanEvent[]; availability: AvailabilityWindow[]; funnel: Funnel };
 type Load = "loading" | "ready" | "needs_migration" | "expired" | "error";
 type View = "plan" | "week" | "pipeline";
@@ -88,6 +89,7 @@ export default function NextPage() {
   const [load, setLoad] = useState<Load>("loading");
   const [errorText, setErrorText] = useState("");
   const [actionError, setActionError] = useState("");
+  const [refreshError, setRefreshError] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [tz] = useState(browserTimeZone);
   const [view, setView] = useState<View>("plan");
@@ -106,7 +108,7 @@ export default function NextPage() {
   const refresh = useCallback(async () => {
     const seq = ++readSeq.current;
     const failed = (message: string) => {
-      if (hasData.current) { setActionError("Couldn't refresh your plan, so this may be out of date."); return; }
+      if (hasData.current) { setRefreshError("Couldn't refresh your plan, so this may be out of date."); return; }
       setErrorText(message);
       setLoad("error");
     };
@@ -118,6 +120,7 @@ export default function NextPage() {
       if (res.status === 503 && body.errorType === "needs_migration") { setErrorText(body.error); setLoad("needs_migration"); return; }
       if (!res.ok) { failed(body.error || "Could not load your plan."); return; }
       hasData.current = true;
+      setRefreshError("");
       setData(body as PlanData);
       setNow(Date.now());
       setLoad("ready");
@@ -151,6 +154,7 @@ export default function NextPage() {
     const timing = describeTiming(nextEvent, now, tz);
     if (!timing) return;
     lastLive.current = now;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a throttled announcement, derived from the clock
     setLiveText(`Next up: ${nextName}, ${timing.left}.`);
   }, [nextEvent, nextName, now, tz]);
 
@@ -170,14 +174,14 @@ export default function NextPage() {
     return true;
   }
 
-  async function putApplication(id: string, patch: Record<string, unknown>): Promise<boolean> {
+  async function putApplication(id: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null> {
     const res = await fetch("/api/applications", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) }).catch(() => null);
+    const body = res ? await res.json().catch(() => ({})) : {};
     if (!res || !res.ok) {
-      const body = res ? await res.json().catch(() => ({})) : {};
       setActionError(body.error || "Could not save that change. Try again.");
-      return false;
+      return null;
     }
-    return true;
+    return body;
   }
 
   // The card animates out, the write lands, then the server's answer replaces the data.
@@ -207,11 +211,18 @@ export default function NextPage() {
   function moveApplication(application: PlanApplication, status: Status, reasonEvents: PlanItem[], message: string) {
     const previous = normalizeStatus(application.status) ?? "screening";
     const followup = application.followup_date ?? null;
-    leaveThen(reasonEvents.map((i) => i.event.id), () => putApplication(application.id, { status }), () => {
+    // Closing a row clears its follow-up and notes that in the row's notes; undo takes both back.
+    const answer: { cleared?: { notes: string | null } } = {};
+    leaveThen(reasonEvents.map((i) => i.event.id), async () => {
+      const body = await putApplication(application.id, { status });
+      if (body?.followupCleared) answer.cleared = body.followupCleared as { notes: string | null };
+      return !!body;
+    }, () => {
       showToast({
         message,
         undo: async () => {
-          if (await putApplication(application.id, { status: previous, ...(followup ? { followup_date: followup } : {}) })) await refresh();
+          const restore = followup ? { followup_date: followup, ...(answer.cleared ? { notes: removeFollowupClearedNote(answer.cleared.notes, followup) } : {}) } : {};
+          if (await putApplication(application.id, { status: previous, ...restore })) await refresh();
         },
       });
     });
@@ -229,16 +240,26 @@ export default function NextPage() {
       if (outcome === "rejected") {
         const gone = allItems.filter((i) => i.application?.id === application.id);
         moveApplication(application, "rejected", gone, `${application.company_name} moved to Rejected. Its events are hidden.`);
-      } else if (outcome === "offer") {
-        moveApplication(application, "offer", [], `${application.company_name} moved to Offer.`);
       } else {
-        const stage = normalizeStatus(application.status);
-        const next = stage ? NEXT_STAGE[stage] : undefined;
+        // An outcome finishes the event it came from. The move goes first, so a failed
+        // move leaves the card in place to try again.
+        const stage = normalizeStatus(application.status) ?? "screening";
+        const next = outcome === "offer" ? "offer" : NEXT_STAGE[stage];
+        const previousEvent = item.event.status;
+        const undo = async () => {
+          const moved = next ? await putApplication(application.id, { status: stage }) : true;
+          if (moved && (await putEvent(item.event.id, { status: previousEvent }))) await refresh();
+        };
         leaveThen([item.event.id], async () => {
-          const done = await putEvent(item.event.id, { status: "done" });
-          return done && (next ? await putApplication(application.id, { status: next }) : true);
+          if (next && !(await putApplication(application.id, { status: next }))) return false;
+          return putEvent(item.event.id, { status: "done" });
         }, () => {
-          setForm({ type: "new", application: next ? { ...application, status: next } : application, preset: { kind: "interview", timezone: item.event.timezone } });
+          if (outcome === "offer") {
+            showToast({ message: `${application.company_name} moved to Offer.`, undo });
+          } else {
+            showToast({ message: next ? `Passed: ${application.company_name} moved to ${next === "interview" ? "Interview" : next}.` : `Passed: ${application.company_name}.`, undo });
+            setForm({ type: "new", application: next ? { ...application, status: next } : application, preset: { kind: "interview", timezone: item.event.timezone } });
+          }
         });
       }
     },
@@ -267,6 +288,8 @@ export default function NextPage() {
   );
   // n, j, k, d, ignored while typing or while the form is open. j, k and d walk only
   // the cards on screen, so d can never finish an event nobody can see.
+  // After a card leaves, j carries on from where it was rather than from the top.
+  const lastIndex = useRef(-1);
   const walk = useRef({ ids: [] as string[], selectedId, items: allItems, form: false, onPlan: true });
   useEffect(() => {
     const drawn = view === "plan" ? filterDay(allItems) : [];
@@ -284,8 +307,10 @@ export default function NextPage() {
       if (e.key === "j" || e.key === "k") {
         if (ids.length === 0) return;
         e.preventDefault();
-        const at = current ? ids.indexOf(current) : -1;
-        const next = e.key === "j" ? Math.min(at + 1, ids.length - 1) : Math.max(at === -1 ? 0 : at - 1, 0);
+        const found = current ? ids.indexOf(current) : -1;
+        const at = found === -1 && lastIndex.current >= 0 ? lastIndex.current - 1 : found;
+        const next = e.key === "j" ? Math.min(at + 1, ids.length - 1) : Math.max(at === -1 ? 0 : at === found ? at - 1 : at, 0);
+        lastIndex.current = next;
         const id = ids[next];
         setSelectedId(id);
         const el = document.querySelector<HTMLElement>(`[data-event-id="${id}"]`);
@@ -307,7 +332,71 @@ export default function NextPage() {
       <EventCard item={item} now={now} tz={tz} selected={selectedId === item.event.id} leaving={leaving.has(item.event.id)} events={events} windows={windows} actions={actions} />
     </li>
   );
-  const nothing = plan.ordered.length === 0 && plan.waiting.length === 0;
+  const nothing = plan.ordered.length === 0 && plan.waiting.length === 0 && plan.replyOwed.length === 0;
+  // A quiet row: the next move is theirs, or, if they spoke last, the user's.
+  const renderQuietRow = ({ application, daysSinceContact: days, basis, nudge }: PlanWaiting, owed: boolean) => (
+    <li key={application.id} className="planWaitingRow" data-waiting-id={application.id} data-waiting={owed ? undefined : application.company_name} data-reply-owed={owed ? application.company_name : undefined}>
+      <CompanyInitial name={application.company_name} />
+      <div className="planWaitingText">
+        <strong>{application.company_name}</strong>
+        <span className="planCardRole">{application.role}</span>
+        <span className="cvHelp">
+          {owed
+            ? (days === 0 ? "They wrote today" : days === 1 ? "They wrote yesterday" : `They wrote ${days} days ago`)
+            : basis === "contact"
+              ? (days === 0 ? "In touch today" : days === 1 ? "1 day since contact" : `${days} days since contact`)
+              : (days === null ? "No contact recorded" : days === 0 ? "Applied today; no contact recorded" : days === 1 ? "Applied yesterday; no contact recorded" : `Applied ${days} days ago; no contact recorded`)}
+          {application.followup_date ? ` · follow-up ${shortDay(application.followup_date)}` : ""}
+        </span>
+        {nudge && (
+          <span className="planNudge" data-nudge={nudge} data-nudge-basis={basis}>
+            <Icon name="mail" />
+            {basis === "contact"
+              ? `T+${nudge}: ${nudge === 7 ? "send a first follow-up" : nudge === 14 ? "send a second follow-up" : "send a last follow-up, then consider Ghosted"}`
+              : `T+${nudge} from applying: if you have heard nothing, follow up`}
+          </span>
+        )}
+      </div>
+      <div className="planWaitingActions">
+        <StageChip status={application.status} />
+        <button type="button" className="linkBtn" onClick={() => setForm({ type: "new", application })}>Add date/time</button>
+        <button
+          type="button"
+          className="linkBtn"
+          onClick={() => {
+            const from = application.last_contact_from ?? null;
+            const at = application.last_contact_at ?? null;
+            void (async () => {
+              setActionError("");
+              if (await putApplication(application.id, { last_contact_from: "me", last_contact_at: new Date().toISOString() })) {
+                showToast({
+                  message: owed ? `Recorded: you replied to ${application.company_name} today.` : `Recorded: you followed up with ${application.company_name} today.`,
+                  undo: async () => {
+                    if (await putApplication(application.id, { last_contact_from: from, last_contact_at: at })) await refresh();
+                  },
+                });
+                await refresh();
+              }
+            })();
+          }}
+          data-waiting-followed
+        >
+          {owed ? "I replied today" : "Followed up today"}
+        </button>
+        <button type="button" className="linkBtn" onClick={() => moveApplication(application, "rejected", [], `${application.company_name} moved to Rejected.`)} data-waiting-reject>Rejected</button>
+        <button type="button" className="linkBtn" onClick={() => moveApplication(application, "ghosted", [], `${application.company_name} moved to Ghosted.`)}>Ghosted</button>
+      </div>
+    </li>
+  );
+  const replySection = !dayFilter && plan.replyOwed.length > 0 && (
+    <section className="planGroup" data-group="reply_owed">
+      <h2 className="planGroupHead">Reply owed <span className="planGroupCount">{plan.replyOwed.length}</span></h2>
+      <p className="cvHelp planGroupNote">They spoke last, so the next move is yours.</p>
+      <ul className="planWaiting">{plan.replyOwed.map((w) => renderQuietRow(w, true))}</ul>
+    </section>
+  );
+  // After anything due today or waiting on a slot, before the rest of the week.
+  const replyAt = plan.sections.findIndex((s) => s.key !== "overdue" && s.key !== "today" && s.key !== "needs_booking");
   const hero = plan.nextUp;
   const heroTiming = hero ? describeTiming(hero.event, now, tz) : null;
 
@@ -357,6 +446,7 @@ export default function NextPage() {
               <Button onClick={() => setForm({ type: "new" })} data-new-event>New event</Button>
             </div>
             {actionError && <StatusText tone="error" role="alert" className="msgBelow">{actionError}</StatusText>}
+            {refreshError && <StatusText tone="error" role="alert" className="msgBelow" data-refresh-error>{refreshError}</StatusText>}
 
             <div className="nextLayout">
               <div className="planMain">
@@ -377,76 +467,30 @@ export default function NextPage() {
                           Showing {shortDay(dayFilter)}. <button type="button" className="inlineLink" onClick={() => setDayFilter(null)}>Show everything</button>
                         </p>
                       )}
-                      {plan.sections.map((group) => {
+                      {plan.sections.map((group, index) => {
                         const items = filterDay(group.items);
-                        if (items.length === 0) return null;
                         return (
-                          <section key={group.key} className="planGroup" data-group={group.key}>
-                            <h2 className="planGroupHead">
-                              {group.key === "overdue" && <Icon name="alert" />}
-                              {group.label} <span className="planGroupCount">{items.length}</span>
-                            </h2>
-                            {group.key === "needs_booking" && <p className="cvHelp planGroupNote">They are waiting on a time from you. An unanswered offer can lose the interview.</p>}
-                            <ul className="planList">{items.map(renderCard)}</ul>
-                          </section>
+                          <Fragment key={group.key}>
+                            {index === replyAt && replySection}
+                            {items.length > 0 && (
+                              <section className="planGroup" data-group={group.key}>
+                                <h2 className="planGroupHead">
+                                  {group.key === "overdue" && <Icon name="alert" />}
+                                  {group.label} <span className="planGroupCount">{items.length}</span>
+                                </h2>
+                                {group.key === "needs_booking" && <p className="cvHelp planGroupNote">They are waiting on a time from you. An unanswered offer can lose the interview.</p>}
+                                <ul className="planList">{items.map(renderCard)}</ul>
+                              </section>
+                            )}
+                          </Fragment>
                         );
                       })}
+                      {replyAt === -1 && replySection}
                       {!dayFilter && plan.waiting.length > 0 && (
                         <section className="planGroup" data-group="waiting">
                           <h2 className="planGroupHead">Waiting on them <span className="planGroupCount">{plan.waiting.length}</span></h2>
                           <ul className="planWaiting">
-                            {plan.waiting.map(({ application, daysSinceContact: days, basis, nudge }) => (
-                              <li key={application.id} className="planWaitingRow" data-waiting-id={application.id} data-waiting={application.company_name}>
-                                <CompanyInitial name={application.company_name} />
-                                <div className="planWaitingText">
-                                  <strong>{application.company_name}</strong>
-                                  <span className="planCardRole">{application.role}</span>
-                                  <span className="cvHelp">
-                                    {basis === "contact"
-                                      ? (days === 0 ? "In touch today" : days === 1 ? "1 day since contact" : `${days} days since contact`)
-                                      : (days === null ? "No contact recorded" : days === 0 ? "Applied today; no contact recorded" : days === 1 ? "Applied yesterday; no contact recorded" : `Applied ${days} days ago; no contact recorded`)}
-                                    {application.followup_date ? ` · follow-up ${shortDay(application.followup_date)}` : ""}
-                                  </span>
-                                  {nudge && (
-                                    <span className="planNudge" data-nudge={nudge} data-nudge-basis={basis}>
-                                      <Icon name="mail" />
-                                      {basis === "contact"
-                                        ? `T+${nudge}: ${nudge === 7 ? "send a first follow-up" : nudge === 14 ? "send a second follow-up" : "send a last follow-up, then consider Ghosted"}`
-                                        : `T+${nudge} from applying: if you have heard nothing, follow up`}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="planWaitingActions">
-                                  <StageChip status={application.status} />
-                                  <button type="button" className="linkBtn" onClick={() => setForm({ type: "new", application })}>Add date/time</button>
-                                  <button
-                                    type="button"
-                                    className="linkBtn"
-                                    onClick={() => {
-                                      const from = application.last_contact_from ?? null;
-                                      const at = application.last_contact_at ?? null;
-                                      void (async () => {
-                                        setActionError("");
-                                        if (await putApplication(application.id, { last_contact_from: "me", last_contact_at: new Date().toISOString() })) {
-                                          showToast({
-                                            message: `Recorded: you followed up with ${application.company_name} today.`,
-                                            undo: async () => {
-                                              if (await putApplication(application.id, { last_contact_from: from, last_contact_at: at })) await refresh();
-                                            },
-                                          });
-                                          await refresh();
-                                        }
-                                      })();
-                                    }}
-                                    data-waiting-followed
-                                  >
-                                    Followed up today
-                                  </button>
-                                  <button type="button" className="linkBtn" onClick={() => moveApplication(application, "rejected", [], `${application.company_name} moved to Rejected.`)} data-waiting-reject>Rejected</button>
-                                  <button type="button" className="linkBtn" onClick={() => moveApplication(application, "ghosted", [], `${application.company_name} moved to Ghosted.`)}>Ghosted</button>
-                                </div>
-                              </li>
-                            ))}
+                            {plan.waiting.map((w) => renderQuietRow(w, false))}
                           </ul>
                         </section>
                       )}

@@ -10,6 +10,8 @@ import {
   oldStatusLabel,
   storedStatusValues,
   isActiveStatus,
+  removeFollowupClearedNote,
+  stagesAfterMove,
   endedWithoutProgress,
   inStageTab,
   inStageTabOrPast,
@@ -102,6 +104,28 @@ test("a ghosted row has ended without progress, so it is not still open", () => 
   assert.equal(endedWithoutProgress("Rejected"), true);
   assert.equal(endedWithoutProgress("screening"), false);
   assert.equal(endedWithoutProgress("accepted"), false);
+});
+
+test("undo takes back only the follow-up line it added", () => {
+  const notes = "First line.\nFollow-up 2026-11-10 cleared when marked Rejected on 2026-11-03.";
+  assert.equal(removeFollowupClearedNote(notes, "2026-11-10"), "First line.");
+  assert.equal(removeFollowupClearedNote("Follow-up 2026-11-10 cleared when marked Rejected on 2026-11-03.", "2026-11-10"), "");
+  assert.equal(removeFollowupClearedNote("Keep this.", "2026-11-10"), "Keep this.");
+  assert.equal(removeFollowupClearedNote(notes, "2026-12-01"), notes, "another date's line stays");
+  assert.equal(removeFollowupClearedNote(null, "2026-11-10"), "");
+});
+
+test("the stage history after a move matches what the database trigger writes", () => {
+  const walk = (start: string[], ...moves: string[]) => moves.reduce((h, m) => stagesAfterMove(h, m), start).join();
+  assert.equal(walk(["applied"], "screening", "rejected"), "applied,screening,rejected", "an ending keeps the path");
+  assert.equal(walk(["applied"], "screening", "rejected", "screening"), "applied,screening", "undoing Rejected removes it");
+  assert.equal(walk(["applied"], "screening", "offer", "screening"), "applied,screening", "undoing Offer removes it");
+  assert.equal(walk(["applied"], "screening", "assessment", "interview"), "applied,screening,assessment,interview");
+  assert.equal(walk(["applied"], "screening", "assessment", "interview", "assessment"), "applied,screening,interview,assessment", "going back puts it last");
+  assert.equal(walk(["applied"], "screening", "ghosted", "rejected"), "applied,screening,rejected", "one ending at a time");
+  assert.equal(walk(["applied", "Screening"], "Applied"), "applied", "old labels too");
+  assert.equal(walk(["applied"], "screening", "screening"), "applied,screening", "an unchanged status changes nothing");
+  assert.deepEqual(stagesAfterMove(null, "applied"), ["applied"]);
 });
 
 test("ghosted and won rows have ended, so their follow-ups clear", () => {

@@ -5,7 +5,7 @@
 // the plan's first paint never pays for it. Each node is a link to that stage on the
 // tracker, by keyboard too, and the table below holds every figure without hovering.
 import { useRouter } from "next/navigation";
-import { ResponsiveContainer, Sankey, Tooltip } from "recharts";
+import { ResponsiveContainer, Sankey } from "recharts";
 import { funnelChartData, type Funnel, type FunnelChartNode as ChartNode } from "@/lib/plan";
 
 const NODE_TOKEN: Record<string, string> = {
@@ -46,6 +46,7 @@ export default function PipelineChart({ funnel }: { funnel: Funnel }) {
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } }}
         data-pipe-node={payload.key}
       >
+        <title>{`${payload.name}: ${payload.total}`}</title>
         {/* A hit area wider than the mark. */}
         <rect x={x - 8} y={y - 6} width={width + 16} height={drawn + 12} fill="transparent" />
         <rect x={x} y={y} width={width} height={drawn} rx={2} fill={NODE_TOKEN[payload.key] ?? "var(--muted)"} />
@@ -66,7 +67,9 @@ export default function PipelineChart({ funnel }: { funnel: Funnel }) {
         strokeOpacity={0.32}
         strokeWidth={Math.max(linkWidth, 1.5)}
         className="pipeLink"
-      />
+      >
+        <title>{`${payload.source.name} to ${payload.target.name}: ${payload.value}`}</title>
+      </path>
     );
   }
 
@@ -83,13 +86,11 @@ export default function PipelineChart({ funnel }: { funnel: Funnel }) {
             sort={false}
             iterations={32}
             margin={{ top: 12, right: 112, bottom: 12, left: 8 }}
-          >
-            <Tooltip wrapperClassName="pipeTooltip" isAnimationActive={false} />
-          </Sankey>
+          />
         </ResponsiveContainer>
       </div>
       <p className="cvHelp">
-        Select a stage to see those applications on the tracker. Stages have been recorded only since 3 November 2026, so an earlier rejection counts at Applied whatever stage it reached, and an earlier row shows only its current stage. "Went further" is out of those with an outcome from that stage; someone still there is not counted.
+        Select a stage to see those applications on the tracker. Stages have been recorded only since 3 November 2026, so an earlier rejection counts at Applied whatever stage it reached, and an earlier row shows only its current stage. The share who went further is out of those with an outcome from that stage; someone still there is not counted.
         {funnel.excluded > 0 ? ` ${funnel.excluded} unsent or withdrawn ${funnel.excluded === 1 ? "application is" : "applications are"} not counted.` : ""}
       </p>
       <details className="pipeTableWrap">

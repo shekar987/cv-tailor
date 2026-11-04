@@ -165,6 +165,8 @@ export function countdown(ms: number, now: number, opts: { due?: boolean; dateOn
   // Past a day, count the days on the calendar, so "Tomorrow" never says "in 2 days".
   if (diff >= DAY_MS) {
     const days = daysBetween(dayKey(now, tz), dayKey(ms, tz));
+    // The day the clocks go back has 25 hours, so the same date can be a day away.
+    if (days === 0) return `${opts.due ? "due in" : "in"} ${Math.floor(diff / HOUR_MS)}h`;
     return `${opts.due ? "due in" : "in"} ${days === 1 ? "1 day" : `${days} days`}`;
   }
   return `${opts.due ? "due in" : "in"} ${span(diff)}`;

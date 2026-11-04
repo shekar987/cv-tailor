@@ -46,6 +46,7 @@ const db = {
     app("Won Ltd", "Engineer", "accepted", { stages_reached: ["applied", "screening", "interview", "offer", "accepted"] }),
     app("Offer Ltd", "Engineer", "offer", { stages_reached: ["applied", "interview", "offer"] }),
     app("Late Ltd", "Engineer", "assessment"),
+    app("Replied Ltd", "Engineer", "screening", { last_contact_from: "them", last_contact_at: at("2026-10-10", "10:00"), followup_date: "2026-11-20" }),
   ],
   events: [],
   windows: [],
@@ -130,7 +131,14 @@ async function route(page) {
         if (!row.stages_reached.includes(row.status)) row.stages_reached.push(row.status);
       }
       if ("outcome_reason" in body) row.outcome_reason = body.outcome_reason;
-      for (const k of ["last_contact_from", "last_contact_at", "followup_date"]) if (k in body) row[k] = body[k];
+      for (const k of ["last_contact_from", "last_contact_at", "followup_date", "notes"]) if (k in body) row[k] = body[k];
+      // As the real route: closing a row clears its follow-up and notes it.
+      if (["rejected", "withdrawn", "ghosted", "accepted"].includes(row.status) && row.followup_date && !("followup_date" in body)) {
+        const line = `Follow-up ${row.followup_date} cleared when marked Rejected on 2026-11-03.`;
+        row.notes = row.notes ? `${row.notes}\n${line}` : line;
+        row.followup_date = null;
+        return json(r, { ok: true, followupCleared: { followup_date: null, notes: row.notes } });
+      }
       return json(r, { ok: true });
     }
     json(r, { ok: true });
@@ -166,7 +174,7 @@ try {
 
   // ── The plan ───────────────────────────────────────────────────────────────
   const groups = await page.locator(".planGroup").evaluateAll((els) => els.map((e) => e.dataset.group));
-  check("groups appear in order", groups.join() === "overdue,needs_booking,tomorrow,this_week,next_week,waiting", groups.join());
+  check("groups appear in order", groups.join() === "overdue,needs_booking,reply_owed,tomorrow,this_week,next_week,waiting", groups.join());
   const titles = (g) => page.locator(`[data-group="${g}"] [data-event-title]`).evaluateAll((els) => els.map((e) => e.dataset.eventTitle));
   check("tomorrow lists the interview first, then the networking call", (await titles("tomorrow")).join("|") === "Interview call|Networking call: Sam Contact", (await titles("tomorrow")).join("|"));
   const overdueGroup = page.locator('[data-group="overdue"]');
@@ -193,6 +201,16 @@ try {
   await page.locator("[data-toast-undo]").click();
   await page.waitForFunction(() => /no contact recorded/.test(document.querySelector('[data-waiting="Bluebell Telecom"]')?.textContent ?? ""), null, { timeout: 8000 });
   check("and undo clears it", db.applications.find((a) => a.company_name === "Bluebell Telecom").last_contact_at == null);
+  const replied = page.locator('[data-reply-owed="Replied Ltd"]');
+  check("when they spoke last it is Reply owed, not Waiting on them", (await replied.count()) === 1 && /They wrote 24 days ago/.test(await replied.innerText()) && (await replied.locator("[data-nudge]").count()) === 0, await replied.innerText());
+  await replied.locator("[data-waiting-reject]").click();
+  await page.waitForFunction(() => !document.querySelector('[data-reply-owed="Replied Ltd"]'), null, { timeout: 8000 });
+  await page.locator("[data-toast-undo]").waitFor();
+  const repliedRow = db.applications.find((a) => a.company_name === "Replied Ltd");
+  check("closing a row clears its follow-up and notes it", repliedRow.followup_date === null && /cleared when marked Rejected/.test(repliedRow.notes));
+  await page.locator("[data-toast-undo]").click();
+  await page.locator('[data-reply-owed="Replied Ltd"]').waitFor({ timeout: 8000 });
+  check("undo restores the status, the follow-up and the notes", repliedRow.status === "screening" && repliedRow.followup_date === "2026-11-20" && !repliedRow.notes, JSON.stringify(repliedRow.notes));
   check("the promised follow-up date shows", /follow-up Tue 10 Nov/.test(await page.locator('[data-waiting="Bluebell Telecom"]').innerText()));
   check("the calendar dots its event days", (await page.locator('[data-mini-calendar] [data-has-events]').count()) >= 3);
   check("the funnel lists its steps with counts", /Screening\s*\d+/.test(await page.locator("[data-funnel]").innerText()));
@@ -259,6 +277,16 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('[data-event-title="Video interview (2 questions)"]').length === 1, null, { timeout: 8000 });
   check("undo brings them back", (await apeCards.count()) === 2 && db.applications.find((a) => a.company_name === "Ape Sales").status === "interview");
 
+  // ── An outcome finishes its event ──────────────────────────────────────────
+  const lateCall = page.locator('[data-event-title="Call that ended"]');
+  await lateCall.locator("[data-event-outcome]").click();
+  await lateCall.locator('[data-outcome="offer"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-event-title="Call that ended"]'), null, { timeout: 8000 });
+  check("Offer moves the row and finishes the event", db.applications.find((a) => a.company_name === "Late Ltd").status === "offer" && db.events.find((e) => e.title === "Call that ended").status === "done");
+  await page.locator("[data-toast-undo]").click();
+  await page.locator('[data-event-title="Call that ended"]').waitFor({ timeout: 8000 });
+  check("undo restores both", db.applications.find((a) => a.company_name === "Late Ltd").status === "assessment" && db.events.find((e) => e.title === "Call that ended").status === "scheduled");
+
   // ── Keyboard ───────────────────────────────────────────────────────────────
   await page.locator("h1").first().click();
   await page.keyboard.press("j");
@@ -275,6 +303,9 @@ try {
   await page.keyboard.press("d");
   await page.waitForFunction(() => document.querySelectorAll('[data-event-title="Today\'s interview"]').length === 0, null, { timeout: 8000 });
   check("d marks it done", db.events.find((e) => e.title === "Today's interview").status === "done");
+  await page.keyboard.press("j");
+  const afterDone = await page.locator(".planCard--selected").getAttribute("data-event-title");
+  check("after d, j carries on from there, not from the top", !!afterDone && afterDone !== (await page.locator(".planCard").first().getAttribute("data-event-title")), afterDone);
   await page.locator("[data-toast-undo]").click();
   await page.waitForFunction(() => document.querySelectorAll('[data-event-title="Today\'s interview"]').length === 1, null, { timeout: 8000 });
   check("undo reopens it", db.events.find((e) => e.title === "Today's interview").status === "scheduled");
@@ -362,6 +393,7 @@ try {
   await page.screenshot({ path: path.join(SHOTS, "next-pipeline.png"), fullPage: true });
   await page.locator('[data-pipeline] summary').click();
   check("the table holds every figure", /Too few to judge/.test(await page.locator("[data-pipe-table]").innerText()));
+  check("hover and label agree", /^Screening: \d+/.test(await page.locator('[data-pipe-node="screening"] title').textContent()) && (await page.locator(".recharts-tooltip-wrapper").count()) === 0);
   await page.locator('[data-pipe-node="screening"]').click();
   await page.waitForURL(/\/applications\?status=screening/, { timeout: 30000 });
   check("clicking a node opens that stage on the tracker", true);
@@ -388,10 +420,11 @@ try {
   await chip("screening").click();
   await page.locator('[data-stage-table="screening"]').waitFor({ timeout: 8000 });
 
-  // + Add row on a stage tab opens the row form.
+  // + Add row on a stage tab opens the row form, for that stage.
   await page.getByRole("button", { name: "+ Add row" }).click();
   await page.locator(".appsNewRow").waitFor({ timeout: 5000 });
   check("+ Add row works on a stage tab", (await page.locator(".appsNewRow").count()) === 1);
+  check("and starts at that stage", (await page.locator('.appsNewRow select[aria-label="Status"]').inputValue()) === "screening");
   await page.keyboard.press("Escape");
   await page.locator(".appsNewRow").waitFor({ state: "hidden", timeout: 5000 });
   await page.locator('[data-stage-table="screening"]').waitFor({ timeout: 5000 });
@@ -447,6 +480,21 @@ try {
   await page.screenshot({ path: path.join(SHOTS, "stage-won.png"), fullPage: true });
   await page.locator("[data-stage-sheet]").click();
   check("the full sheet is one click away", (await page.locator(".appsTable").count()) === 1);
+  await page.locator("[data-stage-sheet]").click();
+
+  // The company link opens that row's panel, wherever the row sits in the sheet.
+  for (let i = 0; i < 60; i++) db.applications.push(app(`Zz Filler ${String(i).padStart(2, "0")} Ltd`, "Engineer", "rejected", { date_applied: "2026-10-30" }));
+  await page.reload({ waitUntil: "load" });
+  await page.locator(".appsFunnel").waitFor({ timeout: 30000 });
+  await chip("rejected").click();
+  await page.locator('[data-stage-row="Gone Ltd"] .stageCompany').click();
+  await page.locator(".appsTable").waitFor({ timeout: 8000 });
+  await page.waitForTimeout(400);
+  check("a row past the sheet's first page still opens", /Gone Ltd/.test(await page.locator(".appsTable").innerText()) && (await page.locator("tr", { hasText: "Gone Ltd" }).count()) >= 1, String(await page.locator(".appsTable tbody tr").count()));
+  check("with its panel", (await page.locator(".appsTable textarea, .appsTable [data-notes-panel]").count()) >= 1);
+  await page.locator("[data-stage-sheet]").click();
+  check("Back to dates clears the search", (await page.locator('.appsSearch input, input.appsSearch').first().inputValue()) === "" && (await page.locator("[data-stage-row]").count()) > 10);
+  db.applications = db.applications.filter((a) => !a.company_name.startsWith("Zz Filler"));
 
   // ── The pipeline at a real tracker's scale ─────────────────────────────────
   const bigCtx = await browser.newContext({ viewport: { width: 1280, height: 900 } });

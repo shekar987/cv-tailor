@@ -61,7 +61,7 @@ export default function UpdatePasswordPage() {
       return
     }
     setDone(true)
-    redirectTimer.current = setTimeout(() => router.push('/app'), 1500)
+    redirectTimer.current = setTimeout(() => router.push('/app/next'), 1500)
   }
 
   if (session === 'none') {

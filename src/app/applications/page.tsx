@@ -29,6 +29,7 @@ import {
   STATUS_LABELS,
   inStageTab,
   inStageTabOrPast,
+  stagesAfterMove,
   isStageTab,
   normalizeStatus,
   statusLabel,
@@ -621,6 +622,9 @@ export default function ApplicationsPage() {
   // On a stage tab: the dated table, or the full sheet with its panels.
   const [stageSheet, setStageSheet] = useState(false);
   const [includePast, setIncludePast] = useState(false);
+  // Opening a row in the sheet searches for it, so it is on the sheet's first page.
+  const [sheetSearchFromStage, setSheetSearchFromStage] = useState(false);
+  const [stageRefresh, setStageRefresh] = useState(0);
   const [periodFilter, setPeriodFilter] = useState<Period>("all");
   // The format-style tag, filter, picker and tile are the owner's while the
   // two styles are compared (profiles.is_unlimited, read fail-soft).
@@ -1043,7 +1047,10 @@ export default function ApplicationsPage() {
 
   function changeStatus(row: Application, status: Status) {
     if (status === row.status) return;
-    void patchRow(row.id, { status }).then((message) => setActionError(message ?? ""));
+    void patchRow(row.id, { status, stages_reached: stagesAfterMove(row.stages_reached, status) }).then((message) => {
+      setActionError(message ?? "");
+      setStageRefresh((n) => n + 1);
+    });
   }
 
   // ── Panels (CV / JD / Notes) ──────────────────────────────────────────────
@@ -1246,7 +1253,8 @@ export default function ApplicationsPage() {
     setNewRow({
       company_name: "",
       role: "",
-      status: "applied",
+      // On a stage tab a new row belongs to that stage, or it would vanish from view on save.
+      status: statusFilter === "All" ? "applied" : statusFilter,
       salary: "",
       date_applied: todayLocal(),
       followup_date: "",
@@ -1867,7 +1875,18 @@ export default function ApplicationsPage() {
               <input type="checkbox" checked={includePast} onChange={(e) => setIncludePast(e.target.checked)} data-include-past />
               Include past stages
             </label>
-            <button type="button" className="linkBtn" onClick={() => setStageSheet((v) => !v)} data-stage-sheet>
+            <button
+              type="button"
+              className="linkBtn"
+              onClick={() => {
+                if (stageSheet && sheetSearchFromStage) {
+                  setQuery("");
+                  setSheetSearchFromStage(false);
+                }
+                setStageSheet((v) => !v);
+              }}
+              data-stage-sheet
+            >
               {stageSheet ? "Back to dates" : "Open the full sheet"}
             </button>
           </div>
@@ -1879,6 +1898,7 @@ export default function ApplicationsPage() {
               rows={visible}
               stage={statusFilter}
               includePast={includePast}
+              refreshKey={stageRefresh}
               onStatus={(row, status) => {
                 const full = rowsRef.current.find((r) => r.id === row.id);
                 if (full) changeStatus(full, status);
@@ -1890,12 +1910,15 @@ export default function ApplicationsPage() {
                 setStageSheet(true);
                 const full = rowsRef.current.find((r) => r.id === row.id);
                 if (!full) return;
-                // A past row is not on this tab's sheet: open its own, so the panel shows.
+                // The panel draws only on the sheet's painted page, and a past row is not on
+                // this tab's sheet at all: go to its own tab and search for it.
                 if (!inStageTab(full.status, statusFilter)) setStatusFilter(full.status);
-                togglePanel(full, "notes");
+                setQuery(full.company_name);
+                setSheetSearchFromStage(true);
+                if (!(panel && panel.id === full.id && panel.kind === "notes")) togglePanel(full, "notes");
               }}
-              onMoved={(id, status, message) => {
-                setRows((rs) => rs.map((r) => (r.id === id ? { ...r, status } : r)));
+              onEventSaved={(message, moved) => {
+                if (moved) setRows((rs) => rs.map((r) => (r.id === moved.id ? { ...r, status: moved.status, stages_reached: stagesAfterMove(r.stages_reached, moved.status) } : r)));
                 showFlash(message);
               }}
             />

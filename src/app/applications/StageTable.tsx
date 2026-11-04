@@ -32,15 +32,17 @@ type SortKey = "next" | "deadline" | "contact" | "company";
 const DEADLINE_SOON_MS = 48 * HOUR_MS;
 
 export default function StageTable({
-  rows, stage, includePast, onStatus, onReason, onOpenSheet, onMoved,
+  rows, stage, includePast, refreshKey, onStatus, onReason, onOpenSheet, onEventSaved,
 }: {
   rows: readonly StageRow[];
   stage: Status;
   includePast: boolean;
+  // Bumped after a status write lands: a row moved back to an active stage has events again.
+  refreshKey: number;
   onStatus: (row: StageRow, status: Status) => void;
   onReason: (row: StageRow, reason: string) => void;
   onOpenSheet: (row: StageRow) => void;
-  onMoved: (id: string, status: Status, message: string) => void;
+  onEventSaved: (message: string, moved?: { id: string; status: Status }) => void;
 }) {
   const [events, setEvents] = useState<PlanEvent[] | null>(null);
   const [windows, setWindows] = useState<AvailabilityWindow[]>([]);
@@ -81,9 +83,9 @@ export default function StageTable({
     void loadEvents(signal);
     const tick = setInterval(() => setNow(Date.now()), 60_000);
     return () => { signal.cancelled = true; clearInterval(tick); };
-  }, []);
+  }, [refreshKey]);
 
-  const next = useMemo(() => nextEventByApplication(events ?? []), [events]);
+  const next = useMemo(() => nextEventByApplication(events ?? [], now), [events, now]);
   const sorted = useMemo(() => {
     const value = (row: StageRow): number | string | null => {
       const entry = isActiveStatus(row.status) ? next.get(row.id) : undefined;
@@ -186,7 +188,7 @@ export default function StageTable({
                     <span className="stageDue">
                       {soon && <Icon name="alert" />}
                       {formatWhen(dueAt, displayZone(deadline, tz), deadline.date_only)}
-                      {soon && <span className="srOnly"> (under 48 hours)</span>}
+                      {soon && <span className="srOnly">{dueAt < now ? " (overdue)" : " (under 48 hours)"}</span>}
                     </span>
                   ) : <span className="cvHelp">None</span>}
                 </td>
@@ -252,7 +254,7 @@ export default function StageTable({
           onClose={() => setForm(null)}
           onSaved={(message, moved) => {
             setForm(null);
-            if (moved) onMoved(moved.id, moved.status, message);
+            onEventSaved(message, moved);
             void loadEvents();
           }}
         />
