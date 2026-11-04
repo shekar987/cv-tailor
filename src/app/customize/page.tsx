@@ -267,6 +267,8 @@ export default function CustomizePage() {
   const [confirmRemovePool, setConfirmRemovePool] = useState(false);
   // Links that answered 404, by project (the reachability check after a save).
   const [linkWarnings, setLinkWarnings] = useState<Record<string, string[]>>({});
+  const [linksUnchecked, setLinksUnchecked] = useState(false);
+  const [settingsReadFailed, setSettingsReadFailed] = useState(false);
 
   // Eligibility profile (user_settings.eligibility): the answers an
   // application form asks before anyone reads the CV. The pre-check on /app
@@ -363,27 +365,42 @@ export default function CustomizePage() {
       if (!next.delete(id)) next.add(id);
       return next;
     });
+    if (id === "project-links" && !linkCheckRan.current) void checkSavedLinks(prefsRef.current.projectLinks);
   }
   function goToSection(id: string, always?: boolean) {
     if (!always) setOpenSections((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+    if (id === "project-links" && !linkCheckRan.current) void checkSavedLinks(prefsRef.current.projectLinks);
     // Scrolling to the header is safe before the expansion paints: a section
     // grows downward, so its own top doesn't move.
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   const [retiredDraft, setRetiredDraft] = useState("");
+  // Preferences are written whole, so a write starts from the latest of what is stored,
+  // and never before that has been read: a failed read looks like "no settings", and
+  // writing then would put defaults over the user's cards, pins, links and wording list.
+  const prefsRef = useRef<Preferences>(DEFAULT_PREFERENCES);
+  const prefsReady = useRef(false);
   async function updatePrefs(patch: Partial<Omit<Preferences, "version">>, at: "rtw" | "length" | "links" | "style" | "retired" | "pool", okMsg: string): Promise<boolean> {
-    const previous = prefs;
-    const updated: Preferences = { ...prefs, ...patch };
-    setPrefs(updated);
     setPrefsMsg("");
     setPrefsError("");
     setPrefsMsgAt(at);
+    if (!prefsReady.current) {
+      setPrefsError("We couldn't read your saved settings, so this wasn't saved. Reload the page and try again.");
+      return false;
+    }
+    const previous = prefsRef.current;
+    const updated: Preferences = { ...previous, ...patch };
+    prefsRef.current = updated;
+    setPrefs(updated);
     const res = await savePreferences(updated);
     if (res.ok) {
       setPrefsMsg(okMsg);
       return true;
     }
-    setPrefs(previous);
+    // Only what this call changed goes back: a toggle made meanwhile stays.
+    const restored = { ...prefsRef.current, ...Object.fromEntries(Object.keys(patch).map((k) => [k, previous[k as keyof Preferences]])) } as Preferences;
+    prefsRef.current = restored;
+    setPrefs(restored);
     if (res.missingTable) setPrefsError("Your database doesn't have the user_settings table yet — run supabase/migrations/20260917120000_user_settings_and_jd_lookup.sql first.");
     else if (res.missingColumn) {
       setPrefsColumnMissing(true);
@@ -448,26 +465,38 @@ export default function CustomizePage() {
     }
   }
 
-  // A link that answers 404 is a warning, never a block (/api/check-link).
+  // A link that answers 404 is a warning, never a block (/api/check-link). Four to a
+  // request, one request at a time, so a long list stays inside the burst limit; a check
+  // that could not run says nothing about the link, and the page says it did not run.
+  const linkCheckRan = useRef(false);
   async function checkSavedLinks(saved: SavedProjectLinks) {
+    linkCheckRan.current = true;
+    const owners = new Map<string, string[]>();
+    for (const row of linkRows) {
+      const pair = saved[row.key] ?? row.auto;
+      for (const url of [pair.github, pair.live].filter(Boolean)) owners.set(url, [...(owners.get(url) ?? []), row.key]);
+    }
+    const urls = [...owners.keys()];
     const warnings: Record<string, string[]> = {};
-    await Promise.all(
-      linkRows.map(async (row) => {
-        const pair = saved[row.key] ?? row.auto;
-        const urls = [pair.github, pair.live].filter(Boolean);
-        if (urls.length === 0) return;
-        try {
-          const res = await fetch("/api/check-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls }) });
-          if (!res.ok) return;
-          const data = await res.json();
-          const missing = ((data.results ?? []) as { url: string; missing: boolean }[]).filter((r) => r.missing).map((r) => r.url);
-          if (missing.length > 0) warnings[row.key] = missing;
-        } catch {
-          // A check that could not run says nothing about the link.
+    let unchecked = false;
+    for (let i = 0; i < urls.length; i += 4) {
+      try {
+        const res = await fetch("/api/check-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls: urls.slice(i, i + 4) }) });
+        if (!res.ok) {
+          unchecked = true;
+          continue;
         }
-      })
-    );
+        const data = await res.json();
+        for (const r of (data.results ?? []) as { url: string; missing: boolean }[]) {
+          if (!r.missing) continue;
+          for (const key of owners.get(r.url) ?? []) warnings[key] = [...(warnings[key] ?? []), r.url];
+        }
+      } catch {
+        unchecked = true;
+      }
+    }
     setLinkWarnings(warnings);
+    setLinksUnchecked(unchecked);
   }
   const claimsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (claimsSaveTimer.current) clearTimeout(claimsSaveTimer.current); }, []);
@@ -575,7 +604,10 @@ export default function CustomizePage() {
         }
         setClaims(registry);
         setVariantsColumnMissing(settings.variantsColumnMissing);
-        setPrefs(normalizePreferences(settings.preferences));
+        prefsReady.current = !settings.readFailed;
+        setSettingsReadFailed(settings.readFailed);
+        prefsRef.current = normalizePreferences(settings.preferences);
+        setPrefs(prefsRef.current);
         setRetiredDraft(formatRetiredClaims(normalizePreferences(settings.preferences).retiredClaims));
         setPrefsColumnMissing(settings.preferencesColumnMissing);
         const vc = normalizeVariants(settings.variants);
@@ -647,26 +679,29 @@ export default function CustomizePage() {
     setPoolSaving(true);
     setPoolMsg("");
     setPoolError("");
-    const res = await saveProjectsPool(text);
-    if (!res.ok) {
-      setPoolSaving(false);
-      setPoolError(res.missingColumn
-        ? "Your database doesn't have this feature's column yet — run supabase/migrations/20260911120000_master_cvs_projects_pool.sql in the Supabase SQL editor, then try again."
-        : "Couldn't save the pool. Check your connection and try again.");
-      return false;
-    }
+    // The cards and the backup first. If this write fails, the user's text is untouched; if
+    // the one after it fails, the cards are still what tailoring reads (/api/tailor).
+    const before = prefsRef.current;
     const ok = await updatePrefs(
-      { projectCards: cards, poolTextBeforeCards: prefs.poolTextBeforeCards || (prefs.projectCards.length === 0 ? poolDraft : "") },
+      { projectCards: cards, poolTextBeforeCards: before.projectCards.length === 0 ? poolDraft : before.poolTextBeforeCards },
       "pool",
       `Saved ${cards.length} ${cards.length === 1 ? "project" : "projects"}.`
     );
-    setPoolSaving(false);
-    if (ok) {
-      setPoolDraft(text);
-      setPoolSaved(!!text);
-      invalidateWorkspaceResult();
+    if (!ok) {
+      setPoolSaving(false);
+      return false;
     }
-    return ok;
+    const res = await saveProjectsPool(text);
+    setPoolSaving(false);
+    if (!res.ok) {
+      setPoolError(res.missingColumn
+        ? "Your cards are saved. The pool's text column is missing — run supabase/migrations/20260911120000_master_cvs_projects_pool.sql in the Supabase SQL editor, then save again."
+        : "Your cards are saved and tailoring uses them, but the pool's text didn't update. Save again when you're back online.");
+    }
+    setPoolDraft(text);
+    setPoolSaved(!!text);
+    invalidateWorkspaceResult();
+    return true;
   }
 
   async function handleSavePool(clear: boolean) {
@@ -682,14 +717,21 @@ export default function CustomizePage() {
       return;
     }
     setPoolSaving(true);
+    // Removing the pool removes its cards and the kept original too. First, because the
+    // cards are what tailoring reads, and a later pool keeps its own original.
+    if (clear && (prefsRef.current.projectCards.length > 0 || prefsRef.current.poolTextBeforeCards)) {
+      const ok = await updatePrefs({ projectCards: [], poolTextBeforeCards: "" }, "pool", "Pool removed.");
+      if (!ok) {
+        setPoolSaving(false);
+        return;
+      }
+    }
     const res = await saveProjectsPool(pool);
     setPoolSaving(false);
     if (res.ok) {
       setPoolDraft(pool);
       setPoolSaved(!clear);
       setConfirmRemovePool(false);
-      // Removing the pool removes its cards too, or they would write it back.
-      if (clear && prefs.projectCards.length > 0) void updatePrefs({ projectCards: [] }, "pool", "Pool removed.");
       invalidateWorkspaceResult();
       setPoolMsg(clear
         ? "Pool removed. Tailoring uses the projects from your master CV again."
@@ -1367,6 +1409,11 @@ export default function CustomizePage() {
             <Skeleton lines={3} label="Loading your eligibility answers" />
           ) : (
             <>
+              {settingsReadFailed && (
+                <StatusText className="msgBelow" role="alert" data-settings-read-failed>
+                  We couldn&apos;t read your saved settings. What you see may be out of date, and changes won&apos;t save until you reload the page.
+                </StatusText>
+              )}
               {settingsMissing && (
                 <p className="fitEvidence">
                   This feature&apos;s database table isn&apos;t set up yet (migration
@@ -2214,7 +2261,7 @@ export default function CustomizePage() {
                             })}
                             data-link-choice-saved
                           />
-                          {linkPairLabel(row.saved)}
+                          {linkPairLabel(row.saved) || "No links on this project"}
                         </label>
                         <label className="planRadio">
                           <input
@@ -2224,7 +2271,7 @@ export default function CustomizePage() {
                             onChange={() => setLinkDraft(row.key, base, row.auto)}
                             data-link-choice-cv
                           />
-                          {linkPairLabel(row.auto)}
+                          {linkPairLabel(row.auto) || "No links on this project"}
                         </label>
                         <p className="fitEvidence">Your choice is used everywhere once you save.</p>
                       </fieldset>
@@ -2255,6 +2302,7 @@ export default function CustomizePage() {
               )}
             </div>
           )}
+          {linksUnchecked && <p className="fitEvidence" data-links-unchecked>Some links couldn&apos;t be checked just now. That says nothing about the links themselves.</p>}
           {prefsMsgAt === "links" && prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
           {prefsMsgAt === "links" && prefsError && <StatusText as="span" role="alert">{prefsError}</StatusText>}
         </CollapsibleSection>
@@ -2299,7 +2347,7 @@ export default function CustomizePage() {
             {prefs.projectCards.length === 0 && (
             <FormField
                 label="Project pool"
-                help="Paste ALL your projects here, in your own words — names, dates, tech, and what you did. Once saved they read into cards you can check, pin and order. Until then, on every tailor run the 2 most relevant to that job (1 if you only add one) are selected and get tailored bullets, replacing the projects from your master CV for that run. Remove the pool to switch back. Replacing your master CV also deletes the pool."
+                help="Paste ALL your projects here, in your own words — names, dates, tech, and what you did. Once saved they read into cards you can check, pin and order. Until then, on every tailor run the 2 most relevant to that job (1 if you only add one) are selected and get tailored bullets, replacing the projects from your master CV for that run. Remove the pool to switch back. Replacing your master CV keeps the pool."
               >
                 <Textarea
                   rows={12}

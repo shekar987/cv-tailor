@@ -37,6 +37,10 @@ Tech: Java, Spring
 Budget Bot | Mar 2023
 Tech: Go
 - Sorted bank statements`;
+const JD = `Software Engineer at Northwind Logistics, London. We build delivery systems in TypeScript and Python on AWS. You will work with React, Node.js and PostgreSQL, write tests, and help the team ship event-driven services.
+
+Requirements: TypeScript, Python, React, Node.js, PostgreSQL, AWS, testing. Permanent, hybrid in London, three days a week. We are a team of forty engineers and our product moves parcels for retailers across the UK. You will own features from design to production, pair with colleagues, and take part in code review. The role reports to the head of engineering and the salary range is £45,000 to £55,000. We offer 25 days of holiday, a pension and a learning budget. Applications close at the end of the month and we interview in two stages: a technical conversation and a meeting with the team. Tell us about something you have built and what you learned from it, and we will read every application.`;
+
 const CV = `Alex Tester
 alex.tester@example.com
 
@@ -150,12 +154,56 @@ try {
   check("one run can differ", /Auto \(3\)/.test(await page.locator("[data-pool-run]").innerText()), await page.locator("[data-pool-run]").innerText());
   check("without touching the defaults", (await prefs()).projectPoolSettings.count === 2);
 
+  // ── A real run through the mock model, then a real Swap ──────────────────
+  // A swap must leave everything but one project as it was: the job headers went through
+  // the preview's wire format once, and printed "JOBSoftware Engineer" in the file.
+  await page.goto(`${BASE}/app`, { waitUntil: "load" });
+  await page.locator("[data-pool-run]").waitFor({ timeout: 30000 });
+  await page.locator("textarea#jd, textarea").first().fill(JD);
+  await page.locator("button", { hasText: /^Tailor my CV/ }).first().click();
+  await page.locator("button", { hasText: /Continue to full tailoring|Tailor anyway/ }).first().click({ timeout: 60000 });
+  // The triage reads this synthetic CV as out of criteria and asks first; the question is the page working.
+  await page.locator('[role="dialog"] button', { hasText: /Tailor anyway/ }).first().click({ timeout: 6000 }).catch(() => {});
+  await page.locator("button", { hasText: "Back to my CV" }).click({ timeout: 120000 });
+  await page.locator("[data-projects-used]").waitFor({ timeout: 30000 });
+  // Job headers only: a project's heading wears the same class, and a swap is meant to change that one.
+  const headers = () => page.locator(".cvJobHeader:not([data-proj-index] *)").allInnerTexts();
+  const headersBefore = await headers();
+  check("a run names the projects it used", (await page.locator("[data-project-used]").count()) >= 1);
+  const letterBefore = await page.locator(".coverLetterPreview, [data-cover-letter]").first().innerText().catch(() => "");
+  const swap = page.locator("[data-project-swap]").first();
+  const other = await swap.locator("option").nth(1).getAttribute("value");
+  const swappedOut = await page.locator("[data-project-used]").first().getAttribute("data-project-used");
+  await swap.selectOption(other);
+  await page.locator("[data-project-swap-note]").waitFor({ timeout: 60000 });
+  const headersAfter = await headers();
+  check("a swap leaves the job headers alone", headersBefore.length > 0 && JSON.stringify(headersBefore) === JSON.stringify(headersAfter), JSON.stringify([headersBefore, headersAfter]).slice(0, 300));
+  check("no wire format reaches the page", !/@@|JOB@/.test(await page.locator("body").innerText()));
+  const letterAfter = await page.locator(".coverLetterPreview, [data-cover-letter]").first().innerText().catch(() => "");
+  const dates = (t) => (t.match(/\b\d{1,2} [A-Z][a-z]+ \d{4}\b/g) ?? []).length;
+  check("a swap adds no second date to the letter", dates(letterAfter) === dates(letterBefore), `${dates(letterBefore)} → ${dates(letterAfter)}`);
+  check("the swapped-in project is listed", (await page.locator(`[data-project-used="${other}"]`).count()) === 1);
+  check("the swapped-out one is on offer again", (await page.locator("[data-project-swap]").first().locator(`option[value="${swappedOut}"]`).count()) === 1);
+  await page.locator("button", { hasText: /^Download CV/ }).first().click().catch(() => {});
+  const pdfRequest = page.waitForRequest((r) => r.url().includes("/api/download-pdf"), { timeout: 15000 }).catch(() => null);
+  await page.locator("button, a", { hasText: /^PDF/ }).first().click({ timeout: 5000 }).catch(() => {});
+  const sent = await pdfRequest;
+  if (sent) {
+    const payload = sent.postDataJSON();
+    const jobLines = payload.experience.split("\n").filter((l) => l.startsWith("@@JOB@@"));
+    check("the file gets each header once, in the wire format", jobLines.length > 0 && jobLines.length === headersBefore.length && jobLines.every((l) => (l.match(/@@/g) ?? []).length === 3), jobLines.join(" / ").slice(0, 200));
+    check("a card's label reaches the file as written", payload.projectsMeta.every((p) => p.labelFixed === true), JSON.stringify(payload.projectsMeta.map((p) => p.name)).slice(0, 200));
+  } else {
+    check("the PDF download sends the edited CV", false, "no request seen");
+  }
+  check("one run's choice ends with that run", /Projects: 2 · Newest first/.test(await page.locator("[data-pool-run]").first().innerText()), await page.locator("[data-pool-run]").first().innerText());
+
   // ── Replacing the CV keeps everything ────────────────────────────────────
   await openPool();
   await page.locator("button", { hasText: /^Replace$/ }).first().click();
   check("replacing says the pool is kept", /Your project pool is kept/.test(await page.locator("body").innerText()));
   await page.locator("button", { hasText: "Yes, replace" }).click();
-  await page.waitForTimeout(1200);
+  for (let i = 0; i < 12 && (await poolRow())?.text !== ""; i++) await page.waitForTimeout(500);
   const row = await poolRow();
   check("the CV is gone", row?.text === "", JSON.stringify(row?.text));
   check("the pool survives a master CV replacement", /booking flow/.test(row?.projects_pool ?? ""));

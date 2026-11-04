@@ -58,6 +58,9 @@ export type FitOptions = {
   // The first project's own cap on one page, when the user chose their projects
   // (lib/projectPool): it keeps three, the others the usual two.
   topProjectBullets?: number;
+  // Only the budgets, not the last resort of cutting bullets anywhere: the route asks
+  // this to learn whether a project has to go before experience does.
+  budgetOnly?: boolean;
   protect?: readonly string[];
   render?: ContactRender;
   skills?: SkillsShape;
@@ -268,7 +271,7 @@ function trimToFit(
 
   let current = assemble();
   let guard = 0;
-  while (!fits(current) && guard++ < 200) {
+  while (!opts.budgetOnly && !fits(current) && guard++ < 200) {
     let best: { score: number; order: number; drop: () => void } | null = null;
     const consider = (score: number, order: number, drop: () => void) => {
       if (!best || score < best.score || (score === best.score && order < best.order)) best = { score, order, drop };

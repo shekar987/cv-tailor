@@ -1,5 +1,5 @@
 import { guardFacts } from "@/lib/factGuard";
-import { TOP_PROJECT_BULLETS, alignWritten, capPoolBullets, cardsToPoolText, dropToFit, labelledCardName as labelledCardNameOf, normalizePoolSettings, selectCards, type PoolCard, type PoolSelection, type PoolSettings } from "@/lib/projectPool";
+import { TOP_PROJECT_BULLETS, alignWritten, capPoolBullets, cardsToPoolText, dropToFit, normalizePoolSettings, poolDropMessage, poolPinnedOverflowMessage, selectCards, type PoolCard, type PoolSelection, type PoolSettings } from "@/lib/projectPool";
 import { applyRetired, applyRetiredToBullets, findRetired, mergeReports, type RetiredClaim, type RetiredReport } from "@/lib/retiredClaims";
 import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
 import { NextRequest, NextResponse } from "next/server";
@@ -9,7 +9,7 @@ import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { resolveLlmRoute, formatDuration, loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { chooseFallback, openRouterLimitMessage, fallbackExhaustedMessage, type FallbackReason } from "@/lib/fallbackRoute";
 import { MAX_CV_CHARS, MAX_JD_CHARS, MAX_POOL_CHARS, MAX_CLAIMS_JSON, MAX_ELIGIBILITY_JSON, CV_TOO_LONG, JD_TOO_LONG, POOL_TOO_LONG } from "@/lib/limits";
-import { normalizeClaims, renderClaimsBlock, checkClaims, looksLikeRefusal, demoteProjectTools, skillsFromCv, type ClaimsRegistry } from "@/lib/claims";
+import { normalizeClaims, renderClaimsBlock, checkClaims, isLearningTech, looksLikeRefusal, demoteProjectTools, skillsFromCv, type ClaimsRegistry } from "@/lib/claims";
 import { normalizeVariants, renderVariantBlock, productionLeadSkills, type Variant } from "@/lib/variants";
 import { normalizePreferences, pageTargetFor, type CvLength } from "@/lib/preferences";
 import { isGraduateScheme } from "@/lib/graduateMode";
@@ -294,7 +294,7 @@ async function runPipeline(opts: {
   const chosenCount = poolSelection ? poolSelection.chosen.length : undefined;
   const chosenCoverage = poolSelection ? "" : coverageBlock;
   const writtenProjects = (raw: unknown) =>
-    poolSelection ? alignWritten(poolSelection.chosen, normalizeSelectedProjects(raw, chosenPoolText, poolSelection.chosen.length)) : normalizeSelectedProjects(raw, projectsPool);
+    poolSelection ? alignWritten(poolSelection.chosen, normalizeSelectedProjects(raw, chosenPoolText, poolSelection.chosen.length), (item) => !isLearningTech(item, claims)) : normalizeSelectedProjects(raw, projectsPool);
   const projectCount = poolSelection ? poolSelection.chosen.length : projectsPool ? 2 : projectNames.length;
   const expBudget = onePage ? onePageExperienceBudget(cv) : experienceBudget(cv, bulletBudget, projectCount) ?? undefined;
   const projBudget = projectsBudget(projectNames.length, onePage, bulletBudget);
@@ -592,6 +592,7 @@ async function runPipeline(opts: {
     const p = stripRightToWorkBullets(projectsFinal);
     projectsFinal = p.projects;
     rtwStripped.cv.push(...p.removed);
+    if (projectsPool) selectedFinal = selectedFinal.map((s, i) => ({ ...s, bullets: (p.projects as Record<string, string[]>)[String(i)] ?? s.bullets }));
   }
 
   // Page fit (lib/onePage), before the score so the score reads the text the
@@ -653,10 +654,48 @@ async function runPipeline(opts: {
       skills: style.skills,
       ...(poolSelection ? { topProjectBullets: TOP_PROJECT_BULLETS } : {}),
     };
-    // A tight page reduces bullets before any project goes (lib/projectPool).
+    // The project titles and tech lines the client renders, and the built PDF's page count.
+    const target: 1 | 2 = onePage ? 1 : 2;
+    const metasOf = (selected: typeof selectedFinal) => selected.map((s) => ({ name: s.date?.trim() ? `${s.name} | ${s.date}` : s.name, tech: s.tech, links: [], ...(poolSelection ? { labelFixed: true } : {}) }));
+    let metas: unknown[] = projectsPool ? metasOf(selectedFinal) : ((profile as { projects?: unknown[] } | null)?.projects ?? []);
+    const countPages = (s: { summary?: unknown; skills?: unknown; experience?: unknown; projects?: unknown }, metasNow: unknown[] = metas) =>
+      buildCvPdfWithPages({
+        summary: typeof s.summary === "string" ? s.summary : "",
+        skills: typeof s.skills === "string" ? s.skills : "",
+        experience: typeof s.experience === "string" ? s.experience : "",
+        projects: (s.projects ?? {}) as Record<string, string[]>,
+        // Measured as it will print, each project's own label included (lib/projectLabels).
+        projectsMeta: withProjectLabels(metasNow as { name?: unknown; labelFixed?: unknown }[], projectLabels(cv, projectsPool)),
+        // CareerSet measures with the run's own headline and its printed addresses; UKJI as before.
+        profile: style.render.measureRunHeader && profile && typeof profile === "object" ? { ...(profile as Record<string, unknown>), tagline: headline } : profile,
+        targetPages: target,
+        formatStyle: style.id,
+      }).pages;
+    const isPoolPinned = (p: { cardId?: string }) => !!poolSelection?.chosen.some((c) => c.card.pinned && c.card.id === p.cardId);
+    // A tight page reduces bullets before any project goes (lib/projectPool): the top project
+    // three, the others two. If the page still runs over with experience at its own budget,
+    // a project goes, not more of the experience, and the page says so.
     if (onePage && poolSelection) {
       selectedFinal = capPoolBullets(selectedFinal);
       current.projects = projectsFromSelected(selectedFinal);
+      if (selectedFinal.length > 1) {
+        try {
+          const fit = dropToFit(
+            selectedFinal,
+            (kept) => countPages(fitOnePage({ ...current, projects: projectsFromSelected(kept) }, fitProfile, fitTerms, { ...fitOpts, budgetOnly: true }).sections, metasOf(kept)) <= 1,
+            isPoolPinned
+          );
+          if (fit.dropped.length > 0) {
+            selectedFinal = fit.projects;
+            current.projects = projectsFromSelected(fit.projects);
+            metas = metasOf(fit.projects);
+            poolFitMessage = fit.message;
+          }
+        } catch (e) {
+          // The PDF build is a measurement, never a reason to fail the run.
+          console.error("Pool page count failed:", e instanceof Error ? e.message : String(e));
+        }
+      }
     }
     let fitted: ReturnType<typeof fitOnePage>;
     if (onePage) {
@@ -683,31 +722,15 @@ async function runPipeline(opts: {
     skillsFinal = fitted.sections.skills;
     experienceFinal = fitted.sections.experience as typeof experienceFinal;
     projectsFinal = fitted.sections.projects;
+    if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: (projectsFinal as Record<string, string[]>)[String(i)] ?? p.bullets }));
     pageFitReport = fitted.report;
 
     // Then the REAL page count (lib/buildCvPdf, the download's own layout;
     // the estimate above is line arithmetic and a two-page CV came out as
     // three with two lines on the third, 30 Sep): while the built PDF runs
     // past the target, the least relevant bullet goes and it is rebuilt, at
-    // most PAGE_LIMIT_MAX_DROPS times. The project titles and tech lines are
-    // the ones the client renders; a saved section order is not known here,
+    // most PAGE_LIMIT_MAX_DROPS times. A saved section order is not known here,
     // and moves no lines.
-    const target: 1 | 2 = onePage ? 1 : 2;
-    const metasOf = (selected: typeof selectedFinal) => selected.map((s) => ({ name: s.date?.trim() ? `${s.name} | ${s.date}` : s.name, tech: s.tech, links: [] }));
-    const metas = projectsPool ? metasOf(selectedFinal) : ((profile as { projects?: unknown[] } | null)?.projects ?? []);
-    const countPages = (s: { summary?: unknown; skills?: unknown; experience?: unknown; projects?: unknown }, metasNow: unknown[] = metas) =>
-      buildCvPdfWithPages({
-        summary: typeof s.summary === "string" ? s.summary : "",
-        skills: typeof s.skills === "string" ? s.skills : "",
-        experience: typeof s.experience === "string" ? s.experience : "",
-        projects: (s.projects ?? {}) as Record<string, string[]>,
-        // Measured as it will print, each project's own label included (lib/projectLabels).
-        projectsMeta: withProjectLabels(metasNow as { name?: unknown }[], projectLabels(cv, projectsPool)),
-        // CareerSet measures with the run's own headline and its printed addresses; UKJI as before.
-        profile: style.render.measureRunHeader && profile && typeof profile === "object" ? { ...(profile as Record<string, unknown>), tagline: headline } : profile,
-        targetPages: target,
-        formatStyle: style.id,
-      }).pages;
     try {
       const real = fitToRealPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal }, fitProfile, fitTerms, target, countPages, PAGE_LIMIT_MAX_DROPS, fitOpts.projectMin);
       realPages = real.report.pagesAfter;
@@ -719,20 +742,23 @@ async function runPipeline(opts: {
         if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: ((projectsFinal as Record<string, string[]>)[String(i)] ?? p.bullets) }));
         formatFixes.pageOverflow = real.report;
       }
-      // Still over one page with the bullets reduced: the last unpinned project goes, and
-      // the page says so. It is never dropped silently.
+      // Still over one page after every cut: the last unpinned project goes, and the page
+      // says so. It is never dropped silently. When only pins are left, the user decides.
       if (poolSelection && onePage && realPages !== null && realPages > 1 && selectedFinal.length > 1) {
-        const pinnedNames = new Set(poolSelection.chosen.filter((c) => c.card.pinned).map((c) => labelledCardNameOf(c.card)));
         const fit = dropToFit(
           selectedFinal,
           (kept) => countPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFromSelected(kept) }, metasOf(kept)) <= 1,
-          (p) => pinnedNames.has(p.name)
+          isPoolPinned
         );
         if (fit.dropped.length > 0) {
           selectedFinal = fit.projects;
           projectsFinal = projectsFromSelected(fit.projects);
-          poolFitMessage = fit.message;
-          realPages = countPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal }, metasOf(fit.projects));
+          metas = metasOf(fit.projects);
+          poolFitMessage = poolDropMessage(poolSelection.chosen.length, fit.projects.length);
+          realPages = countPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal });
+        }
+        if (realPages > 1 && !poolFitMessage && selectedFinal.length > 1 && selectedFinal.every(isPoolPinned)) {
+          poolFitMessage = poolPinnedOverflowMessage(selectedFinal.length);
         }
       }
     } catch (e) {
@@ -1126,12 +1152,15 @@ async function runPipeline(opts: {
   for (const r of masterRoles) for (const w of r.header.split(/[\s|—–,()]+/)) if (w) protect.add(w);
   for (const w of company.split(/\s+/)) if (w) protect.add(w);
   for (const w of String((opts.profile as { name?: unknown } | null | undefined)?.name ?? "").split(/\s+/)) if (w) protect.add(w);
+  // A card's own words are the user's, verbatim (lib/projectPool): only the written bullets are respelt.
+  for (const c of poolSelection?.chosen ?? []) for (const w of `${c.card.name} ${c.card.label}`.split(/[\s|—–,()]+/)) if (w) protect.add(w);
   const spell = { protect };
   if (typeof summary === "string") summary = toBritishDeep(summary, spellingChanges, spell);
   if (typeof skillsFinal === "string") skillsFinal = toBritishDeep(skillsFinal, spellingChanges, spell);
   if (typeof experienceFinal === "string") experienceFinal = toBritishDeep(experienceFinal, spellingChanges, spell);
   projectsFinal = toBritishDeep(projectsFinal, spellingChanges, spell);
-  if (projectsPool) selectedFinal = toBritishDeep(selectedFinal, spellingChanges, spell);
+  if (poolSelection) selectedFinal = selectedFinal.map((p) => ({ ...p, bullets: toBritishDeep(p.bullets, spellingChanges, spell) }));
+  else if (projectsPool) selectedFinal = toBritishDeep(selectedFinal, spellingChanges, spell);
   if (typeof coverLetter === "string") coverLetter = toBritish(coverLetter, spell).text;
   // Strictly one page (lib/letterFit): the letter's own PDF, with the date
   // line the preview adds on top, decides; the longest paragraph gives up
@@ -1283,10 +1312,15 @@ async function runPipeline(opts: {
     ...(poolSelection
       ? {
           projectsUsed: selectedFinal.map((p) => {
-            const chosen = poolSelection.chosen.find((c) => labelledCardNameOf(c.card) === p.name);
+            const chosen = poolSelection.chosen.find((c) => c.card.id === p.cardId);
             return { cardId: chosen?.card.id ?? "", name: chosen?.card.name ?? p.name, pinned: !!chosen?.card.pinned, matches: chosen?.matches ?? [] };
           }),
-          poolFit: { message: poolFitMessage, pinWarning: poolSelection.pinWarning, count: poolSelection.count },
+          poolFit: {
+            message: poolFitMessage,
+            pinWarning: poolSelection.pinWarning,
+            count: poolSelection.count,
+            techLeftOut: [...new Set(poolSelection.chosen.flatMap((c) => c.card.tech.filter((t) => isLearningTech(t, claims))))],
+          },
         }
       : {}),
   };
@@ -1338,10 +1372,6 @@ export async function POST(req: NextRequest) {
     const safeProjectNames = Array.isArray(body.projectNames)
       ? body.projectNames.filter((n): n is string => typeof n === "string" && n.trim() !== "").slice(0, 50)
       : [];
-    const projectsPool = typeof body.projectsPool === "string" ? body.projectsPool.trim() : "";
-    if (projectsPool.length > MAX_POOL_CHARS) {
-      return NextResponse.json({ error: POOL_TOO_LONG }, { status: 400 });
-    }
     const bodyProvider = body.provider;
     const bodyAnalysis = body.analysis;
     const bodyResearch = sanitizeCompanyResearch(body.companyResearch);
@@ -1352,6 +1382,13 @@ export async function POST(req: NextRequest) {
     // Document switches (lib/preferences), sent along by the client like the
     // registry — the server reads no per-user table here. Absent = defaults.
     const preferences = normalizePreferences(body.preferences);
+    // Confirmed cards are the pool, whatever text is stored beside them; every card is bounded here.
+    const projectsPool = preferences.projectCards.length > 0
+      ? cardsToPoolText(preferences.projectCards)
+      : typeof body.projectsPool === "string" ? body.projectsPool.trim() : "";
+    if (projectsPool.length > MAX_POOL_CHARS) {
+      return NextResponse.json({ error: POOL_TOO_LONG }, { status: 400 });
+    }
     // The format style for this run (lib/formatStyles): the body's own choice,
     // else the saved default. CareerSet is the owner's for now — decided once
     // the route is resolved below; every other account runs UKJI whatever it

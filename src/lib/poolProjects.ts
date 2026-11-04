@@ -13,6 +13,8 @@ export type SelectedProject = {
   date: string;
   tech: string;
   bullets: string[];
+  // Which pool card it came from (lib/projectPool), when the pool is cards.
+  cardId?: string;
 };
 
 const MAX_SELECTED = 2;

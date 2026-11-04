@@ -27,7 +27,21 @@ function poolNames(system) {
   return names;
 }
 
+// The experience step answers by id, as the real prompt asks: every role and bullet it was given.
+function experienceAnswer(system) {
+  const out = [];
+  for (const raw of system.split("\n")) {
+    const line = raw.trim();
+    const role = /^ROLE \d+: (.+)$/.exec(line);
+    if (role) out.push(`${out.length ? "\n" : ""}${role[1]}`);
+    const bullet = /^\[(R\d+\.\d+)\] (.+)$/.exec(line);
+    if (bullet) out.push(`• [${bullet[1]}] ${bullet[2]}`);
+  }
+  return out.join("\n");
+}
+
 function answer(system) {
+  if (/^ROLE \d+: /m.test(system) && /^\[R\d+\.\d+\] /m.test(system)) return experienceAnswer(system);
   if (system.includes("You select and tailor CV projects")) {
     const names = poolNames(system);
     return JSON.stringify({ selected: names.map((name, i) => ({ name: i === 0 ? `${name} (reworded by the model)` : name, date: "1999", tech: "Made Up Tech", bullets: [1, 2, 3, 4].map((n) => `${LONG}, step ${n}`) })) });

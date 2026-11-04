@@ -32,17 +32,19 @@ export const POOL_COUNT_CHOICES: readonly PoolCount[] = ["auto", 1, 2, 3, 4];
 export const MAX_POOL_CARDS = 30;
 const MAX_NAME = 200;
 const MAX_DATE = 30;
-const MAX_TECH_ITEMS = 30;
-const MAX_TECH_ITEM = 60;
+export const MAX_TECH_ITEMS = 30;
+export const MAX_TECH_ITEM = 60;
 const MAX_BODY = 6000;
 const MAX_LABEL = 160;
-const MAX_LINK_LINES = 6;
-const MAX_LINK_LINE = 300;
+export const MAX_LINK_LINES = 6;
+export const MAX_LINK_LINE = 300;
 /** On a tight page: the top project keeps three bullets, the others two. */
 export const TOP_PROJECT_BULLETS = 3;
 export const OTHER_PROJECT_BULLETS = 2;
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+/** "Present" typed into End means the same as the Ongoing box. */
+const ONGOING_WORD_RE = /^(?:present|current|now|ongoing)$/i;
 
 export function normalizePoolSettings(value: unknown): PoolSettings {
   const o = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -63,12 +65,14 @@ export function normalizePoolCards(value: unknown): PoolCard[] {
     let id = str(o.id, 60) || `card-${out.length + 1}`;
     if (seen.has(id)) id = `${id}-${out.length + 1}`;
     seen.add(id);
+    const end = str(o.end, MAX_DATE);
+    const endIsOngoing = ONGOING_WORD_RE.test(end);
     out.push({
       id,
       name,
       start: str(o.start, MAX_DATE),
-      end: str(o.end, MAX_DATE),
-      ongoing: o.ongoing === true,
+      end: endIsOngoing ? "" : end,
+      ongoing: o.ongoing === true || endIsOngoing,
       tech: (Array.isArray(o.tech) ? o.tech : []).map((t) => str(t, MAX_TECH_ITEM)).filter(Boolean).slice(0, MAX_TECH_ITEMS),
       body: typeof o.body === "string" ? o.body.trim().slice(0, MAX_BODY) : "",
       label: str(o.label, MAX_LABEL),
@@ -78,6 +82,25 @@ export function normalizePoolCards(value: unknown): PoolCard[] {
     if (out.length >= MAX_POOL_CARDS) break;
   }
   return out;
+}
+
+/**
+ * Why these cards can't be saved as they are, or null. normalizePoolCards cuts anything
+ * past its limits on every read, so a save refuses rather than lose the end of it later.
+ */
+export function poolCardsProblem(cards: readonly PoolCard[]): string | null {
+  if (cards.length > MAX_POOL_CARDS) return `That is ${cards.length} projects, and the pool holds ${MAX_POOL_CARDS}. Remove ${cards.length - MAX_POOL_CARDS} to save.`;
+  for (const card of cards) {
+    const name = card.name.trim() || "A project";
+    if (card.name.trim().length > MAX_NAME) return `A project name is over ${MAX_NAME} characters. Shorten it to save.`;
+    if (card.start.trim().length > MAX_DATE || card.end.trim().length > MAX_DATE) return `${name}: a date is over ${MAX_DATE} characters. Shorten it to save.`;
+    if (card.body.trim().length > MAX_BODY) return `${name}: "What you did" is ${card.body.trim().length.toLocaleString("en-GB")} characters, over the ${MAX_BODY.toLocaleString("en-GB")} limit. Shorten it to save.`;
+    if (card.label.trim().length > MAX_LABEL) return `${name}: the label is over ${MAX_LABEL} characters. Shorten it to save.`;
+    if (card.tech.length > MAX_TECH_ITEMS) return `${name}: that is ${card.tech.length} tech items, over the ${MAX_TECH_ITEMS} limit. Remove some to save.`;
+    const long = card.tech.find((t) => t.trim().length > MAX_TECH_ITEM);
+    if (long) return `${name}: "${long.trim().slice(0, 40)}…" is too long for a tech item. Shorten it or move it to "What you did".`;
+  }
+  return null;
 }
 
 // ── Dates ───────────────────────────────────────────────────────────────────
@@ -101,14 +124,18 @@ export function readPoolDate(text: string): number | null {
   return m ? Number(m[1]) * 12 + 11 : null;
 }
 
-/** "Ongoing" counts as today. A card with one date reads by that date. */
+const isOngoing = (card: Pick<PoolCard, "end" | "ongoing">) => card.ongoing || ONGOING_WORD_RE.test(card.end.trim());
+
+/** "Ongoing" counts as today, and nothing reads as later than today. A card with one date reads by that date. */
 export function cardEnd(card: Pick<PoolCard, "start" | "end" | "ongoing">, today: Date): number | null {
-  if (card.ongoing) return today.getUTCFullYear() * 12 + today.getUTCMonth();
-  return readPoolDate(card.end) ?? readPoolDate(card.start);
+  const now = today.getUTCFullYear() * 12 + today.getUTCMonth();
+  if (isOngoing(card)) return now;
+  const read = readPoolDate(card.end) ?? readPoolDate(card.start);
+  return read === null ? null : Math.min(read, now);
 }
 
 export function hasDates(card: Pick<PoolCard, "start" | "end" | "ongoing">): boolean {
-  return card.ongoing || readPoolDate(card.end) !== null || readPoolDate(card.start) !== null;
+  return isOngoing(card) || readPoolDate(card.end) !== null || readPoolDate(card.start) !== null;
 }
 
 /** The dates as they print, exactly as written. */
@@ -170,9 +197,14 @@ function scoreCard(card: PoolCard, ctx: PoolContext): ChosenCard {
   return { card, matches, score: required.length * 2 + keywords.length };
 }
 
+// Newest first. A bare "2026" reads as this month at the latest, so an Ongoing project is ahead of it.
+function newerFirst(a: ChosenCard, b: ChosenCard, today: Date): number {
+  return (cardEnd(b.card, today) ?? -1) - (cardEnd(a.card, today) ?? -1) || Number(isOngoing(b.card)) - Number(isOngoing(a.card));
+}
+
 /** The relevance order: the posting's match, then end date, newest first. */
 export function byRelevance(a: ChosenCard, b: ChosenCard, today: Date): number {
-  return b.score - a.score || (cardEnd(b.card, today) ?? -1) - (cardEnd(a.card, today) ?? -1);
+  return b.score - a.score || newerFirst(a, b, today);
 }
 
 /** The date order: end date, newest first, with undated cards last. */
@@ -182,7 +214,7 @@ export function byDate(a: ChosenCard, b: ChosenCard, today: Date): number {
   if (ae === null && be === null) return b.score - a.score;
   if (ae === null) return 1;
   if (be === null) return -1;
-  return be - ae || b.score - a.score;
+  return newerFirst(a, b, today) || b.score - a.score;
 }
 
 export type PoolSelection = {
@@ -226,7 +258,7 @@ export function poolSummaryLine(settings: PoolSettings, count: number): string {
 
 // ── Holding the model to the choice ─────────────────────────────────────────
 
-export type WrittenProject = { name: string; date: string; tech: string; bullets: string[] };
+export type WrittenProject = { name: string; date: string; tech: string; bullets: string[]; cardId?: string };
 
 /** The card's own lines as bullets, when the model wrote none for it. Its words, not new ones. */
 function bulletsFromBody(card: PoolCard): string[] {
@@ -237,19 +269,55 @@ function bulletsFromBody(card: PoolCard): string[] {
     .slice(0, TOP_PROJECT_BULLETS);
 }
 
+const foldName = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+const withoutBracket = (s: string) => s.replace(/\s*\([^()]*\)\s*$/, "");
+
+/**
+ * Which written project belongs to which card, each used once (rule 7: two projects never
+ * share bullets, so "Chat App – Go" is not "Chat App – Python"). The exact name first, then
+ * with a bracket the model added or left off, then the loose project key only when one card
+ * could mean it, then by position when the model reworded every remaining name.
+ */
+function matchWritten(cards: readonly PoolCard[], written: readonly WrittenProject[]): (WrittenProject | null)[] {
+  const left = [...written];
+  const found: (WrittenProject | null)[] = cards.map(() => null);
+  const pass = (test: (w: WrittenProject, card: PoolCard, i: number) => boolean) => {
+    cards.forEach((card, i) => {
+      if (found[i]) return;
+      const at = left.findIndex((w) => test(w, card, i));
+      if (at >= 0) found[i] = left.splice(at, 1)[0];
+    });
+  };
+  pass((w, card) => foldName(w.name) === foldName(card.name) || foldName(w.name) === foldName(labelledCardName(card)));
+  pass((w, card) => foldName(withoutBracket(w.name)) === foldName(withoutBracket(card.name)));
+  pass((w, card, i) => {
+    const key = projectKey(card.name);
+    return !!key && projectKey(w.name) === key && !cards.some((other, j) => j !== i && !found[j] && projectKey(other.name) === key);
+  });
+  const open = found.filter((f) => !f).length;
+  if (open > 0 && left.length === open) pass(() => true);
+  return found;
+}
+
 /**
  * The chosen cards, in order, with the bullets the model wrote for each. The name, the
  * dates, the tech and the label come from the card: the tailoring step may not drop or
- * reword them, whatever it returned. A project it left out keeps the card's own words.
+ * reword them, whatever it returned. A project it left out keeps the card's own words, and
+ * a card with no words still prints its heading: every index stays that card's. A tech
+ * item `keepTech` refuses (a skill the registry holds as learning) does not print.
  */
-export function alignWritten(chosen: readonly ChosenCard[], written: readonly WrittenProject[]): WrittenProject[] {
-  const byKey = new Map(written.map((w) => [projectKey(w.name), w]));
-  return chosen.map(({ card }) => ({
-    name: labelledCardName(card),
-    date: cardDateLine(card),
-    tech: card.tech.join(", "),
-    bullets: byKey.get(projectKey(card.name))?.bullets ?? bulletsFromBody(card),
-  }));
+export function alignWritten(chosen: readonly ChosenCard[], written: readonly WrittenProject[], keepTech: (item: string) => boolean = () => true): WrittenProject[] {
+  const found = matchWritten(chosen.map((c) => c.card), written);
+  return chosen.map(({ card }, i) => {
+    const bullets = found[i]?.bullets ?? [];
+    return {
+      name: labelledCardName(card),
+      date: cardDateLine(card),
+      tech: card.tech.filter(keepTech).join(", "),
+      bullets: bullets.length > 0 ? bullets : bulletsFromBody(card),
+      cardId: card.id,
+    };
+  });
 }
 
 // ── Fitting one page ────────────────────────────────────────────────────────
@@ -283,6 +351,14 @@ export function dropToFit<P extends { name: string }>(
     dropped.push(kept[at].name);
     kept.splice(at, 1);
   }
-  const message = dropped.length > 0 ? `${projects.length} projects don't fit on 1 page; showing ${kept.length}. Switch to 2 pages or pick ${kept.length}.` : null;
-  return { projects: kept, dropped, message };
+  return { projects: kept, dropped, message: dropped.length > 0 ? poolDropMessage(projects.length, kept.length) : null };
+}
+
+export function poolDropMessage(chosen: number, showing: number): string {
+  return `${chosen} projects don't fit on 1 page; showing ${showing}. Switch to 2 pages or pick ${showing}.`;
+}
+
+/** Every project left is pinned and the page still runs over: the user decides, so it says so. */
+export function poolPinnedOverflowMessage(pinned: number): string {
+  return `Your ${pinned} pinned projects don't fit on 1 page. Switch to 2 pages or unpin one.`;
 }

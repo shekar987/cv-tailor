@@ -271,6 +271,39 @@ The ETL pipeline parses filings.`);
   assert.match(cards[2].body, /ETL pipeline/);
 });
 
+test("tools with dots and sentences about links stay where the user wrote them", () => {
+  const { cards } = parsePoolText(`Dispatch App | 2025
+Tech: Socket.io, GitHub Actions, Fly.io
+Live tracking of drivers on a map
+Used Socket.io for dispatch with 3 retries
+Live: dispatch.example.com`);
+  assert.deepEqual(cards[0].tech, ["Socket.io", "GitHub Actions", "Fly.io"]);
+  assert.match(cards[0].body, /Live tracking of drivers/);
+  assert.match(cards[0].body, /Used Socket\.io/);
+  assert.deepEqual(cards[0].links, ["Live: dispatch.example.com"]);
+});
+
+test("a body line after a blank line is not a project, and no text goes missing", () => {
+  const { cards } = parsePoolText(`Hailo (Personal portfolio project on a brief)
+Personal group project for a module
+
+Wrote the driver matching service
+Jobhuntz
+Tech: Next.js, TypeScript, Supabase`);
+  assert.equal(cards[0].name, "Hailo");
+  assert.equal(cards[0].label, "Personal portfolio project on a brief");
+  assert.match(cards[0].body, /Personal group project for a module/, "a second label line stays as text");
+  assert.match(cards[0].body, /Wrote the driver matching service/);
+  assert.ok(!cards.some((c) => c.name.startsWith("Wrote")), "a sentence is not a project");
+});
+
+test("a sentence with commas is not a tool list", () => {
+  const { cards } = parsePoolText(`Shop | 2024
+Built auth, payments, and search for the store`);
+  assert.deepEqual(cards[0].tech, []);
+  assert.match(cards[0].body, /Built auth/);
+});
+
 test("lines before the first project are kept for the review screen, and empty text is no cards", () => {
   const { cards, leftover } = parsePoolText("these are my projects:\n\nAlpha | 2025\n- Did it");
   assert.equal(cards.length, 1);

@@ -627,6 +627,11 @@ export function distinctiveTokens(name: string): string[] {
   }
   return out;
 }
+/** A tech item the registry holds as learning never prints: a learning skill never appears. */
+export function isLearningTech(item: string, registry: ClaimsRegistry | null | undefined): boolean {
+  return (registry?.skills ?? []).some((s) => s.level === "learning" && skillMentioned(item, s.name));
+}
+
 export function skillMentioned(text: string, name: string): boolean {
   if (!text) return false;
   if (matchAtsKeywords(text, [name]).matched > 0) return true;

@@ -14,6 +14,7 @@ const OTHER_HEADING = /^(?:(?:professional\s+)?summary|profile|objective|about(?
 const BULLET = /^\s*[•\-*·▪◦–]\s*/;
 const LINK_LINE = /^(?:github|gitlab|linkedin|portfolio|website|live|demo|url|links?)\b[^:]*:/i;
 const MAX_LABEL_WORDS = 14;
+const LONG_TITLE_CHARS = 70;
 // "Personal portfolio project" says what kind it is; "Beta Project" is a title.
 const LABEL_SHAPED = /^(?:personal|portfolio|side|solo|university|academic|group|team|open[- ]source|freelance|client|final[- ]year|research|dissertation|hackathon)\b.*\bproject\b/i;
 const BRACKETED_DATE = /\s*\(((?:[a-z]{3,9}\.?\s+)?(?:19|20)\d{2}(?:\s*(?:[–—-]|to)\s*(?:(?:[a-z]{3,9}\.?\s+)?(?:19|20)\d{2}|present))?)\)\s*$/i;
@@ -67,19 +68,21 @@ export function labelProjectName(name: string, labels: Map<string, string>): str
  * its own line under the heading, so a long one never pushes the date off the first row.
  */
 export function splitProjectLabel(title: string): { head: string; label: string } {
-  // Three words or more in brackets, or any that says "project": "(v2)" stays in the title.
+  // A bracket that says "project", or any of three words or more on a title long enough to
+  // crowd the date: "(v2)" and "Pipeline (Python and Go)" stay in the title.
   const m = /^(.*\S)\s*(\([^()]+\))\s*$/.exec(title);
   if (!m) return { head: title, label: "" };
-  const isLabel = /\bproject\b/i.test(m[2]) || m[2].trim().split(/\s+/).length >= 3;
+  const isLabel = /\bproject\b/i.test(m[2]) || (m[2].trim().split(/\s+/).length >= 3 && title.length > LONG_TITLE_CHARS);
   return isLabel ? { head: m[1], label: m[2] } : { head: title, label: "" };
 }
 
 /** The same projects with their labels on; the same array when nothing changed. */
-export function withProjectLabels<P extends { name?: unknown }>(projects: P[], labels: Map<string, string>): P[] {
+export function withProjectLabels<P extends { name?: unknown; labelFixed?: unknown }>(projects: P[], labels: Map<string, string>): P[] {
   if (labels.size === 0) return projects;
   let changed = false;
   const out = projects.map((p) => {
-    if (typeof p?.name !== "string") return p;
+    // A pool card's label is the user's, verbatim (lib/projectPool): what the CV writes never replaces it.
+    if (typeof p?.name !== "string" || p.labelFixed === true) return p;
     const name = labelProjectName(p.name, labels);
     if (name === p.name) return p;
     changed = true;

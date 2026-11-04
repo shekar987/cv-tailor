@@ -10,7 +10,7 @@ import Input from "@/components/ui/Input";
 import StatusText from "@/components/ui/StatusText";
 import Textarea from "@/components/ui/Textarea";
 import { parsePoolText } from "@/lib/poolParse";
-import { POOL_COUNT_CHOICES, cardsToPoolText, hasDates, pinWarning, resolveCount, type PoolCard, type PoolCount, type PoolOrder, type PoolSettings } from "@/lib/projectPool";
+import { POOL_COUNT_CHOICES, cardsToPoolText, hasDates, pinWarning, poolCardsProblem, resolveCount, type PoolCard, type PoolCount, type PoolOrder, type PoolSettings } from "@/lib/projectPool";
 import { MAX_POOL_CHARS } from "@/lib/limits";
 
 function newCard(existing: readonly PoolCard[]): PoolCard {
@@ -78,6 +78,7 @@ function CardEditor({
         <Textarea id={id("body")} rows={5} value={card.body} disabled={disabled} onChange={(e) => onChange({ body: e.target.value })} data-pool-body />
       </label>
       <p className="fitEvidence" data-pool-links>{links ? `Links: ${links}` : "No links yet."} Change them under Project links.</p>
+      {card.links.length > 0 && <p className="fitEvidence" data-pool-link-lines>Link lines from your text: {card.links.join(" · ")}</p>}
       <div className="actions">
         <Button variant="ghost" className="keyRemove" disabled={disabled} onClick={onRemove} data-pool-remove>Remove this project</Button>
       </div>
@@ -122,8 +123,18 @@ export default function ProjectPoolEditor({
 
   async function save() {
     const next = (draft ?? [...shown]).map((c) => ({ ...c, tech: c.tech.map((t) => t.trim()).filter(Boolean) }));
+    if (next.length === 0) {
+      setError("That removes every project. To remove the pool, use Remove pool.");
+      return;
+    }
     if (next.some((c) => !c.name.trim())) {
       setError("Give each project a name, or remove it.");
+      return;
+    }
+    // Past these limits a reload would cut the card, so it is refused here instead.
+    const problem = poolCardsProblem(next);
+    if (problem) {
+      setError(problem);
       return;
     }
     const size = cardsToPoolText(next).length;
@@ -212,7 +223,7 @@ export default function ProjectPoolEditor({
       {error && <StatusText className="msgBelow" role="alert">{error}</StatusText>}
       <div className="actions">
         {editing && (
-          <Button disabled={saving || (confirmed && draft === null)} onClick={() => void save()} data-pool-save>
+          <Button disabled={saving || (confirmed && draft === null) || shown.length === 0} onClick={() => void save()} data-pool-save>
             {saving ? "Saving…" : confirmed ? "Save projects" : `Confirm ${shown.length} ${shown.length === 1 ? "project" : "projects"}`}
           </Button>
         )}
