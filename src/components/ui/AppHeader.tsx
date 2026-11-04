@@ -37,9 +37,12 @@ const NAV = [
 export default function AppHeader({
   title,
   tagline,
+  actions,
 }: {
   title?: string;
   tagline?: React.ReactNode;
+  // The page's own buttons, right of the title (Applications).
+  actions?: React.ReactNode;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -179,9 +182,12 @@ export default function AppHeader({
         </div>
       </div>
       {(title || tagline) && (
-        <div className="pageHead">
-          {title && <h1 className="pageTitle">{title}</h1>}
-          {tagline && <p className="tagline">{tagline}</p>}
+        <div className={actions ? "pageHeadRow" : undefined}>
+          <div className="pageHead">
+            {title && <h1 className="pageTitle">{title}</h1>}
+            {tagline && <p className="tagline">{tagline}</p>}
+          </div>
+          {actions && <div className="pageHeadActions">{actions}</div>}
         </div>
       )}
     </header>

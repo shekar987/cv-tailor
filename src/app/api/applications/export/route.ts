@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { signedIn, unauthorized } from "@/lib/routeAuth";
+import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 
 // CSV export of the signed-in user's application tracker. RLS scopes the read;
 // no LLM call, so no burst limiter.
@@ -23,7 +23,7 @@ import { signedIn, unauthorized } from "@/lib/routeAuth";
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
 import { normalizeStatus, statusLabel, stageTabValues } from "@/lib/tracker";
 import { rowStyle, isFormatStyleId, ROW_STYLE_LABELS, type RowStyle } from "@/lib/formatStyles/ids";
-import { readApplicationPages, type OrderableQuery } from "@/lib/applicationRows";
+import { MAX_APPLICATIONS, readApplicationPages, type OrderableQuery } from "@/lib/applicationRows";
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const COLUMNS: { header: string; key: string }[] = [
@@ -43,6 +43,7 @@ const COLUMNS: { header: string; key: string }[] = [
 // CareerSet, blank when the row recorded none.
 const STYLE_COLUMN = { header: "Format style", key: "format_style" };
 const STYLE_SELECT = "format_style:tailored_cv->>formatStyle";
+const BASE_SELECT = "company_name, role, status, salary, date_applied, followup_date, notes, source, cv_reference, job_description, created_at";
 function isStyleFilter(v: string): v is RowStyle {
   return v === "unknown" || isFormatStyleId(v);
 }
@@ -54,6 +55,55 @@ function csvField(value: unknown): string {
   let text = value == null ? "" : String(value);
   if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+// POST { ids, label }: exactly the rows on screen. A tab and the attention cards read the
+// row's open events, which this route does not, so the page sends the set it is showing,
+// and the file always equals the screen. The ids narrow what RLS already scopes.
+export async function POST(req: NextRequest) {
+  try {
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
+    const ids = Array.isArray(body.ids) ? body.ids.filter((v): v is string => typeof v === "string") : null;
+    if (!ids || ids.length === 0) return NextResponse.json({ error: "Nothing to export." }, { status: 400 });
+    if (ids.length > MAX_APPLICATIONS) return NextResponse.json({ error: "Too many rows to export." }, { status: 400 });
+    const wanted = new Set(ids);
+    const { supabase, userId } = caller;
+    const { data: prof } = await supabase.from("profiles").select("is_unlimited").eq("id", userId).maybeSingle();
+    const owner = prof?.is_unlimited === true;
+    const columns = owner ? [...COLUMNS, STYLE_COLUMN] : COLUMNS;
+    const read = (select: string) => readApplicationPages(() => supabase.from("applications").select(select) as unknown as OrderableQuery);
+    let { rows, error: readError } = await read(owner ? `id, ${BASE_SELECT}, ${STYLE_SELECT}` : `id, ${BASE_SELECT}`);
+    if (readError && owner && readError.code === "42703") ({ rows, error: readError } = await read(`id, ${BASE_SELECT}`));
+    if (readError) {
+      console.error("applications export read error:", readError.message);
+      return NextResponse.json({ error: "Could not export your applications" }, { status: 500 });
+    }
+    const slug = (typeof body.label === "string" ? body.label : "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+    return csvResponse((rows ?? []).filter((r) => wanted.has(r.id as string)), columns, ["applications", ...(slug ? [slug] : [])]);
+  } catch (err) {
+    console.error("applications export error:", err instanceof Error ? err.message : "Unknown error");
+    return NextResponse.json({ error: "Could not export your applications" }, { status: 500 });
+  }
+}
+
+function csvResponse(rows: Record<string, unknown>[], columns: { header: string; key: string }[], nameParts: string[]): NextResponse {
+  const lines = [columns.map((c) => csvField(c.header)).join(",")];
+  for (const row of rows) {
+    const tag = rowStyle(row.format_style as string | null | undefined);
+    lines.push(columns.map((c) => csvField(c.key === "format_style" ? (tag === "unknown" ? "" : ROW_STYLE_LABELS[tag]) : c.key === "status" ? statusLabel(row.status) : row[c.key])).join(","));
+  }
+  // BOM so Excel reads the file as UTF-8; CRLF row endings per RFC 4180.
+  const csv = "\uFEFF" + lines.join("\r\n") + "\r\n";
+  return new NextResponse(csv, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${nameParts.join("-")}.csv"`,
+      "Cache-Control": "no-store",
+    },
+  });
 }
 
 export async function GET(req: NextRequest) {
@@ -89,7 +139,7 @@ export async function GET(req: NextRequest) {
     const style = owner && styleParam ? styleParam : null;
     const columns = owner ? [...COLUMNS, STYLE_COLUMN] : COLUMNS;
 
-    const BASE = "company_name, role, status, salary, date_applied, followup_date, notes, source, cv_reference, job_description, created_at";
+    const BASE = BASE_SELECT;
     const read = (select: string) =>
       readApplicationPages(() => {
         let query = supabase.from("applications").select(select);
@@ -109,13 +159,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Could not export your applications" }, { status: 500 });
     }
 
-    const lines = [columns.map((c) => csvField(c.header)).join(",")];
-    for (const row of (rows ?? []).filter((r) => matchesSearch(r, q) && (!style || rowStyle(r.format_style) === style))) {
-      const tag = rowStyle(row.format_style);
-      lines.push(columns.map((c) => csvField(c.key === "format_style" ? (tag === "unknown" ? "" : ROW_STYLE_LABELS[tag]) : c.key === "status" ? statusLabel(row.status) : row[c.key])).join(","));
-    }
-    // BOM so Excel reads the file as UTF-8; CRLF row endings per RFC 4180.
-    const csv = "\uFEFF" + lines.join("\r\n") + "\r\n";
+    const matching = (rows ?? []).filter((r) => matchesSearch(r, q) && (!style || rowStyle(r.format_style) === style));
 
     // Name the file after the filter so a folder of exports stays legible.
     const nameParts = ["applications"];
@@ -129,13 +173,7 @@ export async function GET(req: NextRequest) {
     }
     if (style) nameParts.push(`style-${style}`);
 
-    return new NextResponse(csv, {
-      headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${nameParts.join("-")}.csv"`,
-        "Cache-Control": "no-store",
-      },
-    });
+    return csvResponse(matching, columns, nameParts);
   } catch (err) {
     console.error("applications export error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not export your applications" }, { status: 500 });

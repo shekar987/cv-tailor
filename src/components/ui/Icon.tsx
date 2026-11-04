@@ -38,9 +38,16 @@ export type IconName =
   | "copy"
   | "alert"
   | "chevron-left"
-  | "chevron-right";
+  | "chevron-right"
+  | "video";
 
 const PATHS: Record<IconName, ReactNode> = {
+  video: (
+    <>
+      <rect x="3" y="6" width="13" height="12" rx="2" />
+      <path d="M16 10l5-3v10l-5-3" />
+    </>
+  ),
   phone: <path d="M6 3h3l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v3a3 3 0 0 1-3 3C10 21 3 14 3 6a3 3 0 0 1 3-3z" />,
   users: (
     <>

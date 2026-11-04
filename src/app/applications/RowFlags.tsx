@@ -13,14 +13,20 @@ export default function RowFlags({
   checking,
   onRunCheck,
   onAddJd,
+  quiet = false,
+  showMissing = true,
 }: {
   row: RowFlagFields & { company_name: string };
   checking: boolean;
   onRunCheck: () => void;
   onAddJd: () => void;
+  // The list view says only what needs a look: a Review or Skip. Run check is in the row's menu.
+  quiet?: boolean;
+  showMissing?: boolean;
 }) {
-  const missing = missingAttachments(row);
-  const check = rowCheck(row);
+  const missing = showMissing ? missingAttachments(row) : [];
+  const read = rowCheck(row);
+  const check = quiet && (read?.kind !== "checked" || read.verdict === "apply") ? null : read;
   if (!missing.length && !check) return null;
   return (
     <span className="rowFlags" data-row-flags="true">
