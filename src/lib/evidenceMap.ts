@@ -126,12 +126,12 @@ export function requirementParts(term: string): string[] {
   return [head && head !== core && head.split(" ").length <= 4 ? head : core];
 }
 
-const BULLET_RE = /^\s*[•▪●◦\-*]\s*/;
-const LINK_RE = /^(?:live|github|demo|url|link|repo|code|website)\b|https?:\/\/|\b[\w-]+\.(?:app|com|io|dev|co\.uk)\b/i;
-const YEAR_ONLY_RE = /^\s*(?:[A-Za-z]{3,9}\.?\s+)?(?:19|20)\d{2}(?:\s*[–-]\s*(?:(?:[A-Za-z]{3,9}\.?\s+)?(?:19|20)\d{2}|present))?\s*$/i;
+export const BULLET_RE = /^\s*[•▪●◦\-*]\s*/;
+export const LINK_RE = /^(?:live|github|demo|url|link|repo|code|website)\b|https?:\/\/|\b[\w-]+\.(?:app|com|io|dev|co\.uk)\b/i;
+export const YEAR_ONLY_RE = /^\s*(?:[A-Za-z]{3,9}\.?\s+)?(?:19|20)\d{2}(?:\s*[–-]\s*(?:(?:[A-Za-z]{3,9}\.?\s+)?(?:19|20)\d{2}|present))?\s*$/i;
 const NAME_MARKER_RE = /\s[—–|·]\s|\(\s*github|github\s*\)/i;
 
-function isTechLine(t: string): boolean {
+export function isTechLine(t: string): boolean {
   return !/[.!?]$/.test(t) && t.split(",").length >= 3 && t.length <= 260;
 }
 
@@ -144,7 +144,7 @@ function projectName(header: string): string {
 // "Natural-language analysis of SEC filings") is its subtitle.
 // Inside a bullet (no blank line since it began) only a "Name — subtitle"
 // line starts a new project: anything else there is the bullet wrapping.
-function isProjectHeader(t: string, prevWasHeader: boolean, inBullet: boolean): boolean {
+export function isProjectHeader(t: string, prevWasHeader: boolean, inBullet: boolean): boolean {
   if (prevWasHeader) return false;
   if (BULLET_RE.test(t) || LINK_RE.test(t) || YEAR_ONLY_RE.test(t) || /[.!?:,;]$/.test(t) || t.length > 140) return false;
   if (/^[a-z(—–-]/.test(t)) return false;

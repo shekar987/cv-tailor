@@ -243,6 +243,14 @@ export async function clearMasterCV(): Promise<void> {
     const userId = await getUserId()
     if (!userId) return
     const supabase = createClient()
+    // The pool shares this row and is the user's own work: with one saved, only the CV
+    // goes. Replacing a CV must never delete it.
+    const { data, error } = await supabase.from('master_cvs').select('projects_pool').eq('user_id', userId).maybeSingle()
+    const pool = error ? null : (data as { projects_pool?: unknown } | null)?.projects_pool
+    if (typeof pool === 'string' && pool.trim()) {
+      await supabase.from('master_cvs').update({ text: '', updated_at: new Date().toISOString() }).eq('user_id', userId)
+      return
+    }
     await supabase.from('master_cvs').delete().eq('user_id', userId)
   } catch { /* ignore */ }
 }

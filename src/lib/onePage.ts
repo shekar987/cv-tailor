@@ -55,6 +55,9 @@ export type FitOptions = {
   maxBullets?: number | null;
   maxWords?: number | null;
   projectMin?: number;
+  // The first project's own cap on one page, when the user chose their projects
+  // (lib/projectPool): it keeps three, the others the usual two.
+  topProjectBullets?: number;
   protect?: readonly string[];
   render?: ContactRender;
   skills?: SkillsShape;
@@ -239,9 +242,10 @@ function trimToFit(
         dropRole(role, w);
       }
     });
-    projects.forEach((p) => {
+    projects.forEach((p, index) => {
       const removed = removedProject.get(p.key)!;
-      while (alive(p.bullets, removed) > caps.project) {
+      const cap = index === 0 && opts.topProjectBullets ? opts.topProjectBullets : caps.project;
+      while (alive(p.bullets, removed) > cap) {
         const w = weakest(p.bullets, removed);
         if (!w) break;
         dropProject(p, w);

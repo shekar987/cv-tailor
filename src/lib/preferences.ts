@@ -34,6 +34,7 @@ import { normalizeProjectLinks, type SavedProjectLinks } from "./projectLinks.ts
 import { rightToWorkStatement, type RtwFacts } from "./rightToWorkText.ts";
 import { normalizeFormatStyle, type FormatStyleId } from "./formatStyles/ids.ts";
 import { normalizeRetiredClaims, type RetiredClaim } from "./retiredClaims.ts";
+import { DEFAULT_POOL_SETTINGS, normalizePoolCards, normalizePoolSettings, type PoolCard, type PoolSettings } from "./projectPool.ts";
 
 // formatStyle (16 Oct 2026): the document's format style, UKJI (the default,
 // the shape the app always produced) or CareerSet (lib/formatStyles). The
@@ -59,9 +60,17 @@ export type Preferences = {
   formatStyle: FormatStyleId;
   // Wording this user's CV must never carry (lib/retiredClaims).
   retiredClaims: RetiredClaim[];
+  // The project pool as cards, how many go on a CV and in what order (lib/projectPool),
+  // and the free text they were read from, to look back at. They live here, not on the
+  // master CV's row, so replacing the CV cannot touch them.
+  projectCards: PoolCard[];
+  projectPoolSettings: PoolSettings;
+  poolTextBeforeCards: string;
 };
 
-export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false, cvLength: "two", projectLinks: {}, formatStyle: "ukji", retiredClaims: [] };
+const MAX_OLD_POOL_TEXT = 15_000;
+
+export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false, cvLength: "two", projectLinks: {}, formatStyle: "ukji", retiredClaims: [], projectCards: [], projectPoolSettings: DEFAULT_POOL_SETTINGS, poolTextBeforeCards: "" };
 
 export function normalizePreferences(v: unknown): Preferences {
   const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -74,6 +83,9 @@ export function normalizePreferences(v: unknown): Preferences {
     projectLinks: normalizeProjectLinks(o.projectLinks),
     formatStyle: normalizeFormatStyle(o.formatStyle),
     retiredClaims: normalizeRetiredClaims(o.retiredClaims),
+    projectCards: normalizePoolCards(o.projectCards),
+    projectPoolSettings: normalizePoolSettings(o.projectPoolSettings),
+    poolTextBeforeCards: typeof o.poolTextBeforeCards === "string" ? o.poolTextBeforeCards.slice(0, MAX_OLD_POOL_TEXT) : "",
   };
 }
 

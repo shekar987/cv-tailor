@@ -4072,3 +4072,26 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 .nextStepLine { flex-wrap: wrap; }
 .nextStepName { max-width: 100%; white-space: nowrap; }
 .nextStepLeft { white-space: normal; }
+
+/* The project pool as cards (Chunk 14). */
+.poolEditor { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4); }
+.poolSettings { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+.poolSetting { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.poolSetting .appsSeg { flex-wrap: wrap; }
+.poolCards { display: flex; flex-direction: column; gap: var(--space-3); }
+.poolCard { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; margin: 0; padding: var(--space-4); background: var(--surface-2); border: 1px solid var(--border-card); border-radius: var(--radius-md); }
+.poolCardHead, .poolCardRow { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+.poolCardField { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; flex: 1 1 160px; }
+.poolCardName { flex: 1 1 280px; }
+.poolCardPin, .poolCardOngoing { flex: none; padding-bottom: var(--space-2); }
+.poolOldText { display: flex; flex-direction: column; gap: var(--space-2); }
+.poolOldTextBody { margin: 0; padding: var(--space-3); max-height: 320px; overflow: auto; font: inherit; font-size: var(--text-sm); color: var(--text-subtle); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-2); border: 1px solid var(--border-card); border-radius: var(--radius-md); }
+.linkChoice { display: flex; flex-direction: column; gap: var(--space-1); margin: var(--space-2) 0 0; padding: var(--space-3); border: 1px solid var(--border-card); border-radius: var(--radius-md); }
+.poolRunLine { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--text-subtle); }
+.poolRunEdit { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.projectsUsed { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-3) 0; font-size: var(--text-sm); color: var(--text-subtle); }
+.projectsUsedList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.projectsUsedList li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); overflow-wrap: anywhere; }
+.projectsUsedList strong { color: var(--text); font-weight: 600; }
+.projectsUsedSwap { min-height: 32px; }
+.poolCard > .poolCardField { flex: none; }

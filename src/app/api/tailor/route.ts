@@ -1,4 +1,5 @@
 import { guardFacts } from "@/lib/factGuard";
+import { TOP_PROJECT_BULLETS, alignWritten, capPoolBullets, cardsToPoolText, dropToFit, labelledCardName as labelledCardNameOf, normalizePoolSettings, selectCards, type PoolCard, type PoolSelection, type PoolSettings } from "@/lib/projectPool";
 import { applyRetired, applyRetiredToBullets, findRetired, mergeReports, type RetiredClaim, type RetiredReport } from "@/lib/retiredClaims";
 import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
 import { NextRequest, NextResponse } from "next/server";
@@ -155,6 +156,10 @@ async function runPipeline(opts: {
   cvLength: CvLength;
   // Wording this user's CV must never carry (lib/retiredClaims).
   retiredClaims: RetiredClaim[];
+  // The pool as cards and how many to use (lib/projectPool). With cards the code chooses
+  // the projects and the model only writes them; without, the old text pool's path.
+  projectCards: PoolCard[];
+  poolSettings: PoolSettings;
   profile: unknown;
   // The user's Eligibility answers (lib/knockouts): the stated years for the
   // header line, and the one source of every right-to-work and availability
@@ -189,7 +194,7 @@ async function runPipeline(opts: {
   // uses is a field of it — the route never branches on the id.
   style: FormatStyle;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, cvLength, retiredClaims, profile, eligibility, style } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, cvLength, retiredClaims, projectCards, poolSettings, profile, eligibility, style } = opts;
   const yearsExperience = eligibility.yearsExperience;
   // Fast mode on OpenRouter: free models take 30–50 s per call, so the four
   // optional polish retries (title, bullet lint, claims rewrite, letter
@@ -273,7 +278,24 @@ async function runPipeline(opts: {
   // experience and projects, its word caps; UKJI's are null and the budget
   // text is exactly as before. The pool prompt picks two projects.
   const bulletBudget = { maxWords: style.limits.bullets.maxWords, total: style.limits.bullets.total, perProject: style.limits.bullets.perProject, cvMaxWords: style.limits.cv.maxWords };
-  const projectCount = projectsPool ? 2 : projectNames.length;
+  // The projects, chosen here when the pool is cards: pins, then the user's order.
+  const masterRolesForPool = parseMasterExperience(cv);
+  const poolSelection: PoolSelection | null =
+    projectsPool && projectCards.length > 0
+      ? selectCards(projectCards, poolSettings, {
+          keywords: (analysis as Record<string, unknown> | null)?.top_15_ats_keywords,
+          required: (analysis as Record<string, unknown> | null)?.required_skills,
+          pageTarget: onePage ? 1 : 2,
+          roles: masterRolesForPool.length,
+          today: new Date(),
+        })
+      : null;
+  const chosenPoolText = poolSelection ? cardsToPoolText(poolSelection.chosen.map((c) => c.card)) : projectsPool;
+  const chosenCount = poolSelection ? poolSelection.chosen.length : undefined;
+  const chosenCoverage = poolSelection ? "" : coverageBlock;
+  const writtenProjects = (raw: unknown) =>
+    poolSelection ? alignWritten(poolSelection.chosen, normalizeSelectedProjects(raw, chosenPoolText, poolSelection.chosen.length)) : normalizeSelectedProjects(raw, projectsPool);
+  const projectCount = poolSelection ? poolSelection.chosen.length : projectsPool ? 2 : projectNames.length;
   const expBudget = onePage ? onePageExperienceBudget(cv) : experienceBudget(cv, bulletBudget, projectCount) ?? undefined;
   const projBudget = projectsBudget(projectNames.length, onePage, bulletBudget);
   // The style pass (lib/stylePass): bold, highlight lines, trailing full
@@ -310,7 +332,7 @@ async function runPipeline(opts: {
       // Pool mode: select + tailor from the pasted pool. Runs even when the
       // extracted profile has no projects (projectNames empty) — the pool is
       // the source, not the profile.
-      ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool, claimsBlock, "", evidenceBlock, coverageBlock, style.prompts.poolBullets), userInput: analysisStr, expectJson: true })
+      ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, chosenPoolText ?? "", claimsBlock, "", evidenceBlock, chosenCoverage, style.prompts.poolBullets, chosenCount), userInput: analysisStr, expectJson: true })
           .catch(swallowStep({}))
       : projectNames.length > 0
         ? callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock, "", evidenceBlock, style.prompts.projectsBullets), userInput: analysisStr, expectJson: true })
@@ -352,7 +374,7 @@ async function runPipeline(opts: {
   // index so every downstream consumer (ATS scoring, renderers, downloads) sees
   // the exact same shape as the normal path. A failed/empty selection degrades
   // to {} — the client then falls back to the master-CV projects.
-  const selectedProjects = projectsPool ? normalizeSelectedProjects(projects, projectsPool) : [];
+  const selectedProjects = projectsPool ? writtenProjects(projects) : [];
   const projectsOut = projectsPool ? projectsFromSelected(selectedProjects) : projects;
 
   // The model mirrors a bullet-less master CV with plain achievement lines —
@@ -401,7 +423,7 @@ async function runPipeline(opts: {
         : Promise.resolve<unknown>(""),
       draftLint.projects.length > 0
         ? projectsPool
-          ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, projectsPool, claimsBlock, rejectedBulletsBlock(draftLint.projects), evidenceBlock, coverageBlock, style.prompts.poolBullets), userInput: analysisStr, expectJson: true })
+          ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, chosenPoolText ?? "", claimsBlock, rejectedBulletsBlock(draftLint.projects), evidenceBlock, chosenCoverage, style.prompts.poolBullets, chosenCount), userInput: analysisStr, expectJson: true })
               .catch(swallowStep({}))
           : callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock, rejectedBulletsBlock(draftLint.projects), evidenceBlock, style.prompts.projectsBullets), userInput: analysisStr, expectJson: true })
               .catch(swallowStep({}))
@@ -419,7 +441,7 @@ async function runPipeline(opts: {
       }
     }
     if (draftLint.projects.length > 0) {
-      const candidateSelected = projectsPool ? normalizeSelectedProjects(projectsRetry, projectsPool) : [];
+      const candidateSelected = projectsPool ? writtenProjects(projectsRetry) : [];
       const candidateProjects: unknown = projectsPool ? projectsFromSelected(candidateSelected) : projectsRetry;
       const nonEmpty = !!candidateProjects && typeof candidateProjects === "object" && Object.keys(candidateProjects as object).length > 0;
       if (nonEmpty && lintBullets({ projects: candidateProjects }, company, lintStyle).projects.length < draftLint.projects.length) {
@@ -611,6 +633,7 @@ async function runPipeline(opts: {
   // The user's list holds on the header line too (lib/retiredClaims).
   const headline = applyRetired(taglineGuard.headline, retiredClaims).text;
   let pageFitReport: PageFitReport | null = null;
+  let poolFitMessage: string | null = null;
   // The built PDF's page count after the fit, for the style's format check.
   let realPages: number | null = null;
   {
@@ -628,7 +651,13 @@ async function runPipeline(opts: {
       protect: availabilityLine ? [availabilityLine] : [],
       render: style.render,
       skills: style.skills,
+      ...(poolSelection ? { topProjectBullets: TOP_PROJECT_BULLETS } : {}),
     };
+    // A tight page reduces bullets before any project goes (lib/projectPool).
+    if (onePage && poolSelection) {
+      selectedFinal = capPoolBullets(selectedFinal);
+      current.projects = projectsFromSelected(selectedFinal);
+    }
     let fitted: ReturnType<typeof fitOnePage>;
     if (onePage) {
       fitted = fitOnePage(current, fitProfile, fitTerms, fitOpts);
@@ -664,17 +693,16 @@ async function runPipeline(opts: {
     // the ones the client renders; a saved section order is not known here,
     // and moves no lines.
     const target: 1 | 2 = onePage ? 1 : 2;
-    const metas = projectsPool
-      ? selectedFinal.map((s) => ({ name: s.date?.trim() ? `${s.name} | ${s.date}` : s.name, tech: s.tech, links: [] }))
-      : ((profile as { projects?: unknown[] } | null)?.projects ?? []);
-    const countPages = (s: { summary?: unknown; skills?: unknown; experience?: unknown; projects?: unknown }) =>
+    const metasOf = (selected: typeof selectedFinal) => selected.map((s) => ({ name: s.date?.trim() ? `${s.name} | ${s.date}` : s.name, tech: s.tech, links: [] }));
+    const metas = projectsPool ? metasOf(selectedFinal) : ((profile as { projects?: unknown[] } | null)?.projects ?? []);
+    const countPages = (s: { summary?: unknown; skills?: unknown; experience?: unknown; projects?: unknown }, metasNow: unknown[] = metas) =>
       buildCvPdfWithPages({
         summary: typeof s.summary === "string" ? s.summary : "",
         skills: typeof s.skills === "string" ? s.skills : "",
         experience: typeof s.experience === "string" ? s.experience : "",
         projects: (s.projects ?? {}) as Record<string, string[]>,
         // Measured as it will print, each project's own label included (lib/projectLabels).
-        projectsMeta: withProjectLabels(metas as { name?: unknown }[], projectLabels(cv, projectsPool)),
+        projectsMeta: withProjectLabels(metasNow as { name?: unknown }[], projectLabels(cv, projectsPool)),
         // CareerSet measures with the run's own headline and its printed addresses; UKJI as before.
         profile: style.render.measureRunHeader && profile && typeof profile === "object" ? { ...(profile as Record<string, unknown>), tagline: headline } : profile,
         targetPages: target,
@@ -690,6 +718,22 @@ async function runPipeline(opts: {
         projectsFinal = real.sections.projects;
         if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: ((projectsFinal as Record<string, string[]>)[String(i)] ?? p.bullets) }));
         formatFixes.pageOverflow = real.report;
+      }
+      // Still over one page with the bullets reduced: the last unpinned project goes, and
+      // the page says so. It is never dropped silently.
+      if (poolSelection && onePage && realPages !== null && realPages > 1 && selectedFinal.length > 1) {
+        const pinnedNames = new Set(poolSelection.chosen.filter((c) => c.card.pinned).map((c) => labelledCardNameOf(c.card)));
+        const fit = dropToFit(
+          selectedFinal,
+          (kept) => countPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFromSelected(kept) }, metasOf(kept)) <= 1,
+          (p) => pinnedNames.has(p.name)
+        );
+        if (fit.dropped.length > 0) {
+          selectedFinal = fit.projects;
+          projectsFinal = projectsFromSelected(fit.projects);
+          poolFitMessage = fit.message;
+          realPages = countPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal }, metasOf(fit.projects));
+        }
       }
     } catch (e) {
       // The PDF build is a measurement, never a reason to fail the run.
@@ -1235,6 +1279,16 @@ async function runPipeline(opts: {
     // Applied snapshot all read it through the display profile.
     headline,
     ...(projectsPool ? { selectedProjects: selectedFinal } : {}),
+    // Which cards a run used and why (lib/projectPool), for "Projects used" and Swap.
+    ...(poolSelection
+      ? {
+          projectsUsed: selectedFinal.map((p) => {
+            const chosen = poolSelection.chosen.find((c) => labelledCardNameOf(c.card) === p.name);
+            return { cardId: chosen?.card.id ?? "", name: chosen?.card.name ?? p.name, pinned: !!chosen?.card.pinned, matches: chosen?.matches ?? [] };
+          }),
+          poolFit: { message: poolFitMessage, pinWarning: poolSelection.pinWarning, count: poolSelection.count },
+        }
+      : {}),
   };
 }
 
@@ -1368,6 +1422,9 @@ export async function POST(req: NextRequest) {
         omitRightToWork: !preferences.includeRightToWorkOnCv,
         cvLength: preferences.cvLength,
         retiredClaims: preferences.retiredClaims,
+        projectCards: preferences.projectCards,
+        // One run may differ from the saved defaults.
+        poolSettings: normalizePoolSettings(body.projectPoolSettings ?? preferences.projectPoolSettings),
         profile: bodyProfile,
         eligibility,
         style,

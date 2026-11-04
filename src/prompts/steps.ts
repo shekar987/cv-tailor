@@ -304,7 +304,7 @@ Each bullet is a plain string with no leading dash.`;
 // requirements each pool project names, computed, so selection rests on
 // evidence rather than on project names.
 // bulletsBlock (lib/formatStyles): the per-project bullet paragraph, per style.
-export const poolProjectsPrompt = (cv: string, pool: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "", evidenceBlock: string = "", coverageBlock: string = "", bulletsBlock?: string) => `You select and tailor CV projects from the candidate's full project pool.
+export const poolProjectsPrompt = (cv: string, pool: string, claimsBlock: string = DEFAULT_CLAIMS_BLOCK, retryBlock: string = "", evidenceBlock: string = "", coverageBlock: string = "", bulletsBlock?: string, chosenCount?: number) => `You select and tailor CV projects from the candidate's full project pool.
 
 ${ABSOLUTE_RULES}
 ${claimsBlock}
@@ -324,14 +324,15 @@ ${pool}
 You will receive the JD analysis as JSON (for a company-outreach run it
 describes the company's real stack rather than a posted job).
 
-SELECTION:
+${chosenCount ? `THE PROJECTS ARE ALREADY CHOSEN:
+- The candidate's settings chose the ${chosenCount === 1 ? "one project" : `${chosenCount} projects`} in the pool above. Write bullets for every one of them, in that order, showing what this job asks for. Do not leave one out and do not add another.` : `SELECTION:
 - Pick EXACTLY the 2 pool projects that best show what this job asks for —
   its required skills and key responsibilities (testing, data processing,
   event-driven systems, user-facing products …) — preferring what the paid
   experience does NOT already show. Judge by genuine overlap of technologies,
   responsibilities and problem domain, never by name-matching.
 ${coverageBlock}
-- If the pool contains only one project, pick that one alone.
+- If the pool contains only one project, pick that one alone.`}
 - Never invent a project. Never merge two pool entries into one (rule 7): each
   selected project keeps only its own tech and outcomes.
 - A project stays a project: never imply users, customers, revenue, production

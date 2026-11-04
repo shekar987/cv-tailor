@@ -40,6 +40,10 @@ import { checkStyle, summarizeStyleCheck, type StyleCheckItem } from "@/lib/styl
 import type { MasterCvNote } from "@/lib/stylePass";
 import { attachProjectLinks, linksForProject, projectKey } from "@/lib/projectLinks";
 import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
+import PoolRunLine from "./PoolRunLine";
+import { resolveCount, type PoolSettings } from "@/lib/projectPool";
+import { parseMasterExperience } from "@/lib/bulletIds";
+import ProjectsUsed, { type ProjectUsed } from "./ProjectsUsed";
 import { applyRetiredToProfile, findRetired, retiredBlockMessage, type RetiredReport } from "@/lib/retiredClaims";
 import type { SkillLinesFix } from "@/lib/formatRules";
 import type { SeniorityFit } from "@/lib/seniority";
@@ -126,6 +130,9 @@ type Result = {
   // from the user's project pool. Present only when a pool was sent; the
   // display profile derives its projects from this instead of the master CV's.
   selectedProjects?: { name?: string; date?: string; tech?: string; bullets?: string[] }[];
+  // Which cards the run used and why, and what the page fit had to say (lib/projectPool).
+  projectsUsed?: ProjectUsed[];
+  poolFit?: { message: string | null; pinWarning: string | null; count: number };
   // Attached client-side on a JD run: the eligibility-gate read the pre-check
   // gave this job, kept with the result (and its workspace copy) so the
   // Applied row can store it after the gate state is cleared.
@@ -426,6 +433,11 @@ export default function Home() {
   const [result, setResult] = useState<Result | null>(null);
   // Fact-guard items the user has OK'd, as "<run>|<kind>:<item>".
   const [factGuardOk, setFactGuardOk] = useState<string[]>([]);
+  // One run's project settings, when they differ from the saved defaults.
+  const [runPool, setRunPool] = useState<PoolSettings | null>(null);
+  const [swapBusy, setSwapBusy] = useState(false);
+  const [swapError, setSwapError] = useState("");
+  const [swapNote, setSwapNote] = useState("");
   // The user's list against the preview as edited (lib/retiredClaims); null until the first edit.
   const [liveRetired, setLiveRetired] = useState<{ cv: string[]; letter: string[] } | null>(null);
   const [error, setError] = useState("");
@@ -1151,6 +1163,7 @@ export default function Home() {
           // Document switches: Right to Work off the CV (default) also keeps
           // visa / sponsorship sentences out of the generated text.
           preferences,
+          ...(preferences.projectCards.length > 0 ? { projectPoolSettings: runPool ?? preferences.projectPoolSettings } : {}),
           // The format style for this run (the server honours it for the owner's
           // account only; every other account runs UKJI).
           formatStyle: runStyle,
@@ -1421,6 +1434,60 @@ export default function Home() {
       setClaimFixError("Couldn't reach the server to fix the claims. Edit the highlighted text instead — the re-check is free.");
     } finally {
       setFixingClaims(false);
+    }
+  }
+
+  // "Swap" under the results: one other pool project written for this job, and only the
+  // projects section changes. The rest of the document stays as edited.
+  async function swapProject(index: number, cardId: string) {
+    if (!result || swapBusy) return;
+    setSwapBusy(true);
+    setSwapError("");
+    setSwapNote("");
+    try {
+      const payload = previewRef.current?.collectPayload();
+      const res = await fetch("/api/swap-project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cardId,
+          cards: preferences.projectCards,
+          cvText: masterCvText,
+          analysis: result.analysis,
+          claims,
+          retiredClaims: preferences.retiredClaims,
+          formatStyle: result.formatStyle,
+          ...(isUnlimited ? { provider } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.project) {
+        setSwapError(typeof data.error === "string" ? data.error : "Couldn't swap that project. Your CV is unchanged.");
+        return;
+      }
+      const selected = [...(result.selectedProjects ?? [])];
+      selected[index] = data.project;
+      const used = [...(result.projectsUsed ?? [])];
+      used[index] = data.used;
+      const projects = { ...((payload?.projects ?? result.projects) as Record<string, string[]>), [String(index)]: data.project.bullets as string[] };
+      const next = {
+        summary: payload?.summary ?? result.summary ?? "",
+        skills: payload?.skills ?? result.skills ?? "",
+        experience: payload?.experience ?? result.experience ?? "",
+        projects,
+        coverLetter: coverRef.current?.collectText() ?? result.coverLetter ?? "",
+      };
+      setResult({ ...result, ...next, coverLetter: result.coverLetter ? next.coverLetter : result.coverLetter, selectedProjects: selected, projectsUsed: used, claimCheck: claimCheckOf(next) });
+      setLiveCheck(null);
+      setLiveRetired(null);
+      setLiveQuality(null);
+      setLiveStyleCheck(null);
+      setPreviewKey((k) => k + 1);
+      setSwapNote(`${typeof data.modelError === "string" ? `${data.modelError} ` : ""}Swapped in ${data.used.name}. Your cover letter was not rewritten, so check what it says about your projects.`);
+    } catch {
+      setSwapError("Couldn't reach the server. Your CV is unchanged.");
+    } finally {
+      setSwapBusy(false);
     }
   }
 
@@ -1828,6 +1895,12 @@ export default function Home() {
   const styleLabel = result ? FORMAT_STYLE_LABELS[normalizeFormatStyle(result.formatStyle)] : FORMAT_STYLE_LABELS.ukji;
   // The user chose one page and the edited document runs over it.
   const overOnePage = !!quality && onePageTarget === 1 && quality.pages.pages > 1;
+  // "Projects: Auto (2) · Most relevant", with a way to change one run (lib/projectPool).
+  const poolRunSettings = runPool ?? preferences.projectPoolSettings;
+  const poolRunCount = resolveCount(poolRunSettings, { pageTarget: onePageTarget, roles: parseMasterExperience(masterCvText).length }, preferences.projectCards.length);
+  const poolRunLine = preferences.projectCards.length === 0 ? null : (
+    <PoolRunLine settings={poolRunSettings} count={poolRunCount} onChange={setRunPool} />
+  );
   const qualityIssues = quality
     ? (quality.pages.overBudget ? 1 : 0) +
       (overOnePage && !quality.pages.overBudget ? 1 : 0) +
@@ -2033,6 +2106,7 @@ export default function Home() {
                 <Button variant={result ? "secondary" : "primary"} onClick={handlePreCheck} disabled={gateLoading || loading}>
                   {gateLoading ? "Checking keyword match…" : "Tailor my CV"}
                 </Button>
+                {poolRunLine}
                 {isUnlimited && (
                   <span className="providerPick" data-provider-pick="pre">
                     <label htmlFor="providerSelectPre">Provider</label>
@@ -2274,6 +2348,7 @@ export default function Home() {
                       </select>
                     </span>
                   )}
+                  {poolRunLine}
                   {isUnlimited && (
                     <span className="providerPick">
                       <label htmlFor="providerSelect">Provider</label>
@@ -3521,6 +3596,14 @@ export default function Home() {
               />
               {/* The answer bank for the application form (lib/answerBank), from the Eligibility answers. */}
               <FormAnswers facts={eligibility} />
+              {(result.poolFit?.message || result.poolFit?.pinWarning) && (
+                <div className="limitNotice" role="status" data-pool-fit>
+                  {[result.poolFit?.message, result.poolFit?.pinWarning].filter(Boolean).join(" ")}
+                </div>
+              )}
+              {result.projectsUsed && result.projectsUsed.length > 0 && (
+                <ProjectsUsed used={result.projectsUsed} cards={preferences.projectCards} busy={swapBusy} error={swapError} note={swapNote} onSwap={(i, id) => void swapProject(i, id)} />
+              )}
               {result.bulletChanges && (result.bulletChanges.experience || result.bulletChanges.projects.length > 0) && (
                 <details className="changesView" data-bullet-changes>
                   <summary>

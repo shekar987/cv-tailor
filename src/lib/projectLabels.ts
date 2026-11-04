@@ -67,8 +67,11 @@ export function labelProjectName(name: string, labels: Map<string, string>): str
  * its own line under the heading, so a long one never pushes the date off the first row.
  */
 export function splitProjectLabel(title: string): { head: string; label: string } {
-  const m = /^(.*\S)\s*(\([^()]*\bproject\b[^()]*\))\s*$/i.exec(title);
-  return m ? { head: m[1], label: m[2] } : { head: title, label: "" };
+  // Three words or more in brackets, or any that says "project": "(v2)" stays in the title.
+  const m = /^(.*\S)\s*(\([^()]+\))\s*$/.exec(title);
+  if (!m) return { head: title, label: "" };
+  const isLabel = /\bproject\b/i.test(m[2]) || m[2].trim().split(/\s+/).length >= 3;
+  return isLabel ? { head: m[1], label: m[2] } : { head: title, label: "" };
 }
 
 /** The same projects with their labels on; the same array when nothing changed. */

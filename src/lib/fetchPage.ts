@@ -458,6 +458,39 @@ async function fetchOnce(url: URL, timeoutMs: number, trust: string[], repaired:
 // hop (fetch's automatic redirect following would sidestep the guard).
 // `allowHost` narrows it further for a caller that may only ever reach a fixed
 // set of hosts (/api/jd/fetch): checked on the first URL and every hop.
+export type LinkCheck = { url: string; status: number | null; missing: boolean };
+
+/** A 404 or 410 means the page is gone. Anything else, a refusal included, says nothing about it. */
+export function linkIsMissing(status: number | null): boolean {
+  return status === 404 || status === 410;
+}
+
+/**
+ * Whether a link still answers: a HEAD through the same guard as every other fetch, the
+ * guard re-applied on each redirect. A site that will not answer a HEAD gets a GET whose
+ * body is never read. Never throws: a link it could not check is not a broken link.
+ */
+export async function checkLink(rawUrl: string, timeoutMs = 6000): Promise<LinkCheck> {
+  const request = (url: URL, method: "HEAD" | "GET") => fetch(url, { method, redirect: "manual", signal: AbortSignal.timeout(timeoutMs), headers: { "user-agent": RESEARCH_UA } });
+  try {
+    let url = await assertSafeUrl(rawUrl);
+    let res = await request(url, "HEAD");
+    for (let hop = 0; hop < 4 && res.status >= 300 && res.status < 400; hop++) {
+      const location = res.headers.get("location");
+      if (!location) break;
+      url = await assertSafeUrl(new URL(location, url).toString());
+      res = await request(url, "HEAD");
+    }
+    if (res.status === 405 || res.status === 501) {
+      res = await request(url, "GET");
+      await res.body?.cancel().catch(() => {});
+    }
+    return { url: rawUrl, status: res.status, missing: linkIsMissing(res.status) };
+  } catch {
+    return { url: rawUrl, status: null, missing: false };
+  }
+}
+
 export async function fetchPage(
   rawUrl: string,
   opts: { timeoutMs?: number; maxBytes?: number; allowHost?: (hostname: string) => boolean } = {}
