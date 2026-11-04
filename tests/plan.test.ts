@@ -624,3 +624,26 @@ test("a free window that has passed does not stop the usual hours being offered"
   assert.equal(usedDefaultHours, true);
   assert.equal(slots.length, 5);
 });
+test("no nudge before a follow-up date the user has already set", () => {
+  const plan = buildPlan({
+    events: [],
+    applications: [
+      app("planned", "screening", { date_applied: "2026-10-01", followup_date: "2026-11-10" }),
+      app("due", "screening", { date_applied: "2026-10-01", followup_date: "2026-11-03" }),
+      app("past", "screening", { date_applied: "2026-10-01", followup_date: "2026-10-20" }),
+      app("none", "screening", { date_applied: "2026-10-01" }),
+    ],
+    now: NOW,
+  });
+  const nudge = (id: string) => plan.waiting.find((w) => w.application.id === id)?.nudge;
+  assert.equal(nudge("planned"), null);
+  assert.equal(nudge("due"), 21, "the day itself is due");
+  assert.equal(nudge("past"), 21);
+  assert.equal(nudge("none"), 21);
+});
+
+test("they spoke last needs a time; without one it cannot say when", () => {
+  const plan = buildPlan({ events: [], applications: [app("x", "screening", { last_contact_from: "them", last_contact_at: null })], now: NOW });
+  assert.equal(plan.replyOwed.length, 0);
+  assert.equal(plan.waiting[0].basis, "applied");
+});

@@ -1731,7 +1731,14 @@ export default function ApplicationsPage() {
                       (statusFilter === s ? " active" : "") +
                       (statusCounts[s] === 0 ? " zero" : "")
                     }
-                    onClick={() => { setStatusFilter(statusFilter === s ? "All" : s); setStageSheet(false); }}
+                    onClick={() => {
+                      setStatusFilter(statusFilter === s ? "All" : s);
+                      setStageSheet(false);
+                      if (sheetSearchFromStage) {
+                        setQuery("");
+                        setSheetSearchFromStage(false);
+                      }
+                    }}
                     aria-pressed={statusFilter === s}
                     data-status-chip={s}
                   >

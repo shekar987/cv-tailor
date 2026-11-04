@@ -258,12 +258,16 @@ export function buildPlan(input: { events: readonly PlanEvent[]; applications: r
     .filter((a) => !busy.has(a.id))
     .map((application) => {
       const days = daysSinceContact(application, now, tz);
-      return { application, daysSinceContact: days, basis: application.last_contact_at ? ("contact" as const) : ("applied" as const), nudge: followUpNudge(days) };
+      // A follow-up date still ahead is the user's own plan for this row: no nudge before it.
+      const planned = !!application.followup_date && application.followup_date > dayKey(now, tz);
+      return { application, daysSinceContact: days, basis: application.last_contact_at ? ("contact" as const) : ("applied" as const), nudge: planned ? null : followUpNudge(days) };
     })
     .sort((a, b) => (b.daysSinceContact ?? -1) - (a.daysSinceContact ?? -1) || a.application.company_name.localeCompare(b.application.company_name));
 
-  const replyOwed = quiet.filter((w) => w.application.last_contact_from === "them").map((w) => ({ ...w, nudge: null }));
-  const waiting = quiet.filter((w) => w.application.last_contact_from !== "them");
+  // With no time recorded there is nothing to say "They wrote N days ago" from.
+  const theySpokeLast = (w: WaitingItem) => w.application.last_contact_from === "them" && w.basis === "contact";
+  const replyOwed = quiet.filter(theySpokeLast).map((w) => ({ ...w, nudge: null }));
+  const waiting = quiet.filter((w) => !theySpokeLast(w));
 
   const sections: PlanSection[] = [...groups];
   if (needsBooking.length > 0) {
