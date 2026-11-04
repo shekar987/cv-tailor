@@ -5,6 +5,9 @@ import { normalizeProfile } from "@/lib/profile";
 import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
 import { extractPdfText, checkPdfTextLayer, countWords } from "@/lib/pdfTextCheck";
 import { contactRefusal } from "@/lib/contactRefusal";
+import { cleanTechLines, cvBodyText, documentRules, retiredRefusal } from "@/lib/documentGuard";
+import { applyRetiredToProfile } from "@/lib/retiredClaims";
+import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
 
 // 'nodejs' is already the Next 16 default; pinned because src/lib/pdfText.ts
 // reads the embedded font files with fs at import time.
@@ -31,14 +34,19 @@ export async function POST(req: NextRequest) {
     // A CV whose email is "Gmail" is never built (lib/contactCheck).
     const refused = contactRefusal(profile);
     if (refused) return refused;
+    // Wording this user has ruled out is never built (lib/retiredClaims), and a
+    // project keeps the label their own CV gives it (lib/projectLabels).
+    const { rules, masterCv } = await documentRules(caller);
+    const retired = retiredRefusal(cvBodyText(body), rules);
+    if (retired) return retired;
     const projects = body.projects && typeof body.projects === "object" ? (body.projects as Record<string, string[]>) : {};
     const bytes = buildCvPdf({
       summary: text(body.summary),
       skills: text(body.skills),
       experience: text(body.experience),
       projects,
-      projectsMeta: Array.isArray(body.projectsMeta) ? body.projectsMeta : [],
-      profile,
+      projectsMeta: withProjectLabels(cleanTechLines(Array.isArray(body.projectsMeta) ? body.projectsMeta : [], rules), projectLabels(masterCv)),
+      profile: applyRetiredToProfile(profile, rules),
       sectionOrder: body.sectionOrder,
       targetPages: body.targetPages === 1 ? 1 : 2,
       formatStyle: body.formatStyle,

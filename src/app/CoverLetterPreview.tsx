@@ -7,6 +7,10 @@ import { pastePlainText } from "@/lib/pastePlainText";
 import StatusText from "@/components/ui/StatusText";
 import Badge from "@/components/ui/Badge";
 
+// A download the server held, with the sentence that says why (the contact check, the
+// user's list of ruled-out wording). The reason is the message; a retry would not help.
+class HeldError extends Error {}
+
 // What a parent can read back through the ref: the letter as it stands in
 // the editable DOM (the Applied button snapshots it into the tracker).
 export type CoverLetterPreviewHandle = {
@@ -90,6 +94,10 @@ const CoverLetterPreview = forwardRef<CoverLetterPreviewHandle, Props>(function 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ coverLetter: edited }),
     });
+    if (res.status === 422) {
+      const data = await res.json().catch(() => null);
+      throw new HeldError(data && typeof data.error === "string" ? data.error : "This file can't be built yet.");
+    }
     if (!res.ok) return null;
     return res.blob();
   }
@@ -110,14 +118,15 @@ const CoverLetterPreview = forwardRef<CoverLetterPreviewHandle, Props>(function 
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(data && typeof data.error === "string" ? data.error : "Could not build the document");
+        const reason = data && typeof data.error === "string" ? data.error : "Could not build the document";
+        throw res.status === 422 ? new HeldError(reason) : new Error(reason);
       }
       const blob = await res.blob();
       saveBlob(blob, `${fileBaseName}.pdf`);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       console.error("Cover letter PDF generation failed:", message);
-      setDocErr(message.startsWith("The PDF failed") ? message : "PDF generation failed. Try the Word download, or retry.");
+      setDocErr(e instanceof HeldError || message.startsWith("The PDF failed") ? message : "PDF generation failed. Try the Word download, or retry.");
     } finally {
       setBusy(false);
     }
@@ -133,7 +142,7 @@ const CoverLetterPreview = forwardRef<CoverLetterPreviewHandle, Props>(function 
       saveBlob(blob, `${fileBaseName}.docx`);
     } catch (e) {
       console.error("Cover letter Word generation failed:", e instanceof Error ? e.message : String(e));
-      setDocErr("Word download failed. Check your connection and retry.");
+      setDocErr(e instanceof HeldError ? e.message : "Word download failed. Check your connection and retry.");
     } finally {
       setBusy(false);
     }

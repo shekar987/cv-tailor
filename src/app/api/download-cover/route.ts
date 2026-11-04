@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody, declaresMoreThan, payloadTooLarge } from "@/lib/routeAuth";
 import { Document, Packer, Paragraph, TextRun, AlignmentType } from "docx";
 import { MAX_COVER_LETTER_CHARS, MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
+import { documentRules, retiredRefusal } from "@/lib/documentGuard";
 import { parseBoldSegments } from "@/lib/markdownText";
 
 export async function POST(req: NextRequest) {
@@ -20,6 +21,10 @@ export async function POST(req: NextRequest) {
     if (text.length > MAX_COVER_LETTER_CHARS) {
       return NextResponse.json({ error: "Cover letter is too long." }, { status: 400 });
     }
+    // Wording this user has ruled out is never built (lib/retiredClaims).
+    const { rules } = await documentRules(caller);
+    const retired = retiredRefusal(text, rules);
+    if (retired) return retired;
 
     // Each non-empty line becomes a justified paragraph; blank lines become spacers
     const children: Paragraph[] = [];

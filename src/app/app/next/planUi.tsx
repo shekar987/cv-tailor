@@ -27,6 +27,9 @@ export const KIND_ICONS: Record<EventKind, IconName> = {
   follow_up: "mail",
   offer_deadline: "flag",
   networking: "link",
+  video: "users",
+  work_trial: "document",
+  screening_questions: "clipboard",
 };
 
 export function StageChip({ status }: { status: string }) {

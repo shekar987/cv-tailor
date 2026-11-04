@@ -610,6 +610,7 @@ export default function ApplicationsPage() {
   const [scoreOutcome, setScoreOutcome] = useState<ScoreOutcome | null>(null);
   const [showInsights, setShowInsights] = useState(false);
   const rowsRef = useRef<Application[]>([]);
+  const autoCloseNote = useRef<string | null>(null);
   rowsRef.current = rows;
   const [loaded, setLoaded] = useState(false);
   const [pageError, setPageError] = useState("");
@@ -941,6 +942,8 @@ export default function ApplicationsPage() {
     }
     // Closing a row (Rejected / Withdrawn) cleared its follow-up on the
     // server and wrote the old date into the notes; mirror both.
+    const autoClose = data.autoClose as { message?: unknown } | undefined;
+    autoCloseNote.current = typeof autoClose?.message === "string" ? autoClose.message : null;
     const cleared = data.followupCleared as { followup_date: null; notes: string | null } | undefined;
     if (cleared) {
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, followup_date: null, ...notesListFields(cleared.notes) } : r)));
@@ -1190,7 +1193,9 @@ export default function ApplicationsPage() {
       return;
     }
     setPanel(null);
-    showFlash("Saved.");
+    // A confirmation in the notes closes the row's open submission items (lib/autoClose).
+    showFlash(autoCloseNote.current ?? "Saved.");
+    autoCloseNote.current = null;
   }
 
   // "They wrote" / "I replied": who spoke last, now (lib/tracker isReplyOwed).

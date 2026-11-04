@@ -4,6 +4,9 @@ import { normalizeProfile } from "@/lib/profile";
 import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
 import { buildCvDocx } from "@/lib/buildCvDocx";
 import { contactRefusal } from "@/lib/contactRefusal";
+import { cleanTechLines, cvBodyText, documentRules, retiredRefusal } from "@/lib/documentGuard";
+import { applyRetiredToProfile } from "@/lib/retiredClaims";
+import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
 
 // The CV as a .docx. The document itself is built by lib/buildCvDocx (the
 // PDF route's mirror, lib/buildCvPdf); this route is auth, the body, and the
@@ -25,6 +28,11 @@ export async function POST(req: NextRequest) {
     const profile = normalizeProfile(body.profile);
     const refused = contactRefusal(profile);
     if (refused) return refused;
+    // Wording this user has ruled out is never built (lib/retiredClaims), and a
+    // project keeps the label their own CV gives it (lib/projectLabels).
+    const { rules, masterCv } = await documentRules(caller);
+    const retired = retiredRefusal(cvBodyText(body), rules);
+    if (retired) return retired;
 
     // One page for a candidate who chose it (the preview sends targetPages: 1
     // — lib/onePage trimmed the content to fit it); two otherwise.
@@ -33,8 +41,8 @@ export async function POST(req: NextRequest) {
       skills: text(body.skills),
       experience: text(body.experience),
       projects: body.projects && typeof body.projects === "object" ? (body.projects as Record<string, unknown>) : {},
-      projectsMeta: Array.isArray(body.projectsMeta) ? body.projectsMeta : [],
-      profile,
+      projectsMeta: withProjectLabels(cleanTechLines(Array.isArray(body.projectsMeta) ? body.projectsMeta : [], rules), projectLabels(masterCv)),
+      profile: applyRetiredToProfile(profile, rules),
       sectionOrder: body.sectionOrder,
       targetPages: body.targetPages === 1 ? 1 : 2,
       // The run's format style (lib/formatStyles).

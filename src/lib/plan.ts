@@ -8,7 +8,7 @@ import {
   addDays, clockTime, countdown, dayKey, daysBetween, formatWhen, isClockTime, isDayKey, isValidTimeZone, longDay, mondayOf, span, weekdayOf, zonedTimeToMs,
 } from "./planTime.ts";
 
-export const EVENT_KINDS = ["screening_call", "interview", "assessment", "take_home", "deadline", "follow_up", "offer_deadline", "networking"] as const;
+export const EVENT_KINDS = ["screening_call", "interview", "assessment", "take_home", "deadline", "follow_up", "offer_deadline", "networking", "video", "work_trial", "screening_questions"] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 export const EVENT_KIND_LABELS: Record<EventKind, string> = {
   screening_call: "Screening call",
@@ -19,10 +19,20 @@ export const EVENT_KIND_LABELS: Record<EventKind, string> = {
   follow_up: "Follow-up",
   offer_deadline: "Offer deadline",
   networking: "Networking",
+  video: "Video interview",
+  work_trial: "Work trial",
+  screening_questions: "Screening questions",
 };
 export const EVENT_STATUSES = ["scheduled", "to_book", "done", "cancelled", "missed"] as const;
 export type EventStatus = (typeof EVENT_STATUSES)[number];
-export const EVENT_SOURCES = ["manual", "gmail", "calendar"] as const;
+export const EVENT_SOURCES = ["manual", "gmail", "calendar", "aiapply"] as const;
+// What a request may say: which inbox holds the email, nothing more. A body can never
+// claim an event came from a calendar import.
+const CHOOSABLE_SOURCES: readonly string[] = ["manual", "gmail", "aiapply"];
+/** The source a request names, or "manual". */
+export function readEventSource(value: unknown): string {
+  return typeof value === "string" && CHOOSABLE_SOURCES.includes(value) ? value : "manual";
+}
 
 export type Slot = { starts_at: string; ends_at: string | null };
 
@@ -43,6 +53,9 @@ export type PlanEvent = {
   offered_slots?: Slot[];
   status: EventStatus;
   source?: string;
+  snoozed_until?: string | null;
+  closed_by?: string | null;
+  closed_at?: string | null;
 };
 
 export type PlanApplication = {
@@ -120,9 +133,9 @@ export function eventEndMs(e: Pick<PlanEvent, "starts_at" | "ends_at" | "kind">)
 /** Offer > final interview > interview > assessment / take-home > screening > networking > follow-up. */
 export function stageWeight(e: Pick<PlanEvent, "kind" | "stage_label">, applicationStatus?: string | null): number {
   if (e.kind === "offer_deadline" || normalizeStatus(applicationStatus) === "offer") return 100;
-  if (e.kind === "interview") return /\bfinal\b/i.test(e.stage_label ?? "") ? 90 : 80;
-  if (e.kind === "assessment" || e.kind === "take_home" || e.kind === "deadline") return 60;
-  if (e.kind === "screening_call") return 40;
+  if (e.kind === "interview" || e.kind === "video") return /\bfinal\b/i.test(e.stage_label ?? "") ? 90 : 80;
+  if (e.kind === "assessment" || e.kind === "take_home" || e.kind === "deadline" || e.kind === "work_trial") return 60;
+  if (e.kind === "screening_call" || e.kind === "screening_questions") return 40;
   if (e.kind === "networking") return 30;
   return 20;
 }

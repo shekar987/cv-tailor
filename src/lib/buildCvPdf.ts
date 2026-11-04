@@ -9,6 +9,7 @@ import { normalizeProfile } from "./profile.ts";
 import { prepareCvDocument } from "./cvDocument.ts";
 import { type Density } from "./cvDensity.ts";
 import { resolveSectionOrder, type SectionId } from "./sectionOrder.ts";
+import { splitProjectLabel } from "./projectLabels.ts";
 import { PdfCursor, parseWords, drawWrapped, drawBullet, drawHeaderLine, hexToRgb, registerFonts, FONT, type Word } from "./pdfText.ts";
 import { SECTION_HEADING_LINE_RE } from "./sections.ts";
 import { stripBoldMarkers } from "./markdownText.ts";
@@ -125,7 +126,9 @@ function drawProjects(doc: jsPDF, cursor: PdfCursor, projectsMeta: any[], tailor
 
     cursor.advance(pt(d.jobBefore));
     const { title, date } = splitTrailingDate(meta.name || "");
-    drawHeaderLine(doc, cursor, title, date, 11, lineOf(11));
+    const { head, label } = splitProjectLabel(title);
+    drawHeaderLine(doc, cursor, head, date, 11, lineOf(11));
+    if (label) drawWrapped(doc, cursor, parseWords(label), 10.5, lineOf(10.5));
     cursor.advance(pt(d.tightAfter));
 
     if (meta.tech) {

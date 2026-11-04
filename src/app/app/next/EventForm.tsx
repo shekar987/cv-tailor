@@ -23,7 +23,7 @@ export type EventFormMode =
 type When = "time" | "deadline" | "book";
 type PickerRow = Pick<PlanApplication, "id" | "company_name" | "role" | "status">;
 
-const DEADLINE_KINDS: ReadonlySet<EventKind> = new Set<EventKind>(["assessment", "take_home", "deadline", "offer_deadline", "follow_up"]);
+const DEADLINE_KINDS: ReadonlySet<EventKind> = new Set<EventKind>(["assessment", "take_home", "deadline", "offer_deadline", "follow_up", "video", "work_trial", "screening_questions"]);
 // The stage an event proves. A deadline, a follow-up or a networking call proves none.
 const STAGE_FOR_KIND: Partial<Record<EventKind, Status>> = {
   screening_call: "screening",
@@ -31,6 +31,9 @@ const STAGE_FOR_KIND: Partial<Record<EventKind, Status>> = {
   assessment: "assessment",
   take_home: "assessment",
   offer_deadline: "offer",
+  video: "interview",
+  work_trial: "assessment",
+  screening_questions: "screening",
 };
 const DEFAULT_TITLES: Record<EventKind, string> = { ...EVENT_KIND_LABELS };
 
@@ -93,7 +96,8 @@ export default function EventForm({
     const ms = Date.parse(s.starts_at);
     return { date: dayKey(ms, zone), time: clockTime(ms, zone) };
   }));
-  const [moveIt, setMoveIt] = useState(true);
+  // Adding proves a stage; correcting a date on an existing event proves nothing new.
+  const [moveIt, setMoveIt] = useState(mode.type === "new");
   // Set once the event is saved, so a retry after a failed move never adds a second one.
   const [savedId, setSavedId] = useState<string | null>(existing?.id ?? null);
   const [saving, setSaving] = useState(false);
@@ -196,7 +200,7 @@ export default function EventForm({
       const res = await fetch("/api/events", {
         method: savedId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(savedId ? { id: savedId, ...body } : { ...body, application_id: application?.id ?? null }),
+        body: JSON.stringify(savedId ? { id: savedId, ...body } : { ...body, application_id: application?.id ?? null, ...(seed?.source ? { source: seed.source } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error || "Could not save that event."); return; }

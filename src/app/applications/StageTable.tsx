@@ -174,9 +174,13 @@ export default function StageTable({
                 </td>
                 <td data-label="Next event" data-stage-next>
                   {event && event.status === "to_book" ? (
-                    <span>To book</span>
-                  ) : timing ? (
                     <>
+                      <span>{event.title}</span>
+                      <span className="cvHelp">No date yet</span>
+                    </>
+                  ) : timing && event ? (
+                    <>
+                      <span>{event.title}</span>
                       <span>{timing.when}</span>
                       <span className="cvHelp">{timing.left}</span>
                     </>

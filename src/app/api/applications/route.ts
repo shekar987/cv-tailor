@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { autoCloseMessage, closesOnConfirmation, confirmationAdded, confirmationIn } from "@/lib/autoClose";
+import { ACTION_MIGRATION_HINT } from "@/lib/planSchema";
+import { DEFAULT_TIMEZONE } from "@/lib/planTime";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { MAX_JD_CHARS, MAX_NOTES_CHARS, MAX_COVER_LETTER_CHARS, JD_TOO_LONG } from "@/lib/limits";
 import { packFromRow } from "@/lib/prepPack";
@@ -27,6 +30,7 @@ const MAX_COMPANY = 200;
 const MAX_ROLE = 200;
 const MAX_SALARY = 100;
 const MAX_NOTES = MAX_NOTES_CHARS;
+const MAX_APPENDED_NOTE = 500;
 const MAX_CV_REF = 200;
 const MAX_SESSION_ID = 64;
 
@@ -610,6 +614,80 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// A confirmation written to a row closes its open submission items (lib/autoClose).
+// A failure here is logged and never fails the note that was already saved.
+async function closeOnConfirmation(supabase: Awaited<ReturnType<typeof signedIn>> extends infer C ? (C extends { supabase: infer S } ? S : never) : never, userId: string, applicationId: string) {
+  const { data: open, error } = await supabase
+    .from("application_events")
+    .select("id, title, kind")
+    .eq("application_id", applicationId)
+    .eq("user_id", userId)
+    .in("status", ["scheduled", "to_book"]);
+  if (error) {
+    console.error("auto-close read error:", error.code ?? "unknown");
+    return null;
+  }
+  const rows = (open ?? []) as { id: string; title: string; kind: string }[];
+  const closed = rows.filter((e) => closesOnConfirmation(e.kind, e.title)).map((e) => ({ id: e.id, title: e.title }));
+  const stillOpen = rows.filter((e) => !closesOnConfirmation(e.kind, e.title)).map((e) => e.title);
+  if (closed.length > 0) {
+    const at = new Date().toISOString();
+    const { error: closeError } = await supabase
+      .from("application_events")
+      .update({ status: "done", closed_by: "note", closed_at: at, updated_at: at })
+      .in("id", closed.map((e) => e.id))
+      .eq("user_id", userId);
+    if (closeError) {
+      console.error("auto-close error:", closeError.code ?? "unknown");
+      return null;
+    }
+  }
+  return closed.length + stillOpen.length > 0 ? { closed, stillOpen, message: autoCloseMessage(closed, stillOpen) } : null;
+}
+
+// PATCH { id, append_note }: one dated line on top of the notes, in one UPDATE
+// (migration 20261104120000), so it can never replace them or lose another writer's
+// text. Past the tracker's cap it refuses rather than cut anything.
+export async function PATCH(req: NextRequest) {
+  try {
+    const caller = await signedIn();
+    if (!caller) return unauthorized();
+    const { supabase, userId } = caller;
+    const body = await readJsonBody(req);
+    if (!body) return invalidBody();
+    if (body.id === undefined || body.id === null || body.id === "") {
+      return NextResponse.json({ error: "No application specified" }, { status: 400 });
+    }
+    if (!isUuid(body.id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+    const line = typeof body.append_note === "string" ? body.append_note.replace(/\s+/g, " ").trim() : "";
+    if (!line) return NextResponse.json({ error: "append_note must be some text." }, { status: 400 });
+    if (line.length > MAX_APPENDED_NOTE) return NextResponse.json({ error: `The note is too long (max ${MAX_APPENDED_NOTE} characters).` }, { status: 400 });
+    const dated = `${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: DEFAULT_TIMEZONE }).format(new Date())}: ${line}`;
+
+    const { data, error } = await supabase.rpc("append_application_note", { p_id: body.id, p_line: dated, p_max: MAX_NOTES });
+    if (error?.code === "PGRST202") return NextResponse.json({ error: ACTION_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+    if (error) {
+      console.error("applications append error:", error.code ?? "unknown");
+      return NextResponse.json({ error: "Could not add that note" }, { status: 500 });
+    }
+    if (typeof data !== "string") {
+      // Not the caller's row, or no room: tell the two apart without touching anything.
+      const { data: row, error: rowError } = await supabase.from("applications").select("id").eq("id", body.id).eq("user_id", userId).maybeSingle();
+      if (rowError) {
+        console.error("applications append lookup error:", rowError.code ?? "unknown");
+        return NextResponse.json({ error: "Could not add that note" }, { status: 500 });
+      }
+      if (!row) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+      return NextResponse.json({ error: `These notes are full (max ${MAX_NOTES} characters). Nothing was changed.`, errorType: "notes_full" }, { status: 400 });
+    }
+    const autoClose = confirmationAdded(null, line) ? await closeOnConfirmation(supabase, userId, body.id) : null;
+    return NextResponse.json({ ok: true, notes: data, ...(autoClose ? { autoClose } : {}) });
+  } catch (err) {
+    console.error("applications PATCH error:", err instanceof Error ? err.message : "Unknown error");
+    return NextResponse.json({ error: "Could not add that note" }, { status: 500 });
+  }
+}
+
 export async function PUT(req: NextRequest) {
   try {
     const caller = await signedIn();
@@ -757,6 +835,15 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: FOLLOWUP_ERROR }, { status: 400 });
     }
 
+    // The notes before this save: only text this edit adds can close anything
+    // (lib/autoClose). A failed read just means nothing closes.
+    let notesBefore: string | null | undefined;
+    if ("notes" in fields && confirmationIn(fields.notes as string | null)) {
+      const { data: prior, error: priorError } = await supabase.from("applications").select("notes").eq("id", id).eq("user_id", userId).maybeSingle();
+      if (priorError) console.error("applications notes read error:", priorError.code ?? "unknown");
+      else notesBefore = (prior?.notes as string | null | undefined) ?? null;
+    }
+
     // Scoped by id as well as RLS: belt and braces on a write. RLS hides
     // another user's row rather than erroring, so an empty result means
     // "not yours or not there".
@@ -800,7 +887,8 @@ export async function PUT(req: NextRequest) {
     // A JD edit answers with the row's gates as stored, so the sheet can show
     // the new triage without a reload.
     const gates = jdChanged && snapshotPatch !== undefined ? (snapshotPatch?.gates ?? null) : undefined;
-    return NextResponse.json({ ok: true, ...(followupCleared ? { followupCleared } : {}), ...(gates !== undefined ? { gates } : {}) });
+    const autoClose = notesBefore !== undefined && confirmationAdded(notesBefore, fields.notes as string | null) ? await closeOnConfirmation(supabase, userId, id) : null;
+    return NextResponse.json({ ok: true, ...(followupCleared ? { followupCleared } : {}), ...(gates !== undefined ? { gates } : {}), ...(autoClose ? { autoClose } : {}) });
   } catch (err) {
     console.error("applications PUT error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not save that application" }, { status: 500 });

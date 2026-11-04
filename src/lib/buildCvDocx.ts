@@ -9,6 +9,7 @@ import { SECTION_HEADING_LINE_RE } from "./sections.ts";
 import { PAGE_HEIGHT, type Density } from "./cvDensity.ts";
 import { resolveSectionOrder, type SectionId } from "./sectionOrder.ts";
 import { splitTrailingDate } from "./projectDate.ts";
+import { splitProjectLabel } from "./projectLabels.ts";
 import { normalizeProfile } from "./profile.ts";
 import { prepareCvDocument } from "./cvDocument.ts";
 import { parseBoldSegments, stripBoldMarkers } from "./markdownText.ts";
@@ -220,7 +221,8 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any, d: Density): P
 
     // Title (bold), with any trailing date ("Project Name | 2026") split off
     // and right-aligned the same way Experience/Education dates are.
-    const { title: projectTitle, date: projectDate } = splitTrailingDate(meta.name || "");
+    const { title: fullTitle, date: projectDate } = splitTrailingDate(meta.name || "");
+    const { head: projectTitle, label: projectLabel } = splitProjectLabel(fullTitle);
     out.push(...datedHeaderParagraph(projectTitle, projectDate, {
       width: textColumnWidth(d),
       spacingBefore: d.jobBefore,
@@ -228,6 +230,12 @@ function buildProjects(projectsMeta: any[], tailoredBullets: any, d: Density): P
       leftSize: 22,
       dateSize: 22,
     }));
+    if (projectLabel) {
+      out.push(new Paragraph({
+        spacing: { after: d.tightAfter },
+        children: buildRuns(projectLabel, { size: 21 }),
+      }));
+    }
     // Tech (same style as body)
     if (meta.tech) {
       out.push(new Paragraph({

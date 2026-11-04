@@ -26,6 +26,7 @@ import Wordmark from "./Wordmark";
 // and tagline sit on the dossier's left rule.
 
 const NAV = [
+  { href: "/app/actions", label: "Actions" },
   { href: "/app/next", label: "What's next" },
   { href: "/app", label: "Tailor" },
   { href: "/applications", label: "Applications" },

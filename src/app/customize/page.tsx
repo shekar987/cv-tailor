@@ -60,6 +60,7 @@ import {
   leadSkillsNotice,
 } from "@/lib/variants";
 import { normalizePreferences, DEFAULT_PREFERENCES, type Preferences, type CvLength } from "@/lib/preferences";
+import { formatRetiredClaims, parseRetiredClaims, MAX_RETIRED_CLAIMS } from "@/lib/retiredClaims";
 import { FORMAT_STYLE_LABELS, type FormatStyleId } from "@/lib/formatStyles/ids";
 import { getUsage } from "@/lib/usage";
 import {
@@ -302,7 +303,7 @@ export default function CustomizePage() {
   const [prefsMsg, setPrefsMsg] = useState("");
   const [prefsError, setPrefsError] = useState("");
   // Which section the last preference save message belongs to.
-  const [prefsMsgAt, setPrefsMsgAt] = useState<"rtw" | "length" | "links" | "style">("rtw");
+  const [prefsMsgAt, setPrefsMsgAt] = useState<"rtw" | "length" | "links" | "style" | "retired">("rtw");
   // The format-style default is the owner's for now (profiles.is_unlimited,
   // read fail-soft through lib/usage): everyone else sees nothing of it.
   const [isOwner, setIsOwner] = useState(false);
@@ -361,7 +362,8 @@ export default function CustomizePage() {
     // grows downward, so its own top doesn't move.
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  async function updatePrefs(patch: Partial<Omit<Preferences, "version">>, at: "rtw" | "length" | "links" | "style", okMsg: string): Promise<boolean> {
+  const [retiredDraft, setRetiredDraft] = useState("");
+  async function updatePrefs(patch: Partial<Omit<Preferences, "version">>, at: "rtw" | "length" | "links" | "style" | "retired", okMsg: string): Promise<boolean> {
     const previous = prefs;
     const updated: Preferences = { ...prefs, ...patch };
     setPrefs(updated);
@@ -539,6 +541,7 @@ export default function CustomizePage() {
         setClaims(registry);
         setVariantsColumnMissing(settings.variantsColumnMissing);
         setPrefs(normalizePreferences(settings.preferences));
+        setRetiredDraft(formatRetiredClaims(normalizePreferences(settings.preferences).retiredClaims));
         setPrefsColumnMissing(settings.preferencesColumnMissing);
         const vc = normalizeVariants(settings.variants);
         if (vc) {
@@ -1715,6 +1718,35 @@ export default function CustomizePage() {
                 {claimsMsg && <StatusText tone="success" className="msgBelow" role="status">{claimsMsg}</StatusText>}
               </>
             )}
+            <div className="retiredClaims" data-retired-claims>
+              <label className="label" htmlFor="retiredClaimsText">Wording your CV must never say</label>
+              <p className="cvHelp cvHelpTight">
+                One phrase a line, up to {MAX_RETIRED_CLAIMS}. Write <code>phrase =&gt; what to say instead</code> to replace it; with nothing after
+                the arrow, the sentence or bullet that says it is removed. A tailored CV or letter that still says one can&apos;t be downloaded.
+              </p>
+              <textarea
+                id="retiredClaimsText"
+                className="textInput"
+                rows={4}
+                value={retiredDraft}
+                onChange={(e) => setRetiredDraft(e.target.value)}
+                data-retired-claims-text
+              />
+              <div className="actions">
+                <Button
+                  variant="secondary"
+                  data-retired-claims-save
+                  onClick={async () => {
+                    const rules = parseRetiredClaims(retiredDraft);
+                    if (await updatePrefs({ retiredClaims: rules }, "retired", `Saved: ${rules.length} on your list.`)) setRetiredDraft(formatRetiredClaims(rules));
+                  }}
+                >
+                  Save the list
+                </Button>
+                {prefsMsgAt === "retired" && prefsMsg && <StatusText as="span" tone="success" role="status">{prefsMsg}</StatusText>}
+                {prefsMsgAt === "retired" && prefsError && <StatusText as="span" role="alert">{prefsError}</StatusText>}
+              </div>
+            </div>
           </CollapsibleSection>
         )}
 

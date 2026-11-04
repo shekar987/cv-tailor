@@ -33,6 +33,7 @@
 import { normalizeProjectLinks, type SavedProjectLinks } from "./projectLinks.ts";
 import { rightToWorkStatement, type RtwFacts } from "./rightToWorkText.ts";
 import { normalizeFormatStyle, type FormatStyleId } from "./formatStyles/ids.ts";
+import { normalizeRetiredClaims, type RetiredClaim } from "./retiredClaims.ts";
 
 // formatStyle (16 Oct 2026): the document's format style, UKJI (the default,
 // the shape the app always produced) or CareerSet (lib/formatStyles). The
@@ -56,9 +57,11 @@ export type Preferences = {
   cvLength: CvLength;
   projectLinks: SavedProjectLinks;
   formatStyle: FormatStyleId;
+  // Wording this user's CV must never carry (lib/retiredClaims).
+  retiredClaims: RetiredClaim[];
 };
 
-export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false, cvLength: "two", projectLinks: {}, formatStyle: "ukji" };
+export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false, cvLength: "two", projectLinks: {}, formatStyle: "ukji", retiredClaims: [] };
 
 export function normalizePreferences(v: unknown): Preferences {
   const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -70,6 +73,7 @@ export function normalizePreferences(v: unknown): Preferences {
     cvLength,
     projectLinks: normalizeProjectLinks(o.projectLinks),
     formatStyle: normalizeFormatStyle(o.formatStyle),
+    retiredClaims: normalizeRetiredClaims(o.retiredClaims),
   };
 }
 

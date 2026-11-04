@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody, declaresMoreThan, payloadTooLarge } from "@/lib/routeAuth";
 import { buildCoverLetterPdf } from "@/lib/buildCoverLetterPdf";
 import { MAX_COVER_LETTER_CHARS, MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
+import { documentRules, retiredRefusal } from "@/lib/documentGuard";
 import { extractPdfText, checkPdfTextLayer, countWords } from "@/lib/pdfTextCheck";
 
 // 'nodejs' is already the Next 16 default; pinned because src/lib/pdfText.ts
@@ -27,6 +28,10 @@ export async function POST(req: NextRequest) {
     if (text.length > MAX_COVER_LETTER_CHARS) {
       return NextResponse.json({ error: "Cover letter is too long." }, { status: 400 });
     }
+    // Wording this user has ruled out is never built (lib/retiredClaims).
+    const { rules } = await documentRules(caller);
+    const retired = retiredRefusal(text, rules);
+    if (retired) return retired;
 
     const bytes = buildCoverLetterPdf(text);
 
