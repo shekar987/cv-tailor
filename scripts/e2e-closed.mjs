@@ -66,6 +66,7 @@ const puts = [];
 const patches = [];
 let refused = 0;
 let failNextLesson = false;
+let warnNextClose = false;
 
 async function standIn(ctx) {
   await ctx.route(/\/api\/actions(\?.*)?$/, (r) => r.fulfill({ json: { events: openEvents, closedByConfirmation: [], applications: [], availability: [] } }));
@@ -120,7 +121,9 @@ async function standIn(ctx) {
       target.stages_reached = stagesAfterMove(target.stages_reached, status);
       target.status = status;
     }
-    await r.fulfill({ json: { ok: true, ...(closedFrom ? { closedFrom } : {}), ...(followupCleared ? { followupCleared } : {}) } });
+    const warning = warnNextClose && closedFrom ? "The status is saved, but the date, reason and lesson are not: run migration 20261104130000." : undefined;
+    if (warning) warnNextClose = false;
+    await r.fulfill({ json: { ok: true, ...(closedFrom ? { closedFrom } : {}), ...(followupCleared ? { followupCleared } : {}), ...(warning ? { warning } : {}) } });
   });
 }
 
@@ -347,6 +350,30 @@ try {
   check("+ Add application leaves Wins for the form", (await page.locator("[data-wins]").count()) === 0 && (await page.locator("h1").innerText()) !== "Wins");
   await page.reload({ waitUntil: "load" });
 
+  // ── A close the server could only half save says so ───────────────────────
+  await open();
+  warnNextClose = true;
+  await page.locator('[data-stage-row="Delta"] [data-row-menu]').click();
+  await page.locator('[data-menu-item="move-closed"]').click();
+  await page.locator("[data-close-submit]").click();
+  await page.waitForTimeout(300);
+  check("the warning reaches the user", /run migration 20261104130000/.test(await page.locator(".limitNotice").first().innerText()), await page.locator(".limitNotice").first().innerText().catch(() => ""));
+  await page.locator("[data-toast-undo]").click();
+  await page.waitForTimeout(250);
+
+  // ── A sweep moved the row since this page loaded ─────────────────────────
+  await open("applied");
+  const staleRow = byName("Plain1");
+  staleRow.status = "screening";
+  staleRow.stages_reached = ["applied", "screening"];
+  await page.locator('[data-stage-row="Plain1"] [data-stage-status]').selectOption("rejected");
+  await page.waitForTimeout(300);
+  check("a stale page gets the dialog, not a raw refusal", await page.locator("[data-close-dialog]").isVisible());
+  await page.locator("[data-close-cancel]").click();
+  staleRow.status = "applied";
+  staleRow.stages_reached = ["applied"];
+  refused = 0;
+
   // ── Moving a row below screening asks, and keeps the proof until it is said ──
   await open();
   const beforeBack = puts.length;
@@ -358,6 +385,7 @@ try {
   await page.locator("[data-confirm-cancel]").click();
   await page.waitForTimeout(150);
   check("Cancel leaves it", byName("Charlie").status === "screening");
+  check("and the select shows where it still is", (await page.locator('[data-stage-row="Charlie"] [data-stage-status]').inputValue()) === "screening");
   await page.locator('[data-stage-row="Charlie"] [data-stage-status]').selectOption("applied");
   await ask.waitFor({ timeout: 5000 });
   await page.locator("[data-confirm-ok], [data-confirm-dialog] button.cta:not(.secondary)").first().click();
@@ -380,13 +408,22 @@ try {
   check("What's next asks in the same dialog", await planPage.locator("[data-close-dialog]").isVisible());
   check("with the reason it was asked for", (await planPage.locator("[data-close-reason]").inputValue()) === "rejected");
   await planPage.locator("[data-close-cancel]").click();
-  const stillThere = (await (await fetch(`${BASE}/api/applications`, { headers: { cookie } })).json()).applications.find((r) => r.id === realRow.id);
+  const realRead0 = async () => (await (await fetch(`${BASE}/api/applications`, { headers: { cookie } })).json()).applications.find((r) => r.id === realRow.id);
+  const stillThere = await realRead0();
   check("Cancel moves nothing on the real row", stillThere.status === "Interview", stillThere.status);
   // And through: the real PUT, with or without the closing columns.
   await waiting.locator("[data-waiting-reject]").click();
   await planPage.locator("[data-close-lesson]").fill("wanted 3+ yrs");
+  const realPut = planPage.waitForResponse((r) => r.url().endsWith("/api/applications") && r.request().method() === "PUT", { timeout: 30000 });
   await planPage.locator("[data-close-submit]").click();
+  const realBody = await (await realPut).json();
   await planPage.locator("[data-toast-undo]").waitFor({ timeout: 15000 });
+  if (realBody.warning) {
+    console.log("info: the closing columns are not on this database yet");
+    check("What's next shows the warning", (await planPage.locator('[role="alert"]').allInnerTexts()).some((t) => /20261104130000/.test(t)));
+  } else {
+    check("the real row stores the close", /^\d{4}-\d{2}-\d{2}/.test((await realRead0()).closed_at ?? "") && (await realRead0()).lesson === "wanted 3+ yrs", JSON.stringify(await realRead0()).slice(0, 200));
+  }
   const realRead = async () => (await (await fetch(`${BASE}/api/applications`, { headers: { cookie } })).json()).applications.find((r) => r.id === realRow.id);
   check("the real route takes the user's word", (await realRead()).status === "Rejected", (await realRead()).status);
   check("the toast says it moved", /Moved to Closed/.test(await planPage.locator("[data-toast]").innerText()));

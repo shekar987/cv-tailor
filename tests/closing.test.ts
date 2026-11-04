@@ -106,6 +106,8 @@ test("closed_at can't be written around the rule", () => {
   const plain = { status: "applied", stages_reached: ["applied"] };
   assert.equal(refused(decideClosingWrite(plain, { status: "rejected", closed_at: "2026-11-02T12:00:00.000Z" }, noFlags, NOW))?.status, 409, "a date needs the word on any row");
   assert.ok(fieldsOf(decideClosingWrite(null, { lesson: "wanted 3+ yrs" }, noFlags, NOW)), "a lesson edits alone");
+  const ended = { status: "rejected", stages_reached: ["applied", "screening", "rejected"] };
+  assert.equal(refused(decideClosingWrite(ended, { status: "rejected", closed_at: null, close_reason: null }, noFlags, NOW))?.status, 409, "nor wiping a close by writing the same status");
 });
 
 test("a detected outcome goes through its own route, so the merge rule holds", () => {
@@ -155,6 +157,8 @@ test("the chip says how far it got, more exactly where an event says", () => {
   assert.equal(progressChip(screened, [{ kind: "video", status: "cancelled" }]), "Screening call", "a cancelled video never happened");
   assert.equal(progressChip(screened, [{ kind: "screening_questions" }]), "Screening call", "answers to questions are not a test");
   assert.equal(progressChip({ stages_reached: ["interview"] }, [{ kind: "interview", title: "Final panel" }]), "Final", "the title can say so too");
+  assert.equal(progressChip({ stages_reached: ["interview"] }, [{ kind: "interview", title: "Final Year Placement interview" }]), "Interview", "a final-year placement is not a final round");
+  assert.equal(progressChip(screened, [{ kind: "video", status: "to_book" }]), "Screening call", "never booked");
   assert.equal(progressChip(screened, [{ kind: "video" }]), "Video");
   assert.equal(progressChip({ stages_reached: ["applied", "assessment"] }), "Test");
   assert.equal(progressChip({ stages_reached: ["interview"] }), "Interview");

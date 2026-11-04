@@ -75,10 +75,10 @@ const TEST_KINDS: ReadonlySet<string> = new Set(["assessment", "take_home", "wor
 /** The chip on a closed row, more exact where an event says so: a video, a final round. */
 export function progressChip(row: StageFields, events: readonly ChipEvent[] = []): string {
   const stage = highestStage(row);
-  // What was cancelled never happened, so it says nothing about how far the row got.
-  const held = events.filter((e) => e.status !== "cancelled");
+  // What was cancelled or never booked says nothing about how far the row got.
+  const held = events.filter((e) => e.status !== "cancelled" && e.status !== "to_book");
   if (stage === "offer") return "Offer";
-  if (stage === "interview") return held.some((e) => e.kind === "interview" && /\bfinal\b/i.test(`${e.stage_label ?? ""} ${e.title ?? ""}`)) ? "Final" : "Interview";
+  if (stage === "interview") return held.some((e) => e.kind === "interview" && /\bfinal\b(?!\s+year)/i.test(`${e.stage_label ?? ""} ${e.title ?? ""}`)) ? "Final" : "Interview";
   if (stage === "assessment" || held.some((e) => e.kind === "video" || TEST_KINDS.has(e.kind))) {
     return held.some((e) => e.kind === "video") ? "Video" : "Test";
   }
@@ -213,6 +213,9 @@ export function decideClosingWrite<W extends ClosingWrite>(
   const { status } = fields;
   if (("closed_at" in fields || "close_reason" in fields) && status === undefined) return { refuse: { status: 400, error: "A close needs a status." } };
   if ((fields.closed_at != null || fields.close_reason != null) && !(flags.confirmed && isEnding(status))) {
+    return { refuse: { status: 409, error: CONFIRMATION_MESSAGE, errorType: "needs_confirmation" } };
+  }
+  if (("closed_at" in fields || "close_reason" in fields) && isEnding(status) && !flags.confirmed) {
     return { refuse: { status: 409, error: CONFIRMATION_MESSAGE, errorType: "needs_confirmation" } };
   }
   if (fields.pending_outcome != null && !(status !== undefined && !isEnding(status) && fields.closed_at === null)) {

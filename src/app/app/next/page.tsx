@@ -185,6 +185,7 @@ export default function NextPage() {
       setActionError(body.error || "Could not save that change. Try again.");
       return null;
     }
+    if (typeof body.warning === "string") setActionError(body.warning);
     return body;
   }
 

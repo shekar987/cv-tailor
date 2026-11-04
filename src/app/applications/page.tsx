@@ -28,7 +28,7 @@ import StageTabs, { type TabChoice } from "./StageTabs";
 import ClosedSection, { type ClosedRow } from "./ClosedSection";
 import WinsView from "./WinsView";
 import MoveToClosedDialog, { closeBody, undoCloseFlag, type CloseChoice } from "@/components/MoveToClosedDialog";
-import { activePending, closedRows, highestStage, isClosed, isEnding, isMoveBack, liveOrder, needsConfirmation, normalizePendingOutcome, pendingLine, reachedScreening, reasonForStatus, stageSummary, type CloseReason, type PendingOutcome, type StageTab } from "@/lib/closing";
+import { CONFIRMATION_MESSAGE, activePending, closedRows, highestStage, isClosed, isEnding, isMoveBack, liveOrder, needsConfirmation, normalizePendingOutcome, pendingLine, reachedScreening, reasonForStatus, stageSummary, type CloseReason, type PendingOutcome, type StageTab } from "@/lib/closing";
 import RowMenu, { type RowMenuItem } from "./RowMenu";
 import NextStepCell from "./NextStepCell";
 import EventForm, { type EventFormMode } from "../app/next/EventForm";
@@ -1056,6 +1056,7 @@ export default function ApplicationsPage() {
     // server and wrote the old date into the notes; mirror both.
     const autoClose = data.autoClose as { message?: unknown } | undefined;
     autoCloseNote.current = typeof autoClose?.message === "string" ? autoClose.message : null;
+    if (typeof data.warning === "string") setNotice(data.warning);
     const cleared = data.followupCleared as { followup_date: null; notes: string | null } | undefined;
     lastFollowupCleared.current = cleared ?? null;
     if (cleared) {
@@ -1266,6 +1267,10 @@ export default function ApplicationsPage() {
     // Back at an open stage the row is Live again; the server clears the same fields.
     const reopened = !isEnding(status) && isClosed(row) ? { closed_at: null, close_reason: null } : {};
     void patchRow(row.id, { status, stages_reached: stagesAfterMove(row.stages_reached, status), ...reopened }, movingBack ? { confirmed_move_back: true } : {}).then((message) => {
+      if (message === CONFIRMATION_MESSAGE) {
+        openClose(row, reasonForStatus(status));
+        return;
+      }
       setActionError(message ?? "");
       setStageRefresh((n) => n + 1);
     });

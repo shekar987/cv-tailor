@@ -34,6 +34,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     let next: unknown;
     let ignored = false;
+    let closedNote = false;
     if (body.clear === true) {
       next = null;
     } else if (body.dismiss === true) {
@@ -42,11 +43,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     } else {
       const incoming = normalizePendingOutcome(body);
       if (!incoming) return NextResponse.json({ error: "Send an outcome (rejected, withdrawn or ghosted) and a date (YYYY-MM-DD)." }, { status: 400 });
-      // A row that already ended has nothing left to confirm: the sweep's next report is old news.
-      if (isEnding(row.status)) return NextResponse.json({ ok: true, status: apiStatus(row.status), pending_outcome: normalizePendingOutcome(row.pending_outcome), ignored: "closed" });
-      const merged = mergePendingOutcome(row.pending_outcome, { ...incoming, dismissed: undefined });
-      next = merged.value;
-      ignored = merged.ignored;
+      if (isEnding(row.status)) {
+        // A row that already ended has nothing left to confirm: the sweep's next report is old
+        // news. Remembered as answered, so the same report after a Reopen raises no banner.
+        const stored = normalizePendingOutcome(row.pending_outcome);
+        next = stored ?? { ...incoming, dismissed: true };
+        ignored = !!stored;
+        closedNote = true;
+      } else {
+        const merged = mergePendingOutcome(row.pending_outcome, { ...incoming, dismissed: undefined });
+        next = merged.value;
+        ignored = merged.ignored;
+      }
     }
     // Only this column. Nothing here can move the row.
     if (!ignored) {
@@ -56,7 +64,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         return NextResponse.json({ error: "Could not save that outcome" }, { status: 500 });
       }
     }
-    return NextResponse.json({ ok: true, status: apiStatus(row.status), pending_outcome: next, ...(ignored ? { ignored: "dismissed" } : {}) });
+    return NextResponse.json({ ok: true, status: apiStatus(row.status), pending_outcome: next, ...(closedNote ? { ignored: "closed" } : ignored ? { ignored: "dismissed" } : {}) });
   } catch (err) {
     console.error("pending-outcome error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not save that outcome" }, { status: 500 });

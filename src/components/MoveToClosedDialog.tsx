@@ -35,14 +35,14 @@ export default function MoveToClosedDialog({
   onSubmit: (choice: CloseChoice) => void;
 }) {
   const [picked, setPicked] = useState<CloseReason>(reason);
-  const [day, setDay] = useState(date);
+  const [today] = useState(() => new Date().toLocaleDateString("en-CA"));
+  // A close is something that has happened, so a date reported ahead starts at today.
+  const [day, setDay] = useState(date > today ? today : date);
   const [note, setNote] = useState(lesson ?? "");
   const box = useRef<HTMLDivElement>(null);
   const first = useRef<HTMLSelectElement>(null);
   const titleId = useId();
-  const [today] = useState(() => new Date().toLocaleDateString("en-CA"));
   const closedAt = closedAtFromDate(day);
-  // A close is something that has happened.
   const usable = !!closedAt && day <= today;
 
   // Focus in, back to what opened it on close; the page behind keeps still.

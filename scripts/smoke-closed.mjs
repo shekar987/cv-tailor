@@ -123,6 +123,16 @@ try {
     check("a lesson edits alone", (await put(id, { lesson: "wanted 3+ yrs" })).status === 200 && (await read(id)).lesson === "wanted 3+ yrs" && (await read(id)).status === "Rejected");
     check("a sweep's write of the same status moves nothing and lands", (await put(id, { status: "Rejected", notes: "Sweep note" })).status === 200);
 
+    // What's next closes without having read the lesson: an absent one must not wipe it.
+    const kept = await add("Screening", "Kept lesson");
+    await put(kept, { lesson: "keep this" });
+    const keptClose = await (await put(kept, { status: "Rejected", confirmed_by_user: true })).json();
+    check("a close that sends no lesson keeps the stored one", (await read(kept)).lesson === "keep this");
+    check("and hands it back for Undo", keptClose.closedFrom?.lesson === "keep this", json(keptClose.closedFrom));
+    check("a same-status write can't wipe a close", (await put(kept, { status: "Rejected", closed_at: null, close_reason: null })).status === 409 && !!(await read(kept)).closed_at);
+    const reported = await (await a.call(pendingUrl(bare), { method: "PATCH", body: json({ outcome: "rejected", date: "2026-11-09", source: "sweep" }) })).json();
+    check("a first report on a closed row is remembered as answered", reported.ignored === "closed" && (await read(bare)).pending_outcome?.dismissed === true, json(reported).slice(0, 160));
+
     // ── Replacing a close, and undoing that ────────────────────────────────
     const replaced = await put(id, { status: "Withdrawn", confirmed_by_user: true, closed_at: "2026-11-03T12:00:00.000Z", close_reason: "role_closed" });
     check("another ending needs the word too", (await put(id, { status: "Ghosted" })).status === 409 && replaced.status === 200);
