@@ -8,7 +8,7 @@ import {
   addDays, clockTime, countdown, dayKey, daysBetween, formatWhen, isClockTime, isDayKey, isValidTimeZone, longDay, mondayOf, span, weekdayOf, zonedTimeToMs,
 } from "./planTime.ts";
 
-export const EVENT_KINDS = ["screening_call", "interview", "assessment", "take_home", "deadline", "follow_up", "offer_deadline", "networking"] as const;
+export const EVENT_KINDS = ["screening_call", "interview", "assessment", "take_home", "deadline", "follow_up", "offer_deadline", "networking", "video", "work_trial", "screening_questions"] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 export const EVENT_KIND_LABELS: Record<EventKind, string> = {
   screening_call: "Screening call",
@@ -19,10 +19,20 @@ export const EVENT_KIND_LABELS: Record<EventKind, string> = {
   follow_up: "Follow-up",
   offer_deadline: "Offer deadline",
   networking: "Networking",
+  video: "Video interview",
+  work_trial: "Work trial",
+  screening_questions: "Screening questions",
 };
 export const EVENT_STATUSES = ["scheduled", "to_book", "done", "cancelled", "missed"] as const;
 export type EventStatus = (typeof EVENT_STATUSES)[number];
-export const EVENT_SOURCES = ["manual", "gmail", "calendar"] as const;
+export const EVENT_SOURCES = ["manual", "gmail", "calendar", "aiapply"] as const;
+// What a request may say: which inbox holds the email, nothing more. A body can never
+// claim an event came from a calendar import.
+const CHOOSABLE_SOURCES: readonly string[] = ["manual", "gmail", "aiapply"];
+/** The source a request names, or "manual". */
+export function readEventSource(value: unknown): string {
+  return typeof value === "string" && CHOOSABLE_SOURCES.includes(value) ? value : "manual";
+}
 
 export type Slot = { starts_at: string; ends_at: string | null };
 
@@ -43,6 +53,9 @@ export type PlanEvent = {
   offered_slots?: Slot[];
   status: EventStatus;
   source?: string;
+  snoozed_until?: string | null;
+  closed_by?: string | null;
+  closed_at?: string | null;
 };
 
 export type PlanApplication = {

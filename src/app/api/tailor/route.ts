@@ -1,4 +1,6 @@
 import { guardFacts } from "@/lib/factGuard";
+import { applyRetired, applyRetiredToBullets, findRetired, mergeReports, type RetiredClaim, type RetiredReport } from "@/lib/retiredClaims";
+import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { callLLM, Provider, ProviderRateLimitError, ProviderCreditError, MODELS } from "@/lib/claude";
@@ -151,6 +153,8 @@ async function runPipeline(opts: {
   // stated years and whether the posting is a graduate scheme. Both measure
   // with the document profile below.
   cvLength: CvLength;
+  // Wording this user's CV must never carry (lib/retiredClaims).
+  retiredClaims: RetiredClaim[];
   profile: unknown;
   // The user's Eligibility answers (lib/knockouts): the stated years for the
   // header line, and the one source of every right-to-work and availability
@@ -185,7 +189,7 @@ async function runPipeline(opts: {
   // uses is a field of it — the route never branches on the id.
   style: FormatStyle;
 }) {
-  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, cvLength, profile, eligibility, style } = opts;
+  const { provider, apiKeyOverride, jd, cv, projectNames, precomputedAnalysis, companyResearch, projectsPool, claims, variant, omitRightToWork, cvLength, retiredClaims, profile, eligibility, style } = opts;
   const yearsExperience = eligibility.yearsExperience;
   // Fast mode on OpenRouter: free models take 30–50 s per call, so the four
   // optional polish retries (title, bullet lint, claims rewrite, letter
@@ -668,7 +672,8 @@ async function runPipeline(opts: {
         skills: typeof s.skills === "string" ? s.skills : "",
         experience: typeof s.experience === "string" ? s.experience : "",
         projects: (s.projects ?? {}) as Record<string, string[]>,
-        projectsMeta: metas as unknown[],
+        // Measured as it will print, each project's own label included (lib/projectLabels).
+        projectsMeta: withProjectLabels(metas as { name?: unknown }[], projectLabels(cv, projectsPool)),
         // CareerSet measures with the run's own headline and its printed addresses; UKJI as before.
         profile: style.render.measureRunHeader && profile && typeof profile === "object" ? { ...(profile as Record<string, unknown>), tagline: headline } : profile,
         targetPages: target,
@@ -1060,6 +1065,17 @@ async function runPipeline(opts: {
     summaryRebuild = e.report;
     if (e.report.rebuilt && availabilityLine) rightToWork.appended = availabilityLine;
   }
+  // The user's list and the two phrases no CV should print (lib/retiredClaims). The
+  // letter goes here, so a removed point renumbers and the page fit and the list's
+  // count below read the result; the CV goes last, below, because the page fit can
+  // restore a master bullet.
+  const retiredReports: RetiredReport[] = [];
+  if (typeof coverLetter === "string") {
+    const r = applyRetired(coverLetter, retiredClaims);
+    coverLetter = r.text;
+    retiredReports.push(r.report);
+    tidyPoints();
+  }
   const spellingChanges: SpellingChange[] = [];
   const protect = new Set<string>();
   for (const r of masterRoles) for (const w of r.header.split(/[\s|—–,()]+/)) if (w) protect.add(w);
@@ -1104,6 +1120,27 @@ async function runPipeline(opts: {
   letterCheck.honestGap.stated = typeof coverLetter === "string" && hasHonestGap(coverLetter);
   if (style.letter.renumberPoints && typeof coverLetter === "string") {
     letterCheck.points = { found: countNumberedPoints(coverLetter), expected: style.letter.points, ...pointsTidy };
+  }
+  if (typeof summary === "string") {
+    const r = applyRetired(summary, retiredClaims);
+    summary = r.text;
+    retiredReports.push(r.report);
+  }
+  if (typeof skillsFinal === "string") {
+    const r = applyRetired(skillsFinal, retiredClaims);
+    skillsFinal = r.text;
+    retiredReports.push(r.report);
+  }
+  if (typeof experienceFinal === "string") {
+    const r = applyRetired(experienceFinal, retiredClaims);
+    experienceFinal = r.text;
+    retiredReports.push(r.report);
+  }
+  if (projectsFinal && typeof projectsFinal === "object") {
+    const r = applyRetiredToBullets(projectsFinal as Record<string, unknown>, retiredClaims);
+    projectsFinal = r.projects;
+    retiredReports.push(r.report);
+    if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: ((r.projects[String(i)] as string[] | undefined) ?? p.bullets) }));
   }
   const finalSections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
   const finalText = tailoredSectionsText(finalSections, style.skills);
@@ -1173,6 +1210,11 @@ async function runPipeline(opts: {
     masterCvNotes,
     // lib/factGuard: degree labels fixed, tools dropped, JD phrases in the summary.
     factGuard: factGuard.report,
+    // lib/retiredClaims: what the user's list changed, and what it could not fix.
+    retiredClaims: {
+      ...mergeReports(...retiredReports),
+      remaining: findRetired([finalText, typeof coverLetter === "string" ? coverLetter : ""].join("\n"), retiredClaims),
+    },
     // lib/summaryFallback: the summary rebuilt from the master CV (CareerSet), or null.
     summaryRebuild,
     // lib/headline guardTaglineLanguage: the built header led with a technology
@@ -1324,6 +1366,7 @@ export async function POST(req: NextRequest) {
         variant: bodyVariant,
         omitRightToWork: !preferences.includeRightToWorkOnCv,
         cvLength: preferences.cvLength,
+        retiredClaims: preferences.retiredClaims,
         profile: bodyProfile,
         eligibility,
         style,

@@ -23,7 +23,7 @@ export type EventFormMode =
 type When = "time" | "deadline" | "book";
 type PickerRow = Pick<PlanApplication, "id" | "company_name" | "role" | "status">;
 
-const DEADLINE_KINDS: ReadonlySet<EventKind> = new Set<EventKind>(["assessment", "take_home", "deadline", "offer_deadline", "follow_up"]);
+const DEADLINE_KINDS: ReadonlySet<EventKind> = new Set<EventKind>(["assessment", "take_home", "deadline", "offer_deadline", "follow_up", "video", "work_trial", "screening_questions"]);
 // The stage an event proves. A deadline, a follow-up or a networking call proves none.
 const STAGE_FOR_KIND: Partial<Record<EventKind, Status>> = {
   screening_call: "screening",
@@ -31,6 +31,9 @@ const STAGE_FOR_KIND: Partial<Record<EventKind, Status>> = {
   assessment: "assessment",
   take_home: "assessment",
   offer_deadline: "offer",
+  video: "interview",
+  work_trial: "assessment",
+  screening_questions: "screening",
 };
 const DEFAULT_TITLES: Record<EventKind, string> = { ...EVENT_KIND_LABELS };
 
@@ -196,7 +199,7 @@ export default function EventForm({
       const res = await fetch("/api/events", {
         method: savedId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(savedId ? { id: savedId, ...body } : { ...body, application_id: application?.id ?? null }),
+        body: JSON.stringify(savedId ? { id: savedId, ...body } : { ...body, application_id: application?.id ?? null, ...(seed?.source ? { source: seed.source } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error || "Could not save that event."); return; }

@@ -214,7 +214,9 @@ export function fixAreasCount(letter: string): { text: string; fixed: { from: st
   if (stated === points) return { text: letter, fixed: null };
   let to = /^\d+$/.test(m[1]) || points > 10 ? String(points) : NUMBER_WORDS[points];
   if (/^[A-Z]/.test(m[1])) to = capitalise(to);
-  lines[at] = lines[at].replace(AREAS_RE, `${to}$2$3`);
+  // One point left: "these are the one areas" (printed on 3 Nov) is not English.
+  lines[at] = lines[at].replace(AREAS_RE, (_all, _n, gap: string, noun: string) => `${to}${gap}${points === 1 ? noun.replace(/s$/i, "") : noun}`);
+  if (points === 1) lines[at] = lines[at].replace(/\b([Tt])hese are\b/, (_m, t: string) => (t === "T" ? "This is" : "this is")).replace(/\b([Tt])here are\b/, (_m, t: string) => (t === "T" ? "There is" : "there is"));
   return { text: lines.join("\n"), fixed: { from: m[1], to } };
 }
 

@@ -3918,3 +3918,29 @@ td[data-stage-deadline][data-soon] .stageDue { color: var(--danger); font-weight
 .pipeLabel { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
 
 .stageCellLoading { display: block; width: 72px; }
+
+/* The Action Centre (lib/actionCentre). The state is always an icon and words as well as a colour. */
+.actionList { list-style: none; display: flex; flex-direction: column; gap: var(--space-3); margin: 0 0 var(--space-8); padding: 0; max-width: 860px; }
+.actionCard { border-left-width: 3px; }
+.actionCard[data-urgency="red"] { border-left-color: var(--danger); }
+.actionCard[data-urgency="amber"] { border-left-color: var(--amber); }
+.actionCard[data-urgency="green"] { border-left-color: var(--success); }
+.actionUrgency { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-xs); font-weight: 500; padding: 1px var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--border-card); color: var(--text-subtle); white-space: nowrap; }
+.planCardWhen .actionUrgency svg { color: currentColor; }
+.actionUrgency[data-urgency="red"] { color: var(--danger); border-color: var(--danger-border); background: var(--danger-dim); }
+.actionUrgency[data-urgency="amber"] { color: var(--amber-bright); border-color: var(--amber-border); background: var(--amber-dim); }
+.actionUrgency[data-urgency="green"] { color: var(--success); border-color: var(--success-border); background: var(--success-dim); }
+.actionToolbarButtons { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.actionQuickAdd { display: flex; flex-direction: column; gap: var(--space-3); max-width: 860px; margin-bottom: var(--space-6); padding: var(--space-4); background: var(--surface); border: 1px solid var(--border-card); border-radius: var(--radius-lg); box-shadow: var(--surface-inset); }
+.actionQuickAddText { width: 100%; }
+.actionQuickAddRow { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+.actionQuickAddRow select { min-width: 0; max-width: 100%; }
+.actionQuickAddField { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.actionQuickAddWhen { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.actionQuickAddRead { font-size: var(--text-sm); color: var(--text-subtle); overflow-wrap: anywhere; }
+.actionQuickAddConfirm { display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm); color: var(--text-subtle); padding: var(--space-3); border: 1px solid var(--border-card); border-radius: var(--radius-md); }
+.actionQuickAddActions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.actionClosed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); max-width: 860px; font-size: var(--text-sm); color: var(--text-subtle); }
+.actionClosed li { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: baseline; overflow-wrap: anywhere; }
+.actionQuickAddWhen .textInput { width: 170px; max-width: 100%; }
+.retiredClaims { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--border); }

@@ -39,6 +39,8 @@ import { normalizeFormatStyle, STYLE_RULES, FORMAT_STYLE_LABELS, type FormatStyl
 import { checkStyle, summarizeStyleCheck, type StyleCheckItem } from "@/lib/styleCheck";
 import type { MasterCvNote } from "@/lib/stylePass";
 import { attachProjectLinks, linksForProject, projectKey } from "@/lib/projectLinks";
+import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
+import { findRetired, retiredBlockMessage, type RetiredReport } from "@/lib/retiredClaims";
 import type { SkillLinesFix } from "@/lib/formatRules";
 import type { SeniorityFit } from "@/lib/seniority";
 import { isGraduateScheme, graduateSectionOrder } from "@/lib/graduateMode";
@@ -199,6 +201,8 @@ type Result = {
   masterCvNotes?: MasterCvNote[];
   // lib/factGuard: degree labels fixed, tools dropped, JD phrases in the summary.
   factGuard?: FactGuardReport;
+  // lib/retiredClaims: what the user's list changed, and what it could not fix.
+  retiredClaims?: RetiredReport & { remaining: string[] };
   // "Changes vs master CV" (lib/bulletIds): the finished bullets against the
   // master's own — kept, edited (which words), reverted, dropped, new.
   bulletChanges?: { protocol: boolean; headers?: HeaderLock | null; chronology?: ChronologyReport | null; experience: BulletChanges | null; projects: RoleChanges[] };
@@ -422,6 +426,8 @@ export default function Home() {
   const [result, setResult] = useState<Result | null>(null);
   // Fact-guard items the user has OK'd, as "<run>|<kind>:<item>".
   const [factGuardOk, setFactGuardOk] = useState<string[]>([]);
+  // The user's list against the preview as edited (lib/retiredClaims); null until the first edit.
+  const [liveRetired, setLiveRetired] = useState<{ cv: string[]; letter: string[] } | null>(null);
   const [error, setError] = useState("");
   const [errorType, setErrorType] = useState<string | null>(null); // "user_limit" | "provider_limit" | null
   // Which step raised the provider notice, so its title tells the truth.
@@ -1004,6 +1010,20 @@ export default function Home() {
   const activeCheck: ClaimCheck | null = liveCheck ?? result?.claimCheck ?? null;
   const claimIssues = activeCheck ? activeCheck.skillViolations.length + activeCheck.numberViolations.length : 0;
   const blocked = !!activeCheck?.blocking;
+  const retiredNow = liveRetired ?? (result
+    ? {
+        cv: findRetired(
+          tailoredSectionsText(
+            { summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects },
+            STYLE_RULES[normalizeFormatStyle(result.formatStyle)].skills
+          ),
+          preferences.retiredClaims
+        ),
+        letter: findRetired(result.coverLetter ?? "", preferences.retiredClaims),
+      }
+    : { cv: [], letter: [] });
+  const retiredCvReason = retiredNow.cv.length > 0 ? retiredBlockMessage(retiredNow.cv) : undefined;
+  const retiredLetterReason = retiredNow.letter.length > 0 ? retiredBlockMessage(retiredNow.letter) : undefined;
   // The first thing holding the download shut, as the sentence and the rule
   // it breaks — shown beside the Download button, not only in the notice.
   const downloadReason: string | undefined = (() => {
@@ -1022,9 +1042,9 @@ export default function Home() {
   // selected from the master bullets and checked by the claims check.
   const letterUnchecked = !!result?.coverLetter && !!result.supportCheck?.skipped;
   const letterAttested = attestedFor === (tailorSessionId ?? "run");
-  const letterBlocked = blocked || staleRun || (letterUnchecked && !letterAttested);
+  const letterBlocked = blocked || staleRun || !!retiredLetterReason || (letterUnchecked && !letterAttested);
   const letterReason: string | undefined =
-    downloadReason ?? (staleRun ? STALE_REASON : undefined) ?? (letterUnchecked && !letterAttested ? "The fact check did not run on this letter — read every sentence and tick the box to confirm it is true." : undefined);
+    downloadReason ?? (staleRun ? STALE_REASON : undefined) ?? retiredLetterReason ?? (letterUnchecked && !letterAttested ? "The fact check did not run on this letter — read every sentence and tick the box to confirm it is true." : undefined);
 
   // Something "Fix it" can act on: a skill claimed above its level, or a
   // figure absent from the master CV (context warnings never block).
@@ -1169,6 +1189,8 @@ export default function Home() {
       setResult(fresh);
       endGame("done");
       setLiveCheck(null);
+    setLiveRetired(null);
+      setLiveRetired(null);
       setLiveQuality(null);
       setLiveStyleCheck(null);
       setClaimFixReport(null);
@@ -1279,6 +1301,10 @@ export default function Home() {
         runGrafts
       )
     );
+    setLiveRetired({
+      cv: findRetired([cvText, ...(payload?.projectsMeta ?? []).map((p) => p.name)].join("\n"), preferences.retiredClaims),
+      letter: findRetired(letter ?? result.coverLetter ?? "", preferences.retiredClaims),
+    });
     if (payload) {
       const sections = { summary: payload.summary, skills: payload.skills, experience: payload.experience, projects: payload.projects };
       const profileLike = payload.profile ? { ...payload.profile, projects: payload.projectsMeta } : null;
@@ -1381,6 +1407,8 @@ export default function Home() {
       setPreFixResult({ ...result, ...sections, coverLetter: result.coverLetter ? sections.coverLetter : result.coverLetter, claimCheck: claimCheckOf(sections) });
       setResult({ ...result, ...next, coverLetter: result.coverLetter ? next.coverLetter : result.coverLetter, claimCheck: check });
       setLiveCheck(null);
+    setLiveRetired(null);
+      setLiveRetired(null);
       setLiveQuality(null);
       setLiveStyleCheck(null);
       setPreviewKey((k) => k + 1);
@@ -1402,6 +1430,7 @@ export default function Home() {
     setPreFixResult(null);
     setClaimFixReport(null);
     setLiveCheck(null);
+    setLiveRetired(null);
     setLiveQuality(null);
     setPreviewKey((k) => k + 1);
   }
@@ -1739,12 +1768,15 @@ export default function Home() {
     // Each project's GitHub / live links (lib/projectLinks): what the user
     // saved on Customize, else the addresses the master CV or pool give.
     const linkSources = [masterCvText, projectsPool];
-    if (sel.length === 0) return withHeadline(withProjectLinks(profileForDocument(profile, preferences, eligibility), preferences, linkSources));
+    // A project keeps the label its own CV gives it (lib/projectLabels), on every run.
+    const labels = projectLabels(masterCvText, projectsPool);
+    const withLabels = <T extends Profile | null>(p: T): T => (p ? { ...p, projects: withProjectLabels(p.projects, labels) } : p);
+    if (sel.length === 0) return withLabels(withHeadline(withProjectLinks(profileForDocument(profile, preferences, eligibility), preferences, linkSources)));
     // A pool can exist without an extracted profile; render the selection on
     // an empty-but-well-formed base rather than dropping it.
     const base = withHeadline(profileForDocument(profile ?? normalizeProfile({}), preferences, eligibility));
     const selectedNames = sel.map((s) => s.name!.trim());
-    return {
+    return withLabels({
       ...base,
       projects: sel.map((s) => ({
         // "Name | Date" is the stored project-name format splitTrailingDate
@@ -1760,7 +1792,7 @@ export default function Home() {
         ),
         originalBullets: [],
       })),
-    };
+    });
   }, [profile, result, preferences, eligibility, masterCvText, projectsPool]);
 
   // The CV's Right to Work wording for the copy block beside the downloads —
@@ -3408,6 +3440,15 @@ export default function Home() {
             {appliedNotice && (
               <div className="limitNotice" role="status">{appliedNotice}</div>
             )}
+            {!!result?.retiredClaims && (result.retiredClaims.replaced.length > 0 || result.retiredClaims.removed.length > 0) && (
+              <div className="limitNotice" role="status" data-retired-notice>
+                From your list on Customize:{" "}
+                {[
+                  ...result.retiredClaims.replaced.map((r) => `"${r.from}" now reads "${r.to}"`),
+                  ...result.retiredClaims.removed.map((p) => `the line saying "${p}" was removed`),
+                ].join("; ")}.
+              </div>
+            )}
             {factGuardList.length > 0 && (
               <div className="limitNotice factGuardNotice" role="status" data-fact-guard>
                 <div className="limitNotice__title">Check these before you download</div>
@@ -3470,10 +3511,10 @@ export default function Home() {
                 rightToWorkForForms={rtwForForms}
                 rightToWorkUnset={!!eligibility && !rtwForForms}
                 targetPages={onePageTarget}
-                downloadsDisabledReason={contactBlock || downloadReason || (staleRun ? STALE_REASON : undefined)}
+                downloadsDisabledReason={contactBlock || downloadReason || retiredCvReason || (staleRun ? STALE_REASON : undefined)}
                 sectionOrder={runSectionOrder}
                 fileBaseName={buildFileBaseName(displayProfile, result.analysis, "CV")}
-                downloadsDisabled={blocked || staleRun || !!contactBlock}
+                downloadsDisabled={blocked || staleRun || !!contactBlock || !!retiredCvReason}
                 fixClaimsAvailable={blocked && fixable}
                 fixingClaims={fixingClaims}
               />
