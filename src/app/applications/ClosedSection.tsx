@@ -113,7 +113,7 @@ export default function ClosedSection({
               </div>
               <span className="closedChip" data-closed-chip>{progressChip(row, eventsOf(row.id))}</span>
               <span className="closedResult" data-closed-result>{resultLine(row)}</span>
-              <Lesson key={row.lesson ?? ""} row={row} onSave={onLesson} />
+              <Lesson row={row} onSave={onLesson} />
               <RowMenu label={`Actions for ${row.company_name}`} items={[{ key: "reopen", label: "Reopen", onSelect: () => onReopen(row) }]} />
             </li>
           ))}

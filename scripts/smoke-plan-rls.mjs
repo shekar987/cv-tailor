@@ -65,7 +65,7 @@ try {
   // The active rule, end to end.
   const plan = async () => (await (await a.route("/api/plan")).json());
   check("the event is on A's plan", (await plan()).events.some((e) => e.id === eventId));
-  await a.route("/api/applications", { method: "PUT", body: json({ id: appId, status: "rejected", outcome_reason: "Wanted more years" }) });
+  await a.route("/api/applications", { method: "PUT", body: json({ id: appId, status: "rejected", outcome_reason: "Wanted more years", confirmed_by_user: true }) });
   const afterReject = await plan();
   check("rejected: the event leaves the plan", !afterReject.events.some((e) => e.id === eventId));
   check("rejected: the row is not active", !afterReject.applications.some((r) => r.id === appId));
@@ -78,7 +78,7 @@ try {
   await a.route("/api/applications", { method: "PUT", body: json({ id: appId, status: "screening" }) });
   check("moved back: the event returns", (await plan()).events.some((e) => e.id === eventId));
 
-  const ghost = await a.route("/api/applications", { method: "PUT", body: json({ id: appId, status: "ghosted" }) });
+  const ghost = await a.route("/api/applications", { method: "PUT", body: json({ id: appId, status: "ghosted", confirmed_by_user: true }) });
   check("a new status saves", ghost.status === 200, String(ghost.status));
   check("ghosted is off the plan", !(await plan()).events.some((e) => e.id === eventId));
   await a.route("/api/applications", { method: "PUT", body: json({ id: appId, status: "assessment" }) });

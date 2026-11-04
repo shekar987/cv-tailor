@@ -204,6 +204,9 @@ try {
   const replied = page.locator('[data-reply-owed="Replied Ltd"]');
   check("when they spoke last it is Reply owed, not Waiting on them", (await replied.count()) === 1 && /They wrote 24 days ago/.test(await replied.innerText()) && (await replied.locator("[data-nudge]").count()) === 0, await replied.innerText());
   await replied.locator("[data-waiting-reject]").click();
+  check("a row that reached screening asks first", await page.locator("[data-close-dialog]").isVisible());
+  check("and nothing moved yet", db.applications.find((a) => a.company_name === "Replied Ltd").status === "screening");
+  await page.locator("[data-close-submit]").click();
   await page.waitForFunction(() => !document.querySelector('[data-reply-owed="Replied Ltd"]'), null, { timeout: 8000 });
   await page.locator("[data-toast-undo]").waitFor();
   const repliedRow = db.applications.find((a) => a.company_name === "Replied Ltd");
@@ -269,9 +272,10 @@ try {
   await ape.locator("[data-event-outcome]").click();
   await page.screenshot({ path: path.join(SHOTS, "next-outcome.png") });
   await ape.locator('[data-outcome="rejected"]').click();
+  await page.locator("[data-close-submit]").click();
   await page.waitForFunction(() => document.querySelectorAll('[data-event-title="Video interview (2 questions)"], [data-event-title="Criteria assessment (15 min)"]').length === 0, null, { timeout: 8000 });
   check("Rejected removes all its cards", (await apeCards.count()) === 0);
-  check("the toast offers undo", /moved to Rejected/.test(await page.locator("[data-toast]").innerText()) && (await page.locator("[data-toast-undo]").count()) === 1);
+  check("the toast offers undo", /Moved to Closed/.test(await page.locator("[data-toast]").innerText()) && (await page.locator("[data-toast-undo]").count()) === 1);
   check("the row is rejected, its events kept", db.applications.find((a) => a.company_name === "Ape Sales").status === "rejected" && db.events.filter((e) => e.application_id === idOf("Ape Sales")).length === 2);
   await page.locator("[data-toast-undo]").click();
   await page.waitForFunction(() => document.querySelectorAll('[data-event-title="Video interview (2 questions)"]').length === 1, null, { timeout: 8000 });

@@ -1,7 +1,7 @@
 // Closing a row on the real route and the real database, between two throwaway users: the
 // guard, the pending outcome, the confirmed close, Undo, Reopen, and that no user reaches
-// another's row. No model call. What needs migration 20261104130000 says SKIP until it is
-// applied, and the row is shown to be untouched.
+// another's row. No model call. Before migration 20261104130000 it checks what the route does
+// without the columns, and says SKIP for what needs them.
 //
 //   npm run build && npx next start -p 3100
 //   node scripts/smoke-closed.mjs
@@ -42,7 +42,27 @@ try {
   check("the row did not move", (await read(id)).status === "Screening");
   const faked = await put(id, { status: "Rejected", confirmed_by_user: "true" });
   check('the string "true" is not confirmation', faked.status === 409);
-  check("assessment is held too", (await put(await add("Interview"), { status: "Withdrawn" })).status === 409);
+  check("interview is held too", (await put(await add("Interview"), { status: "Withdrawn" })).status === 409);
+  check("assessment is held too", (await put(await add("Assessment"), { status: "Rejected" })).status === 409);
+
+  // No way round it in two writes, and no writing the close directly.
+  const backTry = await put(id, { status: "Applied" });
+  check("moving it below screening needs the user", backTry.status === 409 && (await backTry.json()).errorType === "needs_move_back_confirmation");
+  check("Ready to submit too", (await put(id, { status: "Ready to submit" })).status === 409);
+  check("the closing word is not that word", (await put(id, { status: "Applied", confirmed_by_user: true })).status === 409);
+  check("so the next ending is still refused", (await put(id, { status: "Rejected" })).status === 409);
+  let row0 = await read(id);
+  check("and the proof is intact", row0.status === "Screening" && row0.stages_reached.includes("screening"), JSON.stringify(row0.stages_reached));
+  check("closed_at alone is refused", (await put(id, { closed_at: "2026-11-02T12:00:00.000Z", close_reason: "rejected" })).status === 400);
+  check("closed_at with an open status is refused", (await put(id, { status: "Screening", closed_at: "2026-11-02T12:00:00.000Z", close_reason: "rejected" })).status === 409);
+  check("even with the word", (await put(id, { status: "Screening", closed_at: "2026-11-02T12:00:00.000Z", confirmed_by_user: true })).status === 409);
+  check("close_reason alone is refused", (await put(id, { close_reason: "rejected" })).status === 400);
+  check("an outcome through the PUT is refused, so the merge rule holds", (await put(id, { pending_outcome: { outcome: "rejected", date: "2026-11-02", source: "sweep" } })).status === 400);
+  row0 = await read(id);
+  check("none of that moved it", row0.status === "Screening" && !row0.closed_at);
+  const corrected = await add("Screening", "Corrected");
+  const correct = await put(corrected, { status: "Applied", confirmed_move_back: true });
+  check("the user can still correct a mistake", correct.status === 200 && (await read(corrected)).status === "Applied");
   const never = await add("Applied");
   check("an application that never got that far moves freely", (await put(never, { status: "Rejected" })).status === 200 && (await read(never)).status === "Rejected");
 
@@ -51,11 +71,18 @@ try {
   if (probe.status === 503) {
     const body = await probe.json();
     check("before the migration, the outcome route names the file", body.errorType === "needs_migration" && /20261104130000/.test(body.error));
-    const closeTry = await put(id, { status: "Rejected", confirmed_by_user: true, closed_at: "2026-11-02T12:00:00.000Z", close_reason: "rejected" });
-    const closeBody = await closeTry.json();
-    check("before the migration, a confirmed close names the file", closeTry.status === 503 && /20261104130000/.test(closeBody.error), `${closeTry.status} ${closeBody.error}`);
-    check("and the row did not move", (await read(id)).status === "Screening");
+    check("a lesson alone names the file", (await put(id, { lesson: "wanted 3+ yrs" })).status === 503);
     check("an ordinary move still saves without the columns", (await put(id, { status: "Interview" })).status === 200 && (await put(id, { status: "Screening" })).status === 200);
+    await put(id, { followup_date: "2026-11-20" });
+    const closeTry = await put(id, { status: "Rejected", confirmed_by_user: true, closed_at: "2026-11-02T12:00:00.000Z", close_reason: "rejected", lesson: "asked for 3+ years" });
+    const closeBody = await closeTry.json();
+    check("the user's own close still moves the status", closeTry.status === 200 && (await read(id)).status === "Rejected", `${closeTry.status} ${json(closeBody).slice(0, 160)}`);
+    check("and says what it could not keep", /20261104130000/.test(closeBody.warning ?? ""), closeBody.warning);
+    check("the stage history keeps how far it got", (await read(id)).stages_reached.join() === "screening,rejected", (await read(id)).stages_reached.join());
+    check("the follow-up clears as before", closeBody.followupCleared?.followup_date === null);
+    const undoTry = await put(id, { status: "screening", closed_at: null, close_reason: null, lesson: null, pending_outcome: null, followup_date: "2026-11-20", notes: null });
+    const undone = await read(id);
+    check("Undo works without the columns", undoTry.status === 200 && undone.status === "Screening" && undone.followup_date === "2026-11-20" && undone.stages_reached.join() === "screening", `${undoTry.status} ${json(undone).slice(0, 200)}`);
     skipped = 1;
     console.log("SKIP the rest: migration 20261104130000 is not applied yet.");
   } else {
@@ -82,7 +109,10 @@ try {
     const closedBody = await closed.json();
     row = await read(id);
     check("confirmed, it closes", closed.status === 200 && row.status === "Rejected" && row.closed_at?.startsWith("2026-11-02") && row.close_reason === "rejected" && row.lesson === "asked for 3+ years", json(row).slice(0, 240));
-    check("the pending outcome goes with it", !row.pending_outcome);
+    check("the pending outcome is kept as dismissed", row.pending_outcome?.dismissed === true && row.pending_outcome?.date === "2026-11-05", json(row.pending_outcome));
+    check("the answer says what it took, for Undo", closedBody.closedFrom?.pending_outcome?.date === "2026-11-05" && !closedBody.closedFrom?.pending_outcome?.dismissed, json(closedBody.closedFrom));
+    const late = await (await a.call(pendingUrl(id), { method: "PATCH", body: json({ outcome: "rejected", date: "2026-11-09", source: "sweep" }) })).json();
+    check("a sweep reporting on a closed row changes nothing", late.ignored === "closed" && (await read(id)).pending_outcome?.date === "2026-11-05", json(late).slice(0, 160));
     check("stages_reached keeps how far it got", row.stages_reached.includes("screening") && row.stages_reached.includes("rejected"), row.stages_reached.join());
     check("the follow-up clears as before", closedBody.followupCleared?.followup_date === null);
 
@@ -92,6 +122,13 @@ try {
     check("a lesson over 140 is refused", (await put(id, { lesson: "x".repeat(141) })).status === 400);
     check("a lesson edits alone", (await put(id, { lesson: "wanted 3+ yrs" })).status === 200 && (await read(id)).lesson === "wanted 3+ yrs" && (await read(id)).status === "Rejected");
     check("a sweep's write of the same status moves nothing and lands", (await put(id, { status: "Rejected", notes: "Sweep note" })).status === 200);
+
+    // ── Replacing a close, and undoing that ────────────────────────────────
+    const replaced = await put(id, { status: "Withdrawn", confirmed_by_user: true, closed_at: "2026-11-03T12:00:00.000Z", close_reason: "role_closed" });
+    check("another ending needs the word too", (await put(id, { status: "Ghosted" })).status === 409 && replaced.status === 200);
+    const undoBack = await put(id, { status: "rejected", closed_at: "2026-11-02T12:00:00.000Z", close_reason: "rejected", confirmed_by_user: true });
+    row = await read(id);
+    check("Undo of that restores the earlier close", undoBack.status === 200 && row.status === "Rejected" && row.closed_at?.startsWith("2026-11-02") && row.close_reason === "rejected", json(row).slice(0, 200));
 
     // ── Undo and Reopen ────────────────────────────────────────────────────
     const undone = await put(id, { status: "screening", closed_at: null, close_reason: null, lesson: null, pending_outcome: { outcome: "rejected", date: "2026-11-05", source: "gmail" } });

@@ -8,10 +8,13 @@ import { STATUS_LABELS, isSubmitted, normalizeStatus, type Status } from "./trac
 // ── The rule ────────────────────────────────────────────────────────────────
 
 export const CONFIRMATION_MESSAGE = "Needs the user's confirmation; set pending_outcome instead.";
+export const MOVE_BACK_MESSAGE = "Needs the user's confirmation: this row reached screening, and moving it back takes it off that count.";
+export const PENDING_VIA_PATCH = "Record a detected outcome with PATCH /api/applications/{id}/pending-outcome.";
 
 const ENDINGS: readonly Status[] = ["rejected", "withdrawn", "ghosted"];
 const REACHED_SCREENING: readonly Status[] = ["screening", "assessment", "interview", "offer", "accepted"];
 const REACHED_INTERVIEW: readonly Status[] = ["interview", "offer", "accepted"];
+const BELOW_SCREENING: readonly Status[] = ["saved", "applied"];
 
 type StageFields = { status?: unknown; stages_reached?: readonly unknown[] | null };
 
@@ -41,6 +44,15 @@ export function needsConfirmation(row: StageFields, nextStatus: unknown, confirm
   return !confirmed && isEnding(nextStatus) && reachedScreening(row);
 }
 
+/**
+ * A move below screening. The stage trigger drops later stages on a move back, so this would
+ * erase the proof, and leave the row free to end with no one's word: two writes around the rule.
+ */
+export function isMoveBack(row: StageFields, nextStatus: unknown): boolean {
+  const next = normalizeStatus(nextStatus);
+  return !!next && BELOW_SCREENING.includes(next) && normalizeStatus(row.status) !== next && reachedScreening(row);
+}
+
 // ── How far it got ──────────────────────────────────────────────────────────
 
 export type HighestStage = "screening" | "assessment" | "interview" | "offer";
@@ -57,16 +69,18 @@ export function highestStage(row: StageFields): HighestStage | null {
   return at < 0 ? null : HIGHEST_ORDER[at];
 }
 
-type ChipEvent = { kind: string; stage_label?: string | null };
-const TEST_KINDS: ReadonlySet<string> = new Set(["assessment", "take_home", "work_trial", "screening_questions"]);
+type ChipEvent = { kind: string; stage_label?: string | null; title?: string | null; status?: string | null };
+const TEST_KINDS: ReadonlySet<string> = new Set(["assessment", "take_home", "work_trial"]);
 
 /** The chip on a closed row, more exact where an event says so: a video, a final round. */
 export function progressChip(row: StageFields, events: readonly ChipEvent[] = []): string {
   const stage = highestStage(row);
+  // What was cancelled never happened, so it says nothing about how far the row got.
+  const held = events.filter((e) => e.status !== "cancelled");
   if (stage === "offer") return "Offer";
-  if (stage === "interview") return events.some((e) => e.kind === "interview" && /\bfinal\b/i.test(e.stage_label ?? "")) ? "Final" : "Interview";
-  if (stage === "assessment" || events.some((e) => e.kind === "video" || TEST_KINDS.has(e.kind))) {
-    return events.some((e) => e.kind === "video") ? "Video" : "Test";
+  if (stage === "interview") return held.some((e) => e.kind === "interview" && /\bfinal\b/i.test(`${e.stage_label ?? ""} ${e.title ?? ""}`)) ? "Final" : "Interview";
+  if (stage === "assessment" || held.some((e) => e.kind === "video" || TEST_KINDS.has(e.kind))) {
+    return held.some((e) => e.kind === "video") ? "Video" : "Test";
   }
   return "Screening call";
 }
@@ -163,8 +177,9 @@ export function pendingLine(p: PendingOutcome): string {
 
 type ClosedFields = StageFields & { closed_at?: string | null; close_reason?: string | null };
 
-export function isClosed(row: Pick<ClosedFields, "closed_at">): boolean {
-  return !!row.closed_at;
+/** Closed by the dialog, or ended some other way: either way it is proof, and belongs in Closed. */
+export function isClosed(row: Pick<ClosedFields, "closed_at" | "status">): boolean {
+  return !!row.closed_at || isEnding(row.status);
 }
 
 /** "Rejected 2 Nov", "Withdrawn 21 Oct"; "Live" while the row is open. */
@@ -173,6 +188,51 @@ export function resultLine(row: ClosedFields): string {
   if (!isClosed(row) && !ended) return "Live";
   const label = isCloseReason(row.close_reason) ? CLOSE_REASON_LABELS[row.close_reason] : STATUS_LABELS[normalizeStatus(row.status) ?? "rejected"];
   return row.closed_at ? `${label} ${shortDate(row.closed_at.slice(0, 10))}` : label;
+}
+
+// ── What a write may do ─────────────────────────────────────────────────────
+
+export type ClosingWrite = { status?: Status; closed_at?: string | null; close_reason?: CloseReason | null; lesson?: string | null; pending_outcome?: PendingOutcome | null };
+export type ClosingCurrent = StageFields & { pending_outcome?: unknown };
+export type ClosingRefusal = { status: 400 | 409; error: string; errorType?: "needs_confirmation" | "needs_move_back_confirmation" };
+
+/**
+ * Every rule PUT /api/applications holds a closing write to, in one place, before anything is
+ * written. Only an ending, on the user's word, may set closed_at; a detected outcome goes through
+ * its own route, except when Undo puts back what a close took. A row moved back to an open stage
+ * is Live again, whoever moved it. A close keeps what it took as dismissed, so a sweep reporting
+ * the same email after a Reopen does not bring it back.
+ */
+export function decideClosingWrite<W extends ClosingWrite>(
+  current: ClosingCurrent | null,
+  write: W,
+  flags: { confirmed: boolean; confirmedMoveBack: boolean },
+  now: string
+): { refuse: ClosingRefusal } | { fields: W } {
+  const fields: W = { ...write };
+  const { status } = fields;
+  if (("closed_at" in fields || "close_reason" in fields) && status === undefined) return { refuse: { status: 400, error: "A close needs a status." } };
+  if ((fields.closed_at != null || fields.close_reason != null) && !(flags.confirmed && isEnding(status))) {
+    return { refuse: { status: 409, error: CONFIRMATION_MESSAGE, errorType: "needs_confirmation" } };
+  }
+  if (fields.pending_outcome != null && !(status !== undefined && !isEnding(status) && fields.closed_at === null)) {
+    return { refuse: { status: 400, error: PENDING_VIA_PATCH } };
+  }
+  if (status === undefined) return { fields };
+  if (isEnding(status)) {
+    if (needsConfirmation(current ?? {}, status, flags.confirmed)) return { refuse: { status: 409, error: CONFIRMATION_MESSAGE, errorType: "needs_confirmation" } };
+    if (flags.confirmed) {
+      const stored = normalizePendingOutcome(current?.pending_outcome);
+      fields.closed_at ??= now;
+      fields.close_reason ??= reasonForStatus(status);
+      fields.pending_outcome = stored ? { ...stored, dismissed: true } : null;
+    }
+    return { fields };
+  }
+  if (isMoveBack(current ?? {}, status) && !flags.confirmedMoveBack) return { refuse: { status: 409, error: MOVE_BACK_MESSAGE, errorType: "needs_move_back_confirmation" } };
+  fields.closed_at ??= null;
+  fields.close_reason ??= null;
+  return { fields };
 }
 
 // ── The one-off backfill ────────────────────────────────────────────────────

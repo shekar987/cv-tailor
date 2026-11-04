@@ -41,6 +41,7 @@ type Toast = { message: string; undo?: () => Promise<void> | void };
 const TICK_MS = 30_000;
 const LIVE_EVERY_MS = 5 * 60_000;
 const TOAST_MS = 8000;
+const CLOSE_TOAST_MS = 10000;
 const LEAVE_MS = 220;
 const NEXT_STAGE: Partial<Record<Status, Status>> = { screening: "interview" };
 
@@ -161,10 +162,10 @@ export default function NextPage() {
     setLiveText(`Next up: ${nextName}, ${timing.left}.`);
   }, [nextEvent, nextName, now, tz]);
 
-  function showToast(next: Toast) {
+  function showToast(next: Toast, ms = TOAST_MS) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(next);
-    toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
+    toastTimer.current = setTimeout(() => setToast(null), ms);
   }
 
   async function putEvent(id: string, patch: Record<string, unknown>): Promise<boolean> {
@@ -242,19 +243,23 @@ export default function NextPage() {
     setClosing(null);
     const previous = normalizeStatus(application.status) ?? "screening";
     const followup = application.followup_date ?? null;
-    const answer: { cleared?: { notes: string | null } } = {};
+    const answer: { cleared?: { notes: string | null }; from?: { lesson?: string | null; pending_outcome?: unknown } } = {};
     leaveThen(reasonEvents.map((i) => i.event.id), async () => {
-      const body = await putApplication(application.id, closeBody(choice));
+      // This page never read the row's lesson, so an empty box must not wipe one.
+      const sent: Record<string, unknown> = { ...closeBody(choice) };
+      if (!choice.lesson) delete sent.lesson;
+      const body = await putApplication(application.id, sent);
       if (body?.followupCleared) answer.cleared = body.followupCleared as { notes: string | null };
+      if (body?.closedFrom) answer.from = body.closedFrom as { lesson?: string | null; pending_outcome?: unknown };
       return !!body;
     }, () => {
       showToast({
         message: "Moved to Closed",
         undo: async () => {
           const restore = followup ? { followup_date: followup, ...(answer.cleared ? { notes: removeFollowupClearedNote(answer.cleared.notes, followup) || null } : {}) } : {};
-          if (await putApplication(application.id, { status: previous, closed_at: null, close_reason: null, lesson: null, ...restore })) await refresh();
+          if (await putApplication(application.id, { status: previous, closed_at: null, close_reason: null, lesson: answer.from?.lesson ?? null, pending_outcome: answer.from?.pending_outcome ?? null, ...restore })) await refresh();
         },
-      });
+      }, CLOSE_TOAST_MS);
     });
   }
 
@@ -323,7 +328,7 @@ export default function NextPage() {
   const walk = useRef({ ids: [] as string[], selectedId, items: allItems, form: false, onPlan: true });
   useEffect(() => {
     const drawn = view === "plan" ? filterDay(allItems) : [];
-    walk.current = { ids: drawn.map((i) => i.event.id), selectedId, items: drawn, form: form !== null, onPlan: view === "plan" };
+    walk.current = { ids: drawn.map((i) => i.event.id), selectedId, items: drawn, form: form !== null || closing !== null, onPlan: view === "plan" };
   });
   const doneRef = useRef(actions.onDone);
   useEffect(() => { doneRef.current = actions.onDone; });

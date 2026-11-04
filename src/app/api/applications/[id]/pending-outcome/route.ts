@@ -7,7 +7,7 @@
 //   { "clear": true }                                                     forget it
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
-import { mergePendingOutcome, normalizePendingOutcome } from "@/lib/closing";
+import { isEnding, mergePendingOutcome, normalizePendingOutcome } from "@/lib/closing";
 import { apiStatus } from "@/lib/tracker";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -42,6 +42,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     } else {
       const incoming = normalizePendingOutcome(body);
       if (!incoming) return NextResponse.json({ error: "Send an outcome (rejected, withdrawn or ghosted) and a date (YYYY-MM-DD)." }, { status: 400 });
+      // A row that already ended has nothing left to confirm: the sweep's next report is old news.
+      if (isEnding(row.status)) return NextResponse.json({ ok: true, status: apiStatus(row.status), pending_outcome: normalizePendingOutcome(row.pending_outcome), ignored: "closed" });
       const merged = mergePendingOutcome(row.pending_outcome, { ...incoming, dismissed: undefined });
       next = merged.value;
       ignored = merged.ignored;

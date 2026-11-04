@@ -18,7 +18,7 @@ import { normalizeStyleCheck } from "@/lib/styleCheck";
 import { validateReferralFields, REFERRAL_MIGRATION_HINT, type ReferralFields } from "@/lib/referrals";
 import { triageJd, buildTriageProfile, type JdTriage } from "@/lib/triage/jdTriage";
 import { MAX_APPLICATIONS, readApplicationPages, toListRow, type OrderableQuery } from "@/lib/applicationRows";
-import { CONFIRMATION_MESSAGE, MAX_LESSON_CHARS, isCloseReason, isEnding, needsConfirmation, normalizePendingOutcome, reasonForStatus, type CloseReason, type PendingOutcome } from "@/lib/closing";
+import { MAX_LESSON_CHARS, decideClosingWrite, isCloseReason, isEnding, normalizePendingOutcome, type ClosingCurrent, type CloseReason, type PendingOutcome } from "@/lib/closing";
 
 const REFERRAL_KEYS = ["referral", "referrer_name", "req_id", "referral_status"] as const;
 
@@ -82,6 +82,8 @@ const LIST_COLUMNS_STAGES = `${LIST_COLUMNS_REFERRAL}, stages_reached, outcome_r
 // Closing a row (migration 20261104130000; lib/closing), the newest rung.
 const LIST_COLUMNS_CLOSED = `${LIST_COLUMNS_STAGES}, closed_at, close_reason, lesson, pending_outcome`;
 const CLOSED_MIGRATION_HINT = "Closing a row needs migration 20261104130000_applications_closed.sql. Run it in the Supabase SQL editor, then try again.";
+const CLOSED_SAVED_WITHOUT = "The status is saved, but the date, reason and lesson are not: run migration 20261104130000_applications_closed.sql in the Supabase SQL editor.";
+const CLOSING_LADDER = ["status, stages_reached, pending_outcome, lesson, closed_at, close_reason", "status, stages_reached", "status"];
 const CLOSE_KEYS = ["closed_at", "close_reason", "lesson", "pending_outcome"] as const;
 const CONTACT_MIGRATION_HINT =
   "Recording who spoke last needs the database migration supabase/migrations/20261030120000_applications_last_contact.sql. Run it in the Supabase SQL editor, then try again.";
@@ -765,32 +767,31 @@ export async function PUT(req: NextRequest) {
     }
     const { fields } = validated;
     // The rule (lib/closing): a row that reached screening ends only on the user's own word,
-    // and only /applications' Move to Closed dialog says so. A sweep sets pending_outcome.
-    let autoReopened = false;
-    if (fields.status !== undefined && isEnding(fields.status)) {
-      const stagesRead = await supabase.from("applications").select("status, stages_reached").eq("id", id).eq("user_id", userId).maybeSingle();
-      const statusRead = stagesRead.error && isMissingColumn(stagesRead.error) ? await supabase.from("applications").select("status").eq("id", id).eq("user_id", userId).maybeSingle() : null;
-      const current = (statusRead ? statusRead.data : stagesRead.data) as { status: string; stages_reached?: string[] | null } | null;
-      const currentError = statusRead ? statusRead.error : stagesRead.error;
-      if (currentError) {
-        console.error("applications lookup error:", currentError.message);
-        return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
+    // and only the Move to Closed dialog says so. A sweep uses the pending-outcome route.
+    const confirmed = body.confirmed_by_user === true;
+    let closedFrom: { lesson: string | null; pending_outcome: unknown } | undefined;
+    if (fields.status !== undefined || CLOSE_KEYS.some((k) => k in fields)) {
+      let current: (ClosingCurrent & { lesson?: string | null }) | null = null;
+      if (fields.status !== undefined) {
+        for (const columns of CLOSING_LADDER) {
+          const read = await supabase.from("applications").select(columns).eq("id", id).eq("user_id", userId).maybeSingle();
+          if (read.error && isMissingColumn(read.error) && columns !== CLOSING_LADDER.at(-1)) continue;
+          if (read.error) {
+            console.error("applications lookup error:", read.error.message);
+            return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
+          }
+          if (!read.data) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+          current = read.data as unknown as ClosingCurrent & { lesson?: string | null };
+          break;
+        }
       }
-      if (!current) return NextResponse.json({ error: "Application not found" }, { status: 404 });
-      const confirmed = body.confirmed_by_user === true;
-      if (needsConfirmation(current, fields.status, confirmed)) {
-        return NextResponse.json({ error: CONFIRMATION_MESSAGE, errorType: "needs_confirmation" }, { status: 409 });
+      const decision = decideClosingWrite(current, fields, { confirmed, confirmedMoveBack: body.confirmed_move_back === true }, new Date().toISOString());
+      if ("refuse" in decision) {
+        const { status, ...refusal } = decision.refuse;
+        return NextResponse.json({ ...refusal, ...(refusal.errorType === "needs_confirmation" ? { pendingOutcomeUrl: `/api/applications/${id}/pending-outcome` } : {}) }, { status });
       }
-      if (confirmed) {
-        fields.closed_at ??= new Date().toISOString();
-        fields.close_reason ??= reasonForStatus(fields.status);
-        fields.pending_outcome = null;
-      }
-    } else if (fields.status !== undefined && !("closed_at" in fields)) {
-      // Moved back to an open stage, by anyone: the row is Live again.
-      fields.closed_at = null;
-      fields.close_reason = null;
-      autoReopened = true;
+      Object.assign(fields, decision.fields);
+      if (confirmed && isEnding(fields.status)) closedFrom = { lesson: current?.lesson ?? null, pending_outcome: normalizePendingOutcome(current?.pending_outcome) };
     }
     // The format-style tag of a hand-added row (lib/formatStyles): null or
     // "unknown" clears it, a style id sets it; merged into the row's
@@ -912,11 +913,21 @@ export async function PUT(req: NextRequest) {
       .eq("user_id", userId)
       .select("id");
 
-    // No closing columns yet: an ordinary move still saves. A real close answers below.
-    if (autoReopened && updateError && isMissingColumn(updateError)) {
-      delete update.closed_at;
-      delete update.close_reason;
-      ({ data: updated, error: updateError } = await supabase.from("applications").update(update).eq("id", id).eq("user_id", userId).select("id"));
+    // No closing columns yet (migration 20261104130000): clearing a column that is not there
+    // is nothing, and the user's own close still moves the status, saying what it could not keep.
+    let closeWarning: string | undefined;
+    if (updateError && isMissingColumn(updateError) && CLOSE_KEYS.some((k) => k in update)) {
+      const onlyClearing = CLOSE_KEYS.every((k) => update[k] == null);
+      if (onlyClearing || (confirmed && isEnding(fields.status))) {
+        for (const k of CLOSE_KEYS) delete update[k];
+        if (!onlyClearing) closeWarning = CLOSED_SAVED_WITHOUT;
+        if (Object.keys(update).length === 0) {
+          updated = [{ id }];
+          updateError = null;
+        } else {
+          ({ data: updated, error: updateError } = await supabase.from("applications").update(update).eq("id", id).eq("user_id", userId).select("id"));
+        }
+      }
     }
 
     const oldUpdateLabel = isStatusCheckViolation(updateError) && fields.status ? oldStatusLabel(fields.status) : null;
@@ -955,7 +966,7 @@ export async function PUT(req: NextRequest) {
     // the new triage without a reload.
     const gates = jdChanged && snapshotPatch !== undefined ? (snapshotPatch?.gates ?? null) : undefined;
     const autoClose = notesBefore !== undefined && confirmationAdded(notesBefore, fields.notes as string | null) ? await closeOnConfirmation(supabase, userId, id) : null;
-    return NextResponse.json({ ok: true, ...(followupCleared ? { followupCleared } : {}), ...(gates !== undefined ? { gates } : {}), ...(autoClose ? { autoClose } : {}) });
+    return NextResponse.json({ ok: true, ...(closedFrom ? { closedFrom } : {}), ...(closeWarning ? { warning: closeWarning } : {}), ...(followupCleared ? { followupCleared } : {}), ...(gates !== undefined ? { gates } : {}), ...(autoClose ? { autoClose } : {}) });
   } catch (err) {
     console.error("applications PUT error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not save that application" }, { status: 500 });

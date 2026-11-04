@@ -70,6 +70,15 @@ try {
   }
   const refusedWithNotes = await call("/api/applications", { method: "PUT", body: json({ id, status: "Rejected", notes: "Rejection email", job_description: "Should not land" }) });
   check("a refused write changes nothing else either", refusedWithNotes.status === 409 && (await detail(id)).notes !== "Rejection email");
+  // Nor by two writes: moving it below screening would erase the proof and open the rule.
+  for (const status of ["Applied", "Ready to submit"]) {
+    const back = await call("/api/applications", { method: "PUT", body: json({ id, status }) });
+    check(`a screened row refuses "${status}" without the user`, back.status === 409 && (await back.json()).errorType === "needs_move_back_confirmation", String(back.status));
+  }
+  const stillThere = (await list()).find((r) => r.id === id);
+  check("its stage history is untouched", stillThere.status === "Screening" && stillThere.stages_reached.includes("screening"), JSON.stringify(stillThere.stages_reached));
+  check("so ending it still needs the user", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Rejected" }) })).status === 409);
+  check("a notes write that doesn't move it still lands", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening", notes: "Sweep note" }) })).status === 200 && (await detail(id)).notes === "Sweep note");
   check("a move forward still needs nothing", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Interview" }) })).status === 200);
   await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening" }) });
 

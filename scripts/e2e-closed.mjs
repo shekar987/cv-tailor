@@ -9,8 +9,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { CONFIRMATION_MESSAGE, mergePendingOutcome, needsConfirmation, normalizePendingOutcome } from "../src/lib/closing.ts";
-import { apiStatus, normalizeStatus, stagesAfterMove } from "../src/lib/tracker.ts";
+import { decideClosingWrite, isEnding, mergePendingOutcome, normalizePendingOutcome } from "../src/lib/closing.ts";
+import { apiStatus, followupClearedNote, normalizeStatus, stagesAfterMove } from "../src/lib/tracker.ts";
 
 const BASE = process.env.SMOKE_BASE || "http://localhost:3100";
 const env = Object.fromEntries(fs.readFileSync(".env.local", "utf8").split(/\r?\n/).filter((l) => /^[A-Z_]+=/.test(l)).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
@@ -52,6 +52,7 @@ const rows = [
   row("Juliet", "screening", SCREENED, { updated_at: "2026-11-01T09:00:00Z", followup_date: "2026-11-20" }),
   row("Kilo", "screening", SCREENED),
   row("Lima", "screening", SCREENED, { referral: true }),
+  row("Uniform", "screening", SCREENED, { followup_date: "2026-11-21" }),
   ...["Mike", "November", "Oscar", "Papa", "Quebec", "Romeo", "Sierra", "Tango"].map((c) => row(c, "interview", ["applied", "interview"])),
   ...Array.from({ length: 30 }, (_, i) => row(`Plain${i}`, "applied", ["applied"])),
   row("Gone", "rejected", ["applied", "rejected"]),
@@ -64,6 +65,7 @@ const openEvents = [event(byName("Kilo"), "screening_call", 2), event(byName("Ha
 const puts = [];
 const patches = [];
 let refused = 0;
+let failNextLesson = false;
 
 async function standIn(ctx) {
   await ctx.route(/\/api\/actions(\?.*)?$/, (r) => r.fulfill({ json: { events: openEvents, closedByConfirmation: [], applications: [], availability: [] } }));
@@ -74,31 +76,51 @@ async function standIn(ctx) {
     const body = r.request().postDataJSON();
     patches.push({ id, body });
     if (body.dismiss) target.pending_outcome = { ...normalizePendingOutcome(target.pending_outcome), dismissed: true };
-    else target.pending_outcome = mergePendingOutcome(target.pending_outcome, normalizePendingOutcome(body)).value;
+    else if (!isEnding(target.status)) target.pending_outcome = mergePendingOutcome(target.pending_outcome, normalizePendingOutcome(body)).value;
     await r.fulfill({ json: { ok: true, status: apiStatus(target.status), pending_outcome: target.pending_outcome } });
   });
   await ctx.route(/\/api\/applications(\?.*)?$/, async (r) => {
     const req = r.request();
     if (req.method() === "GET") {
-      await r.fulfill({ json: { applications: rows.map((x) => ({ ...x, status: apiStatus(x.status) })) } });
+      // As lib/applicationRows toListRow: no null keys.
+      await r.fulfill({ json: { applications: rows.map((x) => Object.fromEntries(Object.entries({ ...x, status: apiStatus(x.status) }).filter(([, v]) => v !== null && v !== undefined))) } });
       return;
     }
     if (req.method() !== "PUT") return r.fallback();
     const body = req.postDataJSON();
     puts.push(body);
     const target = rows.find((x) => x.id === body.id);
-    if (body.status && needsConfirmation(target, body.status, body.confirmed_by_user === true)) {
-      refused++;
-      await r.fulfill({ status: 409, json: { error: CONFIRMATION_MESSAGE, errorType: "needs_confirmation" } });
+    if (failNextLesson && "lesson" in body) {
+      failNextLesson = false;
+      await r.fulfill({ status: 500, json: { error: "Could not save that application" } });
       return;
     }
-    for (const key of ["closed_at", "close_reason", "lesson", "pending_outcome", "followup_date"]) if (key in body) target[key] = body[key];
-    if (body.status) {
-      const status = normalizeStatus(body.status);
+    const write = {};
+    for (const key of ["closed_at", "close_reason", "lesson", "pending_outcome", "followup_date", "notes"]) if (key in body) write[key] = body[key];
+    if (body.status) write.status = normalizeStatus(body.status);
+    const decision = decideClosingWrite(target, write, { confirmed: body.confirmed_by_user === true, confirmedMoveBack: body.confirmed_move_back === true }, new Date().toISOString());
+    if ("refuse" in decision) {
+      refused++;
+      const { status, ...refusal } = decision.refuse;
+      await r.fulfill({ status, json: refusal });
+      return;
+    }
+    const closedFrom = body.confirmed_by_user && isEnding(write.status) ? { lesson: target.lesson ?? null, pending_outcome: normalizePendingOutcome(target.pending_outcome) } : undefined;
+    // As the route: an ending clears an open follow-up and notes it.
+    let followupCleared;
+    if (isEnding(write.status) && target.followup_date && !("followup_date" in write)) {
+      const line = followupClearedNote(target.followup_date, write.status, "2026-11-04");
+      target.notes = target.notes ? `${target.notes}\n${line}` : line;
+      target.followup_date = null;
+      followupCleared = { followup_date: null, notes: target.notes };
+    }
+    const { status, ...rest } = decision.fields;
+    Object.assign(target, rest);
+    if (status) {
       target.stages_reached = stagesAfterMove(target.stages_reached, status);
       target.status = status;
     }
-    await r.fulfill({ json: { ok: true } });
+    await r.fulfill({ json: { ok: true, ...(closedFrom ? { closedFrom } : {}), ...(followupCleared ? { followupCleared } : {}) } });
   });
 }
 
@@ -133,9 +155,9 @@ try {
   // ── The page ─────────────────────────────────────────────────────────────
   await open();
   check("the H1 is the stage", (await page.locator("h1").innerText()) === "Screening", await page.locator("h1").innerText());
-  check("the summary counts every row that reached screening", (await summary()) === "Your CV reached screening 25 times · 16 live · 0 closed", await summary());
+  check("the summary counts every row that reached screening", (await summary()) === "Your CV reached screening 26 times · 17 live · 0 closed", await summary());
   let names = await live();
-  check("a row whose test overtook it is under Assessment, not here", !names.includes("HasTest") && names.length === 16, names.join());
+  check("a row whose test overtook it is under Assessment, not here", !names.includes("HasTest") && names.length === 17, names.join());
   check("the row with the next event comes first", names[0] === "Kilo", names.join());
   check("then the pending outcomes", names.slice(1, 5).sort().join() === "AecomCo,FoxCo,HidCo,ShellCo", names.join());
   check("then the rest by last update", names[5] === "Juliet", names.join());
@@ -175,7 +197,7 @@ try {
   const sent = puts.at(-1);
   check("the dialog sends confirmed_by_user", sent?.confirmed_by_user === true && sent.id === byName("ShellCo").id && sent.close_reason === "rejected" && sent.lesson === "asked for 3+ years" && /^2026-11-02/.test(sent.closed_at), JSON.stringify(sent).slice(0, 220));
   check("the row leaves Live", !(await live()).includes("ShellCo"));
-  check("the summary follows", (await summary()) === "Your CV reached screening 25 times · 15 live · 1 closed", await summary());
+  check("the summary follows", (await summary()) === "Your CV reached screening 26 times · 16 live · 1 closed", await summary());
   const toast = page.locator("[data-toast]");
   check("the toast offers Undo", /Moved to Closed/.test(await toast.innerText()) && (await toast.locator("[data-toast-undo]").count()) === 1);
 
@@ -194,7 +216,17 @@ try {
   check("Undo brings the banner back", (await bannerOf("ShellCo").count()) === 1);
   check("and the lesson goes back", !byName("ShellCo").lesson, JSON.stringify(byName("ShellCo").lesson));
   check("the stage history drops the ending", byName("ShellCo").stages_reached.join() === "applied,screening", byName("ShellCo").stages_reached.join());
-  check("the row is Live again", (await live()).includes("ShellCo") && /16 live · 0 closed/.test(await summary()), await summary());
+  check("the row is Live again", (await live()).includes("ShellCo") && /17 live · 0 closed/.test(await summary()), await summary());
+
+  // Undo of a close that cleared a follow-up: the date and the note both go back.
+  await page.locator('[data-stage-row="Uniform"] [data-row-menu]').click();
+  await page.locator('[data-menu-item="move-closed"]').click();
+  await dialog.locator("[data-close-submit]").click();
+  await page.waitForTimeout(250);
+  check("a close clears the follow-up and notes it", byName("Uniform").followup_date === null && /cleared when marked/.test(byName("Uniform").notes ?? ""), JSON.stringify([byName("Uniform").followup_date, byName("Uniform").notes]));
+  await toast.locator("[data-toast-undo]").click();
+  await page.waitForTimeout(250);
+  check("Undo restores both", byName("Uniform").followup_date === "2026-11-21" && !byName("Uniform").notes && byName("Uniform").status === "screening", JSON.stringify([byName("Uniform").followup_date, byName("Uniform").notes]));
 
   // ── The ⋯ menu, the stage select, Reopen ─────────────────────────────────
   const menuOf = (company) => page.locator(`[data-stage-row="${company}"] [data-row-menu]`);
@@ -213,6 +245,15 @@ try {
   await page.waitForTimeout(200);
   check("a lesson edits in place", byName("Juliet").lesson === "headcount frozen" && puts.at(-1).lesson === "headcount frozen" && !("status" in puts.at(-1)));
   check("a lesson stops at 140", (await juliet.locator("[data-closed-lesson]").getAttribute("maxlength")) === "140");
+  failNextLesson = true;
+  await juliet.locator("[data-closed-lesson]").fill("headcount frozen until spring");
+  await juliet.locator("[data-closed-lesson]").blur();
+  await page.waitForTimeout(250);
+  check("a lesson that fails to save keeps what was typed", (await juliet.locator("[data-closed-lesson]").inputValue()) === "headcount frozen until spring");
+  await juliet.locator("[data-closed-lesson]").focus();
+  await juliet.locator("[data-closed-lesson]").blur();
+  await page.waitForTimeout(250);
+  check("and saves on the next try", byName("Juliet").lesson === "headcount frozen until spring", byName("Juliet").lesson);
   await juliet.locator("[data-row-menu]").click();
   await page.locator('[data-menu-item="reopen"]').click();
   await page.waitForTimeout(250);
@@ -232,6 +273,33 @@ try {
   await dialog.locator("[data-close-submit]").click();
   await page.waitForTimeout(400);
   check("an event says more than the stage", (await page.locator('[data-closed-row="Bravo"] [data-closed-chip]').innerText()) === "Video");
+
+  // ── Replacing a close, from the Closed tab ───────────────────────────────
+  const closedAtBefore = byName("Bravo").closed_at;
+  await open("closed");
+  await page.locator('[data-stage-row="Bravo"] [data-stage-status]').selectOption("withdrawn");
+  check("another ending asks too", await dialog.isVisible());
+  await dialog.locator("[data-close-reason]").selectOption("withdrawn");
+  await dialog.locator("[data-close-submit]").click();
+  await page.waitForTimeout(250);
+  check("the close is replaced", byName("Bravo").status === "withdrawn");
+  check("a closed row shows no banner", (await page.locator('[data-pending-row="Bravo"]').count()) === 0);
+  const refusedBefore = refused;
+  await page.locator("[data-toast-undo]").click();
+  await page.waitForTimeout(250);
+  check("Undo restores the earlier close", byName("Bravo").status === "ghosted" && byName("Bravo").closed_at === closedAtBefore, JSON.stringify([byName("Bravo").status, byName("Bravo").closed_at, closedAtBefore]));
+  check("without tripping the guard", refused === refusedBefore, String(refused));
+
+  // A move back to an open stage reopens it at once, with no reload.
+  await page.locator('[data-stage-row="Bravo"] [data-stage-status]').selectOption("screening");
+  await page.waitForTimeout(250);
+  check("back at Screening it is open again", byName("Bravo").status === "screening" && !byName("Bravo").closed_at);
+  await page.locator('[data-stage-tab="screening"]').click();
+  await page.waitForTimeout(150);
+  check("in Live straight away", (await live()).includes("Bravo") && (await page.locator('[data-closed-row="Bravo"]').count()) === 0);
+  await page.locator('[data-stage-row="Bravo"] [data-stage-status]').selectOption("ghosted");
+  await dialog.locator("[data-close-submit]").click();
+  await page.waitForTimeout(300);
 
   // ── The fold is remembered ───────────────────────────────────────────────
   await open();
@@ -261,9 +329,9 @@ try {
   await page.waitForTimeout(150);
   const countOf = async (step) => (await page.locator(`[data-wins-step="${step}"] [data-wins-count]`).innerText()).trim();
   const submitted = rows.filter((r) => r.stages_reached.some((s) => s !== "saved")).length;
-  check("the funnel counts by stages_reached", (await countOf("applied")) === String(submitted) && (await countOf("screening")) === "25" && (await countOf("interview")) === "8" && (await countOf("offer")) === "0", `${await countOf("applied")} ${await countOf("screening")} ${await countOf("interview")} ${await countOf("offer")}`);
-  check("each step says its conversion", /32%/.test(await page.locator('[data-wins-step="interview"] [data-wins-rate]').innerText()));
-  check("every row that ever got there is listed", (await page.locator("[data-wins-row]").count()) === 25);
+  check("the funnel counts by stages_reached", (await countOf("applied")) === String(submitted) && (await countOf("screening")) === "26" && (await countOf("interview")) === "8" && (await countOf("offer")) === "0", `${await countOf("applied")} ${await countOf("screening")} ${await countOf("interview")} ${await countOf("offer")}`);
+  check("each step says its conversion", /30.8%/.test(await page.locator('[data-wins-step="interview"] [data-wins-rate]').innerText()));
+  check("every row that ever got there is listed", (await page.locator("[data-wins-row]").count()) === 26);
   check("a closed one says how it ended", /Ghosted \d/.test(await page.locator('[data-wins-row="Bravo"]').innerText()), await page.locator('[data-wins-row="Bravo"]').innerText());
   check("a live one says Live", /Live/.test(await page.locator('[data-wins-row="Alpha"]').innerText()));
   check("grouped by source", (await page.locator('[data-wins-group="By source"] [data-wins-group-row]').count()) >= 2);
@@ -272,6 +340,30 @@ try {
   check("grouped by CV style for the owner", (await page.locator('[data-wins-group="By CV style"]').count()) === 1);
   check("no Export on a page that lists no filtered rows", (await page.locator("[data-apps-export]").count()) === 0);
   await page.screenshot({ path: path.join(SHOTS, "wins.png"), fullPage: true });
+
+  // ── Add application from Wins ────────────────────────────────────────────
+  await page.locator("[data-apps-add]").click();
+  await page.waitForTimeout(150);
+  check("+ Add application leaves Wins for the form", (await page.locator("[data-wins]").count()) === 0 && (await page.locator("h1").innerText()) !== "Wins");
+  await page.reload({ waitUntil: "load" });
+
+  // ── Moving a row below screening asks, and keeps the proof until it is said ──
+  await open();
+  const beforeBack = puts.length;
+  await page.locator('[data-stage-row="Charlie"] [data-stage-status]').selectOption("applied");
+  const ask = page.locator("[data-confirm-dialog]");
+  await ask.waitFor({ timeout: 5000 });
+  check("moving a screened row back asks first", /takes it off that count/.test(await ask.innerText()), (await ask.innerText()).slice(0, 160));
+  check("and sends nothing yet", puts.length === beforeBack);
+  await page.locator("[data-confirm-cancel]").click();
+  await page.waitForTimeout(150);
+  check("Cancel leaves it", byName("Charlie").status === "screening");
+  await page.locator('[data-stage-row="Charlie"] [data-stage-status]').selectOption("applied");
+  await ask.waitFor({ timeout: 5000 });
+  await page.locator("[data-confirm-ok], [data-confirm-dialog] button.cta:not(.secondary)").first().click();
+  await page.waitForTimeout(250);
+  check("confirmed, it moves, with its own word", byName("Charlie").status === "applied" && puts.at(-1).confirmed_move_back === true && puts.at(-1).confirmed_by_user === undefined, JSON.stringify(puts.at(-1)).slice(0, 180));
+  check("the count follows", /reached screening 25 times/.test(await summary()), await summary());
 
   check("no console errors", errors.length === 0, errors.slice(0, 3).join(" | ").slice(0, 300));
 
@@ -290,6 +382,18 @@ try {
   await planPage.locator("[data-close-cancel]").click();
   const stillThere = (await (await fetch(`${BASE}/api/applications`, { headers: { cookie } })).json()).applications.find((r) => r.id === realRow.id);
   check("Cancel moves nothing on the real row", stillThere.status === "Interview", stillThere.status);
+  // And through: the real PUT, with or without the closing columns.
+  await waiting.locator("[data-waiting-reject]").click();
+  await planPage.locator("[data-close-lesson]").fill("wanted 3+ yrs");
+  await planPage.locator("[data-close-submit]").click();
+  await planPage.locator("[data-toast-undo]").waitFor({ timeout: 15000 });
+  const realRead = async () => (await (await fetch(`${BASE}/api/applications`, { headers: { cookie } })).json()).applications.find((r) => r.id === realRow.id);
+  check("the real route takes the user's word", (await realRead()).status === "Rejected", (await realRead()).status);
+  check("the toast says it moved", /Moved to Closed/.test(await planPage.locator("[data-toast]").innerText()));
+  await planPage.locator("[data-toast-undo]").click();
+  await waiting.waitFor({ timeout: 15000 });
+  const backAgain = await realRead();
+  check("Undo puts the real row back", backAgain.status === "Interview" && !backAgain.closed_at && !backAgain.lesson && backAgain.stages_reached.join() === "interview", JSON.stringify([backAgain.status, backAgain.closed_at, backAgain.stages_reached]));
   await real.close();
 
   // ── The ten-second toast, on a phone ─────────────────────────────────────
