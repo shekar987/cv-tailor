@@ -1,13 +1,13 @@
 // Referrals on the tracker (lib/referrals + app/applications/ReferralAsks,
 // 31 Oct 2026): the PUT's validation, which referrals are open, the next
-// action in words, and the strip as rendered. The .tsx loads through
+// action in words, and the editor as rendered. The .tsx loads through
 // tests/support/tsxLoader.mjs. Names and companies are made up.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { referralAsks, validateReferralFields, nextReferralAction, nextReferralStatus, REFERRAL_STATUSES, type ReferralRow } from "../src/lib/referrals.ts";
-import { ReferralAsks, ReferralEditor } from "../src/app/applications/ReferralAsks.tsx";
+import { ReferralEditor } from "../src/app/applications/ReferralAsks.tsx";
 
 const row = (over: Partial<ReferralRow>): ReferralRow => ({
   id: "r1",
@@ -60,30 +60,6 @@ test("referralAsks: every referral not yet applied, oldest first", () => {
     row({ id: "g", referral_status: null, date_applied: "2026-10-10" }),
   ];
   assert.deepEqual(referralAsks(rows).map((r) => r.id), ["c", "g", "a", "b"]);
-});
-
-test("the strip renders each open referral with its next action, the req ID and one step", () => {
-  const rows = [
-    row({ id: "r1", company_name: "Kainos", role: "Graduate Software Engineer", referrer_name: "Nitish", req_id: "REQ-2041", referral_status: "offered", date_applied: "2026-10-20" }),
-    row({ id: "r2", company_name: "Deloitte", role: "Graduate Developer", referral_status: "referred", date_applied: "2026-10-05" }),
-    row({ id: "r3", company_name: "Done Ltd", referral_status: "applied" }),
-  ];
-  const html = renderToStaticMarkup(createElement(ReferralAsks, { rows, onStep: () => {} }));
-  assert.match(html, /<section class="referralAsks" aria-labelledby="referral-asks-title" data-referral-asks="true">/);
-  assert.match(html, /<h2 id="referral-asks-title"[^>]*>Referral asks <span class="referralAsks__count">2<\/span><\/h2>/);
-  assert.match(html, /data-referral-action="true">Send details to Nitish<\/strong>/);
-  assert.match(html, /data-referral-action="true">Finish Deloitte application<\/strong>/);
-  assert.match(html, /Kainos · Graduate Software Engineer · Req ID REQ-2041 · since 20 Oct 2026/);
-  assert.match(html, /data-referral-step="details_sent"[^>]*>Mark details sent<\/button>/);
-  assert.match(html, /data-referral-step="applied"[^>]*>Mark applied<\/button>/);
-  assert.doesNotMatch(html, /Done Ltd/, "an applied referral is no longer in the strip");
-  assert.ok(html.indexOf("Deloitte") < html.indexOf("Kainos"), "oldest first");
-});
-
-test("the strip is absent with no open referral; a busy row's step is disabled", () => {
-  assert.equal(renderToStaticMarkup(createElement(ReferralAsks, { rows: [row({ referral: false })], onStep: () => {} })), "");
-  const busy = renderToStaticMarkup(createElement(ReferralAsks, { rows: [row({ id: "r1" })], onStep: () => {}, busyId: "r1" }));
-  assert.match(busy, /<button type="button" class="linkBtn" data-referral-step="details_sent" disabled="">/);
 });
 
 test("the editor shows the row's referral; its fields only once a referral is on", () => {

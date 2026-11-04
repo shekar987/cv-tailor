@@ -5,8 +5,8 @@ import Link from "next/link";
 import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 import SentCvBlock from "./SentCvBlock";
-import { ReferralAsks, ReferralEditor } from "./ReferralAsks";
-import { REFERRAL_STATUS_LABELS, type ReferralFields, type ReferralRow, type ReferralStatus } from "@/lib/referrals";
+import { ReferralEditor } from "./ReferralAsks";
+import { REFERRAL_STATUS_LABELS, nextReferralAction, nextReferralStatus, referralAsks, isReferralStatus, type ReferralFields, type ReferralStatus } from "@/lib/referrals";
 import type { SentCvInfo } from "@/lib/sentCv";
 import { getProfile, type Profile } from "@/lib/cvStore";
 import TriageBadge from "../TriageBadge";
@@ -23,14 +23,24 @@ import { gateLine, type GatesSummary } from "@/lib/knockouts";
 import { rowStyle, isFormatStyleId, normalizeFormatStyle, ROW_STYLE_LABELS, type RowStyle } from "@/lib/formatStyles/ids";
 import { normalizeStyleCheck, summarizeStyleCheck } from "@/lib/styleCheck";
 import { getUsage } from "@/lib/usage";
-import StageTable from "./StageTable";
+import AttentionStrip, { type AttentionFilter } from "./AttentionStrip";
+import StageTabs, { type TabChoice } from "./StageTabs";
+import RowMenu, { type RowMenuItem } from "./RowMenu";
+import NextStepCell from "./NextStepCell";
+import EventForm, { type EventFormMode } from "../app/next/EventForm";
+import { browserTimeZone, copyText, safeHttpUrl } from "../app/next/planUi";
+import { useConfirm } from "@/components/ConfirmDialog";
+import Icon from "@/components/ui/Icon";
+import { eventMs, feedbackRequest, type AvailabilityWindow, type PlanEvent } from "@/lib/plan";
+import { snoozeUntil } from "@/lib/actionCentre";
+import {
+  STAGE_LABELS, TAB_LABELS, attentionCounts, countedElsewhere, defaultTab, deriveStage, eventsByApplication, isDataToFix, isDueSoon, nextStepFor,
+  dueSoonCutoff, primaryAction, reachedTab, referralCard, roleLine, stageEvent, statusForNewRow, statusToMatch, tabCounts, tabForStatus, tabOfStage, visibleTabs,
+} from "@/lib/applicationStage";
 import {
   STATUSES,
   STATUS_LABELS,
-  inStageTab,
-  inStageTabOrPast,
   stagesAfterMove,
-  isStageTab,
   normalizeStatus,
   statusLabel,
   hasProgressed,
@@ -44,7 +54,8 @@ import {
   PAGE_SIZE,
   isReplyOwed,
   replyOwedFirst,
-  missingAttachments,
+  rowCheck,
+  CLOSED_STATUSES,
   type Status,
 } from "@/lib/tracker";
 import AppHeader from "@/components/ui/AppHeader";
@@ -54,8 +65,6 @@ import EmptyState from "@/components/ui/EmptyState";
 import Skeleton from "@/components/ui/Skeleton";
 import Textarea from "@/components/ui/Textarea";
 import StatusText from "@/components/ui/StatusText";
-
-const PAGE_TAGLINE = "Every role you've applied to, in one sheet. Click any cell to edit it.";
 
 const MAX_JD_CHARS = JD_LIMIT;
 const MAX_NOTES = MAX_NOTES_CHARS;
@@ -454,7 +463,7 @@ const CELL_LABELS: Record<TextField, string> = {
 
 type SortKey = TextField | "status";
 type SortDir = "asc" | "desc";
-type PanelKind = "cv" | "jd" | "notes";
+type PanelKind = "cv" | "jd" | "notes" | "edit";
 
 const COLUMNS: { key: SortKey | PanelKind | "gate"; label: string; sortable: boolean }[] = [
   { key: "company_name", label: "Company Name", sortable: true },
@@ -513,7 +522,7 @@ const STATUS_TONES: Record<Status, string> = {
 // "week" is Monday–Sunday of the current week, "month" the current month.
 type Period = "all" | "today" | "week" | "month";
 const PERIODS: { key: Period; label: string }[] = [
-  { key: "all", label: "All" },
+  { key: "all", label: "Any time" },
   { key: "today", label: "Today" },
   { key: "week", label: "This week" },
   { key: "month", label: "This month" },
@@ -620,12 +629,33 @@ export default function ApplicationsPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [sectionOrder, setSectionOrder] = useState<unknown>(null);
 
-  const [statusFilter, setStatusFilter] = useState<"All" | Status>("All");
+  // The open tab; null until the user picks one, when lib/applicationStage defaultTab decides.
+  const [tab, setTab] = useState<TabChoice | null>(null);
+  // An attention card filtering across the tabs.
+  const [attention, setAttention] = useState<AttentionFilter | null>(null);
+  // The open events behind the stages and the Next step column (/api/actions).
+  const [events, setEvents] = useState<PlanEvent[]>([]);
+  const [windows, setWindows] = useState<AvailabilityWindow[]>([]);
+  const [eventsSettled, setEventsSettled] = useState(false);
+  const [eventsError, setEventsError] = useState("");
+  const [eventForm, setEventForm] = useState<EventFormMode | null>(null);
+  const [toast, setToast] = useState<{ message: string; undo?: () => Promise<void> | void } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [listSort, setListSort] = useState<"next" | "company" | "contact" | "applied">("next");
+  // Whether the open tab is one the user asked for. The default is pinned once it is known,
+  // so moving the last row out of a tab never jumps the page to another one.
+  const [tabPicked, setTabPicked] = useState(false);
+  const filtersRef = useRef<HTMLDivElement>(null);
+  const [copiedFeedback, setCopiedFeedback] = useState<string | null>(null);
+  const [tz] = useState(browserTimeZone);
+  // What countdowns and "due soon" read. Moves each minute; the sheet's order does not (see now).
+  const [clock, setClock] = useState(() => Date.now());
+  const [confirm, confirmDialog] = useConfirm();
   // On a stage tab: the dated table, or the full sheet with its panels.
-  const [stageSheet, setStageSheet] = useState(false);
+  const [spreadsheet, setSpreadsheet] = useState(false);
   const [includePast, setIncludePast] = useState(false);
   // Opening a row in the sheet searches for it, so it is on the sheet's first page.
-  const [sheetSearchFromStage, setSheetSearchFromStage] = useState(false);
   const [stageRefresh, setStageRefresh] = useState(0);
   const [periodFilter, setPeriodFilter] = useState<Period>("all");
   // The format-style tag, filter, picker and tile are the owner's while the
@@ -692,9 +722,7 @@ export default function ApplicationsPage() {
   const [flash, setFlash] = useState("");
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // "Follow-ups due" computed filter — combines with, not replaces, status/period.
-  const [dueOnly, setDueOnly] = useState(false);
   // Screening or Interview rows with no JD or no CV (lib/tracker missingAttachments).
-  const [missingOnly, setMissingOnly] = useState(false);
   // The row whose "Run check" is running.
   const [checkingId, setCheckingId] = useState<string | null>(null);
   // Free-text search over company, role and date applied (lib/trackerSearch —
@@ -735,8 +763,11 @@ export default function ApplicationsPage() {
         /* the card simply doesn't show */
       });
     // A link from the pipeline opens that stage's tab (lib/plan buildFunnel's nodes).
-    const linked = normalizeStatus(new URLSearchParams(window.location.search).get("status"));
-    if (linked) setStatusFilter(linked);
+    const linked = tabForStatus(new URLSearchParams(window.location.search).get("status"));
+    if (linked) {
+      setTab(linked);
+      setTabPicked(true);
+    }
     fetch("/api/section-order")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -749,13 +780,61 @@ export default function ApplicationsPage() {
       cancelled = true;
       if (flashTimer.current) clearTimeout(flashTimer.current);
       if (rowFlashTimer.current) clearTimeout(rowFlashTimer.current);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
     };
   }, []);
+
+  // The open events: what each row is waiting on. A failed read leaves the stored status
+  // showing, and says so. Read again after anything that moves a row or an event.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/actions")
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          setEventsError(res.status === 401 ? "" : "Couldn't load your next steps, so stages show the stored status.");
+          return;
+        }
+        setEvents((body.events ?? []) as PlanEvent[]);
+        setWindows((body.availability ?? []) as AvailabilityWindow[]);
+        setEventsError("");
+      })
+      .catch(() => {
+        if (!cancelled) setEventsError("Couldn't load your next steps, so stages show the stored status.");
+      })
+      .finally(() => {
+        if (!cancelled) setEventsSettled(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stageRefresh]);
+
+  useEffect(() => {
+    const tick = setInterval(() => setClock(Date.now()), 60_000);
+    return () => clearInterval(tick);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!filtersRef.current?.contains(e.target as Node)) setFiltersOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [filtersOpen]);
 
   function showFlash(message: string) {
     setFlash(message);
     if (flashTimer.current) clearTimeout(flashTimer.current);
     flashTimer.current = setTimeout(() => setFlash(""), 3000);
+  }
+
+  function showToast(next: { message: string; undo?: () => Promise<void> | void }) {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(next);
+    toastTimer.current = setTimeout(() => setToast(null), 8000);
   }
 
   function flashRow(id: string) {
@@ -766,28 +845,51 @@ export default function ApplicationsPage() {
 
   const bounds = periodBounds(periodFilter);
 
-  // Funnel strip numbers — always over ALL rows, so the overview stays stable
-  // while filters narrow the table below it.
-  const statusCounts = useMemo(() => {
-    const counts = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<Status, number>;
-    for (const r of rows) if (r.status in counts) counts[r.status] += 1;
-    // The Won tab holds offers too; every count is the row's current stage.
-    counts.accepted += counts.offer;
-    return counts;
-  }, [rows]);
-  const dueCount = useMemo(() => rows.filter(isDue).length, [rows]);
-  const missingCount = useMemo(() => rows.filter((r) => missingAttachments(r).length > 0).length, [rows]);
+  // The overview is always over ALL rows, so it stays stable while filters narrow the
+  // table. Tabs count the derived stage: every row once, so they add up to the total.
+  const byApp = useMemo(() => eventsByApplication(events), [events]);
+  const counts = useMemo(() => tabCounts(rows, byApp), [rows, byApp]);
+  const attentionNumbers = useMemo(() => attentionCounts(rows, events, todayLocal(), clock, tz), [rows, events, clock, tz]);
+  const referral = useMemo(() => referralCard(rows), [rows]);
+  const referralIds = useMemo(() => new Set(referralAsks(rows).map((r) => r.id)), [rows]);
+  const tabNow: TabChoice = tab ?? defaultTab(counts);
+  useEffect(() => {
+    // Pins the default once, when the rows and events are known.
+    if (tab === null && loaded && eventsSettled) setTab(defaultTab(counts));
+  }, [tab, loaded, eventsSettled, counts]);
+  const sheetMode = spreadsheet || newRow !== null;
 
   const visible = useMemo(() => {
+    // An attention card filters across the tabs; otherwise the tab decides.
+    const inView = (r: Application): boolean => {
+      if (attention === "due") return (byApp.get(r.id) ?? []).some((e) => isDueSoon(e, clock, tz));
+      if (attention === "followups") return isDue(r);
+      if (attention === "fix") return isDataToFix(r);
+      if (attention === "referrals") return referralIds.has(r.id);
+      if (searchTerm) return true;
+      if (tabNow === "all") return true;
+      if (tabOfStage(deriveStage(r.status, byApp.get(r.id))) === tabNow) return true;
+      return includePast && !sheetMode && reachedTab(r.stages_reached, tabNow);
+    };
     const filtered = rows.filter(
       (r) =>
-        (statusFilter === "All" || (includePast && isStageTab(statusFilter) && !stageSheet ? inStageTabOrPast(r, statusFilter) : inStageTab(r.status, statusFilter))) &&
+        inView(r) &&
         (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) &&
         (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
-        (!dueOnly || isDue(r)) &&
-        (!missingOnly || missingAttachments(r).length > 0) &&
         matchesSearch(r, searchTerm)
     );
+    // The list reads by what is soonest; the spreadsheet by its own columns.
+    if (!sheetMode) {
+      const soonest = (r: Application) => Math.min(...(byApp.get(r.id) ?? []).map((e) => eventMs(e) ?? Infinity), Infinity);
+      const newest = (a: Application, b: Application) => b.date_applied.localeCompare(a.date_applied) || b.created_at.localeCompare(a.created_at);
+      const list = [...filtered].sort((a, b) => {
+        if (listSort === "company") return a.company_name.localeCompare(b.company_name, undefined, { sensitivity: "base" }) || newest(a, b);
+        if (listSort === "contact") return (b.last_contact_at ?? "").localeCompare(a.last_contact_at ?? "") || newest(a, b);
+        if (listSort === "applied") return newest(a, b);
+        return soonest(a) - soonest(b) || newest(a, b);
+      });
+      return attention === "due" || listSort !== "next" ? list : replyOwedFirst(list, now);
+    }
     // Empty values always sort last, whichever direction is active. Status
     // sorts in funnel order (Applied → … → Withdrawn), salary by its number.
     const compare = (a: Application, b: Application): number => {
@@ -816,11 +918,11 @@ export default function ApplicationsPage() {
     });
     // A reply owed outranks any sort: those rows come first, in sort order.
     return replyOwedFirst(sorted, now);
-  }, [rows, statusFilter, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, dueOnly, missingOnly, searchTerm, now, includePast, stageSheet]);
+  }, [rows, tabNow, attention, listSort, byApp, referralIds, clock, tz, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, searchTerm, now, includePast, sheetMode]);
 
   // Only PAGE_SIZE rows are painted at a time; search, filters, counts and the
   // export cover the whole set. A different filter/sort state starts at page 1.
-  const pageKey = [statusFilter, styleFilter, periodFilter, sortKey, sortDir, dueOnly ? "due" : "", missingOnly ? "missing" : "", searchTerm].join("\u0000");
+  const pageKey = [tabNow, attention ?? "", listSort, styleFilter, periodFilter, sortKey, sortDir, sheetMode ? "sheet" : "list", searchTerm].join("\u0000");
   const sheet = pageSlice(visible, paging.key === pageKey ? paging.page : 1);
   const pageRows = sheet.items;
   function goToPage(page: number) {
@@ -844,35 +946,6 @@ export default function ApplicationsPage() {
   // and a role long enough to be a title plus extras.
   const newRowDuplicate = newRow ? findDuplicateApplication(rows, newRow) : null;
   const newRowRoleLong = !!newRow && roleTooLong(newRow.role);
-
-  // The export carries the same filters, so the file matches the screen.
-  const exportHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (statusFilter !== "All") params.set("status", statusFilter);
-    if (bounds) {
-      params.set("from", bounds.from);
-      params.set("to", bounds.to);
-    }
-    if (searchTerm) params.set("q", searchTerm);
-    if (styleFilter !== "all") params.set("style", styleFilter);
-    const qs = params.toString();
-    return `/api/applications/export${qs ? `?${qs}` : ""}`;
-  }, [statusFilter, styleFilter, bounds?.from, bounds?.to, searchTerm]);
-
-  // What the export FILE will contain: the server honours status/period/search,
-  // never the computed follow-ups-due filter — so the count on the button
-  // must match the file, not the (possibly due-filtered) table.
-  const exportCount = useMemo(
-    () =>
-      rows.filter(
-        (r) =>
-          (statusFilter === "All" || inStageTab(r.status, statusFilter)) &&
-          (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) &&
-          (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
-          matchesSearch(r, searchTerm)
-      ).length,
-    [rows, statusFilter, styleFilter, bounds?.from, bounds?.to, searchTerm]
-  );
 
   // The CV shown in the open panel. Memoised so CvPreview's React.memo holds.
   const panelCv = panel?.kind === "cv" ? cvCache[panel.id] : undefined;
@@ -1032,6 +1105,13 @@ export default function ApplicationsPage() {
     }
   }
 
+  // Tab walks the cells drawn on screen: the list shows only company and role, and the
+  // rest live in the row's Edit panel.
+  function cellOrder(field: TextField): readonly TextField[] {
+    if (sheetMode) return CELL_ORDER;
+    return field === "company_name" || field === "role" ? ["company_name", "role"] : ["salary", "date_applied", "followup_date"];
+  }
+
   function handleCellKey(e: React.KeyboardEvent<HTMLInputElement>, field: TextField) {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -1040,8 +1120,9 @@ export default function ApplicationsPage() {
       e.preventDefault();
       cancelCell();
     } else if (e.key === "Tab") {
-      const i = CELL_ORDER.indexOf(field);
-      const next = (e.shiftKey ? CELL_ORDER[i - 1] : CELL_ORDER[i + 1]) ?? null;
+      const order = cellOrder(field);
+      const i = order.indexOf(field);
+      const next = (e.shiftKey ? order[i - 1] : order[i + 1]) ?? null;
       // Past the last (or before the first) editable cell, let the browser
       // move focus on naturally instead of stranding it on <body>.
       if (next) e.preventDefault();
@@ -1193,6 +1274,7 @@ export default function ApplicationsPage() {
       return;
     }
     setPanel(null);
+    setStageRefresh((n) => n + 1);
     // A confirmation in the notes closes the row's open submission items (lib/autoClose).
     showFlash(autoCloseNote.current ?? "Saved.");
     autoCloseNote.current = null;
@@ -1208,8 +1290,8 @@ export default function ApplicationsPage() {
     showFlash(from === "me" ? "Reply recorded." : "Recorded: they wrote. It shows as Reply owed after a day without your reply.");
   }
 
-  // The "Referral asks" strip's next step for a row (lib/referrals).
-  async function stepReferral(row: ReferralRow, status: ReferralStatus) {
+  // A referral's next step, from the row's menu (lib/referrals).
+  async function stepReferral(row: Application, status: ReferralStatus) {
     setReferralBusy(row.id);
     const message = await patchRow(row.id, { referral_status: status });
     setReferralBusy(null);
@@ -1230,7 +1312,13 @@ export default function ApplicationsPage() {
     setExporting(true);
     setActionError("");
     try {
-      const res = await fetch(exportHref);
+      // The rows on screen, whichever tab, card or search put them there.
+      const label = [attention ?? (searchTerm || tabNow === "all" ? "" : TAB_LABELS[tabNow]), periodFilter === "all" ? "" : periodFilter, searchTerm].filter(Boolean).join(" ");
+      const res = await fetch("/api/applications/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: visible.map((r) => r.id), label }),
+      });
       if (res.status === 401) {
         setSessionExpired(true);
         setActionError(SESSION_EXPIRED);
@@ -1260,7 +1348,7 @@ export default function ApplicationsPage() {
       company_name: "",
       role: "",
       // On a stage tab a new row belongs to that stage, or it would vanish from view on save.
-      status: statusFilter === "All" ? "applied" : statusFilter,
+      status: statusForNewRow(attention || !tabPicked ? "all" : tabNow),
       salary: "",
       date_applied: todayLocal(),
       followup_date: "",
@@ -1331,7 +1419,7 @@ export default function ApplicationsPage() {
 
   // ── Render helpers ────────────────────────────────────────────────────────
 
-  function textCell(row: Application, field: TextField) {
+  function textCell(row: Application, field: TextField, shown?: { display: string; title: string }) {
     const isEditing = editing?.id === row.id && editing.field === field;
     if (isEditing) {
       const isDate = DATE_FIELDS.has(field);
@@ -1371,16 +1459,271 @@ export default function ApplicationsPage() {
         type="button"
         className={"appsCellBtn" + (value ? "" : " empty") + (due ? " due" : "")}
         onClick={() => openCell(row, field)}
-        title={due ? "Follow-up due — click to edit" : "Click to edit"}
+        title={shown?.title ?? (due ? "Follow-up due — click to edit" : "Click to edit")}
         aria-label={value ? undefined : `${CELL_LABELS[field]}: empty, click to edit`}
       >
-        {display || "—"}
+        {shown?.display ?? (display || "—")}
       </button>
+    );
+  }
+
+  // What has no column of its own in the list: edited here, in the row's panel.
+  function renderEditPanel(row: Application) {
+    const gate = gateLine(readStoredGates(row.gates));
+    return (
+      <div className="appsPanel" data-edit-panel>
+        <div className="appsPanelHead">
+          <span className="appsPanelTitle">Edit {row.company_name}</span>
+          <button type="button" className="appsActionBtn" onClick={() => setPanel(null)}>Close</button>
+        </div>
+        <div className="rowEditGrid">
+          <div><span className="label">Salary</span>{textCell(row, "salary")}</div>
+          <div><span className="label">Applied on</span>{textCell(row, "date_applied")}</div>
+          <div><span className="label">Follow-up</span>{textCell(row, "followup_date")}</div>
+          {isOwner && (
+            <div>
+              <span className="label">CV style</span>
+              {row.source === "tailored" ? (
+                <span className="appsStyleTag" data-style-tag={rowStyle(row.format_style)}>{ROW_STYLE_LABELS[rowStyle(row.format_style)]}</span>
+              ) : (
+                <select className="appsCellSelect appsStyleSelect" value={rowStyle(row.format_style)} onChange={(e) => void changeStyle(row, e.target.value)} aria-label={`Format style of the CV sent to ${row.company_name}`} data-style-pick={rowStyle(row.format_style)}>
+                  {ROW_STYLES.map((k) => <option key={k} value={k}>{ROW_STYLE_LABELS[k]}</option>)}
+                </select>
+              )}
+            </div>
+          )}
+          <div><span className="label">Eligibility read</span><span className="cvHelp" data-gate={gate.label}>{gate.detail || gate.label}</span></div>
+          {row.status === "rejected" && (
+            <div className="rowEditWide">
+              <label className="label" htmlFor={`reason-${row.id}`}>Rejection reason</label>
+              <input
+                id={`reason-${row.id}`}
+                className="textInput"
+                placeholder="Optional"
+                defaultValue={row.outcome_reason ?? ""}
+                maxLength={500}
+                onBlur={(e) => {
+                  const value = e.target.value.trim();
+                  if (value !== (row.outcome_reason ?? "")) void patchRow(row.id, { outcome_reason: value || null }).then((message) => setActionError(message ?? ""));
+                }}
+                data-stage-reason
+              />
+              <button
+                type="button"
+                className="linkBtn"
+                onClick={async () => {
+                  if (await copyText(feedbackRequest(row.company_name, row.role))) {
+                    setCopiedFeedback(row.id);
+                    setTimeout(() => setCopiedFeedback(null), 2000);
+                  }
+                }}
+                data-ask-feedback
+              >
+                {copiedFeedback === row.id ? "Copied" : "Ask for feedback"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  async function putEvent(body: Record<string, unknown>): Promise<boolean> {
+    setActionError("");
+    try {
+      const res = await fetch("/api/events", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (res.ok) return true;
+      const failed = await res.json().catch(() => ({}));
+      setActionError(failed.error || "Could not save that change.");
+    } catch {
+      setActionError("Connection error. Your change was not saved.");
+    }
+    return false;
+  }
+
+  async function markStepDone(event: PlanEvent) {
+    if (!(await putEvent({ id: event.id, status: "done" }))) return;
+    setStageRefresh((n) => n + 1);
+    showToast({
+      message: `Done: ${event.title}.`,
+      undo: async () => {
+        await putEvent({ id: event.id, status: event.status });
+        setStageRefresh((n) => n + 1);
+      },
+    });
+  }
+
+  async function snoozeStep(event: PlanEvent) {
+    if (!(await putEvent({ id: event.id, snooze: true }))) return;
+    showToast({
+      message: "Snoozed on the Action Centre for a day. The deadline itself has not moved.",
+      undo: async () => {
+        await putEvent({ id: event.id, snooze: false });
+      },
+    });
+  }
+
+  // "Submit" on a row still to send. It records what the user did; only they can send it.
+  async function submitRow(row: Application) {
+    const yes = await confirm({
+      title: `Mark ${row.company_name} as submitted?`,
+      message: "It moves to Applied, dated today. Do this once you have actually sent it.",
+      confirmLabel: "Mark as submitted",
+    });
+    if (!yes) return;
+    const before = { status: row.status, date_applied: row.date_applied, stages_reached: row.stages_reached };
+    const message = await patchRow(row.id, { status: "applied", date_applied: todayLocal(), stages_reached: stagesAfterMove(row.stages_reached, "applied") });
+    setActionError(message ?? "");
+    if (message) return;
+    setStageRefresh((n) => n + 1);
+    showToast({
+      message: `${row.company_name} moved to Applied.`,
+      undo: async () => {
+        const failed = await patchRow(row.id, before);
+        setActionError(failed ?? "");
+        setStageRefresh((n) => n + 1);
+      },
+    });
+  }
+
+  async function deleteRow(row: Application) {
+    const yes = await confirm({
+      title: `Delete ${row.company_name}?`,
+      message: "This removes the row, its events and any CV file kept with it. It can't be undone.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (yes) await confirmDelete(row.id);
+  }
+
+  function rowMenu(row: Application, step: ReturnType<typeof nextStepFor>, toMatch: Status | null): RowMenuItem[] {
+    const event = step?.event ?? null;
+    const check = rowCheck(row);
+    const status = isReferralStatus(row.referral_status) ? row.referral_status : "offered";
+    const referralNext = referralIds.has(row.id) ? nextReferralStatus(status) : null;
+    const snoozable = event ? snoozeUntil(event, clock) !== null : false;
+    const items: RowMenuItem[] = [
+      event
+        ? { key: "edit-step", label: "Edit date/time", onSelect: () => setEventForm({ type: "edit", event, application: row }) }
+        : { key: "add-step", label: "Add date/time", onSelect: () => setEventForm({ type: "new", application: row, preset: { timezone: tz } }) },
+    ];
+    if (event) {
+      items.push({ key: "done", label: "Mark done", onSelect: () => void markStepDone(event) });
+      items.push({ key: "snooze", label: "Snooze 1 day", disabled: !snoozable, hint: snoozable ? undefined : "Due within 24 hours, so it stays on your list.", onSelect: () => void snoozeStep(event) });
+    }
+    items.push({ key: "edit-row", label: "Edit row", onSelect: () => { if (!(panel?.id === row.id && panel.kind === "edit")) togglePanel(row, "edit"); } });
+    if (toMatch) items.push({ key: "match-status", label: `Update status to ${STATUS_LABELS[toMatch]}`, onSelect: () => changeStatus(row, toMatch) });
+    else items.push({
+      key: "update-status",
+      label: "Update status",
+      onSelect: () => {
+        const select = document.getElementById(`status-${row.id}`) as HTMLSelectElement | null;
+        select?.focus();
+        try {
+          select?.showPicker?.();
+        } catch {
+          // Some browsers only open it from a direct click: it has focus, and the arrow keys change it.
+        }
+      },
+    });
+    items.push({ key: "cv", label: row.source === "tailored" || row.sent_cv_name ? "View CV" : "Add CV", onSelect: () => togglePanel(row, "cv") });
+    items.push({ key: "jd", label: row.has_job_description ? "View JD" : "Add JD", onSelect: () => togglePanel(row, "jd") });
+    items.push({ key: "notes", label: row.notes_preview ? "Notes" : "Add notes", onSelect: () => togglePanel(row, "notes") });
+    items.push({ key: "prep", label: row.prep_generated_at ? "Prep pack ✓" : "Prep pack", href: `/applications/${row.id}/prep` });
+    items.push({ key: "mock", label: "Mock interview", href: `/applications/${row.id}/interview` });
+    if (check?.kind === "run") items.push({ key: "run-check", label: "Run JD check", disabled: checkingId === row.id, onSelect: () => void runCheck(row) });
+    if (referralNext) items.push({ key: "referral-step", label: `Mark ${REFERRAL_STATUS_LABELS[referralNext].toLowerCase()}`, disabled: referralBusy === row.id, onSelect: () => void stepReferral(row, referralNext) });
+    items.push({ key: "delete", label: "Delete", danger: true, disabled: deletingId === row.id, onSelect: () => void deleteRow(row) });
+    return items;
+  }
+
+  // One row of the four-column list. The company and role still edit in place.
+  function renderListRow(row: Application) {
+    const open = panel?.id === row.id;
+    const rowEvents = byApp.get(row.id) ?? [];
+    const stage = deriveStage(row.status, rowEvents);
+    const step = nextStepFor(rowEvents, clock, tz);
+    const action = primaryAction(stage);
+    // The button belongs to the test the stage came from, which may not be the next step.
+    const testEvent = stageEvent(row.status, rowEvents);
+    const link = safeHttpUrl(testEvent?.location_or_link);
+    const role = roleLine(row);
+    const meta = [
+      attention === "followups" && row.followup_date ? `Follow-up ${formatDate(row.followup_date)}` : "",
+      referralIds.has(row.id) ? `Referral: ${nextReferralAction(row)}` : "",
+      row.last_contact_at ? `Last contact ${formatDate(row.last_contact_at.slice(0, 10))}` : "",
+      row.referrer_name ? `referred by ${row.referrer_name}` : "",
+    ].filter(Boolean).join(" · ");
+    const addLink = (label: string) =>
+      testEvent ? <button type="button" className="appsActionBtn" onClick={() => setEventForm({ type: "edit", event: testEvent, application: row })} data-row-add-link>{label}</button> : null;
+    return (
+      <RowGroup key={row.id}>
+        <tr className={"stageListRow" + (open ? " open" : "") + (flashRowId === row.id ? " flashSave" : "")} data-stage-row={row.company_name}>
+          <td className="stageListWho" data-label="Company">
+            <div className="stageListCompany">{textCell(row, "company_name")}</div>
+            <div className="stageListRole">{textCell(row, "role", { display: role, title: role })}</div>
+            {meta && <div className="stageListMeta" data-row-meta>{meta}</div>}
+            <RowFlags
+              row={row}
+              quiet
+              showMissing={attention === "fix"}
+              checking={checkingId === row.id}
+              onRunCheck={() => void runCheck(row)}
+              onAddJd={() => { if (!(panel?.id === row.id && panel.kind === "jd")) togglePanel(row, "jd"); }}
+            />
+            {isReplyOwed(row, now) && (
+              <span className="replyOwed" data-reply-owed>
+                <span className="replyOwed__badge" title={`They wrote on ${formatDate(row.last_contact_at?.slice(0, 10) ?? null)} and no reply is recorded since.`}>Reply owed</span>
+                <button type="button" className="inlineLink" onClick={() => void recordContact(row, "me")} aria-label={`I replied to ${row.company_name}`} data-reply-done>I replied</button>
+              </span>
+            )}
+          </td>
+          <td className="stageListStage" data-label="Stage">
+            <span className="stagePill" data-stage={stage} data-stage-pill={stage}>
+              <span className="stagePillDot" aria-hidden="true" />
+              {STAGE_LABELS[stage]}
+              <span className="stagePillChevron" aria-hidden="true">▾</span>
+              <select
+                id={`status-${row.id}`}
+                className="stagePillSelect"
+                value={row.status}
+                onChange={(e) => changeStatus(row, e.target.value as Status)}
+                aria-label={`Status for ${row.company_name}, shown as ${STAGE_LABELS[stage]}`}
+                data-stage-status
+              >
+                {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+              </select>
+            </span>
+          </td>
+          <td className="stageListNext" data-label="Next step" data-stage-next>
+            {step ? (
+              <NextStepCell step={step} />
+            ) : CLOSED_STATUSES.has(row.status) ? null : (
+              <button type="button" className="nextStepAdd" onClick={() => setEventForm({ type: "new", application: row, preset: { timezone: tz } })} data-stage-add>Add next step</button>
+            )}
+          </td>
+          <td className="stageListActions" data-label="">
+            {action?.kind === "prep" && (
+              <Link href={`/applications/${row.id}/interview`} className="appsActionBtn primary" aria-label={`Prep for ${row.company_name}`} data-row-primary="prep">Prep</Link>
+            )}
+            {action?.kind === "test" && (link ? <a href={link} target="_blank" rel="noopener noreferrer" className="appsActionBtn primary" data-row-primary="test">Open test</a> : addLink("Add test link"))}
+            {action?.kind === "record" && (link ? <a href={link} target="_blank" rel="noopener noreferrer" className="appsActionBtn primary" data-row-primary="record">Record</a> : addLink("Add video link"))}
+            {action?.kind === "submit" && <button type="button" className="appsActionBtn primary" onClick={() => void submitRow(row)} data-row-primary="submit">Submit</button>}
+            <RowMenu label={`Actions for ${row.company_name}`} items={rowMenu(row, step, statusToMatch(row.status, stage))} />
+          </td>
+        </tr>
+        {open && (
+          <tr className="appsDetail stageListDetail">
+            <td colSpan={4}>{renderPanel(row)}</td>
+          </tr>
+        )}
+      </RowGroup>
     );
   }
 
   function renderPanel(row: Application) {
     if (!panel) return null;
+    if (panel.kind === "edit") return renderEditPanel(row);
 
     if (panel.kind === "cv") {
       const snap = cvCache[row.id];
@@ -1634,11 +1977,11 @@ export default function ApplicationsPage() {
     );
   }
 
-  if (!loaded) {
+  if (!loaded || !eventsSettled) {
     return (
       <main className="page">
         <div className="container appsContainer">
-          <AppHeader title="Applications" tagline={PAGE_TAGLINE} />
+          <AppHeader title="Applications" />
           <Card><Skeleton lines={4} label="Loading your applications" /></Card>
         </div>
       </main>
@@ -1647,11 +1990,40 @@ export default function ApplicationsPage() {
 
   const hasRows = rows.length > 0;
   const showTable = visible.length > 0 || newRow !== null;
+  // One line under the title. In progress is what the tabs count, so it adds up with them.
+  const fmt = (n: number) => n.toLocaleString("en-GB");
+  const rejectedCount = rows.filter((r) => r.status === "rejected").length;
+  const withdrawnCount = rows.filter((r) => r.status === "withdrawn").length;
+  const ghostedCount = rows.filter((r) => r.status === "ghosted").length;
+  const summary = hasRows ? (
+    <span data-apps-summary>
+      <strong>{fmt(rows.length)}</strong> tracked · <strong>{fmt(counts.applied)}</strong> applied · <strong>{fmt(counts.screening + counts.interview + counts.assessment)}</strong> in progress · <strong>{fmt(rejectedCount)}</strong> rejected
+    </span>
+  ) : null;
+  const tomorrowName = new Date(dueSoonCutoff(clock, tz) - 1).toLocaleDateString("en-GB", { weekday: "long", timeZone: tz });
+  const tabs: TabChoice[] = [...visibleTabs(counts, tabNow === "all" ? null : tabNow), ...(spreadsheet ? (["all"] as const) : [])];
+  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
+  const viewTotal = !attention && searchTerm ? rows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : tabNow === "all" ? rows.length : counts[tabNow];
+  const elsewhere = !attention && !searchTerm && tabNow !== "all" && tabNow !== "assessment" ? countedElsewhere(rows, byApp, tabNow) : 0;
+  const activeFilters = (styleFilter !== "all" ? 1 : 0) + (includePast ? 1 : 0) + (listSort !== "next" ? 1 : 0);
 
   return (
     <main className="page">
       <div className="container appsContainer">
-        <AppHeader title="Applications" tagline={PAGE_TAGLINE} />
+        <AppHeader
+          title="Applications"
+          tagline={summary}
+          actions={
+            <>
+              {hasRows && visible.length > 0 && (
+                <Button variant="ghost" onClick={exportCsv} disabled={exporting} title={`Export these ${visible.length} rows as a CSV`} data-apps-export>
+                  {exporting ? "Exporting…" : "Export"}
+                </Button>
+              )}
+              <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired} data-apps-add>+ Add application</Button>
+            </>
+          }
+        />
 
         {pageError && (
           <p role="alert" className="keyError">
@@ -1671,7 +2043,129 @@ export default function ApplicationsPage() {
           </div>
         )}
 
-        {notSubmitted.length > 0 && bulkReady !== "dismissed" && (
+        {eventsError && <div className="limitNotice" role="status" data-events-error>{eventsError}</div>}
+
+        {hasRows && (
+          <AttentionStrip
+            counts={attentionNumbers}
+            dueLabel={`Due by ${tomorrowName} night`}
+            referral={referral}
+            active={attention}
+            onFilter={(next) => {
+              setAttention((current) => (current === next ? null : next));
+              setPanel(null);
+            }}
+            onOpenReferral={(id) => {
+              const row = rowsRef.current.find((r) => r.id === id);
+              if (!row) return;
+              // It may be on any tab: the referral view holds it, with its Notes panel open.
+              setAttention("referrals");
+              setSpreadsheet(false);
+              setQuery("");
+              setPeriodFilter("all");
+              setStyleFilter("all");
+              if (!(panel?.id === id && panel.kind === "notes")) togglePanel(row, "notes");
+            }}
+          />
+        )}
+
+        {hasRows && (
+          <div className="appsBar">
+            <StageTabs
+              tabs={tabs}
+              counts={counts}
+              total={rows.length}
+              selected={attention || searchTerm ? null : tabNow}
+              panelId={!sheetMode && visible.length > 0 ? "appsPanelRegion" : undefined}
+              onSelect={(next) => {
+                setTab(next);
+                setTabPicked(true);
+                setAttention(null);
+                setQuery("");
+                setPanel(null);
+              }}
+            />
+            <div className="appsTools">
+              <div className="appsSearchWrap">
+                <input
+                  type="search"
+                  className="appsSearch"
+                  placeholder="Search company or role"
+                  aria-label="Search applications by company, role or date applied"
+                  value={query}
+                  maxLength={MAX_SEARCH_CHARS}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Escape") setQuery(""); }}
+                  data-apps-search
+                />
+                {query && (
+                  <button type="button" className="appsSearchClear" onClick={() => setQuery("")} aria-label="Clear search" data-apps-search-clear>×</button>
+                )}
+              </div>
+              <select className="appsToolSelect" aria-label="Period applied in" value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value as Period)} data-apps-period>
+                {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+              <div className="appsFilters" ref={filtersRef}>
+                <button
+                  type="button"
+                  className="appsToolBtn"
+                  aria-expanded={filtersOpen}
+                  aria-haspopup="dialog"
+                  onClick={() => setFiltersOpen((v) => !v)}
+                  onKeyDown={(e) => { if (e.key === "Escape") setFiltersOpen(false); }}
+                  data-apps-filters
+                >
+                  Filters{activeFilters > 0 ? ` (${activeFilters})` : ""}
+                </button>
+                {filtersOpen && (
+                  <div className="appsFiltersPanel" role="dialog" aria-label="Filters" onKeyDown={(e) => { if (e.key === "Escape") setFiltersOpen(false); }} data-apps-filters-panel>
+                    {isOwner && (
+                      <label className="appsFilterField">
+                        <span className="label">CV style</span>
+                        <select className="appsToolSelect" value={styleFilter} onChange={(e) => setStyleFilter(e.target.value as "all" | RowStyle)} data-style-filter={styleFilter}>
+                          <option value="all">Any</option>
+                          {ROW_STYLES.map((k) => <option key={k} value={k}>{ROW_STYLE_LABELS[k]}</option>)}
+                        </select>
+                      </label>
+                    )}
+                    <label className="appsFilterField">
+                      <span className="label">Sort by</span>
+                      <select className="appsToolSelect" value={listSort} onChange={(e) => setListSort(e.target.value as typeof listSort)} disabled={spreadsheet} data-apps-sort>
+                        <option value="next">Next step</option>
+                        <option value="company">Company</option>
+                        <option value="contact">Last contact</option>
+                        <option value="applied">Date applied</option>
+                      </select>
+                    </label>
+                    <label className="planRadio">
+                      <input type="checkbox" checked={includePast} onChange={(e) => setIncludePast(e.target.checked)} data-include-past />
+                      Include past stages
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(flash || actionError) && (
+          <div className="appsStatusLine">
+            {flash && <StatusText as="span" tone="success" role="status">{flash}</StatusText>}
+            {actionError && (
+              <StatusText as="span" role="alert">
+                {actionError}
+                {sessionExpired && (
+                  <>
+                    {" "}
+                    <Link href="/auth/login?next=/applications" className="inlineLink">Sign in</Link>
+                  </>
+                )}
+              </StatusText>
+            )}
+          </div>
+        )}
+
+        {attention === "fix" && notSubmitted.length > 0 && bulkReady !== "dismissed" && (
           <div className="limitNotice" role="status" data-bulk-ready={bulkReady}>
             {bulkReady === "offer" ? (
               <>
@@ -1703,136 +2197,6 @@ export default function ApplicationsPage() {
           </div>
         )}
 
-        <ReferralAsks rows={rows} onStep={(row, status) => void stepReferral(row, status)} busyId={referralBusy} />
-
-        <div className="appsToolbar">
-          <div className="appsToolbarGroup appsToolbarSearch">
-            <div className="appsSearchWrap">
-              <input
-                type="search"
-                className="appsSearch"
-                placeholder="Search company, role, date"
-                aria-label="Search applications by company, role or date applied"
-                value={query}
-                maxLength={MAX_SEARCH_CHARS}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Escape") setQuery(""); }}
-                data-apps-search
-              />
-              {query && (
-                <button type="button" className="appsSearchClear" onClick={() => setQuery("")} aria-label="Clear search" data-apps-search-clear>
-                  ×
-                </button>
-              )}
-            </div>
-            {hasRows && (
-              <div className="appsFunnel riseIn" role="group" aria-label="Applications by status">
-                {STATUSES.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    className={
-                      "appsFunnelChip" +
-                      (statusFilter === s ? " active" : "") +
-                      (statusCounts[s] === 0 ? " zero" : "")
-                    }
-                    onClick={() => {
-                      setStatusFilter(statusFilter === s ? "All" : s);
-                      setStageSheet(false);
-                      if (sheetSearchFromStage) {
-                        setQuery("");
-                        setSheetSearchFromStage(false);
-                      }
-                    }}
-                    aria-pressed={statusFilter === s}
-                    data-status-chip={s}
-                  >
-                    {STATUS_LABELS[s]} <strong>{statusCounts[s]}</strong>
-                  </button>
-                ))}
-                {dueCount > 0 && (
-                  <button
-                    type="button"
-                    className={"appsFunnelChip due" + (dueOnly ? " active" : "")}
-                    onClick={() => setDueOnly((v) => !v)}
-                    aria-pressed={dueOnly}
-                  >
-                    {dueCount} follow-up{dueCount === 1 ? "" : "s"} due
-                  </button>
-                )}
-                {(missingCount > 0 || missingOnly) && (
-                  <button
-                    type="button"
-                    className={"appsFunnelChip due" + (missingOnly ? " active" : "")}
-                    onClick={() => setMissingOnly((v) => !v)}
-                    aria-pressed={missingOnly}
-                    title="Rows in Screening or Interview with no job description or no CV"
-                    data-missing-filter
-                  >
-                    {missingCount} missing JD or CV
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="appsToolbarGroup appsToolbarFilters">
-            <div className="appsSeg" role="group" aria-label="Filter by date applied">
-              {PERIODS.map((p) => (
-                <button
-                  key={p.key}
-                  type="button"
-                  className={"appsSegBtn" + (periodFilter === p.key ? " active" : "")}
-                  onClick={() => setPeriodFilter(p.key)}
-                  aria-pressed={periodFilter === p.key}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            {isOwner && hasRows && (
-              <div className="appsSeg" role="group" aria-label="Filter by format style" data-style-filter={styleFilter}>
-                {(["all", ...ROW_STYLES] as const).map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    className={"appsSegBtn" + (styleFilter === k ? " active" : "")}
-                    onClick={() => setStyleFilter(k)}
-                    aria-pressed={styleFilter === k}
-                  >
-                    {k === "all" ? "Any style" : ROW_STYLE_LABELS[k]}
-                  </button>
-                ))}
-              </div>
-            )}
-            {hasRows && (
-              <span className="appsCount" data-apps-count>
-                {sheet.pages > 1 ? `${sheet.from}–${sheet.to} of ${visible.length}` : `${visible.length} of ${rows.length}`}
-              </span>
-            )}
-            {flash && <StatusText as="span" tone="success" role="status">{flash}</StatusText>}
-            {actionError && (
-              <StatusText as="span" role="alert">
-                {actionError}
-                {sessionExpired && (
-                  <>
-                    {" "}
-                    <Link href="/auth/login?next=/applications" className="inlineLink">Sign in</Link>
-                  </>
-                )}
-              </StatusText>
-            )}
-          </div>
-          <div className="appsToolbarGroup appsToolbarActions">
-            {/* Only offered when the current filters leave something to export. */}
-            {exportCount > 0 && (
-              <button type="button" className="customizeLink" onClick={exportCsv} disabled={exporting}>
-                {exporting ? "Exporting…" : `Export CSV${periodFilter !== "all" || statusFilter !== "All" || styleFilter !== "all" || searchTerm ? ` (${exportCount})` : ""}`}
-              </button>
-            )}
-            <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired}>+ Add row</Button>
-          </div>
-        </div>
-
         {!hasRows && !newRow && !pageError && (
           <Card variant="dashed">
             <EmptyState
@@ -1863,17 +2227,16 @@ export default function ApplicationsPage() {
                 <>
                   No applications
                   {periodFilter !== "all" ? ` ${PERIODS.find((p) => p.key === periodFilter)?.label.toLowerCase()}` : ""}
-                  {statusFilter !== "All" ? ` with status “${STATUS_LABELS[statusFilter]}”` : ""}
+                  {!attention && tabNow !== "all" ? ` in ${TAB_LABELS[tabNow]}` : ""}
+                  {attention ? ` under ${viewLabel}` : ""}
                   {styleFilter !== "all" ? ` in the ${ROW_STYLE_LABELS[styleFilter]} style` : ""}
-                  {dueOnly ? " with a follow-up due" : ""}
-                  {missingOnly ? " missing a JD or CV" : ""}
                   {searchTerm ? ` matching “${searchTerm}”` : ""}
                 </>
               }
               actions={
                 <Button
                   variant="secondary"
-                  onClick={() => { setPeriodFilter("all"); setStatusFilter("All"); setStyleFilter("all"); setDueOnly(false); setMissingOnly(false); setQuery(""); }}
+                  onClick={() => { setPeriodFilter("all"); setStyleFilter("all"); setAttention(null); setIncludePast(false); setQuery(""); }}
                 >
                   Clear filters
                 </Button>
@@ -1882,59 +2245,21 @@ export default function ApplicationsPage() {
           </Card>
         )}
 
-        {statusFilter !== "All" && isStageTab(statusFilter) && (
-          <div className="stageTabBar" data-stage-bar>
-            <label className="planRadio" hidden={stageSheet}>
-              <input type="checkbox" checked={includePast} onChange={(e) => setIncludePast(e.target.checked)} data-include-past />
-              Include past stages
-            </label>
-            <button
-              type="button"
-              className="linkBtn"
-              onClick={() => {
-                if (stageSheet && sheetSearchFromStage) {
-                  setQuery("");
-                  setSheetSearchFromStage(false);
-                }
-                setStageSheet((v) => !v);
-              }}
-              data-stage-sheet
-            >
-              {stageSheet ? "Back to dates" : "Open the full sheet"}
-            </button>
-          </div>
-        )}
-        {statusFilter !== "All" && isStageTab(statusFilter) && !stageSheet && !newRow ? (
+        {!sheetMode ? (
           visible.length > 0 && (
-            <StageTable
-              key={statusFilter}
-              rows={visible}
-              stage={statusFilter}
-              includePast={includePast}
-              refreshKey={stageRefresh}
-              onStatus={(row, status) => {
-                const full = rowsRef.current.find((r) => r.id === row.id);
-                if (full) changeStatus(full, status);
-              }}
-              onReason={(row, reason) => {
-                void patchRow(row.id, { outcome_reason: reason || null }).then((message) => setActionError(message ?? ""));
-              }}
-              onOpenSheet={(row) => {
-                setStageSheet(true);
-                const full = rowsRef.current.find((r) => r.id === row.id);
-                if (!full) return;
-                // The panel draws only on the sheet's painted page, and a past row is not on
-                // this tab's sheet at all: go to its own tab and search for it.
-                if (!inStageTab(full.status, statusFilter)) setStatusFilter(full.status);
-                setQuery(full.company_name);
-                setSheetSearchFromStage(true);
-                if (!(panel && panel.id === full.id && panel.kind === "notes")) togglePanel(full, "notes");
-              }}
-              onEventSaved={(message, moved) => {
-                if (moved) setRows((rs) => rs.map((r) => (r.id === moved.id ? { ...r, status: moved.status, stages_reached: stagesAfterMove(r.stages_reached, moved.status) } : r)));
-                showFlash(message);
-              }}
-            />
+            <div id="appsPanelRegion" role="tabpanel" aria-labelledby={attention || searchTerm ? undefined : `stage-tab-${tabNow}`} aria-label={attention || searchTerm ? viewLabel : undefined} className="stageListWrap" data-stage-table={attention ?? tabNow}>
+              <table className="stageList">
+                <thead>
+                  <tr>
+                    <th scope="col">Company</th>
+                    <th scope="col">Stage</th>
+                    <th scope="col">Next step</th>
+                    <th scope="col"><span className="srOnly">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>{pageRows.map(renderListRow)}</tbody>
+              </table>
+            </div>
           )
         ) : showTable && (
           <div className="appsTableWrap riseIn riseIn--delayed">
@@ -2312,6 +2637,43 @@ export default function ApplicationsPage() {
           </div>
         )}
 
+        {hasRows && !newRow && (
+          <div className="appsFoot" data-apps-foot>
+            <div className="appsFootLeft">
+              <span data-apps-count>
+                {sheet.pages > 1 ? `Showing ${sheet.from}–${sheet.to} of ${visible.length} ${viewLabel}` : `Showing ${visible.length} of ${Math.max(viewTotal, visible.length)} ${viewLabel}`}
+              </span>
+              {!attention && !searchTerm && tabNow === "closed" && (
+                <span className="appsFootNote" data-closed-breakdown>{fmt(rejectedCount)} rejected · {fmt(withdrawnCount)} withdrawn · {fmt(ghostedCount)} ghosted</span>
+              )}
+              {elsewhere > 0 && (
+                <span className="appsFootNote" data-counted-elsewhere>
+                  {elsewhere} more stored as {tabNow !== "all" ? TAB_LABELS[tabNow] : ""} {elsewhere === 1 ? "counts" : "count"} under Assessment: a test is open.
+                </span>
+              )}
+            </div>
+            {!sheetMode && sheet.pages > 1 && (
+              <nav className="appsPager" aria-label="Pages of applications" data-apps-pager>
+                <button type="button" className="appsActionBtn" onClick={() => goToPage(sheet.page - 1)} disabled={sheet.page === 1}>← Previous</button>
+                <span className="appsCount">Page {sheet.page} of {sheet.pages}</span>
+                <button type="button" className="appsActionBtn" onClick={() => goToPage(sheet.page + 1)} disabled={sheet.page === sheet.pages}>Next →</button>
+              </nav>
+            )}
+            <button
+              type="button"
+              className="linkBtn"
+              onClick={() => {
+                if (spreadsheet && tabNow === "all") setTab(null);
+                setSpreadsheet((v) => !v);
+                setPanel(null);
+              }}
+              data-stage-sheet
+            >
+              {spreadsheet ? "← Back to the list" : "Open as spreadsheet →"}
+            </button>
+          </div>
+        )}
+
         {/* The insights read off the sheet above them: the figures come second,
             the rows first. */}
         {insights && insights.counted >= 5 && (
@@ -2361,6 +2723,44 @@ export default function ApplicationsPage() {
           </Card>
         )}
       </div>
+
+      {eventForm && (
+        <EventForm
+          mode={eventForm}
+          tz={tz}
+          otherEvents={events}
+          windows={windows}
+          onClose={() => setEventForm(null)}
+          onSaved={(message, moved) => {
+            setEventForm(null);
+            if (moved) setRows((rs) => rs.map((r) => (r.id === moved.id ? { ...r, status: moved.status, stages_reached: stagesAfterMove(r.stages_reached, moved.status) } : r)));
+            showFlash(message);
+            setStageRefresh((n) => n + 1);
+          }}
+        />
+      )}
+
+      {toast && (
+        <div className="planToast" role="status" data-toast>
+          <span>{toast.message}</span>
+          {toast.undo && (
+            <button
+              type="button"
+              className="planToastUndo"
+              data-toast-undo
+              onClick={() => {
+                const undo = toast.undo;
+                setToast(null);
+                void undo?.();
+              }}
+            >
+              Undo
+            </button>
+          )}
+          <button type="button" className="planToastClose" aria-label="Dismiss" onClick={() => setToast(null)}><Icon name="close" /></button>
+        </div>
+      )}
+      {confirmDialog}
     </main>
   );
 }

@@ -108,11 +108,11 @@ try {
 
   check("no console errors", errors.length === 0, errors.slice(0, 3).join(" | ").slice(0, 300));
 
-  // The tracker's Screening tab shows the next event per row.
-  const sheet = await open({ width: 1280, height: 1000 }, "/applications?status=screening");
+  // The tracker shows the next event per row. An open test puts the row under Assessment.
+  const sheet = await open({ width: 1280, height: 1000 }, "/applications?status=assessment");
   await sheet.page.locator('[data-stage-row="Made Up Screening Ltd"] [data-stage-next]', { hasText: "Red task" }).waitFor({ timeout: 30000 }).catch(() => {});
   const next = await sheet.page.locator('[data-stage-row="Made Up Screening Ltd"] [data-stage-next]').innerText();
-  check("the Screening tab shows the row's next event", /Red task/.test(next), next);
+  check("the tracker shows the row's next event", /Red task/.test(next), next);
   await sheet.page.screenshot({ path: path.join(SHOTS, "screening-tab.png") });
 
   // Phone.
