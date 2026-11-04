@@ -6,18 +6,21 @@ import { useEffect, useRef } from "react";
 import { TAB_LABELS, type TabKey } from "@/lib/applicationStage";
 
 export type TabChoice = TabKey | "all";
+type Tab = TabChoice | "wins";
 
 export default function StageTabs({
-  tabs, counts, total, selected, panelId, onSelect,
+  tabs, counts, total, wins, selected, panelId, onSelect,
 }: {
-  tabs: readonly TabChoice[];
+  tabs: readonly Tab[];
   counts: Record<TabKey, number>;
   total: number;
-  selected: TabChoice | null;
+  /** Everything that ever reached screening. */
+  wins: number;
+  selected: Tab | null;
   panelId?: string;
-  onSelect: (tab: TabChoice) => void;
+  onSelect: (tab: Tab) => void;
 }) {
-  const refs = useRef(new Map<TabChoice, HTMLButtonElement>());
+  const refs = useRef(new Map<Tab, HTMLButtonElement>());
   const focusable = selected && tabs.includes(selected) ? selected : tabs[0];
 
   // On a phone the row scrolls: the selected tab is never left off the edge. Moves only
@@ -30,7 +33,7 @@ export default function StageTabs({
     else if (el.offsetLeft + el.offsetWidth > row.scrollLeft + row.clientWidth) row.scrollLeft = el.offsetLeft + el.offsetWidth - row.clientWidth;
   }, [selected]);
 
-  function move(from: TabChoice, delta: number) {
+  function move(from: Tab, delta: number) {
     const next = tabs[(tabs.indexOf(from) + delta + tabs.length) % tabs.length];
     onSelect(next);
     refs.current.get(next)?.focus();
@@ -59,7 +62,7 @@ export default function StageTabs({
           }}
           data-stage-tab={tab}
         >
-          {tab === "all" ? "All" : TAB_LABELS[tab]} <span className="stageTabCount">{tab === "all" ? total : counts[tab]}</span>
+          {tab === "all" ? "All" : tab === "wins" ? "Wins" : TAB_LABELS[tab]} <span className="stageTabCount">{tab === "all" ? total : tab === "wins" ? wins : counts[tab]}</span>
         </button>
       ))}
     </div>

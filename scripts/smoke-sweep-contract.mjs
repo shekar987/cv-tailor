@@ -46,8 +46,9 @@ try {
   check(`a POST with no status reads "Applied"`, (await detail(noStatus.id)).status === "Applied");
 
   // Partial PUT, moving one row through every string, with the sweeps' other fields.
+  // The endings first: once a row has reached screening, ending it needs the user (below).
   const id = ids.Applied;
-  for (const status of SWEEP_STATUSES) {
+  for (const status of ["Rejected", "Withdrawn", "Ready to submit", "Applied", "Screening", "Interview"]) {
     const res = await call("/api/applications", { method: "PUT", body: json({ id, status, notes: `Moved to ${status}`, job_description: `JD while ${status}` }) });
     const row = await detail(id);
     check(`PUT to "${status}" reads back exactly`, res.status === 200 && row.status === status && row.job_description === `JD while ${status}` && (row.notes ?? "").includes(`Moved to ${status}`), `${res.status} ${row.status}`);
@@ -60,9 +61,22 @@ try {
   check("a PUT of notes alone leaves the status", notesOnly.status === 200 && (await detail(id)).status === "Screening");
   check("an unknown status is still refused", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Pending" }) })).status === 400);
 
-  // Closing a row words its note as before.
-  await call("/api/applications", { method: "PUT", body: json({ id, followup_date: "2026-11-20" }) });
-  const closed = await (await call("/api/applications", { method: "PUT", body: json({ id, status: "Rejected" }) })).json();
+  // A row that reached screening ends only on the user's word (lib/closing).
+  for (const status of ["Rejected", "Withdrawn", "Ghosted"]) {
+    const refused = await call("/api/applications", { method: "PUT", body: json({ id, status }) });
+    const body = await refused.json();
+    check(`a screened row refuses "${status}" without the user`, refused.status === 409 && body.error === "Needs the user's confirmation; set pending_outcome instead.", `${refused.status} ${json(body).slice(0, 120)}`);
+    check("and stays where it was", (await detail(id)).status === "Screening");
+  }
+  const refusedWithNotes = await call("/api/applications", { method: "PUT", body: json({ id, status: "Rejected", notes: "Rejection email", job_description: "Should not land" }) });
+  check("a refused write changes nothing else either", refusedWithNotes.status === 409 && (await detail(id)).notes !== "Rejection email");
+  check("a move forward still needs nothing", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Interview" }) })).status === 200);
+  await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening" }) });
+
+  // Closing a row that never reached screening words its note as before.
+  const plainId = (await (await call("/api/applications", { method: "POST", body: json({ company_name: "Sweep plain", role: "Engineer", status: "Applied", date_applied: "2026-10-20" }) })).json()).id;
+  await call("/api/applications", { method: "PUT", body: json({ id: plainId, followup_date: "2026-11-20" }) });
+  const closed = await (await call("/api/applications", { method: "PUT", body: json({ id: plainId, status: "Rejected" }) })).json();
   check('closing clears the follow-up with the same note', closed.followupCleared?.followup_date === null && /Follow-up 2026-11-20 cleared when marked Rejected on /.test(closed.followupCleared?.notes ?? ""), json(closed).slice(0, 160));
 
   // POST /api/applications/cv, as multipart { id, file }.

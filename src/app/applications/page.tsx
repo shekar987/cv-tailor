@@ -25,6 +25,10 @@ import { normalizeStyleCheck, summarizeStyleCheck } from "@/lib/styleCheck";
 import { getUsage } from "@/lib/usage";
 import AttentionStrip, { type AttentionFilter } from "./AttentionStrip";
 import StageTabs, { type TabChoice } from "./StageTabs";
+import ClosedSection, { type ClosedRow } from "./ClosedSection";
+import WinsView from "./WinsView";
+import MoveToClosedDialog, { closeBody, type CloseChoice } from "@/components/MoveToClosedDialog";
+import { activePending, closedRows, highestStage, isClosed, isEnding, liveOrder, needsConfirmation, normalizePendingOutcome, pendingLine, reachedScreening, reasonForStatus, stageSummary, type CloseReason, type PendingOutcome, type StageTab } from "@/lib/closing";
 import RowMenu, { type RowMenuItem } from "./RowMenu";
 import NextStepCell from "./NextStepCell";
 import EventForm, { type EventFormMode } from "../app/next/EventForm";
@@ -41,6 +45,7 @@ import {
   STATUSES,
   STATUS_LABELS,
   stagesAfterMove,
+  removeFollowupClearedNote,
   normalizeStatus,
   statusLabel,
   hasProgressed,
@@ -116,6 +121,12 @@ type Application = {
   // The stages this row has been through and why it ended (migration 20261103120000).
   stages_reached?: string[] | null;
   outcome_reason?: string | null;
+  // Closing a row (migration 20261104130000; lib/closing): absent before it.
+  closed_at?: string | null;
+  close_reason?: CloseReason | null;
+  lesson?: string | null;
+  pending_outcome?: PendingOutcome | null;
+  updated_at?: string | null;
 };
 
 // What the Applied button stored: the generated sections plus the profile and
@@ -640,6 +651,14 @@ export default function ApplicationsPage() {
   const [eventsError, setEventsError] = useState("");
   const [eventForm, setEventForm] = useState<EventFormMode | null>(null);
   const [toast, setToast] = useState<{ message: string; undo?: () => Promise<void> | void } | null>(null);
+  // Move to Closed: the only way a row that reached screening ends (lib/closing).
+  const [closing, setClosing] = useState<{ row: Application; reason: CloseReason; date: string } | null>(null);
+  const [closeBusy, setCloseBusy] = useState(false);
+  const [closeError, setCloseError] = useState("");
+  const lastFollowupCleared = useRef<{ notes: string | null } | null>(null);
+  const [wins, setWins] = useState(false);
+  // A closed row's events, for how far it got: the open list leaves them out once a row has ended.
+  const [closedEvents, setClosedEvents] = useState<ReadonlyMap<string, PlanEvent[]>>(new Map());
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [listSort, setListSort] = useState<"next" | "company" | "contact" | "applied">("next");
@@ -831,10 +850,10 @@ export default function ApplicationsPage() {
     flashTimer.current = setTimeout(() => setFlash(""), 3000);
   }
 
-  function showToast(next: { message: string; undo?: () => Promise<void> | void }) {
+  function showToast(next: { message: string; undo?: () => Promise<void> | void }, ms = 8000) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(next);
-    toastTimer.current = setTimeout(() => setToast(null), 8000);
+    toastTimer.current = setTimeout(() => setToast(null), ms);
   }
 
   function flashRow(id: string) {
@@ -848,6 +867,21 @@ export default function ApplicationsPage() {
   // The overview is always over ALL rows, so it stays stable while filters narrow the
   // table. Tabs count the derived stage: every row once, so they add up to the total.
   const byApp = useMemo(() => eventsByApplication(events), [events]);
+  const anyClosed = useMemo(() => rows.some(isClosed), [rows]);
+  useEffect(() => {
+    if (!anyClosed) return;
+    let cancelled = false;
+    fetch("/api/events")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (!cancelled && body) setClosedEvents(eventsByApplication((body.events ?? []) as PlanEvent[]));
+      })
+      // The chip falls back to the stage reached.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [anyClosed]);
   const counts = useMemo(() => tabCounts(rows, byApp), [rows, byApp]);
   const attentionNumbers = useMemo(() => attentionCounts(rows, events, todayLocal(), clock, tz), [rows, events, clock, tz]);
   const referral = useMemo(() => referralCard(rows), [rows]);
@@ -871,9 +905,12 @@ export default function ApplicationsPage() {
       if (tabOfStage(deriveStage(r.status, byApp.get(r.id))) === tabNow) return true;
       return includePast && !sheetMode && reachedTab(r.stages_reached, tabNow);
     };
+    const stageTab = !attention && !searchTerm && !sheetMode && (tabNow === "screening" || tabNow === "interview");
     const filtered = rows.filter(
       (r) =>
         inView(r) &&
+        // A closed row is in the Closed section under this table, never in Live.
+        !(stageTab && isClosed(r)) &&
         (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) &&
         (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
         matchesSearch(r, searchTerm)
@@ -886,6 +923,7 @@ export default function ApplicationsPage() {
         if (listSort === "company") return a.company_name.localeCompare(b.company_name, undefined, { sensitivity: "base" }) || newest(a, b);
         if (listSort === "contact") return (b.last_contact_at ?? "").localeCompare(a.last_contact_at ?? "") || newest(a, b);
         if (listSort === "applied") return newest(a, b);
+        if (stageTab) return liveOrder(a, b, soonest) || newest(a, b);
         return soonest(a) - soonest(b) || newest(a, b);
       });
       return attention === "due" || listSort !== "next" ? list : replyOwedFirst(list, now);
@@ -1018,6 +1056,7 @@ export default function ApplicationsPage() {
     const autoClose = data.autoClose as { message?: unknown } | undefined;
     autoCloseNote.current = typeof autoClose?.message === "string" ? autoClose.message : null;
     const cleared = data.followupCleared as { followup_date: null; notes: string | null } | undefined;
+    lastFollowupCleared.current = cleared ?? null;
     if (cleared) {
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, followup_date: null, ...notesListFields(cleared.notes) } : r)));
       rememberText(id, { notes: cleared.notes });
@@ -1130,8 +1169,84 @@ export default function ApplicationsPage() {
     }
   }
 
+  function openClose(row: Application, reason: CloseReason, date?: string) {
+    setCloseError("");
+    setClosing({ row, reason, date: date ?? todayLocal() });
+  }
+
+  async function submitClose(choice: CloseChoice) {
+    if (!closing) return;
+    const { row } = closing;
+    const before = {
+      status: row.status,
+      stages_reached: row.stages_reached,
+      lesson: row.lesson ?? null,
+      pending_outcome: row.pending_outcome ?? null,
+      followup_date: row.followup_date ?? null,
+    };
+    setCloseBusy(true);
+    setCloseError("");
+    const message = await patchRow(
+      row.id,
+      { status: choice.status, stages_reached: stagesAfterMove(row.stages_reached, choice.status), closed_at: choice.closed_at, close_reason: choice.close_reason, lesson: choice.lesson, pending_outcome: null },
+      closeBody(choice)
+    );
+    const cleared = lastFollowupCleared.current;
+    setCloseBusy(false);
+    if (message) {
+      setCloseError(message);
+      return;
+    }
+    setClosing(null);
+    setStageRefresh((n) => n + 1);
+    showToast(
+      {
+        message: "Moved to Closed",
+        undo: async () => {
+          const restore: Partial<Application> = { status: before.status, stages_reached: before.stages_reached, closed_at: null, close_reason: null, lesson: before.lesson, pending_outcome: before.pending_outcome };
+          if (before.followup_date) restore.followup_date = before.followup_date;
+          const failed = await patchRow(row.id, restore, before.followup_date && cleared ? { notes: removeFollowupClearedNote(cleared.notes, before.followup_date) || null } : {});
+          setActionError(failed ?? "");
+          setStageRefresh((n) => n + 1);
+        },
+      },
+      10000
+    );
+  }
+
+  // Back to Live, at the furthest stage it reached.
+  async function reopenRow(row: ClosedRow) {
+    const stage = highestStage(row) ?? "screening";
+    const message = await patchRow(row.id, { status: stage, stages_reached: stagesAfterMove(row.stages_reached, stage), closed_at: null, close_reason: null });
+    setActionError(message ?? "");
+    if (!message) showFlash(`${row.company_name} is back in Live.`);
+    setStageRefresh((n) => n + 1);
+  }
+
+  async function saveLesson(id: string, lesson: string | null) {
+    const message = await patchRow(id, { lesson });
+    setActionError(message ?? "");
+  }
+
+  // "Not true": the banner goes and stays gone; the row never moved.
+  async function dismissPending(row: Application) {
+    const res = await fetch(`/api/applications/${row.id}/pending-outcome`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dismiss: true }) }).catch(() => null);
+    const data = res ? await res.json().catch(() => ({})) : {};
+    if (!res || !res.ok) {
+      setActionError(data.error || "Could not save that. Try again.");
+      return;
+    }
+    setActionError("");
+    setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, pending_outcome: normalizePendingOutcome(data.pending_outcome) } : r)));
+  }
+
   function changeStatus(row: Application, status: Status) {
     if (status === row.status) return;
+    // A row that reached screening leaves on the user's word, in the dialog.
+    if (needsConfirmation(row, status, false)) {
+      openClose(row, reasonForStatus(status));
+      return;
+    }
     void patchRow(row.id, { status, stages_reached: stagesAfterMove(row.stages_reached, status) }).then((message) => {
       setActionError(message ?? "");
       setStageRefresh((n) => n + 1);
@@ -1612,6 +1727,10 @@ export default function ApplicationsPage() {
       items.push({ key: "snooze", label: "Snooze 1 day", disabled: !snoozable, hint: snoozable ? undefined : "Due within 24 hours, so it stays on your list.", onSelect: () => void snoozeStep(event) });
     }
     items.push({ key: "edit-row", label: "Edit row", onSelect: () => { if (!(panel?.id === row.id && panel.kind === "edit")) togglePanel(row, "edit"); } });
+    if (reachedScreening(row) && !isEnding(row.status)) {
+      const pending = activePending(row.pending_outcome);
+      items.push({ key: "move-closed", label: "Move to Closed", onSelect: () => openClose(row, pending ? reasonForStatus(pending.outcome) : "rejected", pending?.date) });
+    }
     if (toMatch) items.push({ key: "match-status", label: `Update status to ${STATUS_LABELS[toMatch]}`, onSelect: () => changeStatus(row, toMatch) });
     else items.push({
       key: "update-status",
@@ -1643,6 +1762,7 @@ export default function ApplicationsPage() {
     const rowEvents = byApp.get(row.id) ?? [];
     const stage = deriveStage(row.status, rowEvents);
     const step = nextStepFor(rowEvents, clock, tz);
+    const pending = activePending(row.pending_outcome);
     const action = primaryAction(stage);
     // The button belongs to the test the stage came from, which may not be the next step.
     const testEvent = stageEvent(row.status, rowEvents);
@@ -1712,6 +1832,17 @@ export default function ApplicationsPage() {
             <RowMenu label={`Actions for ${row.company_name}`} items={rowMenu(row, step, statusToMatch(row.status, stage))} />
           </td>
         </tr>
+        {pending && (
+          <tr className="pendingRow" data-pending-row={row.company_name}>
+            <td colSpan={4}>
+              <div className="pendingBanner" role="status" data-pending-banner>
+                <span>{pendingLine(pending)}</span>
+                <button type="button" className="appsActionBtn" onClick={() => openClose(row, reasonForStatus(pending.outcome), pending.date)} data-pending-move>Move to Closed</button>
+                <button type="button" className="inlineLink" onClick={() => void dismissPending(row)} data-pending-dismiss>Not true / dismiss</button>
+              </div>
+            </td>
+          </tr>
+        )}
         {open && (
           <tr className="appsDetail stageListDetail">
             <td colSpan={4}>{renderPanel(row)}</td>
@@ -2001,7 +2132,11 @@ export default function ApplicationsPage() {
     </span>
   ) : null;
   const tomorrowName = new Date(dueSoonCutoff(clock, tz) - 1).toLocaleDateString("en-GB", { weekday: "long", timeZone: tz });
-  const tabs: TabChoice[] = [...visibleTabs(counts, tabNow === "all" ? null : tabNow), ...(spreadsheet ? (["all"] as const) : [])];
+  const tabs: (TabChoice | "wins")[] = [...visibleTabs(counts, tabNow === "all" ? null : tabNow), ...(spreadsheet ? (["all"] as const) : []), "wins"];
+  const winsOpen = wins && !attention && !searchTerm;
+  // The Screening and Interview tabs are pages of their own: their title, their summary, Live and Closed.
+  const stageTabNow: StageTab | null = !winsOpen && !attention && !searchTerm && !sheetMode && (tabNow === "screening" || tabNow === "interview") ? tabNow : null;
+  const closedHere = stageTabNow ? closedRows(rows, stageTabNow) : [];
   const viewLabel = !attention && searchTerm ? "across every tab" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
   const viewTotal = !attention && searchTerm ? rows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : tabNow === "all" ? rows.length : counts[tabNow];
   const elsewhere = !attention && !searchTerm && tabNow !== "all" && tabNow !== "assessment" ? countedElsewhere(rows, byApp, tabNow) : 0;
@@ -2011,11 +2146,11 @@ export default function ApplicationsPage() {
     <main className="page">
       <div className="container appsContainer">
         <AppHeader
-          title="Applications"
-          tagline={summary}
+          title={stageTabNow ? TAB_LABELS[stageTabNow] : winsOpen ? "Wins" : "Applications"}
+          tagline={stageTabNow ? <span data-stage-summary>{stageSummary(rows, stageTabNow, counts[stageTabNow]).text}</span> : summary}
           actions={
             <>
-              {hasRows && visible.length > 0 && (
+              {hasRows && visible.length > 0 && !winsOpen && (
                 <Button variant="ghost" onClick={exportCsv} disabled={exporting} title={`Export these ${visible.length} rows as a CSV`} data-apps-export>
                   {exporting ? "Exporting…" : "Export"}
                 </Button>
@@ -2075,10 +2210,12 @@ export default function ApplicationsPage() {
               tabs={tabs}
               counts={counts}
               total={rows.length}
-              selected={attention || searchTerm ? null : tabNow}
-              panelId={!sheetMode && visible.length > 0 ? "appsPanelRegion" : undefined}
+              wins={rows.filter(reachedScreening).length}
+              selected={winsOpen ? "wins" : attention || searchTerm ? null : tabNow}
+              panelId={winsOpen || (!sheetMode && visible.length > 0) ? "appsPanelRegion" : undefined}
               onSelect={(next) => {
-                setTab(next);
+                setWins(next === "wins");
+                if (next !== "wins") setTab(next);
                 setTabPicked(true);
                 setAttention(null);
                 setQuery("");
@@ -2220,7 +2357,7 @@ export default function ApplicationsPage() {
           </Card>
         )}
 
-        {hasRows && visible.length === 0 && !newRow && (
+        {hasRows && visible.length === 0 && !newRow && !winsOpen && (
           <Card variant="dashed">
             <EmptyState
               title={
@@ -2245,7 +2382,11 @@ export default function ApplicationsPage() {
           </Card>
         )}
 
-        {!sheetMode ? (
+        {winsOpen ? (
+          <div id="appsPanelRegion" role="tabpanel" aria-labelledby="stage-tab-wins">
+            <WinsView rows={rows} showStyle={isOwner} />
+          </div>
+        ) : !sheetMode ? (
           visible.length > 0 && (
             <div id="appsPanelRegion" role="tabpanel" aria-labelledby={attention || searchTerm ? undefined : `stage-tab-${tabNow}`} aria-label={attention || searchTerm ? viewLabel : undefined} className="stageListWrap" data-stage-table={attention ?? tabNow}>
               <table className="stageList">
@@ -2637,7 +2778,18 @@ export default function ApplicationsPage() {
           </div>
         )}
 
-        {hasRows && !newRow && (
+        {stageTabNow && hasRows && (
+          <ClosedSection
+            key={stageTabNow}
+            tab={stageTabNow}
+            rows={closedHere}
+            eventsOf={(id) => closedEvents.get(id) ?? []}
+            onReopen={(row) => void reopenRow(row)}
+            onLesson={(id, lesson) => void saveLesson(id, lesson)}
+          />
+        )}
+
+        {hasRows && !newRow && !winsOpen && (
           <div className="appsFoot" data-apps-foot>
             <div className="appsFootLeft">
               <span data-apps-count>
@@ -2759,6 +2911,18 @@ export default function ApplicationsPage() {
           )}
           <button type="button" className="planToastClose" aria-label="Dismiss" onClick={() => setToast(null)}><Icon name="close" /></button>
         </div>
+      )}
+      {closing && (
+        <MoveToClosedDialog
+          company={closing.row.company_name}
+          reason={closing.reason}
+          date={closing.date}
+          lesson={closing.row.lesson ?? ""}
+          busy={closeBusy}
+          error={closeError}
+          onCancel={() => setClosing(null)}
+          onSubmit={(choice) => void submitClose(choice)}
+        />
       )}
       {confirmDialog}
     </main>

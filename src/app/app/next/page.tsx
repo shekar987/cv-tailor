@@ -21,6 +21,8 @@ import {
 import { addDays, dayKey, formatWhen, mondayOf, monthName, shortDay, weekdayOf } from "@/lib/planTime";
 import { normalizeStatus, removeFollowupClearedNote, type Status } from "@/lib/tracker";
 import EventCard, { type CardActions } from "./EventCard";
+import MoveToClosedDialog, { closeBody, type CloseChoice } from "@/components/MoveToClosedDialog";
+import { needsConfirmation, reasonForStatus, type CloseReason } from "@/lib/closing";
 import EventForm, { describeConflict, type EventFormMode } from "./EventForm";
 import { CompanyInitial, StageChip, browserTimeZone, copyText } from "./planUi";
 import WeekView from "./WeekView";
@@ -87,6 +89,7 @@ function MiniCalendar({ events, now, tz, selected, onSelect }: { events: readonl
 export default function NextPage() {
   const [data, setData] = useState<PlanData | null>(null);
   const [load, setLoad] = useState<Load>("loading");
+  const [closing, setClosing] = useState<{ application: PlanApplication; reason: CloseReason; reasonEvents: PlanItem[] } | null>(null);
   const [errorText, setErrorText] = useState("");
   const [actionError, setActionError] = useState("");
   const [refreshError, setRefreshError] = useState("");
@@ -209,6 +212,11 @@ export default function NextPage() {
   }
 
   function moveApplication(application: PlanApplication, status: Status, reasonEvents: PlanItem[], message: string) {
+    // A row that reached screening leaves on the user's word, in the dialog (lib/closing).
+    if (needsConfirmation(application, status, false)) {
+      setClosing({ application, reason: reasonForStatus(status), reasonEvents });
+      return;
+    }
     const previous = normalizeStatus(application.status) ?? "screening";
     const followup = application.followup_date ?? null;
     // Closing a row clears its follow-up and notes that in the row's notes; undo takes both back.
@@ -223,6 +231,28 @@ export default function NextPage() {
         undo: async () => {
           const restore = followup ? { followup_date: followup, ...(answer.cleared ? { notes: removeFollowupClearedNote(answer.cleared.notes, followup) } : {}) } : {};
           if (await putApplication(application.id, { status: previous, ...restore })) await refresh();
+        },
+      });
+    });
+  }
+
+  function confirmClose(choice: CloseChoice) {
+    if (!closing) return;
+    const { application, reasonEvents } = closing;
+    setClosing(null);
+    const previous = normalizeStatus(application.status) ?? "screening";
+    const followup = application.followup_date ?? null;
+    const answer: { cleared?: { notes: string | null } } = {};
+    leaveThen(reasonEvents.map((i) => i.event.id), async () => {
+      const body = await putApplication(application.id, closeBody(choice));
+      if (body?.followupCleared) answer.cleared = body.followupCleared as { notes: string | null };
+      return !!body;
+    }, () => {
+      showToast({
+        message: "Moved to Closed",
+        undo: async () => {
+          const restore = followup ? { followup_date: followup, ...(answer.cleared ? { notes: removeFollowupClearedNote(answer.cleared.notes, followup) || null } : {}) } : {};
+          if (await putApplication(application.id, { status: previous, closed_at: null, close_reason: null, lesson: null, ...restore })) await refresh();
         },
       });
     });
@@ -557,6 +587,15 @@ export default function NextPage() {
         />
       )}
 
+      {closing && (
+        <MoveToClosedDialog
+          company={closing.application.company_name}
+          reason={closing.reason}
+          date={dayKey(now, tz)}
+          onCancel={() => setClosing(null)}
+          onSubmit={confirmClose}
+        />
+      )}
       {toast && (
         <div className="planToast" role="status" data-toast>
           <span>{toast.message}</span>

@@ -37,7 +37,7 @@ export default function PrivacyPage() {
         <li>
           <strong>Your application tracker.</strong> For each row: company, role, dates, status, salary, your notes, the job description
           you pasted, the tailored CV and cover letter you saved with it, the CV file you uploaded as the one you sent, the
-          interview prep pack, and the transcript and feedback of each mock interview. The mock interview stores text only:
+          interview prep pack, when and why you closed it with any lesson you noted, an outcome detected from your inbox while it waits for you to confirm it, and the transcript and feedback of each mock interview. The mock interview stores text only:
           your voice is turned into text in your browser and <strong>no audio is sent or stored</strong>.
         </li>
         <li>
