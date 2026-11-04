@@ -1,5 +1,5 @@
 import { guardFacts } from "@/lib/factGuard";
-import { TOP_PROJECT_BULLETS, alignWritten, capPoolBullets, cardsToPoolText, dropToFit, normalizePoolSettings, poolDropMessage, poolPinnedOverflowMessage, selectCards, type PoolCard, type PoolSelection, type PoolSettings } from "@/lib/projectPool";
+import { TOP_PROJECT_BULLETS, alignWritten, capPoolBullets, cardsToPoolText, dropToFit, normalizePoolSettings, poolCardLinks, poolDropMessage, poolPinnedOverflowMessage, selectCards, type PoolCard, type PoolSelection, type PoolSettings } from "@/lib/projectPool";
 import { applyRetired, applyRetiredToBullets, findRetired, mergeReports, type RetiredClaim, type RetiredReport } from "@/lib/retiredClaims";
 import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
 import { NextRequest, NextResponse } from "next/server";
@@ -53,7 +53,7 @@ import { experienceBudget, onePageExperienceBudget, projectsBudget, normalizeExp
 import { parseMasterExperience, renderIdBlock, reconcileExperience, stripBulletIds, lockRoleHeaders, sortRolesByDate, diffAgainstMaster, diffProjects, type HeaderLock, type ChronologyReport } from "@/lib/bulletIds";
 import { normalizeSelectedProjects, projectsFromSelected } from "@/lib/poolProjects";
 import { sanitizeCompanyResearch } from "@/lib/companyResearch";
-import { stripLinkText } from "@/lib/projectLinks";
+import { projectKey, stripLinkText, type SavedProjectLinks } from "@/lib/projectLinks";
 import { toBritish, toBritishDeep, type SpellingChange } from "@/lib/britishSpelling";
 import { applyLetterLint, hasHonestGap, tidyFinishedLetter, type LetterLint, type LetterRules, type LetterTidy } from "@/lib/letterLint";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
@@ -148,6 +148,8 @@ async function runPipeline(opts: {
   // the bullets or the letter — the models write from the master CV text,
   // which states it, so the finished text is filtered deterministically.
   omitRightToWork: boolean;
+  // Measured as they print: the links the user saved for each project (lib/projectLinks).
+  savedLinks?: SavedProjectLinks;
   // The user's CV-length choice (Preferences.cvLength): one page → the
   // prompts get a one-page budget and lib/onePage trims the finished text to
   // one page; two pages → fitted to two; "auto" → decided below from the
@@ -640,7 +642,6 @@ async function runPipeline(opts: {
   {
     const t = (analysis && typeof analysis === "object" ? analysis : {}) as Record<string, unknown>;
     const fitTerms = { keywords: t.top_15_ats_keywords, required: t.required_skills };
-    const fitProfile = (profile ?? null) as Parameters<typeof fitOnePage>[1];
     const current = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
     // The style's caps on the document (lib/onePage FitOptions): CareerSet's
     // 20 bullets, 900 words and two per project, the availability sentence
@@ -656,7 +657,19 @@ async function runPipeline(opts: {
     };
     // The project titles and tech lines the client renders, and the built PDF's page count.
     const target: 1 | 2 = onePage ? 1 : 2;
-    const metasOf = (selected: typeof selectedFinal) => selected.map((s) => ({ name: s.date?.trim() ? `${s.name} | ${s.date}` : s.name, tech: s.tech, links: [], ...(poolSelection ? { labelFixed: true } : {}) }));
+    const ownLinks = (name: string) => (profile as { projects?: { name?: string; links?: { label?: string; url?: string; text?: string }[] }[] } | null)?.projects?.find((p) => projectKey(p.name ?? "") === projectKey(name))?.links;
+    const metasOf = (selected: typeof selectedFinal) => selected.map((s) => {
+      const card = poolSelection?.chosen.find((c) => c.card.id === s.cardId)?.card;
+      return {
+        name: s.date?.trim() ? `${s.name} | ${s.date}` : s.name,
+        tech: s.tech,
+        // A card's links print on the file, so they count on the page.
+        links: card ? poolCardLinks(card, projectCards, ownLinks(card.name), opts.savedLinks, [cv, projectsPool], selected.map((x) => x.name)) : [],
+        ...(poolSelection ? { labelFixed: true } : {}),
+      };
+    });
+    // On a card run, the projects on the page are the chosen cards, not the master CV's.
+    const fitProfileOf = (selected: typeof selectedFinal) => (poolSelection && profile && typeof profile === "object" ? { ...(profile as Record<string, unknown>), projects: metasOf(selected) } : profile ?? null) as Parameters<typeof fitOnePage>[1];
     let metas: unknown[] = projectsPool ? metasOf(selectedFinal) : ((profile as { projects?: unknown[] } | null)?.projects ?? []);
     const countPages = (s: { summary?: unknown; skills?: unknown; experience?: unknown; projects?: unknown }, metasNow: unknown[] = metas) =>
       buildCvPdfWithPages({
@@ -682,7 +695,7 @@ async function runPipeline(opts: {
         try {
           const fit = dropToFit(
             selectedFinal,
-            (kept) => countPages(fitOnePage({ ...current, projects: projectsFromSelected(kept) }, fitProfile, fitTerms, { ...fitOpts, budgetOnly: true }).sections, metasOf(kept)) <= 1,
+            (kept) => countPages(fitOnePage({ ...current, projects: projectsFromSelected(kept) }, fitProfileOf(kept), fitTerms, { ...fitOpts, budgetOnly: true }).sections, metasOf(kept)) <= 1,
             isPoolPinned
           );
           if (fit.dropped.length > 0) {
@@ -699,7 +712,7 @@ async function runPipeline(opts: {
     }
     let fitted: ReturnType<typeof fitOnePage>;
     if (onePage) {
-      fitted = fitOnePage(current, fitProfile, fitTerms, fitOpts);
+      fitted = fitOnePage(current, fitProfileOf(selectedFinal), fitTerms, fitOpts);
     } else {
       const allowed = (c: RefillCandidate) => {
         if (omitRightToWork && mentionsRightToWork(c.text)) return false;
@@ -716,7 +729,7 @@ async function runPipeline(opts: {
         // Pool mode renders the selected pool projects, not the profile's.
         ...(projectsPool ? [] : projectRefillCandidates(projectsFinal, metas)),
       ].filter(allowed);
-      fitted = fitTwoPages(current, fitProfile, fitTerms, candidates, fitOpts);
+      fitted = fitTwoPages(current, fitProfileOf(selectedFinal), fitTerms, candidates, fitOpts);
     }
     summary = fitted.sections.summary;
     skillsFinal = fitted.sections.skills;
@@ -732,7 +745,7 @@ async function runPipeline(opts: {
     // most PAGE_LIMIT_MAX_DROPS times. A saved section order is not known here,
     // and moves no lines.
     try {
-      const real = fitToRealPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal }, fitProfile, fitTerms, target, countPages, PAGE_LIMIT_MAX_DROPS, fitOpts.projectMin);
+      const real = fitToRealPages({ summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal }, fitProfileOf(selectedFinal), fitTerms, target, countPages, PAGE_LIMIT_MAX_DROPS, fitOpts.projectMin);
       realPages = real.report.pagesAfter;
       if (real.report.dropped.length > 0 || !real.report.fits) {
         summary = real.sections.summary;
@@ -1460,6 +1473,7 @@ export async function POST(req: NextRequest) {
         cvLength: preferences.cvLength,
         retiredClaims: preferences.retiredClaims,
         projectCards: preferences.projectCards,
+        savedLinks: preferences.projectLinks,
         // One run may differ from the saved defaults.
         poolSettings: normalizePoolSettings(body.projectPoolSettings ?? preferences.projectPoolSettings),
         profile: bodyProfile,

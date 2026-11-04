@@ -41,7 +41,7 @@ import type { MasterCvNote } from "@/lib/stylePass";
 import { attachProjectLinks, linksForProject, projectKey } from "@/lib/projectLinks";
 import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
 import PoolRunLine from "./PoolRunLine";
-import { cardsToPoolText, resolveCount, type PoolSettings } from "@/lib/projectPool";
+import { cardsToPoolText, poolCardLinks, resolveCount, type PoolSettings } from "@/lib/projectPool";
 import { parseMasterExperience } from "@/lib/bulletIds";
 import ProjectsUsed, { type ProjectUsed } from "./ProjectsUsed";
 import { applyRetiredToProfile, findRetired, retiredBlockMessage, type RetiredReport } from "@/lib/retiredClaims";
@@ -1494,7 +1494,8 @@ export default function Home() {
       setLiveQuality(null);
       setLiveStyleCheck(null);
       setPreviewKey((k) => k + 1);
-      setSwapNote(`${typeof data.modelError === "string" ? `${data.modelError} ` : ""}Swapped in ${data.used.name}. Your cover letter was not rewritten, so check what it says about your projects.`);
+      const techLeftOut = Array.isArray(data.techLeftOut) && data.techLeftOut.length > 0 ? ` Left off its tech line, because your claims registry holds them as learning: ${data.techLeftOut.join(", ")}.` : "";
+      setSwapNote(`${typeof data.modelError === "string" ? `${data.modelError} ` : ""}Swapped in ${data.used.name}.${techLeftOut} Your edits to the summary, skills, experience, bullets and letter are kept; edits to your header or project titles go back. Your cover letter was not rewritten, so check what it says about your projects.`);
     } catch {
       setSwapError("Couldn't reach the server. Your CV is unchanged.");
     } finally {
@@ -1867,13 +1868,13 @@ export default function Home() {
         // A card's label is printed as the user wrote it (lib/projectLabels).
         ...(fromCards ? { labelFixed: true } : {}),
         tech: s.tech?.trim() || "",
-        links: linksForProject(
-          s.name!.trim(),
-          profile?.projects.find((p) => projectKey(p.name) === projectKey(s.name))?.links,
-          preferences.projectLinks,
-          linkSources,
-          selectedNames
-        ),
+        links: (() => {
+          const own = profile?.projects.find((p) => projectKey(p.name) === projectKey(s.name))?.links;
+          const card = preferences.projectCards.find((c) => c.id === (s as { cardId?: string }).cardId);
+          return card
+            ? poolCardLinks(card, preferences.projectCards, own, preferences.projectLinks, linkSources, selectedNames)
+            : linksForProject(s.name!.trim(), own, preferences.projectLinks, linkSources, selectedNames);
+        })(),
         originalBullets: [],
       })),
     });

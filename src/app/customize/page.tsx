@@ -64,6 +64,8 @@ import { formatRetiredClaims, parseRetiredClaims, MAX_RETIRED_CLAIMS } from "@/l
 import { cardsToPoolText, type PoolCard, type PoolSettings } from "@/lib/projectPool";
 import { parseMasterExperience } from "@/lib/bulletIds";
 import ProjectPoolEditor from "./ProjectPoolEditor";
+
+const SETTINGS_NOT_READ = "We couldn't read your saved settings, so this wasn't saved. Reload the page and try again.";
 import { FORMAT_STYLE_LABELS, type FormatStyleId } from "@/lib/formatStyles/ids";
 import { getUsage } from "@/lib/usage";
 import {
@@ -385,7 +387,7 @@ export default function CustomizePage() {
     setPrefsError("");
     setPrefsMsgAt(at);
     if (!prefsReady.current) {
-      setPrefsError("We couldn't read your saved settings, so this wasn't saved. Reload the page and try again.");
+      setPrefsError(SETTINGS_NOT_READ);
       return false;
     }
     const previous = prefsRef.current;
@@ -676,9 +678,13 @@ export default function CustomizePage() {
   // everything that reads the pool keeps working. The first confirm keeps the old text.
   async function savePoolCards(cards: PoolCard[]): Promise<boolean> {
     const text = cardsToPoolText(cards);
-    setPoolSaving(true);
     setPoolMsg("");
     setPoolError("");
+    if (!prefsReady.current) {
+      setPoolError(SETTINGS_NOT_READ);
+      return false;
+    }
+    setPoolSaving(true);
     // The cards and the backup first. If this write fails, the user's text is untouched; if
     // the one after it fails, the cards are still what tailoring reads (/api/tailor).
     const before = prefsRef.current;
@@ -708,6 +714,11 @@ export default function CustomizePage() {
     const pool = clear ? "" : poolDraft.trim();
     setPoolMsg("");
     setPoolError("");
+    // Unread settings look like "no cards", and this would then say removed and leave them stored.
+    if (clear && !prefsReady.current) {
+      setPoolError(SETTINGS_NOT_READ);
+      return;
+    }
     if (!clear && !pool) {
       setPoolError("Paste your projects first, or use Remove pool to switch this off.");
       return;
@@ -1145,6 +1156,11 @@ export default function CustomizePage() {
           title="Customize"
           tagline="Manage your master CV, your details, and how your tailored CV is laid out."
         />
+        {settingsReadFailed && (
+          <div className="limitNotice" role="alert" data-settings-read-failed>
+            We couldn&apos;t read your saved settings. What you see may be out of date, and changes won&apos;t save until you reload the page.
+          </div>
+        )}
 
         <div className="cstLayout">
           <nav className="cstNav" aria-label="Sections">
@@ -1409,11 +1425,6 @@ export default function CustomizePage() {
             <Skeleton lines={3} label="Loading your eligibility answers" />
           ) : (
             <>
-              {settingsReadFailed && (
-                <StatusText className="msgBelow" role="alert" data-settings-read-failed>
-                  We couldn&apos;t read your saved settings. What you see may be out of date, and changes won&apos;t save until you reload the page.
-                </StatusText>
-              )}
               {settingsMissing && (
                 <p className="fitEvidence">
                   This feature&apos;s database table isn&apos;t set up yet (migration

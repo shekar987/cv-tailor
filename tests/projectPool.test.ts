@@ -297,6 +297,35 @@ Tech: Next.js, TypeScript, Supabase`);
   assert.ok(!cards.some((c) => c.name.startsWith("Wrote")), "a sentence is not a project");
 });
 
+test("a sentence-case name opens a card when a project's shape follows it", () => {
+  const { cards } = parsePoolText(`RideX
+Tech: React
+- Built the app
+
+Automated trading bot for equities
+Tech: Python
+- Traded
+
+Real-time chat application
+- Chatted
+`);
+  assert.deepEqual(cards.map((c) => c.name), ["RideX", "Automated trading bot for equities", "Real-time chat application"]);
+  assert.deepEqual(cards.map((c) => c.tech), [["React"], ["Python"], []], "each project keeps its own tech (rule 7)");
+});
+
+test("tools with slashes stay tools, and a site is a link", () => {
+  const { cards } = parsePoolText(`Shop | 2024
+Tech: Node.js/Express, ASP.NET/C#, React.js/Redux, Socket.io, uber-demo.vercel.app, ridex.com, foo.io/bar
+Portfolio site: rebuilt in Next.js
+Website redesign: new landing pages
+Live: ridex.app
+`);
+  assert.deepEqual(cards[0].tech, ["Node.js/Express", "ASP.NET/C#", "React.js/Redux", "Socket.io"]);
+  assert.deepEqual(cards[0].links, ["uber-demo.vercel.app | ridex.com | foo.io/bar", "Live: ridex.app"]);
+  assert.match(cards[0].body, /Portfolio site: rebuilt in Next\.js/);
+  assert.match(cards[0].body, /Website redesign: new landing pages/);
+});
+
 test("a sentence with commas is not a tool list", () => {
   const { cards } = parsePoolText(`Shop | 2024
 Built auth, payments, and search for the store`);

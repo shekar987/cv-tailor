@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
     let path: LlmPath = unlimited ? "unlimited" : "claude";
     if (!unlimited && (typeof account.claude_tailors_used === "number" ? account.claude_tailors_used : 0) >= CLAUDE_LIFETIME_LIMIT) {
       const own = await loadOwnOpenRouterKey(supabase, userId);
+      if (own.error) return NextResponse.json({ error: "Couldn't read your saved key. Your CV is unchanged, so try again, or re-enter the key in Settings." }, { status: 503 });
       if (!own.key) {
         return NextResponse.json({ error: "You've used your free tailors, so a swap needs your own OpenRouter key. Add it in Settings. Your CV is unchanged.", errorType: "needs_openrouter_key" }, { status: 402 });
       }
@@ -103,6 +104,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       project: { ...project, bullets: finished },
       used: { cardId: card.id, name: card.name, pinned: card.pinned, matches: scored.chosen[0]?.matches ?? [] },
+      techLeftOut: card.tech.filter((t) => isLearningTech(t, claims)),
       ...(modelError ? { modelError } : {}),
     });
   } catch (err) {

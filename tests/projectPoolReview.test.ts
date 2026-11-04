@@ -2,7 +2,7 @@
 // labels verbatim, nothing cut on reload, dates that cannot beat Ongoing.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { alignWritten, cardEnd, byDate, dropToFit, hasDates, normalizePoolCards, poolCardsProblem, poolDropMessage, poolPinnedOverflowMessage, selectCards, type ChosenCard, type PoolCard } from "../src/lib/projectPool.ts";
+import { alignWritten, cardEnd, byDate, dropToFit, hasDates, normalizePoolCards, poolCardLinks, poolCardsProblem, poolDropMessage, poolPinnedOverflowMessage, selectCards, type ChosenCard, type PoolCard } from "../src/lib/projectPool.ts";
 import { projectsFromSelected } from "../src/lib/poolProjects.ts";
 import { projectLabels, splitProjectLabel, withProjectLabels } from "../src/lib/projectLabels.ts";
 import { isLearningTech } from "../src/lib/claims.ts";
@@ -59,6 +59,32 @@ test("a learning skill never prints on a card's tech line", () => {
   assert.equal(isLearningTech("React", registry as never), false);
   const [p] = alignWritten(chosen(card({ name: "Alpha", tech: ["React", "Kubernetes"] })), [], (t) => !isLearningTech(t, registry as never));
   assert.equal(p.tech, "React");
+});
+
+test("a learning name leaves other tools alone, and another level wins", () => {
+  const skills = (list: [string, string][]) => ({ skills: list.map(([name, level]) => ({ name, level, confirmed: true })), confirmedAt: null }) as never;
+  const registry = skills([["AWS Certified Solutions Architect", "learning"], ["AWS Lambda", "production"]]);
+  assert.equal(isLearningTech("AWS Lambda", registry), false);
+  assert.equal(isLearningTech("AWS", registry), false);
+  assert.equal(isLearningTech("AWS Certified Solutions Architect", registry), true);
+  assert.equal(isLearningTech("Go", skills([["Go", "learning"], ["Go", "production"]])), false, "a name also held at another level wins");
+});
+
+test("cards that share a project key print their own links", () => {
+  const py = card({ id: "py", name: "Chat App – Python", links: ["GitHub: github.com/me/chat-py"] });
+  const go = card({ id: "go", name: "Chat App – Go", links: ["GitHub: github.com/me/chat-go"] });
+  const url = (c: PoolCard) => poolCardLinks(c, [py, go], null, null, [], []).map((l) => l.url).join();
+  assert.match(url(py), /chat-py/);
+  assert.match(url(go), /chat-go/);
+  assert.doesNotMatch(url(go), /chat-py/);
+});
+
+test("a bracket that only looks close does not land on the first card", () => {
+  const out = alignWritten(chosen(card({ name: "Chat App (Python)" }), card({ name: "Chat App (Go)" })), [
+    { name: "Chat App (Python)", date: "", tech: "", bullets: ["Python work"] },
+    { name: "Chat App (Golang)", date: "", tech: "", bullets: ["Go work"] },
+  ]);
+  assert.deepEqual(out.map((p) => p.bullets), [["Python work"], ["Go work"]]);
 });
 
 test("a card's label is never replaced by what the CV writes", () => {

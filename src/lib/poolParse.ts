@@ -31,16 +31,26 @@ function splitOutsideBrackets(text: string): string[] {
   return out.map((t) => t.trim()).filter(Boolean);
 }
 
-const LINK_WORD = "github|gitlab|live|demo|website|repo|url|code|links?|portfolio";
-const LINK_WORD_RE = new RegExp(`^(?:${LINK_WORD})$`, "i");
-const LABELLED_LINK_RE = new RegExp(`^(?:${LINK_WORD})(?:\\s+\\w+)?\\s*:`, "i");
-const ADDRESS_RE = /^(?:https?:\/\/\S+|(?:www\.)?[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\/\S*|(?:www\.)?[\w-]+\.app)$/i;
+const LINK_WORD = "github|gitlab|bitbucket|live|demo|website|repo|url|code|links?|portfolio";
+const LINK_KIND = "site|demo|app|link|url|page";
+const LINK_WORD_RE = new RegExp(`^(?:${LINK_WORD})(?:\\s+(?:${LINK_KIND}))?$`, "i");
+const LABELLED_LINK_RE = new RegExp(`^(?:${LINK_WORD})(?:\\s+(?:${LINK_KIND}))?\\s*:\\s*(.+)$`, "i");
+const PATH = "(?:\\/[\\w./?=&%~-]*)?";
+// A site: any http(s) address, or a host on a web-only ending, with or without a path.
+const SITE_RE = new RegExp(`^(?:https?:\\/\\/\\S+|(?:www\\.)?(?:[\\w-]+\\.)+(?:app|com|dev|org|co\\.uk)${PATH})$`, "i");
+// These endings are also how tools are named, so they count only with a path, in lower case:
+// "foo.io/bar" is a site; "Socket.io", "Fly.io" and "ASP.NET/C#" are not.
+const PATH_SITE_RE = /^(?:www\.)?(?:[a-z0-9-]+\.)+(?:io|ai|net)\/[\w./?=&%~-]+$/;
+
+const isAddress = (t: string) => SITE_RE.test(t) || PATH_SITE_RE.test(t);
 
 // A link is a word that means one ("GitHub"), a labelled one ("Live: Ridex") or an address.
-// "Socket.io", "Fly.io" and "Live tracking of drivers" are not.
+// "Node.js/Express", "Live tracking of drivers" and "Portfolio site: rebuilt in Next.js" are not.
 function isLinkItem(item: string): boolean {
   const t = item.trim();
-  return LINK_WORD_RE.test(t) || LABELLED_LINK_RE.test(t) || ADDRESS_RE.test(t);
+  if (LINK_WORD_RE.test(t) || isAddress(t)) return true;
+  const labelled = LABELLED_LINK_RE.exec(t);
+  return !!labelled && (isAddress(labelled[1].trim()) || labelled[1].trim().split(/\s+/).length <= 2);
 }
 
 function isLinkLine(line: string): boolean {
@@ -73,7 +83,10 @@ function looksLikeToolList(line: string): boolean {
   return line.split(",").every((item) => item.trim().split(/\s+/).length <= 4);
 }
 
-// "Wrote the driver matching service": mostly lower-case words, a sentence and not a name.
+// "Wrote the driver matching service": a past-tense verb first, so never a project's name.
+const OPENS_WITH_VERB_RE = /^(?:Wrote|Built|Led|Made|Ran|Designed|Developed|Implemented|Created|Shipped|Added|Used|Deployed|Integrated|Managed|Worked|Improved|Reduced|Migrated|Tested)\b/;
+
+// Mostly lower-case words: it might be a sentence, or a name written in sentence case.
 function readsAsSentence(line: string): boolean {
   return line.replace(/\([^()]*\)/g, " ").trim().split(/\s+/).slice(1).filter((w) => /^[a-z]/.test(w) && !/^(?:of|and|for|the|with|to|in|on|a|an)$/.test(w)).length >= 2;
 }
@@ -111,20 +124,30 @@ export function parsePoolText(text: string): ParsedPool {
     body = [];
   };
 
-  for (const raw of (text ?? "").split(/\r?\n/)) {
-    const line = raw.replace(/\t/g, "  ").trim();
+  const lines = (text ?? "").split(/\r?\n/);
+  let afterBlank = true;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].replace(/\t/g, "  ").trim();
     if (!line) {
       inBullet = false;
       sawBlank = true;
+      afterBlank = true;
       if (body.length > 0 && body[body.length - 1] !== "") body.push("");
       continue;
     }
+    const startsParagraph = afterBlank;
+    afterBlank = false;
     const flat = line.replace(/\s{2,}/g, " ");
     const looksNamed = !!splitTrailingDate(line).date || /\s[—–|·]\s/.test(flat);
     const headerShaped = isProjectHeader(flat, prevWasHeader, inBullet) || (!prevWasHeader && !inBullet && !BULLET_RE.test(line) && line.length <= 140 && BRACKET_LABEL_RE.test(line));
     // A short line right under a project's name and tech is its first line of text, not a
     // new project, unless a blank line or a name's own marks say otherwise.
-    const stillThisCard = !!card && !looksNamed && ((body.length === 0 && !sawBlank) || readsAsSentence(flat));
+    // A sentence-case line opens a card only where a project's shape follows it: after a blank
+    // line, with its tech, a link or bullets next. "Automated trading bot for equities" does.
+    const next = (lines[i + 1] ?? "").replace(/\t/g, "  ").trim();
+    const shapeFollows = !!next && (TECH_LABEL_RE.test(next) || BULLET_RE.test(next) || looksLikeToolList(next) || isLinkLine(next.replace(/\s{2,}/g, " ")));
+    const opensProject = startsParagraph && shapeFollows && !OPENS_WITH_VERB_RE.test(flat);
+    const stillThisCard = !!card && !looksNamed && ((body.length === 0 && !sawBlank) || (readsAsSentence(flat) && !opensProject));
     if (headerShaped && !stillThisCard) {
       close();
       sawBlank = false;

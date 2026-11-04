@@ -6,7 +6,7 @@
 // printed as "Jan 2024". They are read only to sort. A label prints on the CV every time,
 // verbatim, whatever the tailoring step writes, and the same goes for the name and dates.
 import { matchAtsKeywords } from "./atsMatch.ts";
-import { projectKey } from "./projectLinks.ts";
+import { linksForProject, projectKey, type ShownLink } from "./projectLinks.ts";
 
 export type PoolCard = {
   id: string;
@@ -289,7 +289,12 @@ function matchWritten(cards: readonly PoolCard[], written: readonly WrittenProje
     });
   };
   pass((w, card) => foldName(w.name) === foldName(card.name) || foldName(w.name) === foldName(labelledCardName(card)));
-  pass((w, card) => foldName(withoutBracket(w.name)) === foldName(withoutBracket(card.name)));
+  // Only when the bracket is all that differs and one open card could mean it: "Chat App
+  // (Golang)" is not "Chat App (Python)" just because that card comes first.
+  pass((w, card, i) => {
+    const bare = foldName(withoutBracket(card.name));
+    return foldName(withoutBracket(w.name)) === bare && !cards.some((other, j) => j !== i && !found[j] && foldName(withoutBracket(other.name)) === bare);
+  });
   pass((w, card, i) => {
     const key = projectKey(card.name);
     return !!key && projectKey(w.name) === key && !cards.some((other, j) => j !== i && !found[j] && projectKey(other.name) === key);
@@ -318,6 +323,22 @@ export function alignWritten(chosen: readonly ChosenCard[], written: readonly Wr
       cardId: card.id,
     };
   });
+}
+
+/**
+ * A card's links. Saved links are keyed by project, so two cards with one key ("Chat App –
+ * Python", "Chat App – Go") would print one pair: those print their own link lines instead.
+ */
+export function poolCardLinks(
+  card: PoolCard,
+  cards: readonly PoolCard[],
+  own: Parameters<typeof linksForProject>[1],
+  saved: Parameters<typeof linksForProject>[2],
+  sources: Parameters<typeof linksForProject>[3],
+  names: readonly string[]
+): ShownLink[] {
+  const shared = cards.filter((c) => projectKey(c.name) === projectKey(card.name)).length > 1;
+  return shared ? linksForProject(card.name, null, null, [cardToText(card)]) : linksForProject(card.name, own, saved, sources, names);
 }
 
 // ── Fitting one page ────────────────────────────────────────────────────────
