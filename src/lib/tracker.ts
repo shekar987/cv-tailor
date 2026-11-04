@@ -31,8 +31,8 @@ export const STATUS_LABELS: Record<Status, string> = {
 };
 
 // Stored rows may still hold the old labels ("Applied", "Ready to submit"):
-// migration 20261103130000 rewrites them after the deploy, and anything written
-// outside the app can still use them. Every read goes through here.
+// migration 20261103130000 rewrites them after the deploy, and the owner's sweeps still
+// write them through the API. Every read inside the app goes through here.
 const OLD_LABELS: Record<string, Status> = { "ready to submit": "saved" };
 
 export function normalizeStatus(value: unknown): Status | null {
@@ -40,6 +40,27 @@ export function normalizeStatus(value: unknown): Status | null {
   const key = value.trim().toLowerCase();
   if ((STATUSES as readonly string[]).includes(key)) return key as Status;
   return OLD_LABELS[key] ?? null;
+}
+
+// What /api/applications answers with, whichever spelling the row is stored in. The
+// owner's sweeps read and write these exact strings, so this list is a contract: the
+// first six never change, whatever the database holds. Pages convert to the keys on load.
+export const API_STATUS: Record<Status, string> = {
+  saved: "Ready to submit",
+  applied: "Applied",
+  screening: "Screening",
+  interview: "Interview",
+  assessment: "Assessment",
+  offer: "Offer",
+  accepted: "Accepted",
+  rejected: "Rejected",
+  withdrawn: "Withdrawn",
+  ghosted: "Ghosted",
+};
+
+export function apiStatus(value: unknown): string {
+  const status = normalizeStatus(value);
+  return status ? API_STATUS[status] : typeof value === "string" ? value : "";
 }
 
 export function isStatus(value: unknown): value is Status {

@@ -3916,3 +3916,5 @@ td[data-stage-deadline][data-soon] .stageDue { color: var(--danger); font-weight
   .planToast { animation: none; }
 }
 .pipeLabel { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+
+.stageCellLoading { display: block; width: 72px; }

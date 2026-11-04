@@ -19,7 +19,7 @@ if (!process.env.PLAYWRIGHT_PATH) throw new Error("Set PLAYWRIGHT_PATH to a play
 const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
 const { activeApplications, activeEvents, buildFunnel, readEventInput, readWindowInput } = await import(pathToFileURL(APP + "/src/lib/plan.ts").href);
 const { zonedTimeToMs } = await import(pathToFileURL(APP + "/src/lib/planTime.ts").href);
-const { normalizeStatus } = await import(pathToFileURL(APP + "/src/lib/tracker.ts").href);
+const { apiStatus, normalizeStatus } = await import(pathToFileURL(APP + "/src/lib/tracker.ts").href);
 const SHOTS = process.env.SHOTS_DIR || path.join(os.tmpdir(), "whats-next-shots");
 fs.mkdirSync(SHOTS, { recursive: true });
 
@@ -122,7 +122,7 @@ async function route(page) {
   });
   await page.route("**/api/applications", async (r) => {
     const req = r.request();
-    if (req.method() === "GET") return json(r, { applications: db.applications });
+    if (req.method() === "GET") return json(r, { applications: db.applications.map((a) => ({ ...a, status: apiStatus(a.status) })) });
     if (req.method() === "PUT") {
       const body = req.postDataJSON();
       const row = db.applications.find((a) => a.id === body.id);
@@ -400,6 +400,7 @@ try {
 
   // ── Stage tabs ─────────────────────────────────────────────────────────────
   await page.locator("[data-stage-table]").waitFor({ timeout: 30000 });
+  await page.waitForFunction(() => !document.querySelector("[data-stage-table] .skeleton"), null, { timeout: 8000 });
   const companies = () => page.locator("[data-stage-row]").evaluateAll((e) => e.map((x) => x.dataset.stageRow));
   let list = await companies();
   check("Screening holds current screening rows only", !list.includes("Gone Ltd") && list.includes("Sunbury Energy") && list.includes("Old Silence Ltd"), list.join());
@@ -574,10 +575,10 @@ try {
     const add = await (await fetch(BASE + "/api/applications", { method: "POST", headers: authed, body: JSON.stringify({ company_name: "Fallback Ltd", role: "Engineer", date_applied: "2026-10-20" }) })).json();
     check("a new row saves on the old constraint", !!add.id, JSON.stringify(add).slice(0, 100));
     const listed = (await (await fetch(BASE + "/api/applications", { headers: authed })).json()).applications;
-    check("and reads back as the new key", listed[0]?.status === "applied", listed[0]?.status);
+    check("and reads back in the API's spelling", listed[0]?.status === "Applied", listed[0]?.status);
     const put = await fetch(BASE + "/api/applications", { method: "PUT", headers: authed, body: JSON.stringify({ id: add.id, status: "rejected" }) });
     const row = (await (await fetch(`${BASE}/api/applications?id=${add.id}`, { headers: authed })).json()).application;
-    check("a status with an old label writes on the old constraint", put.status === 200 && row.status === "rejected", `${put.status} ${row.status}`);
+    check("a status with an old label writes on the old constraint", put.status === 200 && row.status === "Rejected", `${put.status} ${row.status}`);
     const ghost = await fetch(BASE + "/api/applications", { method: "PUT", headers: authed, body: JSON.stringify({ id: add.id, status: "ghosted" }) });
     check("a new status names the migration instead of a 500", ghost.status === 503 && (await ghost.json()).errorType === "needs_migration", String(ghost.status));
     const notSeen = await browser.newContext();

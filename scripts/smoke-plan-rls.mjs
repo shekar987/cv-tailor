@@ -71,7 +71,7 @@ try {
   check("rejected: the row is not active", !afterReject.applications.some((r) => r.id === appId));
   check("rejected: the event is hidden, not deleted", (await (await a.route("/api/events")).json()).events.some((e) => e.id === eventId));
   const row = (await (await a.route(`/api/applications?id=${appId}`)).json()).application;
-  check("the status is the new key, with the reason", row.status === "rejected");
+  check("the API answers in its own spelling", row.status === "Rejected");
   const listed = (await (await a.route("/api/applications")).json()).applications.find((r) => r.id === appId);
   check("the trigger recorded the stages", JSON.stringify(listed.stages_reached) === '["screening","rejected"]' || JSON.stringify(listed.stages_reached) === '["applied","screening","rejected"]', json(listed.stages_reached));
   check("the reason reads back", listed.outcome_reason === "Wanted more years");

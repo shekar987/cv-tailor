@@ -618,3 +618,9 @@ test("the day the clocks go back never says in 0 days", () => {
   const morning = zonedTimeToMs("2026-10-25", "00:10", LONDON);
   assert.equal(countdown(zonedTimeToMs("2026-10-25", "23:30", LONDON), morning, { tz: LONDON }), "in 24h");
 });
+test("a free window that has passed does not stop the usual hours being offered", () => {
+  const past: AvailabilityWindow[] = [{ id: "old", date: "2026-10-20", start_time: "09:00", end_time: "17:00", kind: "free" }];
+  const { slots, usedDefaultHours } = suggestSlots({ windows: past, events: [], now: NOW });
+  assert.equal(usedDefaultHours, true);
+  assert.equal(slots.length, 5);
+});

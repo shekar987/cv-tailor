@@ -3,9 +3,20 @@
 -- previous release cannot read the new keys. The old text stays in status_raw
 -- for one release. Idempotent: only rows still holding an old label change.
 --
--- The CHECK from 20261103120000 still accepts the old labels, because some rows
--- are written outside the app with them; the code normalises them on read. A
--- later migration can narrow the CHECK once those writers use the new keys.
+-- The stored value is all that changes. /api/applications keeps answering, and
+-- keeps accepting, the strings the owner's sweeps use (lib/tracker API_STATUS):
+--
+--   the API says and takes    stored after this migration
+--   "Ready to submit"         saved
+--   "Applied"                 applied
+--   "Screening"               screening
+--   "Interview"               interview
+--   "Rejected"                rejected
+--   "Withdrawn"               withdrawn
+--   "Offer"                   offer
+--
+-- scripts/smoke-sweep-contract.mjs proves it on a real database. The CHECK from
+-- 20261103120000 keeps accepting the old labels too, as a second safety.
 
 -- A spelling change is not an edit: updated_at keeps its value.
 alter table public.applications disable trigger applications_set_updated_at;

@@ -10,6 +10,7 @@ import {
   oldStatusLabel,
   storedStatusValues,
   isActiveStatus,
+  apiStatus,
   removeFollowupClearedNote,
   stagesAfterMove,
   endedWithoutProgress,
@@ -74,6 +75,22 @@ test("the Won tab holds accepted and offer; every other tab one status", () => {
   assert.deepEqual(stageTabValues("screening"), ["screening", "Screening"]);
   assert.deepEqual([...STAGE_TABS], ["screening", "interview", "assessment", "offer", "rejected", "accepted"]);
   assert.equal(isStageTab("applied"), false);
+});
+
+test("the API answers the sweeps' exact strings, whichever spelling is stored", () => {
+  // A contract: the owner's sweeps read and write these. Never change them.
+  const pairs: [string, string][] = [["Applied", "applied"], ["Screening", "screening"], ["Interview", "interview"], ["Rejected", "rejected"], ["Withdrawn", "withdrawn"], ["Ready to submit", "saved"]];
+  for (const [sweep, key] of pairs) {
+    assert.equal(apiStatus(sweep), sweep, "stored as the old label");
+    assert.equal(apiStatus(key), sweep, "stored as the key");
+    assert.equal(normalizeStatus(sweep), key, "written by a sweep");
+    assert.equal(STATUS_LABELS[key as keyof typeof STATUS_LABELS], key === "saved" ? "Ready to submit" : sweep);
+  }
+  assert.equal(apiStatus("assessment"), "Assessment");
+  assert.equal(apiStatus("accepted"), "Accepted");
+  assert.equal(apiStatus("ghosted"), "Ghosted");
+  assert.equal(apiStatus("offer"), "Offer");
+  for (const status of STATUSES) assert.equal(normalizeStatus(apiStatus(status)), status, "every answer reads back as its key");
 });
 
 test("every status has a label, and the two renamed ones read as the user knows them", () => {

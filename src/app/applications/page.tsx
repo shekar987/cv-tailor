@@ -575,7 +575,8 @@ async function fetchApplications(): Promise<{ rows: Application[] } | { error: s
   if (!ok) return { error: data.error || "Could not load your applications." };
   // The list leaves out null keys to stay small; the sheet's required fields
   // read as null again here.
-  const rows = (data.applications as Application[] | undefined) ?? [];
+  // The API answers in its own spelling (lib/tracker API_STATUS); this page works in keys.
+  const rows = ((data.applications as Application[] | undefined) ?? []).map((r) => ({ ...r, status: normalizeStatus(r.status) ?? r.status }));
   return { rows: rows.map((r) => ({ ...EMPTY_LIST_FIELDS, ...r })) };
 }
 

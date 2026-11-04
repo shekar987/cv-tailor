@@ -7,7 +7,7 @@ import { seniorityOf } from "@/lib/insights";
 import { GATE_CATEGORIES } from "@/lib/knockouts";
 import { SENT_CV_BUCKET, normalizeSentCv, publicSentCv, ownsPath } from "@/lib/sentCv";
 import {
-  normalizeStatus, oldStatusLabel, clearsFollowup, followupClearedNote, appendNoteLine, isLastContactFrom, parseContactAt,
+  apiStatus, normalizeStatus, oldStatusLabel, clearsFollowup, followupClearedNote, appendNoteLine, isLastContactFrom, parseContactAt,
   type Status, type LastContactFrom,
 } from "@/lib/tracker";
 import { isFormatStyleId, type FormatStyleId } from "@/lib/formatStyles/ids";
@@ -435,7 +435,7 @@ export async function GET(req: NextRequest) {
       // The uploaded CV's record without its storage path (lib/sentCv).
       const sentCv = publicSentCv(normalizeSentCv(row.sent_cv));
       return NextResponse.json({
-        application: { ...row, status: normalizeStatus(row.status) ?? row.status, tailored_cv: snapshot, prep_pack: prepPack, sent_cv: sentCv },
+        application: { ...row, status: apiStatus(row.status), tailored_cv: snapshot, prep_pack: prepPack, sent_cv: sentCv },
         ...(warning ? { warning } : {}),
       });
     }

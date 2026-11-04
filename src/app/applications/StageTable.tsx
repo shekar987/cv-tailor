@@ -121,6 +121,8 @@ export default function StageTable({
   }
 
   const showFeedback = stage === "rejected";
+  // Until the dates arrive, "None" would be untrue.
+  const none = events === null ? <span className="skeleton stageCellLoading" aria-hidden="true" /> : <span className="cvHelp">None</span>;
   const scheduled = (events ?? []).filter((e) => e.status === "scheduled");
 
   return (
@@ -179,10 +181,10 @@ export default function StageTable({
                       <span className="cvHelp">{timing.left}</span>
                     </>
                   ) : (
-                    <span className="cvHelp">None</span>
+                    none
                   )}
                 </td>
-                <td data-label="Kind">{event ? <KindTag kind={event.kind} /> : <span className="cvHelp">None</span>}</td>
+                <td data-label="Kind">{event ? <KindTag kind={event.kind} /> : none}</td>
                 <td data-label="Deadline" data-stage-deadline data-soon={soon ? "" : undefined}>
                   {dueAt !== null && deadline ? (
                     <span className="stageDue">
@@ -190,7 +192,7 @@ export default function StageTable({
                       {formatWhen(dueAt, displayZone(deadline, tz), deadline.date_only)}
                       {soon && <span className="srOnly">{dueAt < now ? " (overdue)" : " (under 48 hours)"}</span>}
                     </span>
-                  ) : <span className="cvHelp">None</span>}
+                  ) : none}
                 </td>
                 <td data-label="Last contact">
                   {row.last_contact_at ? <span>{shortDay(dayKey(Date.parse(row.last_contact_at), tz))}<span className="cvHelp"> {row.last_contact_from === "them" ? "they wrote" : "you wrote"}</span></span> : <span className="cvHelp">None recorded</span>}

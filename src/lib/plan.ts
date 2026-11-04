@@ -423,12 +423,13 @@ export function suggestSlots(input: {
     return { slots: slots.sort((a, b) => a.start - b.start).slice(0, count), usedDefaultHours: false };
   }
 
-  const freeWindows = input.windows.filter((w) => w.kind === "free");
-  const usedDefaultHours = freeWindows.length === 0;
   const today = dayKey(input.now, tz);
+  const searchDays = Array.from({ length: input.days ?? 14 }, (_, i) => addDays(today, i));
+  // A one-off free window that has passed says nothing about the days being offered.
+  const freeWindows = input.windows.filter((w) => w.kind === "free" && searchDays.some((day) => windowOnDay(w, day)));
+  const usedDefaultHours = freeWindows.length === 0;
   const free: { day: string; at: Interval }[] = [];
-  for (let i = 0; i < (input.days ?? 14); i++) {
-    const day = addDays(today, i);
+  for (const day of searchDays) {
     let open: Interval[] = [];
     if (usedDefaultHours) {
       if (weekdayOf(day) <= 5) open = [{ start: zonedTimeToMs(day, DEFAULT_FREE_START, tz), end: zonedTimeToMs(day, DEFAULT_FREE_END, tz) }];
