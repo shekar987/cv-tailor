@@ -8,15 +8,17 @@
 // replaces what the user named. No model call and no prompt change.
 //
 // /api/tailor fixes what it can on the finished text; /app and the download routes
-// hold the file while anything on the list is still there, so an edit in the preview
-// or an old tracker snapshot cannot bring it back. BUILT_IN holds the two phrases no
-// CV should ever print, for every user: both come from a removed letter point, not
-// from anyone's history.
+// hold the file while anything on the list is still in what the user can edit, and the
+// routes fix what they cannot (a project's tech line, the education), so an old tracker
+// snapshot cannot bring it back and never gets stuck. BUILT_IN holds the two phrases no
+// CV should ever print, for every user: both come from a removed letter point, not from
+// anyone's history.
 
 export type RetiredClaim = { phrase: string; replacement: string | null };
 
 export const MAX_RETIRED_CLAIMS = 40;
 export const MAX_RETIRED_CHARS = 200;
+const MIN_PHRASE_CHARS = 2;
 const ARROW_RE = /\s*(?:=>|→)\s*/;
 
 export const BUILT_IN_RULES: readonly RetiredClaim[] = [
@@ -33,7 +35,7 @@ export function parseRetiredClaims(text: unknown): RetiredClaim[] {
   for (const raw of text.split(/\r?\n/)) {
     const [phrasePart, ...rest] = raw.split(ARROW_RE);
     const phrase = phrasePart.trim().slice(0, MAX_RETIRED_CHARS);
-    if (phrase.length < 3) continue;
+    if (phrase.length < MIN_PHRASE_CHARS) continue;
     const key = phrase.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -65,10 +67,15 @@ function esc(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// A space or hyphen in a phrase matches either, and bold markers between words are
-// ignored: "exactly once" is "exactly-once", "idempotent **Stripe**" is the phrase.
+// A space, hyphen or dash in a phrase matches any of them on one line, bold markers
+// between words are ignored and a straight apostrophe matches a curly one: "exactly
+// once" is "exactly-once", "idempotent **Stripe**" is the phrase.
 function phraseRe(phrase: string): RegExp {
-  const body = phrase.trim().split(/[\s-]+/).map(esc).join("[\\s\\-*]+");
+  const body = phrase
+    .trim()
+    .split(/[\s\-–—]+/)
+    .map((word) => esc(word).replace(/['’]/g, "['’]"))
+    .join("[ \\t\\-–—*]+");
   return new RegExp(`(?<![A-Za-z0-9])${body}(?![A-Za-z0-9])`, "gi");
 }
 
@@ -77,12 +84,26 @@ function allRules(rules: readonly RetiredClaim[]): RetiredClaim[] {
   return [...rules, ...BUILT_IN_RULES].sort((a, b) => b.phrase.length - a.phrase.length);
 }
 
+// "React => React.js": where the replacement is already written, the phrase inside it
+// is not a hit, or the rule would rewrite its own result and hold the file for ever.
+function insideReplacement(text: string, offset: number, rule: RetiredClaim): boolean {
+  if (!rule.replacement) return false;
+  const lead = rule.replacement.toLowerCase().indexOf(rule.phrase.toLowerCase());
+  if (lead < 0) return false;
+  return text.slice(offset - lead, offset - lead + rule.replacement.length).toLowerCase() === rule.replacement.toLowerCase();
+}
+
+function hasHit(text: string, rule: RetiredClaim): boolean {
+  for (const m of text.matchAll(phraseRe(rule.phrase))) if (!insideReplacement(text, m.index ?? 0, rule)) return true;
+  return false;
+}
+
 /** The phrases still present in a text. */
 export function findRetired(text: string, rules: readonly RetiredClaim[]): string[] {
   const t = text ?? "";
   const out: string[] = [];
   for (const rule of allRules(rules)) {
-    if (phraseRe(rule.phrase).test(t) && !out.some((p) => p.toLowerCase() === rule.phrase.toLowerCase())) out.push(rule.phrase);
+    if (hasHit(t, rule) && !out.some((p) => p.toLowerCase() === rule.phrase.toLowerCase())) out.push(rule.phrase);
   }
   return out;
 }
@@ -92,25 +113,52 @@ function matchCase(replacement: string, found: string): string {
 }
 
 const BULLET_RE = /^(\s*(?:[•\-*·▪◦–]|\d{1,2}[.)])\s+)/;
-// A job header (two pipes, or the preview's marker) is never deleted: the check
-// reports it instead, and the user decides.
+// A job header (two pipes ending in a date, or the preview's marker) is never deleted:
+// the check reports it instead, and the user decides.
 const isHeaderLine = (line: string) => line.includes("@@JOB@@") || ((line.match(/\|/g) ?? []).length >= 2 && /\b(?:19|20)\d{2}\b|\bpresent\b/i.test(line.slice(line.lastIndexOf("|"))));
-// "Label: a, b, c": one item goes, not the line.
-const LIST_ITEM_SEPARATORS = /\s*[,|;]\s*/;
 const MAX_LIST_ITEM_WORDS = 6;
+const MIN_UNLABELLED_ITEMS = 3;
 
+// Items and the separator after each, outside brackets: "AWS (Lambda, S3), Docker" is two.
+function splitListItems(text: string): { item: string; separator: string }[] {
+  const out: { item: string; separator: string }[] = [];
+  let depth = 0;
+  let current = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "(") depth++;
+    if (ch === ")") depth = Math.max(0, depth - 1);
+    if (depth === 0 && /[,|;]/.test(ch)) {
+      const space = /^\s*/.exec(text.slice(i + 1))?.[0] ?? "";
+      const lead = /\s*$/.exec(current)?.[0] ?? "";
+      out.push({ item: current.trimEnd(), separator: lead + ch + space });
+      i += space.length;
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  out.push({ item: current, separator: "" });
+  return out;
+}
+
+// One item goes, not the line, when the line reads as a list: "Label: a, b, c" or, with
+// no label, three or more short items. A sentence is never a list.
 function dropFromList(line: string, re: RegExp): string | null {
-  const m = /^(\s*\*{0,2}[^:,|]{1,40}:\*{0,2}\s*)(.+)$/.exec(line);
-  if (!m || /[.!?]\s*$/.test(m[2])) return null;
-  const items = m[2].split(LIST_ITEM_SEPARATORS);
-  if (items.length < 2 || items.some((item) => item.trim().split(/\s+/).length > MAX_LIST_ITEM_WORDS)) return null;
-  const separator = m[2].includes("|") ? " | " : ", ";
-  const kept = items.filter((item) => {
+  const labelled = /^(\s*\*{0,2}[^:,|]{1,40}:\*{0,2}\s*)(.+)$/.exec(line);
+  const bullet = BULLET_RE.exec(line)?.[1] ?? "";
+  const label = labelled ? labelled[1] : bullet;
+  const body = labelled ? labelled[2] : line.slice(bullet.length);
+  if (/[.!?]\s*$/.test(body)) return null;
+  const items = splitListItems(body);
+  if (items.length < (labelled ? 2 : MIN_UNLABELLED_ITEMS)) return null;
+  if (items.some(({ item }) => item.trim().split(/\s+/).length > MAX_LIST_ITEM_WORDS)) return null;
+  const kept = items.filter(({ item }) => {
     re.lastIndex = 0;
     return !re.test(item);
   });
   if (kept.length === items.length || kept.length === 0) return null;
-  return m[1] + kept.join(separator);
+  return label + kept.map(({ item, separator }, i) => (i === kept.length - 1 ? item : item + separator)).join("");
 }
 
 function dropSentences(line: string, re: RegExp): string {
@@ -134,12 +182,12 @@ export function applyRetired(text: string, rules: readonly RetiredClaim[]): { te
   const report: RetiredReport = { replaced: [], removed: [] };
   let out = text ?? "";
   for (const rule of allRules(rules)) {
+    if (!hasHit(out, rule)) continue;
     const re = phraseRe(rule.phrase);
-    if (!re.test(out)) continue;
-    re.lastIndex = 0;
     if (rule.replacement !== null) {
       const to = rule.replacement;
-      out = out.replace(re, (found) => matchCase(to, found));
+      const source = out;
+      out = out.replace(re, (found: string, offset: number) => (insideReplacement(source, offset, rule) ? found : matchCase(to, found)));
       report.replaced.push({ from: rule.phrase, to });
       continue;
     }
@@ -177,6 +225,25 @@ export function applyRetiredToBullets(projects: Record<string, unknown> | null |
     });
   }
   return { projects: out, report };
+}
+
+// Addresses and names are never rewritten, and a project's name is the user's to edit in
+// the preview, where the check holds it.
+const NOT_DOCUMENT_TEXT: ReadonlySet<string> = new Set(["name", "email", "phone", "linkedin", "github", "website", "location", "links", "url", "version"]);
+
+/**
+ * What the preview does not let the user edit (the header line, a project's tech, the
+ * education, certificates): the same rules, so a phrase there can never hold a download
+ * with nothing the user could change.
+ */
+export function applyRetiredToProfile<T>(value: T, rules: readonly RetiredClaim[]): T {
+  const walk = (v: unknown): unknown => {
+    if (typeof v === "string") return applyRetired(v, rules).text;
+    if (Array.isArray(v)) return v.map(walk).filter((item) => item !== "");
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, item]) => [k, NOT_DOCUMENT_TEXT.has(k) ? item : walk(item)]));
+    return v;
+  };
+  return walk(value) as T;
 }
 
 export function mergeReports(...reports: RetiredReport[]): RetiredReport {

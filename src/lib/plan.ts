@@ -133,9 +133,9 @@ export function eventEndMs(e: Pick<PlanEvent, "starts_at" | "ends_at" | "kind">)
 /** Offer > final interview > interview > assessment / take-home > screening > networking > follow-up. */
 export function stageWeight(e: Pick<PlanEvent, "kind" | "stage_label">, applicationStatus?: string | null): number {
   if (e.kind === "offer_deadline" || normalizeStatus(applicationStatus) === "offer") return 100;
-  if (e.kind === "interview") return /\bfinal\b/i.test(e.stage_label ?? "") ? 90 : 80;
-  if (e.kind === "assessment" || e.kind === "take_home" || e.kind === "deadline") return 60;
-  if (e.kind === "screening_call") return 40;
+  if (e.kind === "interview" || e.kind === "video") return /\bfinal\b/i.test(e.stage_label ?? "") ? 90 : 80;
+  if (e.kind === "assessment" || e.kind === "take_home" || e.kind === "deadline" || e.kind === "work_trial") return 60;
+  if (e.kind === "screening_call" || e.kind === "screening_questions") return 40;
   if (e.kind === "networking") return 30;
   return 20;
 }

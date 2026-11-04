@@ -114,7 +114,7 @@ test("clock forms", () => {
   assert.equal(due("Due by 6 Nov 2026 at noon.").dueAt, "2026-11-06T12:00:00.000Z");
   assert.equal(due("Due by midnight on 8 November 2026.").dueAt, "2026-11-08T23:59:00.000Z");
   assert.equal(due("Due by end of day on 8 November 2026.").dateOnly, true);
-  assert.equal(due("Please respond by 18.40 on 5 Nov 2026 at 18.40.").dueAt, "2026-11-05T18:40:00.000Z");
+  assert.equal(due("Please respond by 18.40 on 5 Nov 2026.").dueAt, "2026-11-05T18:40:00.000Z");
 });
 
 test("weekdays and tomorrow", () => {
@@ -143,8 +143,41 @@ test("working days skip the weekend, and words and weeks count", () => {
   assert.equal(due("You have 72 hrs to complete the test.").dueAt, "2026-11-07T10:00:00.000Z");
 });
 
-test("a stated date beats a relative window in the same email", () => {
+test("the earliest wins, a stated date and a window alike", () => {
   assert.equal(due("You have 7 days to do this. The final deadline is 6 Nov 2026.").dueAt, "2026-11-06T23:59:00.000Z");
+  assert.equal(due("Please complete the HackerRank test within 72 hours. Applications close on 30 November 2026.").dueAt, "2026-11-07T10:00:00.000Z");
+});
+
+test("UK clock forms", () => {
+  assert.equal(due("Please submit by 17.00 on Friday 6 November.").dueAt, "2026-11-06T17:00:00.000Z");
+  assert.equal(due("Deadline is 12.00 on 20 November.").dueAt, "2026-11-20T12:00:00.000Z");
+  assert.equal(due("Due by 6 Nov 2026 at 17:00hrs.").dueAt, "2026-11-06T17:00:00.000Z");
+  assert.equal(due("Due by 6 Nov 2026 at 1700.").dueAt, "2026-11-06T17:00:00.000Z");
+  assert.equal(due("Due by 6 Nov 2026, 1700 hrs.").dueAt, "2026-11-06T17:00:00.000Z");
+  assert.equal(due("Due by 6 Nov 2026, the fee is £45.00.").dateOnly, true, "a price is not a time");
+});
+
+test("a clock time is never read as the day", () => {
+  assert.equal(due("Due by 17:30 Nov 5, 2026.").dueAt, "2026-11-05T17:30:00.000Z");
+  assert.equal(due("Your slot is 10:15 November 9.").dueAt, "2026-11-09T10:15:00.000Z");
+});
+
+test("a zone after hrs or a comma is read, and one it does not know is flagged", () => {
+  assert.equal(due("Due by 5 Nov 2026 at 18:00 hrs IST.").dueAt, "2026-11-05T12:30:00.000Z");
+  assert.equal(due("Due by 5 Nov 2026 at 6pm, IST.").dueAt, "2026-11-05T12:30:00.000Z");
+  assert.equal(due("Due by 5 Nov 2026 at 18:00 SGT.").dueAt, "2026-11-05T10:00:00.000Z");
+  const r = due("Due by 5 Nov 2026 at 18:00 NZST.");
+  assert.equal(r.approximate, true, "an unknown zone says so");
+  assert.equal(r.zone, "NZST");
+  assert.equal(due("Due by 5 Nov 2026 at 18:00 ON THE DOT.").approximate, false);
+});
+
+test("a link's numbers, a company's name and a heading on its own line", () => {
+  assert.equal(extractDeadline("Open https://example.com/12/11/test to begin.", WED), null);
+  assert.equal(due("Sun Life assessment by 20 November.").dueAt, "2026-11-20T23:59:00.000Z");
+  assert.equal(due("Deadline:\nFriday 6 November").dueAt, "2026-11-06T23:59:00.000Z");
+  assert.equal(due("Please complete it by Friday 6 November and we will review it.").dueAt, "2026-11-06T23:59:00.000Z");
+  assert.equal(due("We ask that you respond by 6 November.").dueAt, "2026-11-06T23:59:00.000Z");
 });
 
 test("an appointment with a clock time and no deadline word is read", () => {
@@ -167,6 +200,13 @@ test("never guesses: these are not deadlines", () => {
     "You have 48 hours to submit from the start you choose.",
     "Due by 31 November 2026.",
     "Start date: 1 January 2027.",
+    "If you do not hear from us within 14 days, please assume you were unsuccessful.",
+    "You will receive feedback within 5 working days.",
+    "Your application will be reviewed within 7 days.",
+    "You will have 25 days holiday.",
+    "We will review it and get back to you by 6 November.",
+    "This was submitted today.",
+    "You must be available to start on 5 January.",
   ]) {
     assert.equal(extractDeadline(text, WED), null, text);
   }

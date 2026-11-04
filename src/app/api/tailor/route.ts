@@ -608,7 +608,8 @@ async function runPipeline(opts: {
   const taglineGuard = style.headline.languageCheck
     ? guardTaglineLanguage(builtHeadline, cvTopLanguages, masterTagline)
     : { headline: builtHeadline.headline, replaced: null };
-  const headline = taglineGuard.headline;
+  // The user's list holds on the header line too (lib/retiredClaims).
+  const headline = applyRetired(taglineGuard.headline, retiredClaims).text;
   let pageFitReport: PageFitReport | null = null;
   // The built PDF's page count after the fit, for the style's format check.
   let realPages: number | null = null;

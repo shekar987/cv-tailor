@@ -28,6 +28,10 @@ import { cleanTagline } from "@/lib/profile";
 import { ensureHttps } from "@/lib/cvDocument";
 import { RENDER_OPTIONS, normalizeFormatStyle, type FormatStyleId } from "@/lib/formatStyles/ids";
 
+// A download the server held, with the sentence that says why (the contact check, the
+// user's list of ruled-out wording). The reason is the message; a retry would not help.
+class HeldError extends Error {}
+
 // **span** → <strong> — the render half of the bold contract (see
 // lib/markdownText). readInline() below is its exact inverse, used by
 // collectPayload(), so an edited document round-trips bold instead of
@@ -316,14 +320,15 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(data && typeof data.error === "string" ? data.error : "Could not build the document");
+        const reason = data && typeof data.error === "string" ? data.error : "Could not build the document";
+        throw res.status === 422 ? new HeldError(reason) : new Error(reason);
       }
       const blob = await res.blob();
       saveBlob(blob, `${fileBaseName}.pdf`);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       console.error("PDF generation failed:", message);
-      setDocErr(message.startsWith("The PDF failed") ? message : "PDF generation failed. Try the Word download, or retry.");
+      setDocErr(e instanceof HeldError || message.startsWith("The PDF failed") ? message : "PDF generation failed. Try the Word download, or retry.");
     } finally {
       setBusy(false);
     }
@@ -539,6 +544,10 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    if (res.status === 422) {
+      const data = await res.json().catch(() => null);
+      throw new HeldError(data && typeof data.error === "string" ? data.error : "This file can't be built yet.");
+    }
     if (!res.ok) return null;
     return res.blob();
   }
@@ -553,7 +562,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
       saveBlob(blob, `${fileBaseName}.docx`);
     } catch (e) {
       console.error("Word generation failed:", e instanceof Error ? e.message : String(e));
-      setDocErr("Word download failed. Check your connection and retry.");
+      setDocErr(e instanceof HeldError ? e.message : "Word download failed. Check your connection and retry.");
     } finally {
       setBusy(false);
     }

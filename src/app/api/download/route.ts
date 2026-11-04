@@ -4,7 +4,8 @@ import { normalizeProfile } from "@/lib/profile";
 import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
 import { buildCvDocx } from "@/lib/buildCvDocx";
 import { contactRefusal } from "@/lib/contactRefusal";
-import { cvBodyText, documentRules, retiredRefusal } from "@/lib/documentGuard";
+import { cleanTechLines, cvBodyText, documentRules, retiredRefusal } from "@/lib/documentGuard";
+import { applyRetiredToProfile } from "@/lib/retiredClaims";
 import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
 
 // The CV as a .docx. The document itself is built by lib/buildCvDocx (the
@@ -40,8 +41,8 @@ export async function POST(req: NextRequest) {
       skills: text(body.skills),
       experience: text(body.experience),
       projects: body.projects && typeof body.projects === "object" ? (body.projects as Record<string, unknown>) : {},
-      projectsMeta: withProjectLabels(Array.isArray(body.projectsMeta) ? body.projectsMeta : [], projectLabels(masterCv)),
-      profile,
+      projectsMeta: withProjectLabels(cleanTechLines(Array.isArray(body.projectsMeta) ? body.projectsMeta : [], rules), projectLabels(masterCv)),
+      profile: applyRetiredToProfile(profile, rules),
       sectionOrder: body.sectionOrder,
       targetPages: body.targetPages === 1 ? 1 : 2,
       // The run's format style (lib/formatStyles).

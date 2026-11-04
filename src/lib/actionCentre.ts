@@ -82,12 +82,13 @@ export function sortActions<E extends ActionEvent & Pick<PlanEvent, "title">>(ev
 // ── Reading a pasted email ──────────────────────────────────────────────────
 
 /** The kind a pasted email most plainly describes; the form lets the user change it. */
-export function guessEventKind(text: string): "assessment" | "video" | "interview" | "work_trial" | "screening_questions" | "deadline" {
+export function guessEventKind(text: string): "assessment" | "video" | "interview" | "screening_call" | "work_trial" | "screening_questions" | "deadline" {
   if (/\bwork[- ]trial\b/i.test(text)) return "work_trial";
   if (/\bscreening questions?\b|\bquestionnaire\b/i.test(text)) return "screening_questions";
   if (/\bhireflix\b|\bhirevue\b|\bsonru\b|\bone[- ]way\b|\bvideo (?:interview|assessment)\b/i.test(text)) return "video";
   if (/\bhackerrank\b|\bcodility\b|\bcoderbyte\b|\bcodesignal\b|\bassessment\b|\bonline test\b|\bcoding test\b|\bcriteria\b/i.test(text)) return "assessment";
-  if (/\binterview\b|\bscreening call\b|\bintro(?:ductory)? call\b/i.test(text)) return "interview";
+  if (/\bscreening call\b|\bintro(?:ductory)? call\b|\bphone screen\b/i.test(text)) return "screening_call";
+  if (/\binterview\b/i.test(text)) return "interview";
   return "deadline";
 }
 

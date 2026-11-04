@@ -40,7 +40,7 @@ import { checkStyle, summarizeStyleCheck, type StyleCheckItem } from "@/lib/styl
 import type { MasterCvNote } from "@/lib/stylePass";
 import { attachProjectLinks, linksForProject, projectKey } from "@/lib/projectLinks";
 import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
-import { findRetired, retiredBlockMessage, type RetiredReport } from "@/lib/retiredClaims";
+import { applyRetiredToProfile, findRetired, retiredBlockMessage, type RetiredReport } from "@/lib/retiredClaims";
 import type { SkillLinesFix } from "@/lib/formatRules";
 import type { SeniorityFit } from "@/lib/seniority";
 import { isGraduateScheme, graduateSectionOrder } from "@/lib/graduateMode";
@@ -1770,7 +1770,8 @@ export default function Home() {
     const linkSources = [masterCvText, projectsPool];
     // A project keeps the label its own CV gives it (lib/projectLabels), on every run.
     const labels = projectLabels(masterCvText, projectsPool);
-    const withLabels = <T extends Profile | null>(p: T): T => (p ? { ...p, projects: withProjectLabels(p.projects, labels) } : p);
+    // ... and the user's list holds on what the preview cannot edit (lib/retiredClaims).
+    const withLabels = <T extends Profile | null>(p: T): T => (p ? { ...applyRetiredToProfile(p, preferences.retiredClaims), projects: withProjectLabels(applyRetiredToProfile(p.projects, preferences.retiredClaims), labels) } : p);
     if (sel.length === 0) return withLabels(withHeadline(withProjectLinks(profileForDocument(profile, preferences, eligibility), preferences, linkSources)));
     // A pool can exist without an extracted profile; render the selection on
     // an empty-but-well-formed base rather than dropping it.

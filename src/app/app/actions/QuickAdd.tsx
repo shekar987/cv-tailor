@@ -47,13 +47,14 @@ export default function QuickAdd({
   const kind = guessEventKind(text);
 
   function useThis() {
-    const atMs = read ? Date.parse(read.dueAt) : NaN;
+    // A call happens at its time, so it can clash; everything else falls due.
+    const appointment = kind === "interview" || kind === "screening_call";
     onPreset({
       kind,
       title: EVENT_KIND_LABELS[kind],
-      due_at: Number.isFinite(atMs) ? read!.dueAt : null,
-      starts_at: null,
-      date_only: read?.dateOnly ?? false,
+      due_at: read && !appointment ? read.dueAt : null,
+      starts_at: read && appointment && !read.dateOnly ? read.dueAt : null,
+      date_only: !appointment && (read?.dateOnly ?? false),
       timezone: tz,
       location_or_link: firstLink(text),
       status: "scheduled",

@@ -14,7 +14,7 @@ import Skeleton from "@/components/ui/Skeleton";
 import StatusText from "@/components/ui/StatusText";
 import { URGENCY_LABELS, isSnoozed, snoozeUntil, sortActions, urgencyOf } from "@/lib/actionCentre";
 import { autoCloseMessage } from "@/lib/autoClose";
-import { describeTiming, type AvailabilityWindow, type PlanEvent } from "@/lib/plan";
+import { describeTiming, eventMs, type AvailabilityWindow, type PlanEvent } from "@/lib/plan";
 import { DEFAULT_TIMEZONE, MINUTE_MS, formatWhen } from "@/lib/planTime";
 import EventForm, { type EventFormMode } from "../next/EventForm";
 import { CompanyInitial, KindTag, StageChip, safeHttpUrl } from "../next/planUi";
@@ -45,6 +45,7 @@ export default function ActionCentrePage() {
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readSeq = useRef(0);
+  const hasData = useRef(false);
 
   const refresh = useCallback(async () => {
     const seq = ++readSeq.current;
@@ -54,12 +55,22 @@ export default function ActionCentrePage() {
       if (seq !== readSeq.current) return;
       if (res.status === 401) { setLoad("expired"); return; }
       if (res.status === 503 && body.errorType === "needs_migration") { setErrorText(String(body.error)); setLoad("needs_migration"); return; }
-      if (!res.ok) { setErrorText(String(body.error || "Could not load your actions.")); setLoad("error"); return; }
+      if (!res.ok) {
+        // A failed background read keeps what is on screen, and any email being pasted.
+        if (hasData.current) { setActionError("Couldn't refresh your actions, so this may be out of date."); return; }
+        setErrorText(String(body.error || "Could not load your actions."));
+        setLoad("error");
+        return;
+      }
+      hasData.current = true;
       setData(body as unknown as Data);
       setNow(Date.now());
       setLoad("ready");
     } catch {
-      if (seq === readSeq.current) { setErrorText("Couldn't reach the server. Check your connection and try again."); setLoad("error"); }
+      if (seq !== readSeq.current) return;
+      if (hasData.current) { setActionError("Couldn't refresh your actions, so this may be out of date."); return; }
+      setErrorText("Couldn't reach the server. Check your connection and try again.");
+      setLoad("error");
     }
   }, []);
 
@@ -128,7 +139,8 @@ export default function ActionCentrePage() {
   }
 
   async function reopen(event: PlanEvent) {
-    if (await putEvent({ id: event.id, status: "scheduled", reopen: true })) void refresh();
+    // An item with no date goes back to having none.
+    if (await putEvent({ id: event.id, status: eventMs(event) === null ? "to_book" : "scheduled", reopen: true })) void refresh();
   }
 
   async function closeFromConfirmation(applicationId: string, phrase: string): Promise<string | null> {
@@ -141,7 +153,7 @@ export default function ActionCentrePage() {
       const body = await jsonFrom(res);
       if (!res.ok) return String(body.error || "Could not save that to the row's notes.");
       const auto = body.autoClose as { closed: { id: string; title: string }[]; stillOpen: string[] } | undefined;
-      showToast({ message: auto ? autoCloseMessage(auto.closed, auto.stillOpen) : "Saved to the notes. Nothing was open on that row." });
+      showToast({ message: auto ? autoCloseMessage(auto.closed, auto.stillOpen) : "Saved to the notes. Nothing was closed." });
       setQuickAdd(false);
       void refresh();
       return null;

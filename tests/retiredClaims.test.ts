@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  applyRetired, applyRetiredToBullets, findRetired, formatRetiredClaims, mergeReports, normalizeRetiredClaims, parseRetiredClaims, retiredBlockMessage,
+  applyRetired, applyRetiredToBullets, applyRetiredToProfile, findRetired, formatRetiredClaims, mergeReports, normalizeRetiredClaims, parseRetiredClaims, retiredBlockMessage,
   MAX_RETIRED_CLAIMS,
 } from "../src/lib/retiredClaims.ts";
 import { fixAreasCount } from "../src/lib/letterLint.ts";
@@ -95,6 +95,47 @@ test("the letter's count never prints the one areas: the root of it", () => {
   assert.deepEqual(findRetired(r.text, []), []);
   const two = fixAreasCount("These are the four areas:\n\n1. One thing.\n2. Another thing.\n");
   assert.match(two.text, /These are the two areas:/);
+});
+
+test("a list keeps brackets and separators, and an unlabelled list loses one item", () => {
+  assert.equal(applyRetired("Tools: AWS (Lambda, S3), sharded platform architecture, Docker", RULES).text, "Tools: AWS (Lambda, S3), Docker");
+  assert.equal(applyRetired("Tools: AWS, Docker | sharded platform architecture | Redis", RULES).text, "Tools: AWS, Docker | Redis");
+  assert.equal(applyRetired("React, sharded platform architecture, Docker", RULES).text, "React, Docker");
+  assert.equal(applyRetired("• React, sharded platform architecture, Docker", RULES).text, "• React, Docker");
+});
+
+test("a phrase never matches across a line, and curly quotes and dashes count", () => {
+  const rules = parseRetiredClaims("event driven\nmy team's platform");
+  assert.deepEqual(findRetired("- event\n- driven", rules), []);
+  assert.deepEqual(findRetired("An event–driven system", rules), ["event driven"]);
+  assert.deepEqual(findRetired("my team’s platform", rules), ["my team's platform"]);
+});
+
+test("a replacement holding its own phrase settles instead of holding for ever", () => {
+  const rules = parseRetiredClaims("React => React.js\nGo");
+  assert.equal(rules.length, 2, "two letters is a phrase");
+  const once = applyRetired("Built with React and Vue", rules).text;
+  assert.equal(once, "Built with React.js and Vue");
+  assert.equal(applyRetired(once, rules).text, once, "running it again changes nothing");
+  assert.deepEqual(findRetired(once, rules), []);
+});
+
+test("what the preview cannot edit is fixed, and addresses and names are left alone", () => {
+  const profile = {
+    name: "Sharded Platform Architecture Ltd",
+    email: "alex@example.com",
+    tagline: "Engineer | exactly once",
+    education: [{ degree: "MSc", note: "Built a sharded platform architecture." }],
+    certifications: ["Kept", "sharded platform architecture"],
+    projects: [{ name: "Sharded platform architecture", tech: "React, sharded platform architecture, Docker" }],
+  };
+  const out = applyRetiredToProfile(profile, RULES);
+  assert.equal(out.name, profile.name);
+  assert.equal(out.tagline, "Engineer | idempotently");
+  assert.equal(out.education[0].note, "");
+  assert.deepEqual(out.certifications, ["Kept"]);
+  assert.equal(out.projects[0].name, "Sharded platform architecture", "the check holds a name, which the user can edit");
+  assert.equal(out.projects[0].tech, "React, Docker");
 });
 
 test("project bullets: replaced, or gone when nothing is left; other values untouched", () => {

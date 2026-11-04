@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { normalizePreferences } from "@/lib/preferences";
-import { findRetired, retiredBlockMessage, type RetiredClaim } from "@/lib/retiredClaims";
+import { applyRetired, findRetired, retiredBlockMessage, type RetiredClaim } from "@/lib/retiredClaims";
 
 // The server's half of lib/retiredClaims, for the four download routes: the file is
 // refused while the text still says something the user's list rules out, so an edit
@@ -33,16 +33,21 @@ export function retiredRefusal(text: string, rules: readonly RetiredClaim[]): Ne
   return NextResponse.json({ error: retiredBlockMessage(hits), errorType: "retired_claim", phrases: hits }, { status: 422 });
 }
 
-/** The text of a CV download's body, for the check. */
+/** The projects with the list applied to what the preview cannot edit: each tech line. */
+export function cleanTechLines<P extends { tech?: unknown }>(projects: P[], rules: readonly RetiredClaim[]): P[] {
+  return projects.map((p) => (typeof p?.tech === "string" ? { ...p, tech: applyRetired(p.tech, rules).text } : p));
+}
+
+/** The text of a CV download's body the user can edit in the preview, for the check. */
 export function cvBodyText(body: Record<string, unknown>): string {
   const text = (v: unknown) => (typeof v === "string" ? v : "");
   const projects = body.projects && typeof body.projects === "object" ? Object.values(body.projects as Record<string, unknown>).flat() : [];
-  const meta = Array.isArray(body.projectsMeta) ? (body.projectsMeta as { name?: unknown; tech?: unknown }[]) : [];
+  const meta = Array.isArray(body.projectsMeta) ? (body.projectsMeta as { name?: unknown }[]) : [];
   return [
     text(body.summary),
     text(body.skills),
     text(body.experience),
     ...projects.map(text),
-    ...meta.flatMap((m) => [text(m?.name), text(m?.tech)]),
+    ...meta.map((m) => text(m?.name)),
   ].join("\n");
 }

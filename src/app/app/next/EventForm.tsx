@@ -96,7 +96,8 @@ export default function EventForm({
     const ms = Date.parse(s.starts_at);
     return { date: dayKey(ms, zone), time: clockTime(ms, zone) };
   }));
-  const [moveIt, setMoveIt] = useState(true);
+  // Adding proves a stage; correcting a date on an existing event proves nothing new.
+  const [moveIt, setMoveIt] = useState(mode.type === "new");
   // Set once the event is saved, so a retry after a failed move never adds a second one.
   const [savedId, setSavedId] = useState<string | null>(existing?.id ?? null);
   const [saving, setSaving] = useState(false);

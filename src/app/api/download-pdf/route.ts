@@ -5,7 +5,8 @@ import { normalizeProfile } from "@/lib/profile";
 import { MAX_DOCUMENT_BODY_BYTES } from "@/lib/limits";
 import { extractPdfText, checkPdfTextLayer, countWords } from "@/lib/pdfTextCheck";
 import { contactRefusal } from "@/lib/contactRefusal";
-import { cvBodyText, documentRules, retiredRefusal } from "@/lib/documentGuard";
+import { cleanTechLines, cvBodyText, documentRules, retiredRefusal } from "@/lib/documentGuard";
+import { applyRetiredToProfile } from "@/lib/retiredClaims";
 import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
 
 // 'nodejs' is already the Next 16 default; pinned because src/lib/pdfText.ts
@@ -44,8 +45,8 @@ export async function POST(req: NextRequest) {
       skills: text(body.skills),
       experience: text(body.experience),
       projects,
-      projectsMeta: withProjectLabels(Array.isArray(body.projectsMeta) ? body.projectsMeta : [], projectLabels(masterCv)),
-      profile,
+      projectsMeta: withProjectLabels(cleanTechLines(Array.isArray(body.projectsMeta) ? body.projectsMeta : [], rules), projectLabels(masterCv)),
+      profile: applyRetiredToProfile(profile, rules),
       sectionOrder: body.sectionOrder,
       targetPages: body.targetPages === 1 ? 1 : 2,
       formatStyle: body.formatStyle,

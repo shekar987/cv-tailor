@@ -87,6 +87,7 @@ test("the kind a pasted email plainly describes", () => {
   assert.equal(guessEventKind("One-way video assessment due Tuesday"), "video");
   assert.equal(guessEventKind("Complete your HackerRank challenge"), "assessment");
   assert.equal(guessEventKind("We'd like to invite you to an interview"), "interview");
+  assert.equal(guessEventKind("Book a 20-minute screening call"), "screening_call");
   assert.equal(guessEventKind("Please upload your CV"), "deadline");
 });
 

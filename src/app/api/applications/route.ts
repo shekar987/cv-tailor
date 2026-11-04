@@ -628,8 +628,8 @@ async function closeOnConfirmation(supabase: Awaited<ReturnType<typeof signedIn>
     return null;
   }
   const rows = (open ?? []) as { id: string; title: string; kind: string }[];
-  const closed = rows.filter((e) => closesOnConfirmation(e.kind)).map((e) => ({ id: e.id, title: e.title }));
-  const stillOpen = rows.filter((e) => !closesOnConfirmation(e.kind)).map((e) => e.title);
+  const closed = rows.filter((e) => closesOnConfirmation(e.kind, e.title)).map((e) => ({ id: e.id, title: e.title }));
+  const stillOpen = rows.filter((e) => !closesOnConfirmation(e.kind, e.title)).map((e) => e.title);
   if (closed.length > 0) {
     const at = new Date().toISOString();
     const { error: closeError } = await supabase
@@ -680,7 +680,7 @@ export async function PATCH(req: NextRequest) {
       if (!row) return NextResponse.json({ error: "Application not found" }, { status: 404 });
       return NextResponse.json({ error: `These notes are full (max ${MAX_NOTES} characters). Nothing was changed.`, errorType: "notes_full" }, { status: 400 });
     }
-    const autoClose = confirmationIn(line) ? await closeOnConfirmation(supabase, userId, body.id) : null;
+    const autoClose = confirmationAdded(null, line) ? await closeOnConfirmation(supabase, userId, body.id) : null;
     return NextResponse.json({ ok: true, notes: data, ...(autoClose ? { autoClose } : {}) });
   } catch (err) {
     console.error("applications PATCH error:", err instanceof Error ? err.message : "Unknown error");

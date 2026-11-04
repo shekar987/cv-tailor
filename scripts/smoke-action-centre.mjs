@@ -108,6 +108,8 @@ try {
     check("undo reopens it with no mark", reopened.body.event?.status === "scheduled" && reopened.body.event?.closed_by === null);
     const again = await a.json("/api/applications", "PUT", { id: etleap, notes: 'Filling the form. "Your response has been recorded" seen 11:45. Later note.' });
     check("the old line never closes it again", !again.body.autoClose?.closed?.length);
+    const asking = await a.json("/api/applications", "PATCH", { id: etleap, append_note: "Thanks for applying. Please complete the form" });
+    check("a note asking for more closes nothing", !asking.body.autoClose?.closed?.length);
     const viaPatch = await a.json("/api/applications", "PATCH", { id: etleap, append_note: "Thanks for applying email arrived" });
     check("a dated note can close it too", viaPatch.body.autoClose?.closed?.[0]?.title === "Upload CV and submit", JSON.stringify(viaPatch.body.autoClose));
     const older = await row(a, "Old Note Ltd", "Applied", "Application submitted on 1 Nov.");
