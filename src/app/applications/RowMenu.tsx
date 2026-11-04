@@ -37,6 +37,10 @@ export default function RowMenu({ label, items }: { label: string; items: readon
       button.current?.focus();
       return;
     }
+    if (e.key === "Tab") {
+      setOpen(false);
+      return;
+    }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
     const entries = [...(wrap.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])];
@@ -74,6 +78,8 @@ export default function RowMenu({ label, items }: { label: string; items: readon
                 title={item.hint}
                 onClick={() => {
                   setOpen(false);
+                  // A dialog opened from here returns focus to what held it, so that must be the button.
+                  button.current?.focus();
                   item.onSelect?.();
                 }}
                 data-menu-item={item.key}

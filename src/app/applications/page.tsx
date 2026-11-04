@@ -6,7 +6,7 @@ import CvPreview from "../CvPreview";
 import CoverLetterPreview from "../CoverLetterPreview";
 import SentCvBlock from "./SentCvBlock";
 import { ReferralEditor } from "./ReferralAsks";
-import { REFERRAL_STATUS_LABELS, nextReferralStatus, referralAsks, isReferralStatus, type ReferralFields, type ReferralStatus } from "@/lib/referrals";
+import { REFERRAL_STATUS_LABELS, nextReferralAction, nextReferralStatus, referralAsks, isReferralStatus, type ReferralFields, type ReferralStatus } from "@/lib/referrals";
 import type { SentCvInfo } from "@/lib/sentCv";
 import { getProfile, type Profile } from "@/lib/cvStore";
 import TriageBadge from "../TriageBadge";
@@ -35,7 +35,7 @@ import { eventMs, feedbackRequest, type AvailabilityWindow, type PlanEvent } fro
 import { snoozeUntil } from "@/lib/actionCentre";
 import {
   STAGE_LABELS, TAB_LABELS, attentionCounts, countedElsewhere, defaultTab, deriveStage, eventsByApplication, isDataToFix, isDueSoon, nextStepFor,
-  primaryAction, reachedTab, referralCard, roleLine, statusForNewRow, statusToMatch, tabCounts, tabForStatus, tabOfStage, visibleTabs,
+  dueSoonCutoff, primaryAction, reachedTab, referralCard, roleLine, stageEvent, statusForNewRow, statusToMatch, tabCounts, tabForStatus, tabOfStage, visibleTabs,
 } from "@/lib/applicationStage";
 import {
   STATUSES,
@@ -54,7 +54,6 @@ import {
   PAGE_SIZE,
   isReplyOwed,
   replyOwedFirst,
-  missingAttachments,
   rowCheck,
   CLOSED_STATUSES,
   type Status,
@@ -643,6 +642,10 @@ export default function ApplicationsPage() {
   const [toast, setToast] = useState<{ message: string; undo?: () => Promise<void> | void } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [listSort, setListSort] = useState<"next" | "company" | "contact" | "applied">("next");
+  // Whether the open tab is one the user asked for. The default is pinned once it is known,
+  // so moving the last row out of a tab never jumps the page to another one.
+  const [tabPicked, setTabPicked] = useState(false);
   const filtersRef = useRef<HTMLDivElement>(null);
   const [copiedFeedback, setCopiedFeedback] = useState<string | null>(null);
   const [tz] = useState(browserTimeZone);
@@ -761,7 +764,10 @@ export default function ApplicationsPage() {
       });
     // A link from the pipeline opens that stage's tab (lib/plan buildFunnel's nodes).
     const linked = tabForStatus(new URLSearchParams(window.location.search).get("status"));
-    if (linked) setTab(linked);
+    if (linked) {
+      setTab(linked);
+      setTabPicked(true);
+    }
     fetch("/api/section-order")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -847,6 +853,10 @@ export default function ApplicationsPage() {
   const referral = useMemo(() => referralCard(rows), [rows]);
   const referralIds = useMemo(() => new Set(referralAsks(rows).map((r) => r.id)), [rows]);
   const tabNow: TabChoice = tab ?? defaultTab(counts);
+  useEffect(() => {
+    // Pins the default once, when the rows and events are known.
+    if (tab === null && loaded && eventsSettled) setTab(defaultTab(counts));
+  }, [tab, loaded, eventsSettled, counts]);
   const sheetMode = spreadsheet || newRow !== null;
 
   const visible = useMemo(() => {
@@ -856,6 +866,7 @@ export default function ApplicationsPage() {
       if (attention === "followups") return isDue(r);
       if (attention === "fix") return isDataToFix(r);
       if (attention === "referrals") return referralIds.has(r.id);
+      if (searchTerm) return true;
       if (tabNow === "all") return true;
       if (tabOfStage(deriveStage(r.status, byApp.get(r.id))) === tabNow) return true;
       return includePast && !sheetMode && reachedTab(r.stages_reached, tabNow);
@@ -870,8 +881,14 @@ export default function ApplicationsPage() {
     // The list reads by what is soonest; the spreadsheet by its own columns.
     if (!sheetMode) {
       const soonest = (r: Application) => Math.min(...(byApp.get(r.id) ?? []).map((e) => eventMs(e) ?? Infinity), Infinity);
-      const list = [...filtered].sort((a, b) => soonest(a) - soonest(b) || b.date_applied.localeCompare(a.date_applied) || b.created_at.localeCompare(a.created_at));
-      return attention === "due" ? list : replyOwedFirst(list, now);
+      const newest = (a: Application, b: Application) => b.date_applied.localeCompare(a.date_applied) || b.created_at.localeCompare(a.created_at);
+      const list = [...filtered].sort((a, b) => {
+        if (listSort === "company") return a.company_name.localeCompare(b.company_name, undefined, { sensitivity: "base" }) || newest(a, b);
+        if (listSort === "contact") return (b.last_contact_at ?? "").localeCompare(a.last_contact_at ?? "") || newest(a, b);
+        if (listSort === "applied") return newest(a, b);
+        return soonest(a) - soonest(b) || newest(a, b);
+      });
+      return attention === "due" || listSort !== "next" ? list : replyOwedFirst(list, now);
     }
     // Empty values always sort last, whichever direction is active. Status
     // sorts in funnel order (Applied → … → Withdrawn), salary by its number.
@@ -901,11 +918,11 @@ export default function ApplicationsPage() {
     });
     // A reply owed outranks any sort: those rows come first, in sort order.
     return replyOwedFirst(sorted, now);
-  }, [rows, tabNow, attention, byApp, referralIds, clock, tz, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, searchTerm, now, includePast, sheetMode]);
+  }, [rows, tabNow, attention, listSort, byApp, referralIds, clock, tz, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, searchTerm, now, includePast, sheetMode]);
 
   // Only PAGE_SIZE rows are painted at a time; search, filters, counts and the
   // export cover the whole set. A different filter/sort state starts at page 1.
-  const pageKey = [tabNow, attention ?? "", styleFilter, periodFilter, sortKey, sortDir, sheetMode ? "sheet" : "list", searchTerm].join("\u0000");
+  const pageKey = [tabNow, attention ?? "", listSort, styleFilter, periodFilter, sortKey, sortDir, sheetMode ? "sheet" : "list", searchTerm].join("\u0000");
   const sheet = pageSlice(visible, paging.key === pageKey ? paging.page : 1);
   const pageRows = sheet.items;
   function goToPage(page: number) {
@@ -1257,6 +1274,7 @@ export default function ApplicationsPage() {
       return;
     }
     setPanel(null);
+    setStageRefresh((n) => n + 1);
     // A confirmation in the notes closes the row's open submission items (lib/autoClose).
     showFlash(autoCloseNote.current ?? "Saved.");
     autoCloseNote.current = null;
@@ -1295,7 +1313,7 @@ export default function ApplicationsPage() {
     setActionError("");
     try {
       // The rows on screen, whichever tab, card or search put them there.
-      const label = attention ? attention : tabNow === "all" ? "" : TAB_LABELS[tabNow];
+      const label = [attention ?? (searchTerm || tabNow === "all" ? "" : TAB_LABELS[tabNow]), periodFilter === "all" ? "" : periodFilter, searchTerm].filter(Boolean).join(" ");
       const res = await fetch("/api/applications/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1330,7 +1348,7 @@ export default function ApplicationsPage() {
       company_name: "",
       role: "",
       // On a stage tab a new row belongs to that stage, or it would vanish from view on save.
-      status: statusForNewRow(attention ? "all" : tabNow),
+      status: statusForNewRow(attention || !tabPicked ? "all" : tabNow),
       salary: "",
       date_applied: todayLocal(),
       followup_date: "",
@@ -1474,7 +1492,7 @@ export default function ApplicationsPage() {
               )}
             </div>
           )}
-          <div><span className="label">Eligibility read</span><span className="cvHelp" data-gate={gate.label}>{gate.label}{gate.detail ? `: ${gate.detail}` : ""}</span></div>
+          <div><span className="label">Eligibility read</span><span className="cvHelp" data-gate={gate.label}>{gate.detail || gate.label}</span></div>
           {row.status === "rejected" && (
             <div className="rowEditWide">
               <label className="label" htmlFor={`reason-${row.id}`}>Rejection reason</label>
@@ -1595,11 +1613,24 @@ export default function ApplicationsPage() {
     }
     items.push({ key: "edit-row", label: "Edit row", onSelect: () => { if (!(panel?.id === row.id && panel.kind === "edit")) togglePanel(row, "edit"); } });
     if (toMatch) items.push({ key: "match-status", label: `Update status to ${STATUS_LABELS[toMatch]}`, onSelect: () => changeStatus(row, toMatch) });
-    else items.push({ key: "update-status", label: "Update status", onSelect: () => document.getElementById(`status-${row.id}`)?.focus() });
+    else items.push({
+      key: "update-status",
+      label: "Update status",
+      onSelect: () => {
+        const select = document.getElementById(`status-${row.id}`) as HTMLSelectElement | null;
+        select?.focus();
+        try {
+          select?.showPicker?.();
+        } catch {
+          // Some browsers only open it from a direct click: it has focus, and the arrow keys change it.
+        }
+      },
+    });
     items.push({ key: "cv", label: row.source === "tailored" || row.sent_cv_name ? "View CV" : "Add CV", onSelect: () => togglePanel(row, "cv") });
     items.push({ key: "jd", label: row.has_job_description ? "View JD" : "Add JD", onSelect: () => togglePanel(row, "jd") });
     items.push({ key: "notes", label: row.notes_preview ? "Notes" : "Add notes", onSelect: () => togglePanel(row, "notes") });
     items.push({ key: "prep", label: row.prep_generated_at ? "Prep pack ✓" : "Prep pack", href: `/applications/${row.id}/prep` });
+    items.push({ key: "mock", label: "Mock interview", href: `/applications/${row.id}/interview` });
     if (check?.kind === "run") items.push({ key: "run-check", label: "Run JD check", disabled: checkingId === row.id, onSelect: () => void runCheck(row) });
     if (referralNext) items.push({ key: "referral-step", label: `Mark ${REFERRAL_STATUS_LABELS[referralNext].toLowerCase()}`, disabled: referralBusy === row.id, onSelect: () => void stepReferral(row, referralNext) });
     items.push({ key: "delete", label: "Delete", danger: true, disabled: deletingId === row.id, onSelect: () => void deleteRow(row) });
@@ -1613,14 +1644,18 @@ export default function ApplicationsPage() {
     const stage = deriveStage(row.status, rowEvents);
     const step = nextStepFor(rowEvents, clock, tz);
     const action = primaryAction(stage);
-    const link = safeHttpUrl(step?.event.location_or_link);
+    // The button belongs to the test the stage came from, which may not be the next step.
+    const testEvent = stageEvent(row.status, rowEvents);
+    const link = safeHttpUrl(testEvent?.location_or_link);
     const role = roleLine(row);
     const meta = [
+      attention === "followups" && row.followup_date ? `Follow-up ${formatDate(row.followup_date)}` : "",
+      referralIds.has(row.id) ? `Referral: ${nextReferralAction(row)}` : "",
       row.last_contact_at ? `Last contact ${formatDate(row.last_contact_at.slice(0, 10))}` : "",
       row.referrer_name ? `referred by ${row.referrer_name}` : "",
     ].filter(Boolean).join(" · ");
     const addLink = (label: string) =>
-      step ? <button type="button" className="appsActionBtn" onClick={() => setEventForm({ type: "edit", event: step.event, application: row })} data-row-add-link>{label}</button> : null;
+      testEvent ? <button type="button" className="appsActionBtn" onClick={() => setEventForm({ type: "edit", event: testEvent, application: row })} data-row-add-link>{label}</button> : null;
     return (
       <RowGroup key={row.id}>
         <tr className={"stageListRow" + (open ? " open" : "") + (flashRowId === row.id ? " flashSave" : "")} data-stage-row={row.company_name}>
@@ -1965,12 +2000,12 @@ export default function ApplicationsPage() {
       <strong>{fmt(rows.length)}</strong> tracked · <strong>{fmt(counts.applied)}</strong> applied · <strong>{fmt(counts.screening + counts.interview + counts.assessment)}</strong> in progress · <strong>{fmt(rejectedCount)}</strong> rejected
     </span>
   ) : null;
-  const tomorrowName = new Date(clock + 86_400_000).toLocaleDateString("en-GB", { weekday: "long", timeZone: tz });
+  const tomorrowName = new Date(dueSoonCutoff(clock, tz) - 1).toLocaleDateString("en-GB", { weekday: "long", timeZone: tz });
   const tabs: TabChoice[] = [...visibleTabs(counts, tabNow === "all" ? null : tabNow), ...(spreadsheet ? (["all"] as const) : [])];
-  const viewLabel = attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
-  const viewTotal = attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : tabNow === "all" ? rows.length : counts[tabNow];
-  const elsewhere = !attention && tabNow !== "all" && tabNow !== "assessment" ? countedElsewhere(rows, byApp, tabNow) : 0;
-  const activeFilters = (styleFilter !== "all" ? 1 : 0) + (includePast ? 1 : 0);
+  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
+  const viewTotal = !attention && searchTerm ? rows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : tabNow === "all" ? rows.length : counts[tabNow];
+  const elsewhere = !attention && !searchTerm && tabNow !== "all" && tabNow !== "assessment" ? countedElsewhere(rows, byApp, tabNow) : 0;
+  const activeFilters = (styleFilter !== "all" ? 1 : 0) + (includePast ? 1 : 0) + (listSort !== "next" ? 1 : 0);
 
   return (
     <main className="page">
@@ -2027,6 +2062,8 @@ export default function ApplicationsPage() {
               setAttention("referrals");
               setSpreadsheet(false);
               setQuery("");
+              setPeriodFilter("all");
+              setStyleFilter("all");
               if (!(panel?.id === id && panel.kind === "notes")) togglePanel(row, "notes");
             }}
           />
@@ -2038,11 +2075,13 @@ export default function ApplicationsPage() {
               tabs={tabs}
               counts={counts}
               total={rows.length}
-              selected={attention ? null : tabNow}
-              panelId="appsPanelRegion"
+              selected={attention || searchTerm ? null : tabNow}
+              panelId={!sheetMode && visible.length > 0 ? "appsPanelRegion" : undefined}
               onSelect={(next) => {
                 setTab(next);
+                setTabPicked(true);
                 setAttention(null);
+                setQuery("");
                 setPanel(null);
               }}
             />
@@ -2089,6 +2128,15 @@ export default function ApplicationsPage() {
                         </select>
                       </label>
                     )}
+                    <label className="appsFilterField">
+                      <span className="label">Sort by</span>
+                      <select className="appsToolSelect" value={listSort} onChange={(e) => setListSort(e.target.value as typeof listSort)} disabled={spreadsheet} data-apps-sort>
+                        <option value="next">Next step</option>
+                        <option value="company">Company</option>
+                        <option value="contact">Last contact</option>
+                        <option value="applied">Date applied</option>
+                      </select>
+                    </label>
                     <label className="planRadio">
                       <input type="checkbox" checked={includePast} onChange={(e) => setIncludePast(e.target.checked)} data-include-past />
                       Include past stages
@@ -2199,7 +2247,7 @@ export default function ApplicationsPage() {
 
         {!sheetMode ? (
           visible.length > 0 && (
-            <div id="appsPanelRegion" role="tabpanel" aria-labelledby={attention ? undefined : `stage-tab-${tabNow}`} aria-label={attention ? viewLabel : undefined} className="stageListWrap" data-stage-table={attention ?? tabNow}>
+            <div id="appsPanelRegion" role="tabpanel" aria-labelledby={attention || searchTerm ? undefined : `stage-tab-${tabNow}`} aria-label={attention || searchTerm ? viewLabel : undefined} className="stageListWrap" data-stage-table={attention ?? tabNow}>
               <table className="stageList">
                 <thead>
                   <tr>
@@ -2589,13 +2637,13 @@ export default function ApplicationsPage() {
           </div>
         )}
 
-        {hasRows && !newRow && (visible.length > 0 || spreadsheet) && (
+        {hasRows && !newRow && (
           <div className="appsFoot" data-apps-foot>
             <div className="appsFootLeft">
               <span data-apps-count>
-                {sheet.pages > 1 ? `Showing ${sheet.from}–${sheet.to} of ${visible.length} ${viewLabel}` : `Showing ${visible.length} of ${viewTotal} ${viewLabel}`}
+                {sheet.pages > 1 ? `Showing ${sheet.from}–${sheet.to} of ${visible.length} ${viewLabel}` : `Showing ${visible.length} of ${Math.max(viewTotal, visible.length)} ${viewLabel}`}
               </span>
-              {!attention && tabNow === "closed" && (
+              {!attention && !searchTerm && tabNow === "closed" && (
                 <span className="appsFootNote" data-closed-breakdown>{fmt(rejectedCount)} rejected · {fmt(withdrawnCount)} withdrawn · {fmt(ghostedCount)} ghosted</span>
               )}
               {elsewhere > 0 && (

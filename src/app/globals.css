@@ -4068,3 +4068,7 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 @media (max-width: 860px) {
   .attnReferralTitle { white-space: normal; overflow-wrap: anywhere; }
 }
+.stageTabs { position: relative; }
+.nextStepLine { flex-wrap: wrap; }
+.nextStepName { max-width: 100%; white-space: nowrap; }
+.nextStepLeft { white-space: normal; }

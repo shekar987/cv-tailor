@@ -7,7 +7,7 @@
 // is never rewritten here (the sweeps read and write it), and the row's menu offers the
 // one-click update instead. An application that reached an offer or ended keeps its own
 // stage, whatever is still open on it, so every row counts once and the tabs add up.
-import { EVENT_KIND_LABELS, describeTiming, eventMs, nextEventByApplication, type EventKind, type PlanEvent } from "./plan.ts";
+import { EVENT_KIND_LABELS, describeTiming, displayZone, eventMs, type EventKind, type PlanEvent } from "./plan.ts";
 import { DEFAULT_TIMEZONE, HOUR_MS, addDays, dayKey, formatWhen, zonedTimeToMs } from "./planTime.ts";
 import { referralAsks, type ReferralRow } from "./referrals.ts";
 import { STATUS_LABELS, isFollowupDue, missingAttachments, normalizeStatus, type RowFlagFields, type Status } from "./tracker.ts";
@@ -29,14 +29,21 @@ const OVERTAKEN: ReadonlySet<Status> = new Set<Status>(["saved", "applied", "scr
 
 type StageEvent = Pick<PlanEvent, "kind" | "status" | "starts_at" | "due_at">;
 
-/** The stage a row shows: its soonest open test, else its stored status. */
-export function deriveStage(status: unknown, events: readonly StageEvent[] = []): StageKey {
+/** The open test a row's stage comes from, if one has overtaken its stored status. */
+export function stageEvent<E extends StageEvent>(status: unknown, events: readonly E[] = []): E | null {
   const stored = normalizeStatus(status) ?? "applied";
-  if (!OVERTAKEN.has(stored)) return stored;
+  if (!OVERTAKEN.has(stored)) return null;
   const tests = events
     .filter((e) => OPEN.has(e.status) && TEST_KINDS.includes(e.kind))
     .sort((a, b) => (eventMs(a) ?? Infinity) - (eventMs(b) ?? Infinity) || TEST_KINDS.indexOf(a.kind) - TEST_KINDS.indexOf(b.kind));
-  return tests.length > 0 ? (tests[0].kind as StageKey) : stored;
+  return tests[0] ?? null;
+}
+
+/** The stage a row shows: its soonest open test, else its stored status. */
+export function deriveStage(status: unknown, events: readonly StageEvent[] = []): StageKey {
+  const stored = normalizeStatus(status) ?? "applied";
+  const test = stageEvent(stored, events);
+  return test ? (test.kind as StageKey) : stored;
 }
 
 // ── Tabs ────────────────────────────────────────────────────────────────────
@@ -188,23 +195,26 @@ export type NextStep = {
 const nameOf = (e: PlanEvent) => e.title.trim() || EVENT_KIND_LABELS[e.kind];
 
 /**
- * What a row is waiting on. Two items due together read as one ("Criteria test + Hireflix"),
- * and a deadline is printed only when it differs from the time already shown.
+ * What a row is waiting on: its earliest dated item, so something overdue is never hidden
+ * behind a later one, and Mark done reaches it. Two items due together read as one
+ * ("Criteria test + Hireflix"), and a deadline is printed only when it differs from the
+ * time already shown.
  */
 export function nextStepFor(events: readonly PlanEvent[], now: number, tz: string = DEFAULT_TIMEZONE): NextStep | null {
   const open = events.filter((e) => e.application_id && OPEN.has(e.status));
   if (open.length === 0) return null;
-  const entry = nextEventByApplication(open, now).get(open[0].application_id as string);
-  const event = entry?.next ?? open[0];
+  const sorted = [...open].sort((a, b) => (eventMs(a) ?? Infinity) - (eventMs(b) ?? Infinity));
+  const event = sorted[0];
   const at = eventMs(event);
   if (at === null) return { event, when: null, line: nameOf(event), name: nameOf(event), left: "", urgency: "none", deadline: null };
   const together = open.filter((e) => eventMs(e) === at);
   const name = together.map(nameOf).join(" + ");
   const timing = describeTiming(event, now, tz);
-  const when = timing?.when ?? formatWhen(at, tz, event.date_only);
-  const other = entry?.deadline ?? null;
+  const when = timing?.when ?? formatWhen(at, displayZone(event, tz), event.date_only);
+  // A date-only deadline reads in its own zone: 9 Nov in New York is not 10 Nov in London.
+  const other = sorted.find((e) => e.due_at && eventMs(e) !== at) ?? null;
   const otherAt = other ? eventMs(other) : null;
-  const deadline = other && otherAt !== null && otherAt !== at ? formatWhen(otherAt, tz, other.date_only) : null;
+  const deadline = other && otherAt !== null ? formatWhen(otherAt, displayZone(other, tz), other.date_only) : null;
   const left = timing?.left ?? "";
   return { event, when, line: left ? `${name} · ${left}` : name, name, left, urgency: urgencyOf(event, now, tz), deadline: deadline === when ? null : deadline };
 }

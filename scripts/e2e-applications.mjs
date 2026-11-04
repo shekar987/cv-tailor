@@ -127,6 +127,7 @@ try {
   check("Interview's button is Prep, to that row's Interview page", (await page.locator('[data-stage-row="Made Up Ratings"] [data-row-primary="prep"]').getAttribute("href")) === `/applications/${ratings}/interview`);
   const adv = await page.locator('[data-stage-row="Made Up Advisory"]').innerText();
   check("last contact and referrer on their own line", /Last contact .* referred by Sam Referrer/.test(adv), adv.slice(0, 200));
+  check("the referral's next action in words", /Referral: Send details to Sam Referrer/.test(adv), adv.slice(0, 200));
   check("the Req ID prints once", (adv.match(/25246/g) ?? []).length === 1, adv.slice(0, 200));
   await tab("screening");
   await page.locator('[data-stage-row="Made Up Screening"] [data-stage-add]').click();
@@ -175,15 +176,22 @@ try {
   // ── Toolbar ──────────────────────────────────────────────────────────────
   await tab("applied");
   await page.locator("[data-apps-search]").fill("Chase");
-  check("search narrows, and the footer says so", /Showing 1 of 3 in Applied/.test(await page.locator("[data-apps-count]").innerText()));
+  check("search finds a row on any tab, and the footer says so", /Showing 1 of 12 across every tab/.test(await page.locator("[data-apps-count]").innerText()), await page.locator("[data-apps-count]").innerText());
   await page.locator("[data-apps-search]").fill("20 oct");
-  check("search still matches dates", (await companies()).length === 3);
+  check("search still matches dates", (await companies()).length === TOTAL, String((await companies()).length));
+  await page.locator("[data-apps-search]").fill("Made Up Gone");
+  check("a search from Applied finds a Closed row", (await companies()).join(",") === "Made Up Gone", (await companies()).join(","));
   await page.locator("[data-apps-search]").fill("");
   await page.locator("[data-apps-period]").selectOption("today");
   await page.waitForTimeout(100);
   check("the Period select filters", (await companies()).length === 0);
   await page.locator("[data-apps-period]").selectOption("all");
   await page.locator("[data-apps-filters]").click();
+  await page.locator("[data-apps-sort]").selectOption("company");
+  await page.waitForTimeout(100);
+  const sorted = await companies();
+  check("Sort by Company", sorted.join(",") === [...sorted].sort((a, b) => a.localeCompare(b)).join(","), sorted.join(","));
+  await page.locator("[data-apps-sort]").selectOption("next");
   await page.locator("[data-include-past]").check();
   await tab("screening");
   await page.locator("[data-apps-filters]").click();
@@ -198,6 +206,7 @@ try {
   const items = await menu("Made Up Sales").locator("[data-menu-item]").evaluateAll((els) => els.map((e) => e.textContent.trim()));
   check("the menu has the brief's items", ["Edit date/time", "Mark done", "Snooze 1 day", "Edit row", "Update status to Assessment", "Delete"].every((i) => items.includes(i)), items.join(" | "));
   check("and nothing lost: CV, JD, notes, prep", ["Add CV", "Add JD", "Add notes", "Prep pack"].every((i) => items.includes(i)), items.join(" | "));
+  check("and the mock interview", items.includes("Mock interview"), items.join(" | "));
   await menu("Made Up Sales").locator('[data-menu-item="match-status"]').click();
   await page.waitForTimeout(600);
   check("Update status writes it, once, by your click", (await api(`/api/applications?id=${sales}`, "GET")).application?.status === "Assessment");
@@ -242,6 +251,7 @@ try {
   await page.locator("[data-apps-add]").click();
   await page.locator(".appsNewRow").first().waitFor();
   check("+ Add application opens the form", true);
+  check("on a tab you picked, it starts at that stage", (await page.locator('.appsNewRow select[aria-label="Status"]').inputValue()) === "interview");
   await page.keyboard.press("Escape");
 
   check("no console errors", errors.length === 0, errors.slice(0, 3).join(" | ").slice(0, 300));

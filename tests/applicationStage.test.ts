@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  STAGE_LABELS, attentionCounts, countedElsewhere, defaultTab, deriveStage, dueSoonCutoff, eventsByApplication, isDataToFix, nextStepFor, nextStepIcon,
+  STAGE_LABELS, attentionCounts, countedElsewhere, defaultTab, deriveStage, dueSoonCutoff, stageEvent, eventsByApplication, isDataToFix, nextStepFor, nextStepIcon,
   primaryAction, reachedTab, reqIdOf, referralCard, roleLine, shortRole, statusForNewRow, statusToMatch, tabCounts, tabForStatus, tabOfStage, urgencyOf, visibleTabs,
 } from "../src/lib/applicationStage.ts";
 import type { PlanEvent } from "../src/lib/plan.ts";
@@ -167,6 +167,35 @@ test("red is always the warning tile, so urgency is never colour alone", () => {
   assert.equal(nextStepIcon("assessment", "amber"), "clipboard");
   assert.equal(nextStepIcon("video", "none"), "video");
   assert.equal(nextStepIcon("deadline", "none"), "clock");
+});
+
+test("the button opens the test the stage came from, not the row's next step", () => {
+  const interview = ev({ id: "call", kind: "interview", starts_at: "2026-11-05T10:00:00Z", location_or_link: "https://example.com/zoom" });
+  const test = ev({ id: "test", kind: "take_home", due_at: "2026-11-10T10:00:00Z" });
+  assert.equal(deriveStage("interview", [interview, test]), "take_home");
+  assert.equal(stageEvent("interview", [interview, test])?.id, "test");
+  assert.equal(nextStepFor([interview, test], NOW)?.event.id, "call", "the next step is still the interview");
+  assert.equal(stageEvent("rejected", [test]), null);
+});
+
+test("something overdue is never hidden behind a later item", () => {
+  const overdue = ev({ id: "late", title: "Overdue test", due_at: "2026-11-02T10:00:00Z" });
+  const later = ev({ id: "call", kind: "interview", title: "Call", starts_at: "2026-11-12T10:00:00Z" });
+  const step = nextStepFor([later, overdue], NOW);
+  assert.ok(step);
+  assert.equal(step.event.id, "late", "Mark done reaches it");
+  assert.equal(step.urgency, "red");
+  const undated = nextStepFor([ev({ id: "undated", status: "to_book" }), overdue], NOW);
+  assert.equal(undated?.event.id, "late");
+});
+
+test("a date-only deadline reads in its own zone", () => {
+  const step = nextStepFor(
+    [ev({ id: "a", kind: "interview", title: "Call", starts_at: "2026-11-05T10:00:00Z" }), ev({ id: "b", kind: "deadline", title: "Form", due_at: "2026-11-10T04:59:00Z", date_only: true, timezone: "America/New_York" })],
+    NOW,
+    "Europe/London"
+  );
+  assert.match(step?.deadline ?? "", /9 Nov/);
 });
 
 test("the one button a stage gets", () => {

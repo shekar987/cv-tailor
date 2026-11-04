@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     const ids = Array.isArray(body.ids) ? body.ids.filter((v): v is string => typeof v === "string") : null;
     if (!ids || ids.length === 0) return NextResponse.json({ error: "Nothing to export." }, { status: 400 });
     if (ids.length > MAX_APPLICATIONS) return NextResponse.json({ error: "Too many rows to export." }, { status: 400 });
-    const wanted = new Set(ids);
+    const position = new Map(ids.map((id, i) => [id, i]));
     const { supabase, userId } = caller;
     const { data: prof } = await supabase.from("profiles").select("is_unlimited").eq("id", userId).maybeSingle();
     const owner = prof?.is_unlimited === true;
@@ -82,7 +82,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Could not export your applications" }, { status: 500 });
     }
     const slug = (typeof body.label === "string" ? body.label : "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
-    return csvResponse((rows ?? []).filter((r) => wanted.has(r.id as string)), columns, ["applications", ...(slug ? [slug] : [])]);
+    const chosen = (rows ?? []).filter((r) => position.has(r.id as string)).sort((a, b) => (position.get(a.id as string) ?? 0) - (position.get(b.id as string) ?? 0));
+    return csvResponse(chosen, columns, ["applications", ...(slug ? [slug] : [])]);
   } catch (err) {
     console.error("applications export error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not export your applications" }, { status: 500 });
