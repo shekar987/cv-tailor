@@ -1,4 +1,5 @@
-import { guardFacts } from "@/lib/factGuard";
+import { guardFacts, guardRoleStatus } from "@/lib/factGuard";
+import { checkSuggestions } from "@/lib/suggestionCheck";
 import { TOP_PROJECT_BULLETS, alignWritten, capPoolBullets, cardsToPoolText, dropToFit, normalizePoolSettings, poolCardLinks, poolDropMessage, poolPinnedOverflowMessage, selectCards, type PoolCard, type PoolSelection, type PoolSettings } from "@/lib/projectPool";
 import { applyRetired, applyRetiredToBullets, findRetired, mergeReports, type RetiredClaim, type RetiredReport } from "@/lib/retiredClaims";
 import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
@@ -47,7 +48,7 @@ import { ensureSummary, topLanguages, type EnsureSummaryReport } from "@/lib/sum
 import { normalizeEligibility, type Eligibility } from "@/lib/knockouts";
 import { normalizeProfile } from "@/lib/profile";
 import { contactRefusal } from "@/lib/contactRefusal";
-import { coreTitle, titleInText, titleAsIdentity } from "@/lib/roleTitle";
+import { coreTitle, stripAppliedFor, titleInText, titleAsIdentity } from "@/lib/roleTitle";
 import { unsupportedProperNouns, sentencesNaming, dropSentences } from "@/lib/properNouns";
 import { experienceBudget, onePageExperienceBudget, projectsBudget, normalizeExperienceOutput } from "@/lib/contentBudget";
 import { parseMasterExperience, renderIdBlock, reconcileExperience, stripBulletIds, lockRoleHeaders, sortRolesByDate, diffAgainstMaster, diffProjects, type HeaderLock, type ChronologyReport } from "@/lib/bulletIds";
@@ -315,7 +316,11 @@ async function runPipeline(opts: {
   // "Software Developer with two years' production experience…" when the
   // title plainly describes the candidate's paid work; otherwise the title
   // is named as the job applied for (lib/roleTitle).
+  // The summary's title sentence is protected only where the title is who they are: the
+  // "applying for the … role" form is stripped at the end (lib/roleTitle stripAppliedFor), so
+  // a sentence the fact check finds unsupported goes like any other (5 Nov).
   const asIdentity = titleAsIdentity(roleTitle, masterRoles.map((r) => r.header.split(/\s[—–|]\s/)[0]));
+  const protectTitle = asIdentity && !!roleTitle;
 
   // Wave 1 — parallel; individual step failures produce empty values,
   // but ProviderRateLimitError propagates.
@@ -349,9 +354,11 @@ async function runPipeline(opts: {
   // The exact role title must be in the summary (lib/roleTitle). One retry
   // with the rejection spelled out; the draft is kept if the retry fails too.
   const summaryDraft = dropRefusal(summaryRaw);
-  const titleCheck = { title: roleTitle, present: !roleTitle || titleInText(summaryDraft, roleTitle), retried: false };
+  const titleCheck = { title: roleTitle, present: !roleTitle || titleInText(summaryDraft, roleTitle), retried: false, asIdentity };
   let summary: unknown = summaryDraft;
-  if (!fast && roleTitle && typeof summaryDraft === "string" && summaryDraft.trim() && !titleCheck.present) {
+  // Only a title the summary opens with as the candidate's identity is worth a
+  // retry: the "applying for the … role" form is stripped below (5 Nov).
+  if (!fast && asIdentity && roleTitle && typeof summaryDraft === "string" && summaryDraft.trim() && !titleCheck.present) {
     const retryBlock = `\nREJECTED IN YOUR PREVIOUS DRAFT: the summary did not contain the exact role title "${roleTitle}". Rewrite it so that title appears verbatim once, ${asIdentity ? "opening the summary as the candidate's professional identity" : "as the job being applied for"}. Keep every fact and figure as it was.\n`;
     const retry = dropRefusal(
       await callLLM({ provider, apiKeyOverride, system: summaryPrompt(cv, claimsBlock, variantBlock, roleTitle, retryBlock, evidenceBlock, asIdentity, summaryForm), userInput: analysisStr }).catch(swallowStep(""))
@@ -544,7 +551,7 @@ async function runPipeline(opts: {
         }).catch(swallowStep(null));
         const applied = applyModelEdits(asSections(), items, normalizeRepairEdits(raw, items), (it, rep) =>
           replacementPasses(rep, it.section, registry, sources, jd, grafts, style.skills) &&
-          (it.section !== "summary" || !roleTitle || !titleInText(it.sentence, roleTitle) || titleInText(rep, roleTitle))
+          (it.section !== "summary" || !protectTitle || !titleInText(it.sentence, roleTitle) || titleInText(rep, roleTitle))
         );
         if (applied.changes.length > 0) {
           write(applied.sections);
@@ -1041,7 +1048,7 @@ async function runPipeline(opts: {
         if (!replacementPasses(fix, s.section, claims ?? null, [cv, projectsPool], jd, grafts, style.skills)) return false;
         const had = unsupportedProperNouns(s.sentence, nameSources(s.section));
         if (unsupportedProperNouns(fix, nameSources(s.section)).some((n) => !had.includes(n))) return false;
-        return s.section !== "summary" || !roleTitle || !titleInText(s.sentence, roleTitle) || titleInText(fix, roleTitle);
+        return s.section !== "summary" || !protectTitle || !titleInText(s.sentence, roleTitle) || titleInText(fix, roleTitle);
       });
       let cur: RepairSections = {
         summary: typeof summary === "string" ? summary : "",
@@ -1055,7 +1062,7 @@ async function runPipeline(opts: {
         if (d.action !== "rewrite" && d.action !== "remove") continue;
         // The summary's role-title sentence is never removed: it is a hard
         // requirement, and a rejected fix leaves it for the claims check.
-        if (d.action === "remove" && d.section === "summary" && roleTitle && titleInText(d.sentence, roleTitle)) continue;
+        if (d.action === "remove" && d.section === "summary" && protectTitle && titleInText(d.sentence, roleTitle)) continue;
         // Nor is the letter's opening: a plain true opening replaces it.
         if (d.action === "remove" && d.section === "coverLetter" && d.sentence === letterOpening && safeOpening) {
           d.action = "rewrite";
@@ -1091,7 +1098,7 @@ async function runPipeline(opts: {
     if (typeof text !== "string") continue;
     const r = dropRepeatedSentences(text);
     if (r.dropped.length === 0) continue;
-    if (section === "summary" && roleTitle && titleInText(text, roleTitle) && !titleInText(r.text, roleTitle)) continue;
+    if (section === "summary" && protectTitle && titleInText(text, roleTitle) && !titleInText(r.text, roleTitle)) continue;
     if (section === "summary") summary = r.text;
     else coverLetter = r.text;
     for (const sentence of r.dropped) postChanged.push({ section, sentence, action: "removed" });
@@ -1133,6 +1140,22 @@ async function runPipeline(opts: {
   // Rule 8 holds through the spelling pass: role headers are skipped by the
   // converter, and every word of the master's headers, the company's name
   // and the candidate's name is protected wherever it appears.
+  // The summary never names the job applied for (lib/roleTitle, the owner's
+  // call), after every pass that can write it, and before the fallback below,
+  // which rebuilds a summary this leaves empty (CareerSet).
+  if (typeof summary === "string") {
+    const s = stripAppliedFor(summary);
+    if (s.removed.length > 0) {
+      summary = s.text;
+      formatFixes.appliedFor = s.removed;
+    }
+    // The title sentence stays when the title is who they are: it is only reported.
+    const g = guardRoleStatus(summary as string, cv, { keep: (sentence) => protectTitle && titleInText(sentence, roleTitle) });
+    summary = g.text;
+    factGuard.report.roleStatus.push(...g.removed);
+    factGuard.report.roleStatusCheck.push(...g.flagged);
+    titleCheck.present = !roleTitle || titleInText(summary, roleTitle);
+  }
   // A style that never sends a CV without a summary (CareerSet): when the
   // passes above left none — the fact check can remove every sentence of a
   // thin run — it is rebuilt from the master CV's own summary, else its most
@@ -1159,6 +1182,17 @@ async function runPipeline(opts: {
     coverLetter = r.text;
     retiredReports.push(r.report);
     tidyPoints();
+  }
+  // How a role is described (lib/factGuard guardRoleStatus, 5 Nov): a
+  // placement the master CV never names, or "completed" one it shows as
+  // current, comes out of the letter here and the summary below.
+  if (typeof coverLetter === "string") {
+    const g = guardRoleStatus(coverLetter, cv);
+    if (g.removed.length > 0) {
+      coverLetter = g.text;
+      factGuard.report.roleStatus.push(...g.removed);
+      tidyPoints();
+    }
   }
   const spellingChanges: SpellingChange[] = [];
   const protect = new Set<string>();
@@ -1234,6 +1268,19 @@ async function runPipeline(opts: {
   const finalCoverage = matchAtsKeywords(finalText, terms.top_15_ats_keywords);
   const finalRequiredRaw = matchAtsKeywords(finalText, terms.required_skills);
   const atsScore = finalCoverage.total > 0 ? reconcileAtsScore(atsAnnotation, finalCoverage, finalRequiredRaw.total > 0 ? finalRequiredRaw : null) : null;
+  // Every suggestion checked like the CV itself (lib/suggestionCheck): one the
+  // master CV can't back is shown as needing the user's evidence, never as a
+  // line ready to paste.
+  if (atsScore) {
+    const checked = checkSuggestions(atsScore.recommendations, {
+      sources: [cv, projectsPool],
+      absentTerms: [...finalCoverage.missedKeywords, ...finalRequiredRaw.missedKeywords],
+      registry: claims,
+      grafts,
+    });
+    atsScore.recommendations = checked.kept;
+    if (checked.needsEvidence.length > 0) atsScore.needs_evidence = checked.needsEvidence;
+  }
   // Deterministic claim check on the same finished text — no model call,
   // computed from exactly what the user sees. The client re-runs the same
   // function on the edited preview. The letter may quote the posting's own

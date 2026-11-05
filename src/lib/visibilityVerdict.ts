@@ -146,6 +146,9 @@ export type VisibilityScore = {
   hits: string[];
   misses: string[];
   recommendations: string[];
+  // Suggestions the master CV can't back (lib/suggestionCheck, 5 Nov): shown
+  // as "needs your evidence", never as a line ready to paste.
+  needs_evidence?: { term: string | null; note: string }[];
 };
 
 // Combines the deterministic match with whatever the model wrote. Membership,

@@ -63,6 +63,43 @@ export function titleAsIdentity(title: unknown, heldTitles: string[]): boolean {
   return heldTitles.some((h) => titleKey(coreTitle(h)) === key);
 }
 
+// "…, applying for the Product Engineer role." (5 Nov 2026, the owner's call):
+// the summary never names the job being applied for — it ended 6 of 6 tailors
+// that way. Removed server-side, last, so no later pass brings it back: the
+// clause goes, and a sentence that was nothing else goes with it. Any title,
+// not only this run's, since a fact-check fix can word it differently.
+// A title may carry dots ("Node.js Developer", ".NET Engineer"): a dot followed by a letter is part of it.
+const TITLE_CHARS = String.raw`(?:[^.!?\n]|\.(?=\w))`;
+const APPLIED_FOR_RE = new RegExp(
+  String.raw`(?:^|[,;:]\s*|\s+[—–-]\s+|\s+)(?:(?:and|now|currently|while)\s+)*(?:applying|apply)\s+(?:for|to)\s+(?:(?:the|this|a|an|your)\s+)?(?:(?:role|position)\s+of\s+(?:[^.!?\n,;]|\.(?=\w)){1,90}|${TITLE_CHARS}{1,90}?\b(?:roles?|positions?|opportunit(?:y|ies)|jobs?|post|vacanc(?:y|ies)))(?=[\s,;:.!?]|$)(?:\s+(?:at|with)\s+(?:[^.!?\n,;]|\.(?=\w)){1,60})?`,
+  "gi"
+);
+const WORDS_RE = /[A-Za-z0-9]+/g;
+
+export function stripAppliedFor(summary: string): { text: string; removed: string[] } {
+  const removed: string[] = [];
+  const lines = summary.split("\n").map((line) => {
+    const sentences = line.split(/(?<=[.!?])\s+/);
+    const kept: string[] = [];
+    for (const sentence of sentences) {
+      APPLIED_FOR_RE.lastIndex = 0;
+      if (!APPLIED_FOR_RE.test(sentence)) {
+        kept.push(sentence);
+        continue;
+      }
+      APPLIED_FOR_RE.lastIndex = 0;
+      let rest = sentence.replace(APPLIED_FOR_RE, "").replace(/^[\s,;:—–-]+/, "").replace(/[\s,;:—–-]+([.!?])?\s*$/, "$1");
+      removed.push(sentence.trim());
+      if ((rest.match(WORDS_RE) ?? []).length < 3) continue;
+      if (!/[.!?]$/.test(rest)) rest += ".";
+      // "iOS developer…" keeps its own capitals.
+      kept.push(/^[a-z](?![A-Z])/.test(rest) ? rest.charAt(0).toUpperCase() + rest.slice(1) : rest);
+    }
+    return kept.join(" ");
+  });
+  return { text: lines.filter((l, i) => l.trim() || summary.split("\n")[i].trim() === "").join("\n").trim(), removed };
+}
+
 // The roles a saved tagline names ("Full Stack Engineer | AI Engineer" is
 // two): the segments split on a pipe, slash or dot separator that carry a
 // role noun. Customize warns on two or more — one positioning per CV (the

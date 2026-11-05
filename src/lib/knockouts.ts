@@ -94,6 +94,10 @@ export type Eligibility = {
   // (lib/rightToWorkText rightToWorkStatement).
   availability: { status: "now" | "from" | "unknown"; from: string | null };
   canWorkFullTime: "yes" | "no" | "unknown";
+  // The user looks for junior and early-career roles only (5 Nov 2026): the
+  // pre-check holds any posting that reads as mid-level or senior
+  // (lib/seniority seniorityFit). A preference, not one of the questions.
+  earlyCareerOnly: boolean;
   updatedAt: string | null;
 };
 
@@ -167,6 +171,7 @@ export const EMPTY_ELIGIBILITY: Eligibility = {
   employmentTypes: [],
   availability: { status: "unknown", from: null },
   canWorkFullTime: "unknown",
+  earlyCareerOnly: false,
   updatedAt: null,
 };
 
@@ -237,6 +242,7 @@ export function normalizeEligibility(v: unknown): Eligibility {
     employmentTypes,
     availability: { status: oneOf(av.status, ["now", "from", "unknown"] as const, "unknown"), from: ym(av.from) },
     canWorkFullTime: oneOf(e.canWorkFullTime, ["yes", "no", "unknown"] as const, "unknown"),
+    earlyCareerOnly: e.earlyCareerOnly === true,
     updatedAt: typeof e.updatedAt === "string" ? e.updatedAt : null,
   };
 }

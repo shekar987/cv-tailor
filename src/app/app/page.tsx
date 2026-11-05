@@ -30,6 +30,7 @@ import { normalizeClaims, checkClaims, seedClaimsFromCv, SKILL_RULE_TEXT, type C
 import { qualityReport, type QualityReport } from "@/lib/quality";
 import { REPAIR_SECTION_LABEL, type RepairChange } from "@/lib/claimRepair";
 import { buildEvidenceMap, graftRules, type EvidenceMap, type EvidenceItem } from "@/lib/evidenceMap";
+import { coreGapBanner, gapFor, normalizeGapCheck, type GapCheck } from "@/lib/gapCheck";
 import type { SupportReport } from "@/lib/supportCheck";
 import type { RightToWorkReport } from "@/lib/rightToWorkText";
 import type { HeaderLock, ChronologyReport } from "@/lib/bulletIds";
@@ -125,7 +126,12 @@ type Result = {
     hits?: string[];
     misses?: string[];
     recommendations?: string[];
+    // Suggestions the master CV can't back (lib/suggestionCheck): the term, never a line to paste.
+    needs_evidence?: { term: string | null; note: string }[];
   };
+  // The pre-check's gap read (lib/gapCheck), kept with the run so the Missing
+  // list can say which terms are a rename and which are a core gap.
+  gapCheck?: GapCheck | null;
   // Pool mode (Advanced customization): the 2 projects the pipeline selected
   // from the user's project pool. Present only when a pool was sent; the
   // display profile derives its projects from this instead of the master CV's.
@@ -167,6 +173,8 @@ type Result = {
     duplicateLines?: string[] | null;
     // A tool that never holds a lead slot (GitHub Actions), moved or dropped.
     leadTools?: { moved: string[]; dropped: string[] } | null;
+    // "…, applying for the X role" taken out of the summary (lib/roleTitle stripAppliedFor).
+    appliedFor?: string[] | null;
     // The British-English pass: how many words, and examples.
     spelling?: { count: number; examples: string[] } | null;
     // The real page count: bullets dropped to bring the built PDF inside the target.
@@ -267,6 +275,8 @@ type GateExtras = {
   // Requirement → evidence (lib/evidenceMap): where the master CV shows each
   // requirement the posting names.
   evidence: EvidenceMap | null;
+  // Each gap sorted (lib/gapCheck): shown under another word, or a core gap.
+  gapCheck: GapCheck | null;
 };
 
 const EVIDENCE_LABEL: Record<EvidenceItem["status"], string> = {
@@ -978,6 +988,7 @@ export default function Home() {
             : null,
           seniority: data.seniority && typeof data.seniority === "object" && typeof data.seniority.reason === "string" ? (data.seniority as SeniorityFit) : null,
           evidence: data.evidence && typeof data.evidence === "object" && Array.isArray(data.evidence.items) ? (data.evidence as EvidenceMap) : null,
+          gapCheck: normalizeGapCheck(data.gapCheck),
         });
       }
     } catch {
@@ -1011,6 +1022,10 @@ export default function Home() {
   const seniorityBlocks =
     gateExtras?.seniority?.fits === false ||
     (gateExtras?.seniority?.fits === null && (gateExtras.seniority.level === "mid" || gateExtras.seniority.level === "senior"));
+  // Two or more required skills with no evidence at all (lib/gapCheck): said
+  // before a credit is spent, and the button asks "Tailor anyway" as for a skip read.
+  const coreGaps = coreGapBanner(gateExtras?.gapCheck);
+  const gapBlocks = !!coreGaps?.blocks;
   const gateVerdicts = useMemo(
     () => [...(gateExtras?.knockouts?.verdicts ?? [])].sort((a, b) => VERDICT_RANK[a.verdict] - VERDICT_RANK[b.verdict]),
     [gateExtras]
@@ -1201,6 +1216,7 @@ export default function Home() {
         ...(data as Result),
         ...(gatesSummary ? { gatesSummary } : {}),
         ...(variantPick.variant ? { variantName: variantPick.variant.name, variantReason: variantPick.reason } : {}),
+        ...(source === "jd" && gateExtras?.gapCheck ? { gapCheck: gateExtras.gapCheck } : {}),
       };
       setResult(fresh);
       // "For this run": the next posting goes back to the saved defaults.
@@ -2249,7 +2265,7 @@ export default function Home() {
                     {gateExtras.seniority.reason}
                     {gateExtras.seniority.signals.length > 0 && (
                       <>
-                        {" "}Read from: {gateExtras.seniority.signals.map((s) => `${s.kind === "title" ? "title" : s.kind === "years" ? "years" : s.kind === "salary" ? "salary" : "ownership"} (${s.text})`).join(", ")}.
+                        {" "}Read from: {gateExtras.seniority.signals.map((s) => `${s.kind === "title" ? "title" : s.kind === "years" ? "years" : s.kind === "salary" ? "salary" : s.kind === "label" ? "the posting's level" : "ownership"} (${s.text})`).join(", ")}.
                       </>
                     )}
                   </div>
@@ -2326,26 +2342,40 @@ export default function Home() {
                       {gateExtras.evidence.items
                         .filter((i) => i.importance !== "keyword" || i.status !== "gap" || i.kind !== "soft")
                         .slice(0, 16)
-                        .map((i, n) => (
-                          <li key={n} data-evidence-status={i.status} data-evidence-importance={i.importance}>
+                        .map((i, n) => {
+                          const gap = i.status === "gap" ? gapFor(gateExtras.gapCheck, i.term) : null;
+                          return (
+                          <li key={n} data-evidence-status={i.status} data-evidence-importance={i.importance} data-gap-class={gap?.class}>
                             <Badge variant="dot" tone={i.status === "experience" ? "hit" : i.status === "gap" || i.status === "learning" ? "miss" : "rec"}>
                               {i.status === "experience" ? "✓" : i.status === "gap" || i.status === "learning" ? "✕" : "◐"}
                             </Badge>
                             <span>
                               <strong>{i.term}</strong>
-                              {i.importance === "required" ? " (required)" : i.importance === "preferred" ? " (preferred)" : ""} — {EVIDENCE_LABEL[i.status]}
+                              {i.importance === "required" ? " (required)" : i.importance === "preferred" ? " (preferred)" : ""} — {gap?.class === "rename" ? "not named in your CV" : EVIDENCE_LABEL[i.status]}
                               {i.where ? `: ${i.where}` : ""}
-                              {i.status === "gap" && i.kind === "soft" ? ". Your CV never says it in words; show it with a real example if you have one." : ""}
-                              {i.status === "gap" && i.kind !== "soft" ? ". It won't be claimed; the letter may name your nearest real experience instead." : ""}
+                              {gap?.class === "rename" && gap.line ? (
+                                <>
+                                  . Your CV may show it as &ldquo;{gap.line}&rdquo;{gap.where ? ` (${gap.where})` : ""}. If that is the same work, you can name it that way in your master CV.
+                                </>
+                              ) : null}
+                              {gap?.class !== "rename" && i.status === "gap" && i.kind === "soft" ? ". Your CV never says it in words; show it with a real example if you have one." : ""}
+                              {gap?.class !== "rename" && i.status === "gap" && i.kind !== "soft" ? ". A core gap: no evidence in your CV. It won't be claimed; the letter may name your nearest real experience instead." : ""}
                             </span>
                           </li>
-                        ))}
+                          );
+                        })}
                     </ul>
                   </div>
                 )}
+                {coreGaps && (
+                  <div className={coreGaps.blocks ? "limitNotice" : "gateNote"} role="status" style={{ marginBottom: 'var(--space-4)' }} data-gate-core-gaps={coreGaps.terms.length}>
+                    {coreGaps.text}
+                    {coreGaps.blocks ? " Tailoring anyway spends a credit." : ""}
+                  </div>
+                )}
                 <div className="gateActions">
-                  <Button variant={gateRead === "skip" || seniorityBlocks ? "secondary" : "primary"} onClick={runFullTailor} disabled={loading}>
-                    {loading ? "Tailoring…" : gateRead === "skip" || seniorityBlocks ? "Tailor anyway (uses a credit) →" : "Continue to full tailoring →"}
+                  <Button variant={gateRead === "skip" || seniorityBlocks || gapBlocks ? "secondary" : "primary"} onClick={runFullTailor} disabled={loading}>
+                    {loading ? "Tailoring…" : gateRead === "skip" || seniorityBlocks || gapBlocks ? "Tailor anyway (uses a credit) →" : "Continue to full tailoring →"}
                   </Button>
                   {variants && variants.variants.length > 0 && (
                     <span className="providerPick" data-variant-pick={variantPick.variant?.id ?? "none"}>
@@ -2978,7 +3008,7 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {(result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.leadTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines || result.formatFixes?.strayLines || result.formatFixes?.spelling || result.formatFixes?.pageOverflow || (isUnlimited && result.formatFixes?.style && (result.formatFixes.style.debolded + result.formatFixes.style.highlightsStripped + result.formatFixes.style.fullStopsStripped + result.formatFixes.style.swapped.length > 0))) && (
+            {(result.formatFixes?.appliedFor?.length || result.formatFixes?.tools || result.formatFixes?.summary || result.formatFixes?.unsupportedTools || result.formatFixes?.competencies || result.formatFixes?.restoredTools || result.formatFixes?.leadTools || result.formatFixes?.skillLines || result.formatFixes?.duplicateLines || result.formatFixes?.strayLines || result.formatFixes?.spelling || result.formatFixes?.pageOverflow || (isUnlimited && result.formatFixes?.style && (result.formatFixes.style.debolded + result.formatFixes.style.highlightsStripped + result.formatFixes.style.fullStopsStripped + result.formatFixes.style.swapped.length > 0))) && (
               <div className="limitNotice" role="status" data-format-fixes>
                 <div className="limitNotice__title">Formatting rules applied</div>
                 <div className="limitNotice__body">
@@ -3056,6 +3086,12 @@ export default function Home() {
                             : ""}
                           {result.formatFixes.pageOverflow.fits ? `. It now fits on ${result.formatFixes.pageOverflow.pagesAfter}.` : `. It still runs to ${result.formatFixes.pageOverflow.pagesAfter} — cut more in the preview.`}
                         </span>
+                      </li>
+                    )}
+                    {(result.formatFixes.appliedFor?.length ?? 0) > 0 && (
+                      <li data-format-fix="applied-for">
+                        <Badge variant="dot" tone="rec">→</Badge>
+                        <span>The summary no longer names the job you are applying for (&ldquo;…, applying for the … role&rdquo;): the clause came out of {result.formatFixes.appliedFor!.length === 1 ? "one sentence" : `${result.formatFixes.appliedFor!.length} sentences`}.</span>
                       </li>
                     )}
                     {result.formatFixes.spelling && result.formatFixes.spelling.count > 0 && (
@@ -3760,9 +3796,23 @@ export default function Home() {
                     <div className="atsGroup">
                       <div className="atsGroupLabel misses">Missing ({result.atsScore.misses.length})</div>
                       <ul className="atsList">
-                        {result.atsScore.misses.map((m, i) => (
-                          <li key={i}><Badge variant="dot" tone="miss">✕</Badge>{m}</li>
-                        ))}
+                        {result.atsScore.misses.map((m, i) => {
+                          const gap = gapFor(normalizeGapCheck(result.gapCheck), m);
+                          return (
+                            <li key={i} data-miss-class={gap?.class}>
+                              <Badge variant="dot" tone="miss">✕</Badge>
+                              <span>
+                                {m}
+                                {gap?.class === "rename" && gap.line && (
+                                  <span className="fitEvidence" style={{ display: "block" }}>Your CV may show this as &ldquo;{gap.line}&rdquo;. If it is the same work, you can name it that way in your master CV.</span>
+                                )}
+                                {gap?.class === "core" && (
+                                  <span className="fitEvidence" style={{ display: "block" }}>{gap.learning ? "Being learnt: never claimed." : "Core gap: no evidence in your master CV."}</span>
+                                )}
+                              </span>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   )}
@@ -3775,6 +3825,17 @@ export default function Home() {
                       <ul className="atsList">
                         {result.atsScore.recommendations.map((r, i) => (
                           <li key={i}><Badge variant="dot" tone="rec">→</Badge>{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {Array.isArray(result.atsScore.needs_evidence) && result.atsScore.needs_evidence.length > 0 && (
+                    <div className="atsGroup" data-needs-evidence>
+                      <div className="atsGroupLabel misses">Needs your evidence ({result.atsScore.needs_evidence.length})</div>
+                      <ul className="atsList">
+                        {result.atsScore.needs_evidence.map((n, i) => (
+                          <li key={i}><Badge variant="dot" tone="miss">?</Badge>{n.note}</li>
                         ))}
                       </ul>
                     </div>

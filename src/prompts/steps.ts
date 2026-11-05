@@ -849,6 +849,24 @@ ${sentences.map((s) => `- ${s}`).join("\n")}
 
 Output ONLY the full letter as plain text. No preamble, no notes.`;
 
+// The pre-check's gap read (lib/gapCheck, 5 Nov 2026): which of the posting's
+// terms the CV already shows under other words. Only the free rules' leftovers
+// reach it, never a named technology, and its answer counts only where the
+// line it quotes is found in the CV.
+export const GAP_RENAME_PROMPT = `You check which job requirements a CV already shows under different words.
+
+You receive JSON: { "terms": ["..."], "cv": "the candidate's master CV" }.
+
+For each term, decide whether the CV shows the SAME work under another name. Example: "troubleshooting" is shown by "Diagnosed and fixed production incidents across three services". Quote the ONE CV line that shows it, copied character for character.
+
+- A different technology, product, platform or certificate is never the same work: Docker is not Kubernetes, MySQL is not Snowflake, Jira is not Intune, AWS is not Azure.
+- Work that is only near it is not the same work: building an API is not DNS or routing; using a spreadsheet is not accounting.
+- When in doubt, the answer is null. A wrong match costs the candidate an application; a null costs nothing.
+- Never write a line that is not in the CV, and never change its words.
+
+Output ONLY a JSON object (no fences):
+{ "renames": [ { "term": "the term exactly as given", "line": "the verbatim CV line, or null" } ] }`;
+
 // The verdict is NOT written here. lib/visibilityVerdict computes the band
 // from the deterministic keyword match and hands it in as `bandBlock`; the
 // model annotates the settled lists and proposes edits inside that band.

@@ -54,6 +54,7 @@ export type TriageRule =
   | "sponsorship"
   | "years_review"
   | "rtw_duration"
+  | "rtw_programme"
   | "languages"
   | "fixed_term"
   | "rtw_permanent"
@@ -66,6 +67,10 @@ export type TriageProfile = {
   rightToWork?: string | null;
   // lib/knockouts Eligibility.yearsExperience: meeting a stated minimum drops that years "Skip".
   yearsExperience?: number | null;
+  // lib/knockouts Eligibility.rightToWork.permissionEnds ("2028-01"), typed by
+  // the user: a programme that runs past it, asking for the right to work for
+  // its whole length, is a Skip for a time-limited visa.
+  permissionEnds?: string | null;
   // masterExperienceText(): what the CV's work experience shows. With none the
   // language and framework rule stays off rather than failing every posting.
   experience?: string;
@@ -85,6 +90,7 @@ export const TRIAGE_RULE_LABELS: Record<TriageRule, string> = {
   sponsorship: "No sponsorship",
   years_review: "Years of experience",
   rtw_duration: "Right to work for the duration",
+  rtw_programme: "Right to work for the whole programme",
   languages: "Core language",
   fixed_term: "Fixed-term contract",
   rtw_permanent: "Right to work",
@@ -389,6 +395,62 @@ function yearsHits(ctx: Ctx, profile: TriageProfile | undefined, add: (h: Triage
   }
 }
 
+// ── When a programme ends ───────────────────────────────────────────────────
+// The start ("Start date: September 2027", "starting in September 2027", "a
+// September 2027 intake") plus the length ("the two-year programme", "an
+// 18-month scheme", "the programme lasts two years"), both stated. A start
+// with no month is not read: a guessed month could turn a Review into a Skip.
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const MONTH = String.raw`(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\.?`;
+const PROGRAMME_START = new RegExp(
+  String.raw`\b(?:start(?:s|ing)?(?:\s+date)?|commenc\w*|joining(?:\s+us)?|intake)\s*[:\-–]?\s*(?:(?:in|from|on|is)\s+)?(?:(?:early|mid|late)\s+)?${MONTH}\s+((?:19|20)\d{2})\b|\b${MONTH}\s+((?:19|20)\d{2})\s+(?:start|intake|cohort)\b`,
+  "gi"
+);
+const COUNT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, twelve: 12, eighteen: 18, "twenty-four": 24, "twenty four": 24 };
+const PROGRAMME_LENGTH =
+  /\b(\d{1,2}|one|two|three|four|five|six|twelve|eighteen|twenty[-\s]four)[-\s](year|month)s?(?:[-\s]long)?\s+(?:(?:graduate|rotational|training|early[-\s]careers?|development|apprenticeship|placement|technology|engineering)\s+)*(?:programme|program|scheme|apprenticeship)\b|\b(?:programme|program|scheme)\s+(?:lasts|runs\s+for|is|of|spans)\s+(\d{1,2}|one|two|three|four|five|six|twelve|eighteen|twenty[-\s]four)\s+(year|month)s?\b/gi;
+// The right-to-work sentence must be about the programme itself, not "your employment".
+const PROGRAMME_WORD = /\b(?:programme|program|scheme|placement|apprenticeship|internship|residency|rotation)\b/i;
+const SPONSOR_NONE = /\bwithout\s+(?:requiring\s+|needing\s+|the\s+need\s+for\s+)?(?:visa\s+|work\s+)?sponsorship\b|\b(?:unable|not\s+able|cannot|can['’]t|do\s+not|don['’]t|will\s+not|won['’]t)\s+(?:to\s+)?(?:offer\s+|provide\s+)?sponsor/i;
+
+// month: the earliest last month the posting allows; latest: the latest one.
+export type ProgrammeEnd = { month: string; latest: string; start: string; months: number };
+
+function count(word: string): number {
+  return /^\d+$/.test(word) ? parseInt(word, 10) : COUNT_WORDS[word.toLowerCase().replace(/\s+/g, " ")] ?? 0;
+}
+
+/**
+ * The last month of a programme, from the posting's own start date and length,
+ * or null. With more than one of either, the earliest start and the shortest
+ * length: the earliest end the posting allows, so a misread can only ever
+ * make the rule less likely to Skip.
+ */
+export function programmeEnd(text: string): ProgrammeEnd | null {
+  const starts = [...(text || "").matchAll(PROGRAMME_START)]
+    .map((s) => ({ m0: MONTHS.indexOf((s[1] ?? s[3]).toLowerCase().slice(0, 3)), year: parseInt(s[2] ?? s[4], 10) }))
+    .filter((s) => s.m0 >= 0)
+    .map((s) => s.year * 12 + s.m0);
+  const lengths = [...(text || "").matchAll(PROGRAMME_LENGTH)]
+    .map((l) => {
+      const n = count(l[1] ?? l[3]);
+      return (l[2] ?? l[4]).toLowerCase().startsWith("year") ? n * 12 : n;
+    })
+    .filter((n) => n > 0 && n <= 72);
+  if (starts.length === 0 || lengths.length === 0) return null;
+  const start = Math.min(...starts);
+  const months = Math.min(...lengths);
+  const ym = (v: number) => `${Math.floor(v / 12)}-${String((v % 12) + 1).padStart(2, "0")}`;
+  // The latest end the posting allows: only that being covered drops the Review.
+  const latest = ym(Math.max(...starts) + Math.max(...lengths) - 1);
+  return { month: ym(start + months - 1), latest, start: ym(start), months };
+}
+
+function monthName(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
 function firstMatch(s: string, ...res: RegExp[]): string | null {
   for (const re of res) {
     const m = s.match(re);
@@ -411,6 +473,8 @@ export function triageJd(text: string, profile?: TriageProfile): JdTriage {
 
   const status = profile?.rightToWork ?? null;
   const experience = profile?.experience;
+  // Read once, the first time a right-to-work sentence asks for the whole programme.
+  let programme: ProgrammeEnd | null | undefined;
   let section: Section = null;
   let titleSeen = false;
   for (const raw of (text || "").split(/\r?\n/)) {
@@ -465,7 +529,23 @@ export function triageJd(text: string, profile?: TriageProfile): JdTriage {
       }
 
       const rtw = sentence.match(RTW_DURATION);
-      if (rtw && status !== "full") add({ level: "review", rule: "rtw_duration", phrase: rtw[0], sentence });
+      if (rtw && status !== "full") {
+        // The whole programme (5 Nov 2026, Graphcore): when it ends is the start
+        // date plus its length, both from the posting; when the permission ends
+        // is the user's own answer. Either unknown stays a Review, never a guess.
+        // Only a sentence about the programme itself: "for the duration of your employment" stays a Review.
+        const aboutProgramme = PROGRAMME_WORD.test(sentence);
+        const ends = !aboutProgramme ? null : programme === undefined ? (programme = programmeEnd(text)) : programme;
+        const permission = profile?.permissionEnds ?? null;
+        const noSponsor = SPONSOR_NONE.test(sentence);
+        if (aboutProgramme && status === "needs_sponsorship" && noSponsor) {
+          add({ level: "skip", rule: "rtw_programme", phrase: rtw[0], sentence });
+        } else if (status === "time_limited" && ends && permission && ends.month > permission) {
+          add({ level: "skip", rule: "rtw_programme", phrase: `The programme runs until ${monthName(ends.month)}; your permission ends ${monthName(permission)}`, sentence });
+        } else if (!(status === "time_limited" && ends && permission && ends.latest <= permission)) {
+          add({ level: "review", rule: "rtw_duration", phrase: rtw[0], sentence });
+        }
+      }
 
       // A time-limited visa cannot give these. Full right to work meets them
       // (citizenship is still its own question); unanswered is never guessed.
@@ -543,8 +623,8 @@ export function normalizeTriage(value: unknown): JdTriage | null {
 /** The profile from a lib/knockouts Eligibility (read structurally, so this module imports nothing). */
 export function eligibilityTriageProfile(eligibility: unknown): TriageProfile | undefined {
   if (!eligibility || typeof eligibility !== "object") return undefined;
-  const e = eligibility as { rightToWork?: { status?: unknown }; yearsExperience?: unknown };
-  return triageProfileOf({ rightToWork: e.rightToWork?.status, yearsExperience: e.yearsExperience });
+  const e = eligibility as { rightToWork?: { status?: unknown; permissionEnds?: unknown }; yearsExperience?: unknown };
+  return triageProfileOf({ rightToWork: e.rightToWork?.status, yearsExperience: e.yearsExperience, permissionEnds: e.rightToWork?.permissionEnds });
 }
 
 /** The whole profile: the Eligibility answers plus what the master CV's experience shows. One builder for /app and the server. */
@@ -560,5 +640,6 @@ export function triageProfileOf(value: unknown): TriageProfile | undefined {
   const v = value as Record<string, unknown>;
   const rtw = typeof v.rightToWork === "string" && v.rightToWork !== "unknown" ? v.rightToWork.slice(0, 40) : null;
   const years = typeof v.yearsExperience === "number" && Number.isFinite(v.yearsExperience) ? Math.max(0, Math.min(60, Math.round(v.yearsExperience))) : null;
-  return rtw || years !== null ? { rightToWork: rtw, yearsExperience: years } : undefined;
+  const permissionEnds = typeof v.permissionEnds === "string" && /^\d{4}-(?:0[1-9]|1[0-2])$/.test(v.permissionEnds) ? v.permissionEnds : null;
+  return rtw || years !== null ? { rightToWork: rtw, yearsExperience: years, ...(permissionEnds ? { permissionEnds } : {}) } : undefined;
 }

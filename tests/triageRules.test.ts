@@ -118,8 +118,12 @@ test("not a knockout: at this time, a question, an alternative, a negation", () 
 });
 
 test("right to work for the full duration of a scheme → Review, and its length is no years requirement", () => {
+  // A start and a length the posting states, past the permission's end: a Skip
+  // since 5 Nov (the owner's call), and covered by chunk17Guards.test.ts.
+  const dated = triageJd("You must have the right to work in the UK for the full duration of the 2-year scheme starting September 2027.", OWNER);
+  assert.equal(dated.verdict, "skip");
+  assert.deepEqual(dated.hits.map((h) => h.rule), ["rtw_programme"]);
   for (const jd of [
-    "You must have the right to work in the UK for the full duration of the 2-year scheme starting September 2027.",
     "Applicants must have the right to work in the UK for the entire duration of the 2 year graduate programme.",
     "Right to work: You must have the right to work in the UK for the length of the residency.",
   ]) {

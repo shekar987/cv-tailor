@@ -1596,6 +1596,19 @@ export default function CustomizePage() {
                     </span>
                   )}
                 </label>
+                <div data-early-career-only>
+                  <label className="eligCheck">
+                    <input
+                      type="checkbox"
+                      checked={eligibility.earlyCareerOnly}
+                      onChange={(e) => { const on = e.target.checked; updateElig((x) => ({ ...x, earlyCareerOnly: on })); }}
+                    />
+                    I look for junior and early-career roles only
+                  </label>
+                  <span className="fitEvidence" style={{ display: "block" }}>
+                    The pre-check then holds every posting that reads as mid-level or senior, whatever your years say.
+                  </span>
+                </div>
                 <label>
                   Base location(s)
                   <Input value={eligBases} onChange={(e) => { setEligBases(e.target.value); setEligMsg(""); }} placeholder="e.g. London" />

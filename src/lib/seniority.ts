@@ -12,12 +12,20 @@
 //              direction, line management, writing the RFCs
 //   salary     the midpoint of a posted annual band (GBP / USD / EUR); day and
 //              hourly rates are ignored
+//   label      an applicant tracker's own level field, as the posting prints it
+//              ("Minimum experience: Mid-level" on BambooHR, "Seniority level:
+//              Mid-Senior level" on LinkedIn) — decisive, like the title
+//   band+duty  (5 Nov 2026) a GBP salary floor of SALARY_FLOOR_MID or more
+//              beside mentoring or architecture duties reads as mid-level:
+//              Seccl's "£55K – £75K" with "Mentoring engineers" and
+//              "Architecting … infrastructure" tied mid and senior and was
+//              read as senior, which no posting at that band is
 //
 // The title is decisive when present; the rest add up. Nothing here reads
 // the candidate's CV — only the posting and, for the fit, their stated years.
 
 export type Level = "junior" | "mid" | "senior";
-export type SignalKind = "title" | "years" | "ownership" | "salary";
+export type SignalKind = "title" | "years" | "ownership" | "salary" | "label";
 export type Signal = { kind: SignalKind; text: string; level: Level; weight: number };
 export type SeniorityRead = {
   level: Level | "unknown";
@@ -37,6 +45,8 @@ export type SeniorityFit = {
 // candidate with fewer than MID_MIN_YEARS is the warning the owner asked for.
 export const MID_MIN_YEARS = 3;
 export const SENIOR_MIN_YEARS = 5;
+// A GBP floor at or above this, with mentoring or architecture duties, is a mid-level band.
+export const SALARY_FLOOR_MID = 55_000;
 
 export const LEVEL_LABEL: Record<Level | "unknown", string> = {
   junior: "junior / early-career",
@@ -65,6 +75,25 @@ const OWNERSHIP_RES: { re: RegExp; text: string }[] = [
   { re: /\b(?:write|writes|writing|author|authors|authoring|own|owns|owning)\s+(?:the\s+)?(?:design\s+docs?|rfcs?|adrs?|architecture\s+decision\s+records)\b/i, text: "writing the RFCs / design docs" },
   { re: /\btechnical\s+leadership\b|\blead\s+(?:a|the|our)\s+(?:team|squad|pod)\b|\btech\s+lead\b/i, text: "technical leadership" },
 ];
+
+// An applicant tracker's level field, as printed in the posting. BambooHR's
+// values (Entry-level, Mid-level, Experienced, Manager/Supervisor, Senior
+// Manager/Supervisor, Executive, Student) and LinkedIn's (Internship, Entry
+// level, Associate, Mid-Senior level, Director, Executive).
+// A label is a line of its own ("Minimum experience: Mid-level"), never prose that happens to say the words.
+const LABEL_RE = /^\s*(?:[-•*]\s*)?(?:minimum\s+experience|experience\s+level|seniority\s+level|career\s+level|job\s+level)\s*[:：-]\s*([A-Za-z][A-Za-z /-]{2,40}?)\s*$/im;
+function labelLevel(value: string): Level | null {
+  const v = value.toLowerCase();
+  if (/\b(?:entry|student|intern|graduate|junior|trainee|apprentice)/.test(v)) return "junior";
+  if (/\bassociate\b/.test(v) && !/\bdirector\b/.test(v)) return "junior";
+  if (/\bmid\b|mid[-\s]|\bintermediate\b/.test(v)) return "mid";
+  if (/\b(?:experienced|senior|manager|supervisor|director|executive|lead|principal)\b/.test(v)) return "senior";
+  return null;
+}
+// Duties that go with a mid-level band: mentoring others, or owning the architecture.
+// The verb, not the job title: "work alongside our architects" is no duty.
+const ARCHITECTURE_RE =
+  /\barchitect(?:ing|ed)\b|\b(?:own|owns|owning|lead|leads|leading|drive|drives|driving|make|makes|making|shape|shapes|shaping|define|defines|defining)\s+(?:the\s+|our\s+)?(?:key\s+)?(?:platform\s+|system\s+|technical\s+|solution\s+)?architectur(?:e|al\s+decisions?)\b/i;
 
 // Annual bands. Day and hourly rates say nothing about level.
 const SALARY_RE = /(£|\$|€|\bGBP\s?|\bUSD\s?|\bEUR\s?)\s?(\d{2,3}(?:,\d{3})+|\d{2,3}\s?k\b|\d{5,6})(?:\s*(?:-|–|to)\s*(?:£|\$|€|GBP\s?|USD\s?|EUR\s?)?\s?(\d{2,3}(?:,\d{3})+|\d{2,3}\s?k\b|\d{5,6}))?/gi;
@@ -106,7 +135,8 @@ export function classifySeniority(jd: string, roleTitle?: string | null): Senior
   const text = jd || "";
   const signals: Signal[] = [];
   // The analyser's role title when given, else the posting's first line.
-  const firstLine = text.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? "";
+  // A tracker's level label ("Seniority level: Mid-Senior level") is read below, never as the title.
+  const firstLine = text.split(/\r?\n/).map((l) => l.trim()).find((l) => l && !LABEL_RE.test(l)) ?? "";
   const title = titleSignal(roleTitle?.trim() || firstLine.slice(0, 120)) ?? (roleTitle ? titleSignal(firstLine.slice(0, 120)) : null);
   if (title) signals.push(title);
 
@@ -120,6 +150,10 @@ export function classifySeniority(jd: string, roleTitle?: string | null): Senior
     const level: Level = minYears.n >= SENIOR_MIN_YEARS ? "senior" : minYears.n >= MID_MIN_YEARS ? "mid" : "junior";
     signals.push({ kind: "years", text: minYears.text, level, weight: 2 });
   }
+
+  const label = LABEL_RE.exec(text);
+  const labelled = label ? labelLevel(label[1]) : null;
+  if (label && labelled) signals.push({ kind: "label", text: label[0].replace(/\s+/g, " ").trim(), level: labelled, weight: 3 });
 
   let ownership = 0;
   for (const o of OWNERSHIP_RES) {
@@ -141,7 +175,14 @@ export function classifySeniority(jd: string, roleTitle?: string | null): Senior
     if (!Number.isFinite(mid) || mid < 10_000 || mid > 1_000_000) continue;
     const band = SALARY_BANDS[cur];
     const level: Level = mid > band.senior ? "senior" : mid < band.junior ? "junior" : "mid";
-    signals.push({ kind: "salary", text: m[0].replace(/\s+/g, " ").trim(), level, weight: 1 });
+    const shown = m[0].replace(/\s+/g, " ").trim();
+    signals.push({ kind: "salary", text: shown, level, weight: 1 });
+    // A mid-level floor with the duties that go with it: decisive, like a title,
+    // except against a junior title — graduate schemes at £55k+ are common.
+    const duty = OWNERSHIP_RES[0].re.test(text) ? "mentoring" : ARCHITECTURE_RE.test(text) ? "architecture" : null;
+    if (cur === "GBP" && level === "mid" && low >= SALARY_FLOOR_MID && duty && title?.level !== "junior") {
+      signals.push({ kind: "salary", text: `${shown} with ${duty} duties`, level: "mid", weight: 3 });
+    }
     break;
   }
 
@@ -169,11 +210,17 @@ export function classifySeniority(jd: string, roleTitle?: string | null): Senior
 
 // Compare the read with the candidate's stated years. A false `fits` is the
 // blocking warning; the read never blocks on its own when years are unknown.
-export function seniorityFit(read: SeniorityRead, yearsExperience: number | null): SeniorityFit {
+// earlyCareerOnly (Customize → Eligibility, 5 Nov 2026): the user looks for
+// junior and early-career roles only, so a mid-level or senior read never
+// fits, whatever their years say.
+export function seniorityFit(read: SeniorityRead, yearsExperience: number | null, opts: { earlyCareerOnly?: boolean } = {}): SeniorityFit {
   const { level, signals } = read;
   const label = LEVEL_LABEL[level];
   if (level === "unknown") return { level, fits: null, reason: "The posting doesn't say which level it is written for.", signals };
   if (level === "junior") return { level, fits: true, reason: `This reads as ${label}.`, signals };
+  if (opts.earlyCareerOnly) {
+    return { level, fits: false, reason: `This reads as ${label} — tailoring anyway will spend a credit. You look for junior and early-career roles only (Customize → Eligibility).`, signals };
+  }
   const need = level === "senior" ? SENIOR_MIN_YEARS : MID_MIN_YEARS;
   if (yearsExperience === null) {
     return { level, fits: null, reason: `This reads as ${label} (roles at this level usually expect ${need}+ years) and your years of experience are not set in Customize → Eligibility, so it cannot be checked — set them. Tailoring anyway spends a credit.`, signals };

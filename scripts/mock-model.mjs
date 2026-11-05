@@ -40,7 +40,33 @@ function experienceAnswer(system) {
   return out.join("\n");
 }
 
-function answer(system) {
+// The pre-check's gap read (lib/gapCheck): a "root cause" term is the CV's incident line, when it has one.
+function gapAnswer(user) {
+  let input = {};
+  try {
+    input = JSON.parse(user);
+  } catch {
+    return JSON.stringify({ renames: [] });
+  }
+  const lines = String(input.cv ?? "").split("\n").map((l) => l.replace(/^[•\-*]\s*/, "").trim());
+  const incident = lines.find((l) => /incident/i.test(l));
+  return JSON.stringify({ renames: (input.terms ?? []).map((term) => ({ term, line: /root cause/i.test(term) && incident ? incident : null })) });
+}
+
+function answer(system, user = "") {
+  // A posting can carry its own analysis for a test: "MOCK ANALYSIS: {json}" on one line.
+  if (system.startsWith("You are a JD analyzer")) {
+    const m = /^MOCK ANALYSIS: (\{.*\})$/m.exec(user);
+    if (m) return m[1];
+  }
+  if (system.startsWith("You check which job requirements a CV already shows")) return gapAnswer(user);
+  // The score's edits: one the CV can back, one it can't (lib/suggestionCheck).
+  if (system.startsWith("You annotate a settled recruiter-search-visibility score")) {
+    return JSON.stringify({ hits: [], misses: [], edits: ['Add "HTTP" to the summary: "Optimised HTTP request handling and response serialisation"', "Move Python to the front of your skills line."] });
+  }
+  // A summary asked to name the job applied for writes it, as the real model does; the route strips it.
+  const applied = /the exact role title "([^"]+)" must appear once in the summary[^\n]*as the job being applied for/.exec(system);
+  if (applied) return `Software engineer building web services in Python, applying for the ${applied[1]} role.\nCompleted an industrial placement at Example Lab.`;
   if (/^ROLE \d+: /m.test(system) && /^\[R\d+\.\d+\] /m.test(system)) return experienceAnswer(system);
   if (system.includes("You select and tailor CV projects")) {
     const names = poolNames(system);
@@ -55,9 +81,12 @@ const server = http.createServer((req, res) => {
   req.on("data", (d) => (raw += d));
   req.on("end", () => {
     let system = "";
+    let user = "";
     try {
       const body = JSON.parse(raw || "{}");
       system = typeof body.system === "string" ? body.system : Array.isArray(body.system) ? body.system.map((s) => s.text ?? "").join("\n") : "";
+      const first = Array.isArray(body.messages) ? body.messages[0]?.content : "";
+      user = typeof first === "string" ? first : Array.isArray(first) ? first.map((c) => c.text ?? "").join("\n") : "";
     } catch {
       // An unreadable body gets the plain answer.
     }
@@ -70,7 +99,7 @@ const server = http.createServer((req, res) => {
       stop_reason: "end_turn",
       stop_sequence: null,
       usage: { input_tokens: 1, output_tokens: 1 },
-      content: [{ type: "text", text: answer(system) }],
+      content: [{ type: "text", text: answer(system, user) }],
     }));
   });
 });

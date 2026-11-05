@@ -64,7 +64,7 @@ export function kindOf(term: string): RequirementKind {
 // (namesRequirement, the whole-term matcher, lives in lib/claims so the
 // claims check reads generated text with the same test.)
 
-type SourceLine = { text: string; where: string | null };
+export type SourceLine = { text: string; where: string | null };
 
 function clip(s: string): string {
   const t = s.replace(/\*\*/g, "").replace(/\s+/g, " ").trim();
@@ -240,6 +240,27 @@ function registryLevel(term: string, registry: ClaimsRegistry | null | undefined
 const strList = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim().slice(0, 80)) : [];
 
+/**
+ * Where the master CV and pool say things: paid-work lines (role headers and
+ * bullets), project lines, and listed lines (skills, certificates, the rest).
+ * The CV's own "Currently learning: Kubernetes, Kafka" line is no evidence
+ * that the skill may be named: it places the skill as being learnt, with or
+ * without a registry (the eval harness has none, and the model listed them).
+ */
+export function evidenceLines(cv: string, pool: string | null | undefined): { experience: SourceLine[]; projects: SourceLine[]; listed: SourceLine[]; learnt: string } {
+  const sections = sectionsOf(cv);
+  const experience = experienceLines(cv);
+  const projects = [...projectLines(sections.projects.join("\n")), ...projectLines(pool || "")];
+  const learnt = learningText(cv);
+  const learntLines = learnt.split("\n").map((l) => l.trim()).filter(Boolean);
+  const isLearningLine = (t: string) => learntLines.some((x) => t.includes(x) || x.includes(t.trim()));
+  const listed: SourceLine[] = [
+    ...sections.skills.filter((t) => !isLearningLine(t)).map((t) => ({ text: t, where: "Skills" })),
+    ...sections.other.filter((t) => !isLearningLine(t)).map((t) => ({ text: t, where: null })),
+  ];
+  return { experience, projects, listed, learnt };
+}
+
 export function buildEvidenceMap(
   analysis: unknown,
   cv: string,
@@ -272,19 +293,7 @@ export function buildEvidenceMap(
   add(strList(a.nice_to_have_skills), "preferred");
   add(strList(a.top_15_ats_keywords), "keyword");
 
-  const sections = sectionsOf(cv);
-  const exp = experienceLines(cv);
-  const proj = [...projectLines(sections.projects.join("\n")), ...projectLines(pool || "")];
-  // The CV's own "Currently learning: Kubernetes, Kafka" line is no evidence
-  // that the skill may be named: it places the skill as being learnt, with or
-  // without a registry (the eval harness has none, and the model listed them).
-  const learnt = learningText(cv);
-  const learntLines = learnt.split("\n").map((l) => l.trim()).filter(Boolean);
-  const isLearningLine = (t: string) => learntLines.some((x) => t.includes(x) || x.includes(t.trim()));
-  const listed: SourceLine[] = [
-    ...sections.skills.filter((t) => !isLearningLine(t)).map((t) => ({ text: t, where: "Skills" })),
-    ...sections.other.filter((t) => !isLearningLine(t)).map((t) => ({ text: t, where: null })),
-  ];
+  const { experience: exp, projects: proj, listed, learnt } = evidenceLines(cv, pool);
 
   const items: EvidenceItem[] = [];
   for (const { term, importance } of terms.slice(0, MAX_EVIDENCE_ITEMS)) {
