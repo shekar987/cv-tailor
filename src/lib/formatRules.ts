@@ -65,6 +65,9 @@ export type FormatFixes = {
   // The British-English pass (lib/britishSpelling): how many words changed,
   // and the first few as "from → to".
   spelling?: { count: number; examples: string[] } | null;
+  // lib/roleTitle stripAppliedFor (5 Nov): summary sentences that named the
+  // job being applied for, as written before the clause came out.
+  appliedFor?: string[] | null;
   // The real-page-count fit (lib/onePage fitToRealPages): the built PDF ran
   // past the target and these bullets went, or it still does not fit.
   pageOverflow?: { target: 1 | 2; pagesBefore: number; pagesAfter: number; dropped: { where: "experience" | "projects"; owner: string; bullet: string }[]; fits: boolean } | null;

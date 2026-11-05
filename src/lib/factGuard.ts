@@ -181,7 +181,136 @@ export function keepOutOfLead(skills: string, shape: SkillsShape = FLAT_SKILLS):
   return { text, fix };
 }
 
-export type FactGuardReport = { degrees: string[]; droppedTools: string[]; liftedPhrases: string[] };
+// ── How a role is described (5 Nov 2026) ────────────────────────────────────
+// A summary said "completed industrial placement" for a placement the master
+// CV shows as current, and corrected CVs went out with "currently on an
+// industrial placement" where the master CV no longer calls the role a
+// placement at all. Read off the user's own master CV, never a name in code:
+// another user's placement is real, and their own title is whatever their
+// master CV says (lib/bulletIds lockRoleHeaders restores it on every run).
+//   1. a claim about the candidate's own placement, internship, apprenticeship
+//      or secondment, where the master CV never names one;
+//   2. "completed" / "finished" one, where every such role the master CV
+//      dates is current;
+//   3. "currently on" one, where every such role it dates has ended.
+// Never a sentence about the future or the job applied for ("I am applying
+// for the Industrial Placement", "I hope to spend my placement year with
+// you"). The claim's own clause goes first; the sentence only when nothing
+// sound is left of it, and not even then when `keep` says it must stay (the
+// summary's title sentence) — then it is reported for the user to check.
+const ROLE_KINDS: { noun: string; inMaster: RegExp }[] = [
+  { noun: String.raw`(?:placements?|year\s+in\s+industry|sandwich\s+year)`, inMaster: /\bplacements?\b|\byear\s+in\s+industry\b|\bsandwich\s+year\b/i },
+  { noun: String.raw`internships?`, inMaster: /\bintern(?:ship|ed|ing)?s?\b/i },
+  { noun: String.raw`apprenticeships?`, inMaster: /\bapprentice(?:ship)?s?\b/i },
+  { noun: String.raw`secondments?`, inMaster: /\bsecond(?:ment|ed)\b/i },
+];
+const ROLE_ADJ = String.raw`(?:(?:an?|my|the|his|her|their)\s+)?(?:(?:industrial|professional|research|industry|technical|engineering|software|data|work|summer|paid|graduate|year[-\s]long|\d{1,2}[-\s]month|one[-\s]year|12[-\s]month)\s+){0,3}`;
+// The rest of the claim: where and when ("at Example Lab", "in 2025").
+const ROLE_TAIL = String.raw`(?:\s+(?:at|with|in)\s+[^,.;:!?]{1,60})?`;
+const ONGOING_RE = /\b(?:present|current|now|ongoing|to\s+date)\b/i;
+const DATED_RE = /\b(?:19|20)\d{2}\b/;
+// A sentence about the future or the job applied for is never a claim about a past role.
+const INTENT_RE = /\b(?:apply|applying|keen|hope|hoping|would|will|looking\s+(?:for|to)|seeking|eager|want|wish|plan|planning|aim|aiming|interested|excited|opportunity|joining|join)\b/i;
+// Sentence ends that are not abbreviations ("Ltd. ", "e.g. ").
+const SENTENCE_SPLIT = /(?<!\b(?:Ltd|Inc|Co|Corp|e\.g|i\.e|etc|vs|Dr|Mr|Mrs|Ms|St|No)\.)(?<=[.!?])\s+/;
+// The claim is the predicate ("…, and I am currently on a placement."): cutting
+// the clause alone would leave "I am.", so the cut runs back to the coordinator.
+const COPULA_BEFORE_RE = /\b(?:am|is|are|was|were|been|being)\s*$|['’](?:m|s|re)\s*$/i;
+const COORDINATOR_RE = /(?:,\s*(?:and|but)\s+|;\s*)(?![\s\S]*(?:,\s*(?:and|but)\s+|;\s*))/i;
+
+type RoleState = { absent: boolean; ongoing: boolean; ended: boolean };
+function roleState(master: string, inMaster: RegExp): RoleState {
+  const lines = master.split(/\r?\n/).filter((l) => inMaster.test(l));
+  const dated = lines.filter((l) => DATED_RE.test(l));
+  return { absent: lines.length === 0, ongoing: dated.some((l) => ONGOING_RE.test(l)), ended: dated.some((l) => !ONGOING_RE.test(l)) };
+}
+
+export type RoleStatusResult = { text: string; removed: string[]; flagged: string[] };
+
+const wordCount = (s: string) => (s.match(/[A-Za-z0-9]+/g) ?? []).length;
+
+function sentencesOf(line: string): string[] {
+  // A numbered point stays whole: "2. During my placement …" is one sentence.
+  const out: string[] = [];
+  for (const part of line.split(SENTENCE_SPLIT)) {
+    if (out.length > 0 && /^\s*\d{1,2}[.)]$/.test(out[out.length - 1])) out[out.length - 1] = `${out[out.length - 1]} ${part}`;
+    else out.push(part);
+  }
+  return out;
+}
+
+export function guardRoleStatus(text: string, master: string, opts: { keep?: (sentence: string) => boolean } = {}): RoleStatusResult {
+  const out: RoleStatusResult = { text, removed: [], flagged: [] };
+  if (typeof text !== "string" || !text.trim()) return out;
+  const kinds = ROLE_KINDS.map((k) => ({
+    state: roleState(master || "", k.inMaster),
+    completed: new RegExp(String.raw`\b(?:completed|finished|concluded|wrapped\s+up)\s+${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`, "i"),
+    current: new RegExp(String.raw`\b(?:currently|now)\s+(?:on|in|doing|completing|undertaking)\s+${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`, "i"),
+    own: new RegExp(String.raw`\b(?:during|throughout|in)\s+my\s+(?:\w+\s+){0,2}${k.noun}\b${ROLE_TAIL}|\bmy\s+(?:\w+\s+){0,2}${k.noun}\b${ROLE_TAIL}|\bon\s+${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}|\b(?:completed|finished|concluded|undertook|undertaken|undertaking|spent\s+\w+\s+\w+\s+on)\s+${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`, "i"),
+  }));
+  // The clause that makes the sentence false, or null.
+  const claim = (sentence: string): RegExpMatchArray | null => {
+    if (INTENT_RE.test(sentence)) return null;
+    for (const k of kinds) {
+      const m = k.state.absent
+        ? (sentence.match(k.current) ?? sentence.match(k.completed) ?? sentence.match(k.own))
+        : k.state.ongoing && !k.state.ended
+          ? sentence.match(k.completed)
+          : k.state.ended && !k.state.ongoing
+            ? sentence.match(k.current)
+            : null;
+      if (m) return m;
+    }
+    return null;
+  };
+  out.text = text
+    .split("\n")
+    .map((line) => {
+      // Letter furniture is never a claim.
+      if (!line.trim() || /^\s*(?:dear\b|kind regards|best regards|yours (?:sincerely|faithfully))/i.test(line)) return line;
+      const kept: string[] = [];
+      for (const sentence of sentencesOf(line)) {
+        const m = claim(sentence);
+        if (!m) {
+          kept.push(sentence);
+          continue;
+        }
+        // The clause first: "Software Engineer currently on an industrial placement at X, building Y."
+        const at = m.index ?? sentence.indexOf(m[0]);
+        const before = sentence.slice(0, at);
+        let from = at;
+        if (COPULA_BEFORE_RE.test(before)) {
+          const c = before.match(COORDINATOR_RE);
+          from = c?.index ?? -1;
+        }
+        const span = from < 0 ? sentence : sentence.slice(from, at + m[0].length);
+        const cut = (from < 0 ? "" : `${sentence.slice(0, from)} ${sentence.slice(at + m[0].length)}`)
+          .replace(/\s+([,;:.!?])/g, "$1")
+          .replace(/([,;:])\s*([,;:.!?])/g, "$2")
+          .replace(/^\s*(?:\d{1,2}[.)]\s*)?[,;:]\s*/, (s) => s.replace(/[,;:]\s*/, ""))
+          .replace(/\s{2,}/g, " ")
+          .trim();
+        const lead = (sentence.match(/^\s*\d{1,2}[.)]\s*/) ?? [""])[0];
+        if (wordCount(cut.slice(lead.length)) >= 4 && !claim(cut)) {
+          kept.push(/^[a-z](?![A-Z])/.test(cut.slice(lead.length)) ? lead + cut.charAt(lead.length).toUpperCase() + cut.slice(lead.length + 1) : cut);
+          out.removed.push(span.replace(/^[\s,;]+/, "").trim());
+        } else if (opts.keep?.(sentence)) {
+          kept.push(sentence);
+          out.flagged.push(sentence.trim());
+        } else {
+          out.removed.push(sentence.trim());
+        }
+      }
+      // A line that held nothing but the claim goes with it.
+      return kept.length ? kept.join(" ") : null;
+    })
+    .filter((line): line is string => line !== null)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+  return out;
+}
+
+export type FactGuardReport = { degrees: string[]; droppedTools: string[]; liftedPhrases: string[]; roleStatus: string[]; roleStatusCheck: string[] };
 
 export type GuardOptions = {
   // The user's own skills list (see dropUnbackedTools).
@@ -196,7 +325,7 @@ export function guardFacts(
   jd: string,
   opts: GuardOptions = {}
 ): { summary: unknown; skills: unknown; report: FactGuardReport; leadTools: LeadToolsFix } {
-  const report: FactGuardReport = { degrees: [], droppedTools: [], liftedPhrases: [] };
+  const report: FactGuardReport = { degrees: [], droppedTools: [], liftedPhrases: [], roleStatus: [], roleStatusCheck: [] };
   let leadTools: LeadToolsFix = { moved: [], dropped: [] };
   let summary = sections.summary;
   let skills = sections.skills;
@@ -226,11 +355,13 @@ export type FactGuardNotice = { kind: FactGuardKind; label: string; items: strin
 
 // Lifted phrases first: they are the ones that need the user's own check.
 export const FACT_GUARD_LABELS: Record<FactGuardKind, string> = {
+  roleStatus: "Removed, as your master CV describes the role differently:",
+  roleStatusCheck: "Still in your summary, check it against your master CV:",
   liftedPhrases: "Summary lines copied from the job ad, check they are true:",
   droppedTools: "Removed tools not in your master CV:",
   degrees: "Degree name corrected to your master CV:",
 };
-const NOTICE_ORDER: FactGuardKind[] = ["liftedPhrases", "droppedTools", "degrees"];
+const NOTICE_ORDER: FactGuardKind[] = ["roleStatusCheck", "roleStatus", "liftedPhrases", "droppedTools", "degrees"];
 const MAX_NOTICE_ITEMS = 10;
 
 /** A report from the response (or a stored workspace) re-bounded: strings only. */
@@ -239,7 +370,7 @@ export function normalizeFactGuard(raw: unknown): FactGuardReport | null {
   const r = raw as Record<string, unknown>;
   const list = (v: unknown) =>
     Array.isArray(v) ? v.filter((s): s is string => typeof s === "string" && s.trim() !== "").map((s) => s.trim().slice(0, 160)).slice(0, MAX_NOTICE_ITEMS) : [];
-  return { degrees: list(r.degrees), droppedTools: list(r.droppedTools), liftedPhrases: list(r.liftedPhrases) };
+  return { degrees: list(r.degrees), droppedTools: list(r.droppedTools), liftedPhrases: list(r.liftedPhrases), roleStatus: list(r.roleStatus), roleStatusCheck: list(r.roleStatusCheck) };
 }
 
 /** The key an item's OK is remembered by. */

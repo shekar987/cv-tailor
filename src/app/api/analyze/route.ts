@@ -6,8 +6,9 @@ import { loadOwnOpenRouterKey } from "@/lib/llmRouting";
 import { openRouterLimitMessage, fallbackExhaustedMessage } from "@/lib/fallbackRoute";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { buildEvidenceMap } from "@/lib/evidenceMap";
+import { applyModelRenames, classifyByRules, gapRenameInput, type GapCheck } from "@/lib/gapCheck";
 import { normalizeClaims } from "@/lib/claims";
-import { JD_ANALYZER_PROMPT } from "@/prompts/steps";
+import { GAP_RENAME_PROMPT, JD_ANALYZER_PROMPT } from "@/prompts/steps";
 import { matchAtsKeywords } from "@/lib/atsMatch";
 import {
   detectGates,
@@ -57,6 +58,9 @@ async function findDuplicates(
 
 export const maxDuration = 300;
 
+// The gap read is one small call; past this it gives up and the rules' read stands.
+const GAP_CHECK_TIMEOUT_MS = 20_000;
+
 export async function POST(req: NextRequest) {
   try {
     const caller = await signedIn();
@@ -88,9 +92,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: JD_TOO_LONG }, { status: 400 });
     }
     // cvText is optional: when present, this doubles as the pre-tailoring
-    // gate (Step 1 only, plus local keyword and eligibility checks — no extra
-    // LLM call). When absent, behaviour is the original standalone analysis
-    // plus the free gate/quality/duplicate reads.
+    // gate (Step 1, the local keyword and eligibility checks, and since 5 Nov
+    // one small gap-read call — lib/gapCheck). When absent, behaviour is the
+    // original standalone analysis plus the free gate/quality/duplicate reads.
     const cvText = typeof body.cvText === "string" ? body.cvText : "";
     if (cvText.length > MAX_CV_CHARS) {
       return NextResponse.json({ error: CV_TOO_LONG }, { status: 400 });
@@ -119,6 +123,8 @@ export async function POST(req: NextRequest) {
     // OpenRouter key, once (lib/fallbackRoute); without a key, the 503 below.
     let result: unknown;
     let fallback: { from: "anthropic"; to: "openrouter"; source: "own_key"; reason: "provider_credit" } | null = null;
+    // The user's own key when the analysis fell back to it: the gap read takes the same path.
+    let fallbackKey: string | null = null;
     // An unlimited account's provider choice applies to the pre-check too
     // (the owner's dropdown on /app). Checked against the profile row, never
     // trusted from the body. OpenRouter with no deployment key runs on the
@@ -168,6 +174,7 @@ export async function POST(req: NextRequest) {
         throw fbErr;
       }
       fallback = { from: "anthropic", to: "openrouter", source: "own_key", reason: "provider_credit" };
+      fallbackKey = own.key;
     }
 
     const analysis = (result && typeof result === "object" ? result : {}) as {
@@ -187,7 +194,8 @@ export async function POST(req: NextRequest) {
     // for, against the candidate's stated years — before a credit is spent.
     const seniority = seniorityFit(
       classifySeniority(jobDescription, typeof analysis.role_title === "string" ? analysis.role_title : null),
-      eligibility.yearsExperience
+      eligibility.yearsExperience,
+      { earlyCareerOnly: eligibility.earlyCareerOnly }
     );
 
     if (cvText.trim()) {
@@ -197,11 +205,38 @@ export async function POST(req: NextRequest) {
       // For every requirement: where the master CV shows it — paid work, a
       // project only, a list only, or nowhere (lib/evidenceMap).
       const evidence = buildEvidenceMap(result, cvText, projectsPool, claims);
+      // Each gap sorted before a credit is spent (lib/gapCheck): shown under
+      // another word in the CV (a rename), or no evidence (a core gap). The free
+      // rules first, then one small call on the same path as the analysis for
+      // the rest; a failure leaves the rules' read, never a guess.
+      const byRules = classifyByRules(evidence, cvText, projectsPool);
+      let gapCheck: GapCheck = { items: byRules.items, model: "none" };
+      if (byRules.askModel.length > 0) {
+        const input = gapRenameInput(byRules.askModel, cvText, projectsPool);
+        const call = { system: GAP_RENAME_PROMPT, userInput: input, expectJson: true as const, maxTokens: 1200, timeoutMs: GAP_CHECK_TIMEOUT_MS };
+        try {
+          const pending = pinned
+            ? callLLM({ ...call, provider: pinned.provider, apiKeyOverride: pinned.apiKeyOverride })
+            : fallbackKey
+              ? callLLM({ ...call, provider: "openrouter", apiKeyOverride: fallbackKey })
+              : callClaude(call);
+          // The Claude path takes no deadline of its own: the pre-check never waits past this one.
+          const raw = await Promise.race([
+            pending,
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("gap read timed out")), GAP_CHECK_TIMEOUT_MS)),
+          ]);
+          gapCheck = { items: applyModelRenames(byRules.items, raw, byRules.askModel, cvText, projectsPool), model: "ok" };
+        } catch (gapErr) {
+          console.warn("analyze: gap read failed:", gapErr instanceof Error ? gapErr.message : "unknown");
+          gapCheck = { items: byRules.items, model: "failed" };
+        }
+      }
       return NextResponse.json({
         result,
         atsPreCheck,
         requiredPreCheck,
         evidence,
+        gapCheck,
         knockouts: { profileSet: isEligibilitySet(eligibility), verdicts, read },
         seniority,
         jdQuality: quality,

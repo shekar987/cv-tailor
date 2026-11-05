@@ -207,11 +207,14 @@ export function fromBambooHr(ref: JobRef, data: unknown): ImportedJob | null {
   const job = obj(obj(obj(data)?.result)?.jobOpening);
   if (!job) return null;
   const loc = obj(job.location);
+  // BambooHR's own level field ("Mid-level"), kept in the text the pre-check
+  // reads (lib/seniority reads "Minimum experience: …"; 5 Nov, Unifeye).
+  const level = str(job.minimumExperience).trim();
   return finish(ref, {
     title: decodeEntities(str(job.jobOpeningName)),
     company: boardDisplayName(ref.board),
     location: placeOf(loc?.city, loc?.state, loc?.addressCountry),
-    body: htmlToPlainText(str(job.description, MAX_HTML)),
+    body: `${level && level.length <= 40 ? `Minimum experience: ${decodeEntities(level)}\n\n` : ""}${htmlToPlainText(str(job.description, MAX_HTML))}`,
     applyUrl: cleanLink(job.jobOpeningShareUrl),
   });
 }

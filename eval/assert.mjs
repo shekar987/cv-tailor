@@ -85,9 +85,12 @@ function evaluate(label) {
       const company = typeof d.analysis?.company_name === "string" ? d.analysis.company_name : undefined;
       const boltOns = relevanceBoltOns(d.experience, d.projects, company);
       const retried = d.bulletLint ? (d.bulletLint.retried?.experience ? 1 : 0) + (d.bulletLint.retried?.projects ? 1 : 0) : 0;
-      // The exact role title must be in the summary (hard assertion).
+      // The exact role title must be in the summary (hard assertion) when it is
+      // the candidate's own identity. Since 5 Nov the "applying for the … role"
+      // form is stripped (lib/roleTitle stripAppliedFor), so a run whose title
+      // is not their identity carries none; a run stored before that has no flag.
       const title = coreTitle(d.analysis?.role_title);
-      const titleMissing = !!title && !titleInText(d.summary, title);
+      const titleMissing = !!title && d.titleCheck?.asIdentity !== false && !titleInText(d.summary, title);
       const dup = findDuplicateContent(sections, { projects: [], education: [] });
       const letterWords = String(d.coverLetter || "").trim().split(/\s+/).filter(Boolean).length;
       // The letter's shape (30 Sep audit, Phase 2): sentences about the

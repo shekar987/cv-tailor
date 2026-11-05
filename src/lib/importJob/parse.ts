@@ -23,7 +23,7 @@ export type JobRef = {
   board: string;
   /** The posting's id as the board writes it. */
   id: string;
-  /** Lever's EU board (jobs.eu.lever.co) is served by api.eu.lever.co. */
+  /** Lever's EU board (jobs.eu.lever.co) is served by api.eu.lever.co; Greenhouse's EU board keeps its own page host. */
   eu?: boolean;
 };
 
@@ -50,7 +50,17 @@ export const IMPORT_FETCH_HOSTS: ReadonlySet<string> = new Set([
   "www.linkedin.com",
   "apply.workable.com",
   "api.smartrecruiters.com",
+  // A Greenhouse short link is followed through these to the posting's page,
+  // and only the address it lands on is used (5 Nov 2026).
+  "grnh.se",
+  "job-boards.greenhouse.io",
+  "job-boards.eu.greenhouse.io",
+  "boards.greenhouse.io",
+  "boards.eu.greenhouse.io",
 ]);
+
+// The posting pages a Greenhouse link may name.
+const GREENHOUSE_PAGE_HOSTS: ReadonlySet<string> = new Set(["job-boards.greenhouse.io", "job-boards.eu.greenhouse.io", "boards.greenhouse.io", "boards.eu.greenhouse.io"]);
 
 // <company>.bamboohr.com: one DNS label, never a deeper name.
 const BAMBOO_HOST_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.bamboohr\.com$/;
@@ -66,6 +76,7 @@ const LEVER_BOARD_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const ASHBY_BOARD_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,99}$/;
 const GREENHOUSE_BOARD_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
 const GREENHOUSE_ID_RE = /^\d{1,20}$/;
+const GREENHOUSE_SHORT_RE = /^[A-Za-z0-9]{6,20}$/;
 const LINKEDIN_ID_RE = /^\d{6,20}$/;
 const WORKABLE_ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{0,99}$/i;
 const WORKABLE_CODE_RE = /^[A-Z0-9]{6,16}$/i;
@@ -121,11 +132,28 @@ export function parseJobUrl(raw: string): JobRef | null {
     return { source: "ashby", board, id: id.toLowerCase() };
   }
 
-  if (host === "job-boards.greenhouse.io" || host === "boards.greenhouse.io") {
+  // Greenhouse's short link (grnh.se/<code>) names no board: the route follows
+  // it, as a Workable short link, and parses where it lands (5 Nov 2026).
+  if (host === "grnh.se") {
+    const [code, ...more] = segs;
+    if (!code || more.length || !GREENHOUSE_SHORT_RE.test(code)) return null;
+    return { source: "greenhouse", board: "", id: code };
+  }
+
+  // The EU boards (job-boards.eu.greenhouse.io) are read from the same API,
+  // which serves them too; the application form's embed names the board in ?for=.
+  if (GREENHOUSE_PAGE_HOSTS.has(host)) {
+    const eu = host.includes(".eu.") ? { eu: true } : {};
+    if (segs[0] === "embed" && segs[1] === "job_app" && segs.length === 2) {
+      const board = url.searchParams.get("for") ?? "";
+      const id = url.searchParams.get("token") ?? "";
+      if (!GREENHOUSE_BOARD_RE.test(board) || !GREENHOUSE_ID_RE.test(id)) return null;
+      return { source: "greenhouse", board, id, ...eu };
+    }
     const [board, jobs, id, ...more] = segs;
     if (!board || jobs !== "jobs" || !id || more.length) return null;
     if (!GREENHOUSE_BOARD_RE.test(board) || !GREENHOUSE_ID_RE.test(id)) return null;
-    return { source: "greenhouse", board, id };
+    return { source: "greenhouse", board, id, ...eu };
   }
 
   if (isLinkedInHost(host)) {
@@ -191,6 +219,14 @@ export function workableShortLinkUrl(ref: JobRef): string {
   return `https://apply.workable.com/j/${encodeURIComponent(ref.id)}`;
 }
 
+/** A short link (no board): where it is followed to learn the board, or null for a full link. */
+export function shortLinkUrl(ref: JobRef): string | null {
+  if (ref.board) return null;
+  if (ref.source === "workable") return workableShortLinkUrl(ref);
+  if (ref.source === "greenhouse") return `https://grnh.se/${encodeURIComponent(ref.id)}`;
+  return null;
+}
+
 /** The one public address the posting is read from — always a fixed host. */
 export function sourceApiUrl(ref: JobRef): string {
   const board = encodeURIComponent(ref.board);
@@ -223,7 +259,7 @@ export function postingPageUrl(ref: JobRef): string {
     case "ashby":
       return `https://jobs.ashbyhq.com/${board}/${id}`;
     case "greenhouse":
-      return `https://job-boards.greenhouse.io/${board}/jobs/${id}`;
+      return `https://job-boards${ref.eu ? ".eu" : ""}.greenhouse.io/${board}/jobs/${id}`;
     case "linkedin":
       return `https://www.linkedin.com/jobs/view/${id}/`;
     case "workable":
