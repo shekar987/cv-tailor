@@ -5,11 +5,13 @@
 //   { "outcome": "rejected", "date": "2026-11-02", "source": "gmail" }   record it on a live row
 //   { "outcome": "reopen", "date": "2026-11-05", "source": "gmail", "status": "interview", "note": "Invite for 12 Nov" }
 //                                                                         ask on a closed row
+//   { "outcome": "move_back", "date": "2026-11-05", "source": "gmail", "status": "screening", "note": "Recruiter call" }
+//                                                                         ask on a live row
 //   { "dismiss": true }                                                   "Not true": stays dismissed
 //   { "clear": true }                                                     forget it
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
-import { dismissPending, isEnding, mergePendingOutcome, normalizePendingOutcome } from "@/lib/closing";
+import { dismissPending, dismissalMatches, isEnding, isQuestion, isStepBack, mergePendingOutcome, normalizePendingOutcome } from "@/lib/closing";
 import { apiStatus } from "@/lib/tracker";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -41,13 +43,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       next = null;
     } else if (body.dismiss === true) {
       const stored = normalizePendingOutcome(row.pending_outcome);
+      // What the page was answering has been replaced: it shows the new one, and nothing is dismissed.
+      if (stored && !dismissalMatches(stored, body)) return NextResponse.json({ ok: true, status: apiStatus(row.status), pending_outcome: stored, ignored: "changed" });
       next = stored ? dismissPending(stored, new Date().toISOString().slice(0, 10)) : null;
     } else {
       const incoming = normalizePendingOutcome(body);
-      if (!incoming) return NextResponse.json({ error: "Send an outcome (rejected, withdrawn, ghosted or reopen) and a date (YYYY-MM-DD)." }, { status: 400 });
-      if (incoming.outcome === "reopen") {
-        // It only means something on a closed row; a live one is open already.
-        if (!isEnding(row.status)) return NextResponse.json({ ok: true, status: apiStatus(row.status), pending_outcome: normalizePendingOutcome(row.pending_outcome), ignored: "live" });
+      if (!incoming) return NextResponse.json({ error: "Send an outcome (rejected, withdrawn, ghosted, reopen, or move_back with a status) and a date (YYYY-MM-DD)." }, { status: 400 });
+      if (isQuestion(incoming)) {
+        // A reopen only means something on a closed row; a move back only as a real step back on a live one.
+        const reopen = incoming.outcome === "reopen";
+        if (reopen ? !isEnding(row.status) : isEnding(row.status) || !isStepBack(row, incoming.status)) return NextResponse.json({ ok: true, status: apiStatus(row.status), pending_outcome: normalizePendingOutcome(row.pending_outcome), ignored: reopen ? "live" : "not_a_step_back" });
         // A report says what happened. What is dismissed and what is remembered are not its to say.
         const merged = mergePendingOutcome(row.pending_outcome, { ...incoming, dismissed: undefined, earlier: undefined });
         next = merged.value;
@@ -58,7 +63,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         const stored = normalizePendingOutcome(row.pending_outcome);
         const answered = { ...incoming, dismissed: true };
         // A question stands in the way of remembering it, so it is kept behind the question.
-        next = !stored ? answered : stored.outcome === "reopen" && !stored.earlier ? { ...stored, earlier: answered } : stored;
+        next = !stored ? answered : isQuestion(stored) && !stored.earlier ? { ...stored, earlier: answered } : stored;
         ignored = next === stored;
         closedNote = true;
       } else {
@@ -75,7 +80,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         return NextResponse.json({ error: "Could not save that outcome" }, { status: 500 });
       }
     }
-    return NextResponse.json({ ok: true, status: apiStatus(row.status), pending_outcome: next, ...(closedNote ? { ignored: "closed" } : ignored ? { ignored: "dismissed" } : {}) });
+    const held = ignored && !closedNote && !(next as { dismissed?: boolean } | null)?.dismissed && !normalizePendingOutcome(next)?.earlier;
+    return NextResponse.json({ ok: true, status: apiStatus(row.status), pending_outcome: next, ...(closedNote ? { ignored: "closed" } : held ? { ignored: "pending" } : ignored ? { ignored: "dismissed" } : {}) });
   } catch (err) {
     console.error("pending-outcome error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not save that outcome" }, { status: 500 });

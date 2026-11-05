@@ -211,10 +211,10 @@ export default function EventForm({
         const moved = await fetch("/api/applications", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          // The user ticked this move, so a closed row reopens on their word.
-          body: JSON.stringify({ id: application.id, status: movesTo, confirmed_reopen: true }),
+          // The user ticked this move, so a closed row reopens, or a row steps back, on their word.
+          body: JSON.stringify({ id: application.id, status: movesTo, confirmed_reopen: true, confirmed_move_back: true }),
         });
-        if (!moved.ok) {
+        if (!moved.ok || moved.status === 202) {
           const detail = await moved.json().catch(() => ({}));
           setError(`The event is saved, but ${application.company_name} did not move to ${STATUS_LABELS[movesTo]}, so it stays off your plan.${detail.error ? ` ${detail.error}` : ""} Saving again will not add a second event.`);
           return;

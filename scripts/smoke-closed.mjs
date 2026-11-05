@@ -22,7 +22,7 @@ async function newUser(tag) {
   const created = await (await fetch(`${SB}/auth/v1/admin/users`, { method: "POST", headers: admin, body: json({ email, password, email_confirm: true }) })).json();
   const session = await (await fetch(`${SB}/auth/v1/token?grant_type=password`, { method: "POST", headers: { apikey: PUB, "Content-Type": "application/json" }, body: json({ email, password }) })).json();
   const cookie = `sb-${REF}-auth-token=base64-${Buffer.from(json(session)).toString("base64url")}`;
-  const call = (path, opts = {}) => fetch(BASE + path, { ...opts, headers: { cookie, ...(opts.body ? { "Content-Type": "application/json" } : {}) } });
+  const call = (path, opts = {}) => fetch(BASE + path, { ...opts, headers: { cookie, ...(opts.body ? { "Content-Type": "application/json" } : {}), ...opts.headers } });
   return { id: created.id, token: session.access_token, call };
 }
 
@@ -62,7 +62,7 @@ try {
 
   // ── The history only grows ───────────────────────────────────────────────
   const hist = await add("Interview", "History");
-  check("Screening on an Interview row saves", (await put(hist, { status: "Screening" })).status === 200 && (await read(hist)).status === "Screening");
+  check("Screening on an Interview row, on the user's word, saves", (await put(hist, { status: "Screening", confirmed_move_back: true })).status === 200 && (await read(hist)).status === "Screening");
   check("and the interview stays on its record", (await read(hist)).stages_reached.includes("interview"), (await read(hist)).stages_reached.join());
   const direct = await fetch(`${SB}/rest/v1/applications?id=eq.${hist}`, { method: "PATCH", headers: { apikey: PUB, Authorization: `Bearer ${a.token}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: json({ stages_reached: [] }) });
   check("a direct write can't shrink it either", direct.ok && (await read(hist)).stages_reached.includes("interview"), `${direct.status} ${(await read(hist)).stages_reached.join()}`);
@@ -219,6 +219,93 @@ try {
   const fullBody = await (await put(full, { status: "interview", closed_at: null, close_reason: null, confirmed_reopen: true })).json();
   check("full notes: the Reopen saves and says what it left out", /notes are full.*Invite for 12 Nov/.test(fullBody.warning ?? "") && (await read(full)).status === "Interview", json(fullBody).slice(0, 200));
   check("and never cuts them", (await stored(full, "notes")).notes.length === 1995);
+
+  // ── A sweep stepping a live row back asks too ────────────────────────────
+  const live = await add("Interview", "Step back");
+  await put(live, { notes: "Mine" });
+  const back = await put(live, { status: "Screening", notes: "Mine\nRecruiter call booked" });
+  const backBody = await back.json();
+  row = await read(live);
+  check("a step back answers 202", back.status === 202 && backBody.applied === false && /needs the user's word/.test(backBody.message ?? ""), json(backBody).slice(0, 200));
+  check("the row stays where it stands, notes included", row.status === "Interview" && (await stored(live, "notes")).notes === "Mine", row.status);
+  check("the question quotes the report", row.pending_outcome?.outcome === "move_back" && row.pending_outcome?.status === "screening" && row.pending_outcome?.note === "Recruiter call booked", json(row.pending_outcome));
+  check("a sweep rewriting the same status still lands, and the question stands", (await put(live, { status: "Interview", notes: "Mine\nSweep line" })).status === 200 && (await read(live)).pending_outcome?.outcome === "move_back");
+  await patchOutcome(live, { dismiss: true });
+  check("Not true holds against the next run", (await (await put(live, { status: "Screening" })).json()).ignored === "dismissed" && (await read(live)).status === "Interview");
+  const offerRow = await add("Offer", "Further back");
+  const askOffer = await patchOutcome(offerRow, { outcome: "move_back", date: "2026-11-05", source: "gmail", status: "interview", note: "Second round" });
+  check("the outcome route can ask too", askOffer.pending_outcome?.outcome === "move_back" && (await read(offerRow)).status === "Offer", json(askOffer).slice(0, 180));
+  check("but only for a real step back", (await patchOutcome(live, { outcome: "move_back", date: "2026-11-05", source: "gmail", status: "offer" })).ignored === "not_a_step_back");
+  const yes = await put(offerRow, { status: "interview", pending_outcome: null, confirmed_move_back: true });
+  row = await read(offerRow);
+  check("the user's word moves it and answers the question", yes.status === 200 && row.status === "Interview" && !row.pending_outcome, json(row).slice(0, 200));
+  check("the row takes those words", (await stored(offerRow, "notes")).notes === "Second round");
+  check("the history keeps the offer", row.stages_reached.includes("offer"), row.stages_reached.join());
+  const waiting = await add("Interview", "Rejection waiting");
+  await patchOutcome(waiting, { outcome: "rejected", date: "2026-11-02", source: "gmail" });
+  const heldBack = await (await put(waiting, { status: "Screening" })).json();
+  check("a rejection still waiting isn't pushed out by a question", heldBack.ignored === "pending" && (await read(waiting)).pending_outcome?.outcome === "rejected", json(heldBack).slice(0, 180));
+
+  // A banner on a stale page answers what it was showing, not what has replaced it.
+  const stale = await add("Interview", "Stale banner");
+  await put(stale, { status: "Screening" });
+  await patchOutcome(stale, { outcome: "rejected", date: "2026-11-02", source: "gmail" });
+  const notTrue = await patchOutcome(stale, { dismiss: true, outcome: "move_back", date: "2026-11-05" });
+  row = await read(stale);
+  check("Not true on a replaced question dismisses nothing", notTrue.ignored === "changed" && row.pending_outcome?.outcome === "rejected" && !row.pending_outcome?.dismissed, json(row.pending_outcome));
+  const moveAnyway = await put(stale, { status: "Screening", pending_outcome: null, confirmed_move_back: true });
+  row = await read(stale);
+  check("Move back on one moves the row and leaves the rejection", moveAnyway.status === 200 && row.status === "Screening" && row.pending_outcome?.outcome === "rejected" && !row.pending_outcome?.dismissed, json(row).slice(0, 220));
+  const noted = await add("Interview", "Question then close");
+  await put(noted, { status: "Screening" });
+  await put(noted, { status: "Rejected", confirmed_by_user: true });
+  await patchOutcome(noted, { outcome: "rejected", date: "2026-11-02", source: "gmail" });
+  check("a report on a closed row is remembered behind a question", (await read(noted)).pending_outcome?.earlier?.date === "2026-11-02", json((await read(noted)).pending_outcome));
+
+  // ── Remove a stage picked by mistake ─────────────────────────────────────
+  const removeUrl = (rowId) => `/api/applications/${rowId}/remove-stage`;
+  const remove = (rowId, body, user = a, headers = { "sec-fetch-site": "same-origin" }) => user.call(removeUrl(rowId), { method: "POST", headers, body: json(body) });
+  const picked = await add("Interview", "Mis-pick");
+  await put(picked, { status: "Screening", confirmed_move_back: true });
+  check("a sweep's API call is refused", (await remove(picked, { stage: "interview", confirmed_by_user: true }, a, {})).status === 403);
+  check("a page from elsewhere is refused", (await remove(picked, { stage: "interview", confirmed_by_user: true }, a, { "sec-fetch-site": "cross-site" })).status === 403);
+  check("signed out, refused", (await fetch(BASE + removeUrl(picked), { method: "POST", headers: { "Content-Type": "application/json", "sec-fetch-site": "same-origin" }, body: json({ stage: "interview", confirmed_by_user: true }) })).status === 401);
+  check("it needs the user's confirmation", (await remove(picked, { stage: "interview" })).status === 409);
+  check('the string "true" is not confirmation', (await remove(picked, { stage: "interview", confirmed_by_user: "true" })).status === 409);
+  check("not where it stands now", (await remove(picked, { stage: "screening", confirmed_by_user: true })).status === 409);
+  check("not a stage it never reached", (await remove(picked, { stage: "offer", confirmed_by_user: true })).status === 409);
+  check("not one that isn't a counted stage", (await remove(picked, { stage: "applied", confirmed_by_user: true })).status === 409);
+  check("another user can't", (await remove(picked, { stage: "interview", confirmed_by_user: true }, b)).status === 404);
+  check("a PUT can't shrink it", (await put(picked, { stages_reached: ["applied"] })).status < 500 && (await read(picked)).stages_reached.includes("interview"));
+  const planCount = async () => (await (await a.call("/api/plan")).json()).funnel?.nodes?.find((n) => n.key === "interview")?.count;
+  const countBefore = await planCount();
+  const removed = await remove(picked, { stage: "interview", confirmed_by_user: true });
+  if (removed.status === 503) {
+    console.log("SKIP removing a stage on the real database: migration 20261105130000 is not applied yet");
+    check("until then it says which file", /20261105130000/.test((await removed.json()).error ?? ""));
+    check("and the row is untouched", (await read(picked)).stages_reached.includes("interview"));
+  } else {
+    const removedBody = await removed.json();
+    row = await read(picked);
+    const day = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" });
+    check("on the user's word it goes", removed.status === 200 && !row.stages_reached.includes("interview") && removedBody.stages_reached.join() === row.stages_reached.join(), json(removedBody).slice(0, 200));
+    check("only that stage", row.stages_reached.join() === "screening", row.stages_reached.join());
+    check("with the dated note, in the owner's words", (await stored(picked, "notes")).notes === `Removed 'interview' on ${day} — picked by mistake`, (await stored(picked, "notes")).notes);
+    check("where it stands is unchanged", row.status === "Screening");
+    check("it comes off the count", typeof countBefore === "number" && (await planCount()) === countBefore - 1, `${countBefore} then ${await planCount()}`);
+    check("once only", (await remove(picked, { stage: "interview", confirmed_by_user: true })).status === 409);
+    const direct = await fetch(`${SB}/rest/v1/applications?id=eq.${hist}`, { method: "PATCH", headers: { apikey: PUB, Authorization: `Bearer ${a.token}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: json({ stages_reached: [] }) });
+    check("a direct write still can't shrink a list", direct.ok && (await read(hist)).stages_reached.includes("interview"), (await read(hist)).stages_reached.join());
+    const fullNotes = await add("Interview", "Full notes");
+    await put(fullNotes, { status: "Screening", confirmed_move_back: true, notes: "x".repeat(1990) });
+    const tooFull = await remove(fullNotes, { stage: "interview", confirmed_by_user: true });
+    check("notes too full for the line: the stage stays", tooFull.status === 409 && (await tooFull.json()).errorType === "notes_full" && (await read(fullNotes)).stages_reached.includes("interview"));
+    const snapshotRow = await add("Screening", "Snapshot");
+    await put(snapshotRow, { status: "Interview" });
+    await put(snapshotRow, { status: "Rejected", confirmed_by_user: true });
+    await remove(snapshotRow, { stage: "interview", confirmed_by_user: true });
+    check("it counts as the next change: Undo no longer applies", (await put(snapshotRow, { undo_close: true })).status === 409);
+  }
 
   // ── One user's rows are their own ────────────────────────────────────────
   const other = await b.call(pendingUrl(id), { method: "PATCH", body: json({ outcome: "rejected", date: "2026-11-02", source: "gmail" }) });

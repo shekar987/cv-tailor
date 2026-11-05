@@ -18,7 +18,7 @@ import { normalizeStyleCheck } from "@/lib/styleCheck";
 import { validateReferralFields, REFERRAL_MIGRATION_HINT, type ReferralFields } from "@/lib/referrals";
 import { triageJd, buildTriageProfile, type JdTriage } from "@/lib/triage/jdTriage";
 import { MAX_APPLICATIONS, readApplicationPages, toListRow, type OrderableQuery } from "@/lib/applicationRows";
-import { MAX_LESSON_CHARS, REOPEN_DISMISSED, REOPEN_RECORDED, UNDO_EXPIRED, decideClosingWrite, isCloseReason, isEnding, mergePendingOutcome, normalizePendingOutcome, normalizeUndoSnapshot, undoIsLive, undoWrite, type ClosingCurrent, type CloseReason, type PendingOutcome, type UndoSnapshot } from "@/lib/closing";
+import { MAX_LESSON_CHARS, MOVE_BACK_RECORDED, REOPEN_RECORDED, REPORT_DISMISSED, REPORT_HELD, UNDO_EXPIRED, decideClosingWrite, isCloseReason, isEnding, mergePendingOutcome, normalizePendingOutcome, normalizeUndoSnapshot, reportTaken, undoIsLive, undoWrite, type ClosingCurrent, type CloseReason, type PendingOutcome, type UndoSnapshot } from "@/lib/closing";
 
 const REFERRAL_KEYS = ["referral", "referrer_name", "req_id", "referral_status"] as const;
 
@@ -818,25 +818,28 @@ export async function PUT(req: NextRequest) {
         const { status, ...refusal } = decision.refuse;
         return NextResponse.json({ ...refusal, ...(refusal.errorType === "needs_confirmation" ? { pendingOutcomeUrl: `/api/applications/${id}/pending-outcome` } : {}) }, { status });
       }
-      // An open status on a closed row, without the user's word: this row may not even be the
-      // right one, so nothing in this write lands. The banner asks, quoting what it reported,
-      // and the row takes those words only if the user reopens it.
-      if ("reopenRequest" in decision) {
-        const merged = mergePendingOutcome(current?.pending_outcome, decision.reopenRequest);
+      // An open status on a closed row, or a step back on a live one, without the user's word:
+      // this row may not even be the right one, so nothing in this write lands. The banner asks,
+      // quoting what it reported, and the row takes those words only if the user says yes.
+      if ("ask" in decision) {
+        const merged = mergePendingOutcome(current?.pending_outcome, decision.ask);
         if (!merged.ignored) {
           const { error: askError } = await supabase.from("applications").update({ pending_outcome: merged.value }).eq("id", id).eq("user_id", userId);
           if (askError) {
             if (isMissingColumn(askError)) return NextResponse.json({ error: CLOSED_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
-            console.error("applications reopen request error:", askError.code ?? "unknown");
+            console.error("applications question error:", askError.code ?? "unknown");
             return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
           }
         }
-        return NextResponse.json({ ok: true, applied: false, message: merged.ignored ? REOPEN_DISMISSED : REOPEN_RECORDED, status: apiStatus(current?.status), pending_outcome: merged.value, ...(merged.ignored ? { ignored: "dismissed" } : {}) }, { status: 202 });
+        const message = merged.ignored ? (merged.value.dismissed || merged.value.outcome === decision.ask.outcome ? REPORT_DISMISSED : REPORT_HELD) : decision.ask.outcome === "reopen" ? REOPEN_RECORDED : MOVE_BACK_RECORDED;
+        return NextResponse.json({ ok: true, applied: false, message, status: apiStatus(current?.status), pending_outcome: merged.value, ...(merged.ignored ? { ignored: message === REPORT_HELD ? "pending" : "dismissed" } : {}) }, { status: 202 });
       }
+      // Object.assign can't take a key away: a null the rule refused to honour must not reach the write.
+      if (!("pending_outcome" in decision.fields)) delete fields.pending_outcome;
       if (!("notes" in fields)) {
         const asked = normalizePendingOutcome(current?.pending_outcome);
         if (decision.fields.notes !== undefined) reportNotes = decision.fields.notes;
-        else if (asked?.outcome === "reopen" && asked.note && !asked.dismissed && decision.fields.pending_outcome !== undefined) reportLeftOut = `Your notes are full, so this was not added to them: "${asked.note}"`;
+        else if (asked && !isEnding(fields.status) && reportTaken(asked, fields.status) && asked.note && !asked.dismissed && decision.fields.pending_outcome !== undefined) reportLeftOut = `Your notes are full, so this was not added to them: "${asked.note}"`;
       }
       Object.assign(fields, decision.fields);
     }

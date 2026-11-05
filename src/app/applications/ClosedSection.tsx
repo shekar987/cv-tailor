@@ -5,7 +5,8 @@
 // fold is remembered per tab in this browser. Every rule is lib/closing.
 import { useEffect, useState } from "react";
 import RowMenu from "./RowMenu";
-import { LESSON_PLACEHOLDER, MAX_LESSON_CHARS, pendingBanner, pendingLine, progressChip, resultLine, type StageTab } from "@/lib/closing";
+import { LESSON_PLACEHOLDER, MAX_LESSON_CHARS, pendingBanner, pendingLine, progressChip, removableStages, removeStageLabel, resultLine, type StageTab } from "@/lib/closing";
+import type { Status } from "@/lib/tracker";
 import type { PlanEvent } from "@/lib/plan";
 
 const foldKey = (tab: StageTab) => `jobhuntz:closed-open:${tab}`;
@@ -67,12 +68,13 @@ function Lesson({ row, onSave }: { row: ClosedRow; onSave: (id: string, lesson: 
 }
 
 export default function ClosedSection({
-  tab, rows, eventsOf, onReopen, onDismiss, onLesson,
+  tab, rows, eventsOf, onReopen, onRemoveStage, onDismiss, onLesson,
 }: {
   tab: StageTab;
   rows: readonly ClosedRow[];
   eventsOf: (id: string) => readonly PlanEvent[];
   onReopen: (row: ClosedRow) => void;
+  onRemoveStage: (row: ClosedRow, stage: Status) => void;
   onDismiss: (row: ClosedRow) => void;
   onLesson: (id: string, lesson: string | null) => void;
 }) {
@@ -117,7 +119,7 @@ export default function ClosedSection({
               <span className="closedChip" data-closed-chip>{progressChip(row, eventsOf(row.id))}</span>
               <span className="closedResult" data-closed-result>{resultLine(row)}</span>
               <Lesson row={row} onSave={onLesson} />
-              <RowMenu label={`Actions for ${row.company_name}`} items={[{ key: "reopen", label: "Reopen", onSelect: () => onReopen(row) }]} />
+              <RowMenu label={`Actions for ${row.company_name}`} items={[{ key: "reopen", label: "Reopen", onSelect: () => onReopen(row) }, ...removableStages(row).map((stage) => ({ key: `remove-${stage}`, label: removeStageLabel(stage), onSelect: () => onRemoveStage(row, stage) }))]} />
               {(() => {
                 const banner = pendingBanner(row);
                 return banner?.kind === "reopen" ? (

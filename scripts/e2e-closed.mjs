@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { REOPEN_RECORDED, UNDO_EXPIRED, decideClosingWrite, isEnding, mergePendingOutcome, normalizePendingOutcome, normalizeUndoSnapshot, undoIsLive, undoWrite } from "../src/lib/closing.ts";
+import { MOVE_BACK_RECORDED, REOPEN_RECORDED, UNDO_EXPIRED, decideClosingWrite, dismissPending, dismissalMatches, isEnding, mergePendingOutcome, normalizePendingOutcome, normalizeUndoSnapshot, removedStageNote, undoIsLive, undoWrite } from "../src/lib/closing.ts";
 import { apiStatus, followupClearedNote, normalizeStatus, stagesAfterMove } from "../src/lib/tracker.ts";
 
 const BASE = process.env.SMOKE_BASE || "http://localhost:3100";
@@ -68,6 +68,7 @@ let refused = 0;
 let failNextLesson = false;
 let warnNextClose = false;
 
+const removals = [];
 async function standIn(ctx) {
   await ctx.route(/\/api\/actions(\?.*)?$/, (r) => r.fulfill({ json: { events: openEvents, closedByConfirmation: [], applications: [], availability: [] } }));
   await ctx.route(/\/api\/events(\?.*)?$/, (r) => r.fulfill({ json: { events: [...openEvents, event(byName("Bravo"), "video", -5)] } }));
@@ -76,9 +77,22 @@ async function standIn(ctx) {
     const target = rows.find((x) => x.id === id);
     const body = r.request().postDataJSON();
     patches.push({ id, body });
-    if (body.dismiss) target.pending_outcome = { ...normalizePendingOutcome(target.pending_outcome), dismissed: true };
+    const shown = normalizePendingOutcome(target.pending_outcome);
+    if (body.dismiss && shown && !dismissalMatches(shown, body)) {
+      await r.fulfill({ json: { ok: true, status: apiStatus(target.status), pending_outcome: shown, ignored: "changed" } });
+      return;
+    }
+    if (body.dismiss) target.pending_outcome = dismissPending(shown, new Date().toISOString().slice(0, 10));
     else if (!isEnding(target.status) || body.outcome === "reopen") target.pending_outcome = mergePendingOutcome(target.pending_outcome, normalizePendingOutcome(body)).value;
     await r.fulfill({ json: { ok: true, status: apiStatus(target.status), pending_outcome: target.pending_outcome } });
+  });
+  await ctx.route(/\/api\/applications\/[^/]+\/remove-stage$/, async (r) => {
+    const target = rows.find((x) => x.id === r.request().url().split("/").at(-2));
+    const body = r.request().postDataJSON();
+    removals.push({ id: target.id, body });
+    target.stages_reached = target.stages_reached.filter((s) => s !== body.stage);
+    target.notes = removedStageNote(body.stage, new Date()) + (target.notes ? `\n${target.notes}` : "");
+    await r.fulfill({ json: { ok: true, notes: target.notes, stages_reached: target.stages_reached } });
   });
   await ctx.route(/\/api\/applications(\?.*)?$/, async (r) => {
     const req = r.request();
@@ -117,10 +131,10 @@ async function standIn(ctx) {
       await r.fulfill({ status, json: refusal });
       return;
     }
-    if ("reopenRequest" in decision) {
-      const merged = mergePendingOutcome(target.pending_outcome, decision.reopenRequest);
+    if ("ask" in decision) {
+      const merged = mergePendingOutcome(target.pending_outcome, decision.ask);
       target.pending_outcome = merged.value;
-      await r.fulfill({ status: 202, json: { ok: true, message: REOPEN_RECORDED, status: apiStatus(target.status), pending_outcome: merged.value, ...(merged.ignored ? { ignored: "dismissed" } : {}) } });
+      await r.fulfill({ status: 202, json: { ok: true, applied: false, message: decision.ask.outcome === "reopen" ? REOPEN_RECORDED : MOVE_BACK_RECORDED, status: apiStatus(target.status), pending_outcome: merged.value, ...(merged.ignored ? { ignored: "dismissed" } : {}) } });
       return;
     }
     // As the route: an ending clears an open follow-up and notes it.
@@ -425,7 +439,7 @@ try {
   check("nor writes anything else: it may be the wrong row", !bravo.notes);
   await open();
   const reopenNotice = page.locator("[data-reopen-notice]");
-  check("a notice says so, wherever you are", /New activity on 1 closed application/.test(await reopenNotice.innerText()), await reopenNotice.innerText());
+  check("a notice says so, wherever you are", /New activity on 1 application/.test(await reopenNotice.innerText()), await reopenNotice.innerText());
   check("the folded section says so too", /1 with new activity/.test(await page.locator("[data-closed-summary]").innerText()), await page.locator("[data-closed-summary]").innerText());
   await page.locator("[data-reopen-show]").click();
   await page.waitForTimeout(150);
@@ -450,6 +464,100 @@ try {
   check("and sends the user's word", puts.at(-1).confirmed_reopen === true && puts.at(-1).confirmed_by_user === undefined, JSON.stringify(puts.at(-1)).slice(0, 180));
   check("the question is answered", !bravo.pending_outcome);
   await page.reload({ waitUntil: "load" });
+
+  // ── A sweep stepping a live Interview row back asks, in the same pattern ──
+  const mike = byName("Mike");
+  const stepPut = (id, status, notes) => page.evaluate(async ([rowId, st, n]) => {
+    const res = await fetch("/api/applications", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: rowId, status: st, ...(n ? { notes: n } : {}) }) });
+    return { status: res.status, body: await res.json() };
+  }, [id, status, notes]);
+  const stepAsked = await stepPut(mike.id, "Screening", "Recruiter call booked");
+  check("a sweep's step back answers 202", stepAsked.status === 202 && stepAsked.body.applied === false && stepAsked.body.pending_outcome?.outcome === "move_back", JSON.stringify(stepAsked).slice(0, 200));
+  check("and doesn't move it", mike.status === "interview" && !mike.notes);
+  await open("interview");
+  const stepBanner = page.locator('[data-pending-row="Mike"] [data-pending-banner="move_back"]');
+  check("the banner asks, as Reopen does", /^New activity from Mike — Move back to Screening\?/.test(await stepBanner.innerText()), await stepBanner.innerText());
+  check("and quotes the report", (await stepBanner.locator("[data-pending-note]").innerText()) === "Recruiter call booked");
+  await page.screenshot({ path: path.join(SHOTS, "move-back.png"), fullPage: false });
+  await page.locator('[data-stage-row="Mike"] [data-row-menu]').click();
+  await page.locator('[data-menu-item="move-closed"]').click();
+  check("Move to Closed isn't pre-filled by a question", (await page.locator("[data-close-reason]").inputValue()) === "rejected");
+  await page.locator("[data-close-cancel]").click();
+  await stepBanner.locator("[data-pending-move-back]").click();
+  await page.waitForTimeout(250);
+  check("Move back moves it", mike.status === "screening", mike.status);
+  check("on the user's word", puts.at(-1).confirmed_move_back === true && puts.at(-1).confirmed_by_user === undefined, JSON.stringify(puts.at(-1)).slice(0, 160));
+  check("the question is answered", !mike.pending_outcome);
+  check("the interview stays on its record", mike.stages_reached.includes("interview"), mike.stages_reached.join());
+  const nov = byName("November");
+  await stepPut(nov.id, "Screening");
+  await open("interview");
+  await page.locator('[data-pending-row="November"] [data-pending-dismiss]').click();
+  await page.waitForTimeout(200);
+  check("Not true leaves it where it is", nov.status === "interview" && nov.pending_outcome.dismissed === true);
+  check("and holds against the next run", (await stepPut(nov.id, "Screening")).body.pending_outcome?.dismissed === true && nov.status === "interview");
+
+  // A banner on a stale page: a sweep's rejection has replaced the question it shows.
+  const oscar = byName("Oscar");
+  const papa = byName("Papa");
+  await stepPut(oscar.id, "Screening");
+  await stepPut(papa.id, "Screening");
+  await open("interview");
+  const reported = { outcome: "rejected", date: "2026-11-02", source: "gmail" };
+  oscar.pending_outcome = { ...reported };
+  papa.pending_outcome = { ...reported };
+  await page.locator('[data-pending-row="Oscar"] [data-pending-dismiss]').click();
+  await page.waitForTimeout(200);
+  check("Not true on it buries nothing", oscar.pending_outcome.outcome === "rejected" && !oscar.pending_outcome.dismissed, JSON.stringify(oscar.pending_outcome));
+  check("and the row now shows the rejection", /^Rejected on 2 Nov/.test(await page.locator('[data-pending-row="Oscar"] [data-pending-banner]').innerText()));
+  await page.locator('[data-pending-row="Papa"] [data-pending-move-back]').click();
+  await page.waitForTimeout(250);
+  check("Move back on it moves the row and keeps the rejection", papa.status === "screening" && papa.pending_outcome?.outcome === "rejected" && !papa.pending_outcome?.dismissed, JSON.stringify([papa.status, papa.pending_outcome]));
+
+  // The event form's tick is the user's word, in either direction, and says only what happened.
+  const romeo = byName("Romeo");
+  romeo.status = "accepted";
+  romeo.stages_reached = ["applied", "interview", "offer", "accepted"];
+  await open("won");
+  await page.locator('[data-stage-row="Romeo"] [data-row-menu]').click();
+  await page.locator('[data-menu-item="add-step"]').click();
+  await page.locator("[data-event-form]").waitFor();
+  check("the form offers the move", (await page.locator("[data-event-move-toggle]").isChecked()) === true);
+  await page.locator("[data-event-date]").fill("2026-12-01");
+  await page.locator("[data-event-time]").fill("10:00");
+  await page.locator("[data-event-save]").click();
+  await page.locator("[data-event-form]").waitFor({ state: "detached", timeout: 8000 });
+  check("a move back from the form lands", romeo.status === "interview" && puts.at(-1).confirmed_move_back === true, JSON.stringify([romeo.status, puts.at(-1)]).slice(0, 200));
+  check("and plants no question", !romeo.pending_outcome, JSON.stringify(romeo.pending_outcome));
+
+  // ── Remove a stage picked by mistake: Mike never reached interview after all ──
+  const interviewCount = async () => Number((await summary()).match(/Reached interview (\d+)/)?.[1]);
+  await open("interview");
+  const interviewBefore = await interviewCount();
+  await open("screening");
+  await page.locator('[data-stage-row="Mike"] [data-row-menu]').click();
+  await page.screenshot({ path: path.join(SHOTS, "remove-stage-menu.png"), fullPage: false });
+  await page.locator('[data-menu-item="remove-interview"]').click();
+  const removeAsk = page.locator("[data-confirm-dialog]");
+  await removeAsk.waitFor({ timeout: 5000 });
+  const removeText = await removeAsk.innerText();
+  check("it asks first, quoting the note", /Removed 'interview' on \d+ \w+ — picked by mistake/.test(removeText), removeText.slice(0, 200));
+  await page.screenshot({ path: path.join(SHOTS, "remove-stage-confirm.png"), fullPage: false });
+  check("and sends nothing yet", removals.length === 0);
+  await page.locator("[data-confirm-cancel]").click();
+  await page.waitForTimeout(150);
+  check("Cancel leaves it", mike.stages_reached.includes("interview") && removals.length === 0);
+  await page.locator('[data-stage-row="Mike"] [data-row-menu]').click();
+  await page.locator('[data-menu-item="remove-interview"]').click();
+  await removeAsk.waitFor({ timeout: 5000 });
+  await page.locator("[data-confirm-ok]").click();
+  await page.waitForTimeout(250);
+  check("confirmed, it goes", !mike.stages_reached.includes("interview"), mike.stages_reached.join());
+  check("sent as the user's word", removals[0]?.body.confirmed_by_user === true && removals[0]?.body.stage === "interview", JSON.stringify(removals[0]));
+  check("the row's notes say so", /^Removed 'interview' on \d+ \w+ — picked by mistake/.test(mike.notes ?? ""), mike.notes);
+  check("the menu no longer offers it", await (async () => { await page.locator('[data-stage-row="Mike"] [data-row-menu]').click(); const n = await page.locator('[data-menu-item="remove-interview"]').count(); await page.keyboard.press("Escape"); return n === 0; })());
+  await open("interview");
+  check("it comes off the count, and the note says why", (await interviewCount()) === interviewBefore - 1, `${interviewBefore} then ${await interviewCount()}`);
 
   check("no console errors", errors.length === 0, errors.slice(0, 3).join(" | ").slice(0, 300));
 
@@ -492,6 +600,13 @@ try {
     check("Undo puts the real row back", backAgain.status === "Interview" && !backAgain.closed_at && !backAgain.lesson, JSON.stringify([backAgain.status, backAgain.closed_at, backAgain.lesson]));
     check("and its history keeps what happened", backAgain.stages_reached.join() === "interview,rejected", backAgain.stages_reached.join());
   }
+  // The real route, from a real browser: not refused as a script. Before migration 20261105130000
+  // it says which file; after, it refuses this stage for what it is, and a real removal runs in smoke-closed.
+  const fromBrowser = await planPage.evaluate(async (id) => {
+    const res = await fetch(`/api/applications/${id}/remove-stage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: "offer", confirmed_by_user: true }) });
+    return res.status;
+  }, realRow.id);
+  check("the real route takes the page's request", fromBrowser === 409 || fromBrowser === 503, String(fromBrowser));
   await real.close();
 
   // ── The ten-second toast, on a phone ─────────────────────────────────────

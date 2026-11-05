@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { cameFromPage } from "../src/lib/pageOnly.ts";
 import assert from "node:assert/strict";
 import {
   CONFIRMATION_MESSAGE,
@@ -14,9 +15,11 @@ import {
   conversionBy,
   decideClosingWrite,
   dismissPending,
+  dismissalMatches,
   highestStage,
   isClosed,
   isMoveBack,
+  isStepBack,
   liveOrder,
   mergePendingOutcome,
   needsConfirmation,
@@ -28,6 +31,8 @@ import {
   reachedInterview,
   reachedScreening,
   reasonForStatus,
+  removableStages,
+  removedStageNote,
   reopenTarget,
   reportedNote,
   resultLine,
@@ -77,7 +82,7 @@ const backWord = { ...noFlags, confirmedMoveBack: true };
 const reopenWord = { ...noFlags, confirmedReopen: true };
 const refused = (d: ReturnType<typeof decideClosingWrite>) => ("refuse" in d ? d.refuse : null);
 const fieldsOf = (d: ReturnType<typeof decideClosingWrite>) => ("fields" in d ? d.fields : null);
-const askOf = (d: ReturnType<typeof decideClosingWrite>) => ("reopenRequest" in d ? d.reopenRequest : null);
+const askOf = (d: ReturnType<typeof decideClosingWrite>) => ("ask" in d ? d.ask : null);
 
 test("a 409 without confirmation, and success with it", () => {
   const no = refused(decideClosingWrite(screened, { status: "rejected" }, noFlags, NOW));
@@ -110,7 +115,7 @@ test("no two writes around the rule: moving a screened row back needs the user t
   assert.equal(refused(decideClosingWrite(movedBack, { status: "rejected" }, noFlags, NOW))?.error, CONFIRMATION_MESSAGE, "no two writes around the rule");
   assert.ok(fieldsOf(decideClosingWrite({ status: "applied", stages_reached: ["applied"] }, { status: "saved" }, noFlags, NOW)), "below screening moves as ever");
   assert.ok(fieldsOf(decideClosingWrite(screened, { status: "interview" }, noFlags, NOW)), "forward moves as ever");
-  assert.ok(fieldsOf(decideClosingWrite({ status: "interview", stages_reached: ["applied", "interview"] }, { status: "screening" }, noFlags, NOW)), "it still reached screening");
+  assert.ok(fieldsOf(decideClosingWrite({ status: "interview", stages_reached: ["applied", "interview"] }, { status: "screening" }, backWord, NOW)), "above screening, on the user's word");
   assert.equal(isMoveBack({ status: "applied", stages_reached: ["applied"] }, "applied"), false, "the status it already has");
 });
 
@@ -268,6 +273,110 @@ test("a close stores what it replaced, and Undo restores from that without touch
   assert.equal("followup_date" in undoWrite({ ...snapshot, followup_date: null }, { notes: "Mine" }), false, "no follow-up to restore, and the notes are left alone");
   assert.equal(normalizeUndoSnapshot({ status: "nonsense", at: NOW }), null);
   assert.equal(normalizeUndoSnapshot(null), null);
+});
+
+test("a sweep stepping a live row back asks, and only the user's word moves it", () => {
+  const interview = { status: "interview", stages_reached: ["applied", "screening", "interview"], notes: "Mine" };
+  assert.equal(isStepBack(interview, "screening"), true);
+  assert.equal(isStepBack({ status: "Interview" }, "Screening"), true, "old labels read the same");
+  assert.equal(isStepBack(interview, "assessment"), false, "they come in either order");
+  assert.equal(isStepBack({ status: "assessment" }, "interview"), false);
+  assert.equal(isStepBack({ status: "offer" }, "interview"), true);
+  assert.equal(isStepBack({ status: "accepted" }, "offer"), true);
+  assert.equal(isStepBack({ status: "screening" }, "interview"), false);
+  assert.equal(isStepBack(interview, "rejected"), false, "an ending has its own rule");
+  const ask = askOf(decideClosingWrite(interview, { status: "screening", notes: "Mine\nRecruiter call" }, noFlags, NOW));
+  assert.deepEqual(ask, { outcome: "move_back", date: "2026-11-04", source: "sweep", status: "screening", note: "Recruiter call" });
+  assert.ok(askOf(decideClosingWrite(interview, { status: "screening" }, word, NOW)), "the closing word is not this word");
+  assert.ok(askOf(decideClosingWrite(interview, { status: "screening" }, reopenWord, NOW)), "nor is the reopen word");
+  assert.equal(fieldsOf(decideClosingWrite(interview, { status: "screening" }, backWord, NOW))?.status, "screening");
+  assert.ok(fieldsOf(decideClosingWrite(interview, { status: "assessment" }, noFlags, NOW)), "a move across needs nothing");
+  assert.ok(fieldsOf(decideClosingWrite(interview, { status: "offer" }, noFlags, NOW)), "nor a move forward");
+  assert.ok(fieldsOf(decideClosingWrite(interview, { status: "interview", notes: "Sweep" }, noFlags, NOW)), "nor a rewrite of the same status");
+  assert.equal(refused(decideClosingWrite(interview, { status: "applied" }, noFlags, NOW))?.errorType, "needs_move_back_confirmation", "below screening stays a 409, as the owner chose");
+  assert.equal(normalizePendingOutcome({ outcome: "move_back", date: "2026-11-05" }), null, "it asks for somewhere to go");
+  assert.equal(normalizePendingOutcome({ outcome: "move_back", date: "2026-11-05", status: "rejected" }), null);
+});
+
+test("the move-back banner: a live row that would really step back, until it is answered", () => {
+  const asked = { outcome: "move_back", date: "2026-11-05", source: "sweep", status: "screening", note: "Recruiter call" };
+  const row = { status: "interview", stages_reached: ["applied", "screening", "interview"], pending_outcome: asked, notes: "Mine" };
+  assert.equal(pendingBanner(row)?.kind, "move_back");
+  assert.equal(pendingLine(normalizePendingOutcome(asked)!, "Shell"), "New activity from Shell — Move back to Screening?");
+  assert.equal(pendingBanner({ ...row, status: "screening" }), null, "already there");
+  assert.equal(pendingBanner({ ...row, status: "rejected" }), null, "closed");
+  assert.equal(pendingBanner({ ...row, pending_outcome: { ...asked, dismissed: true } }), null);
+  const yes = fieldsOf(decideClosingWrite(row, { status: "screening" }, backWord, NOW));
+  assert.equal(yes?.pending_outcome, null, "answered");
+  assert.equal(yes?.notes, "Mine\nRecruiter call", "and the row takes the report's words");
+  const forward = fieldsOf(decideClosingWrite(row, { status: "offer" }, noFlags, NOW));
+  assert.equal(forward?.pending_outcome, null, "moving on answers it too");
+  assert.equal(forward?.notes, undefined, "without taking words it didn't act on");
+  const rewrite = fieldsOf(decideClosingWrite(row, { status: "interview", notes: "Sweep" }, noFlags, NOW));
+  assert.equal(rewrite?.pending_outcome, undefined, "a sweep rewriting the same status answers nothing");
+  const dismissed = dismissPending(normalizePendingOutcome(asked)!, "2026-11-06");
+  assert.equal(dismissed.date, "2026-11-06");
+  assert.equal(mergePendingOutcome(dismissed, { ...asked, date: "2026-11-07" } as never).ignored, true, "Not true holds");
+  assert.equal(mergePendingOutcome(dismissed, { ...asked, date: "2026-11-20" } as never).ignored, false, "for fourteen days");
+});
+
+test("a stale banner can't bury what replaced its question", () => {
+  const ending = { outcome: "rejected", date: "2026-11-02", source: "gmail" };
+  const row = { status: "interview", stages_reached: ["applied", "interview"], pending_outcome: ending };
+  assert.equal(dismissalMatches(normalizePendingOutcome(ending)!, { outcome: "move_back", date: "2026-11-05" }), false, "Not true answered something else");
+  assert.equal(dismissalMatches(normalizePendingOutcome(ending)!, { outcome: "rejected", date: "2026-11-09" }), false, "a different email");
+  assert.equal(dismissalMatches(normalizePendingOutcome(ending)!, { outcome: "rejected", date: "2026-11-02" }), true);
+  assert.equal(dismissalMatches(normalizePendingOutcome({ outcome: "move_back", date: "2026-11-06", source: "", status: "screening" })!, { outcome: "move_back", date: "2026-11-05" }), true, "a question's date is only when the sweep ran");
+  assert.equal(dismissalMatches(normalizePendingOutcome(ending)!, {}), true, "a request naming nothing");
+  const moved = fieldsOf(decideClosingWrite(row, { status: "screening", pending_outcome: null }, backWord, NOW));
+  assert.equal(moved?.status, "screening", "Move back still moves it");
+  assert.equal("pending_outcome" in (moved ?? {}), false, "and the rejection it never saw stays");
+  assert.equal("pending_outcome" in (fieldsOf(decideClosingWrite(row, { pending_outcome: null }, noFlags, NOW)) ?? {}), false, "nor can a null clear it on its own");
+});
+
+test("a dismissed move back stays remembered when the row moves on, and further back is news", () => {
+  const dismissed = { outcome: "move_back", date: "2026-11-05", source: "sweep", status: "interview", dismissed: true };
+  const row = { status: "offer", stages_reached: ["applied", "interview", "offer"], pending_outcome: dismissed };
+  assert.equal("pending_outcome" in (fieldsOf(decideClosingWrite(row, { status: "accepted" }, noFlags, NOW)) ?? {}), false, "the memory survives the move");
+  assert.equal(mergePendingOutcome(dismissed, { ...dismissed, dismissed: undefined, date: "2026-11-06", status: "screening" } as never).ignored, false, "further back is new news");
+  assert.equal(mergePendingOutcome({ ...dismissed, status: "screening" }, { ...dismissed, dismissed: undefined, date: "2026-11-06", status: "interview" } as never).ignored, true, "milder is not");
+  const open = { outcome: "move_back", date: "2026-11-05", source: "sweep", status: "interview" };
+  assert.equal(mergePendingOutcome(open, { ...open, date: "2026-11-06", status: "screening" } as never).value.status, "screening", "the latest report says where");
+});
+
+test("a move-back question never takes a rejection's place, and keeps its memory", () => {
+  const ending = { outcome: "rejected", date: "2026-11-02", source: "gmail" };
+  const question = { outcome: "move_back", date: "2026-11-05", source: "sweep", status: "screening" } as const;
+  const held = mergePendingOutcome(ending, question);
+  assert.equal(held.ignored, true);
+  assert.equal(held.value.outcome, "rejected", "the rejection still waiting stays on the row");
+  const kept = mergePendingOutcome({ ...ending, dismissed: true }, question);
+  assert.equal(kept.ignored, false);
+  assert.deepEqual(kept.value.earlier, { ...ending, dismissed: true });
+  assert.equal(mergePendingOutcome(kept.value, ending as never).ignored, true, "the same email stays quiet behind the question");
+  assert.equal(mergePendingOutcome(kept.value, { ...ending, date: "2026-11-09" } as never).value.outcome, "rejected", "a new one takes over");
+  assert.equal(normalizePendingOutcome({ ...question, earlier: question })?.earlier, undefined, "a question can't hide behind a question");
+});
+
+test("removing a stage: what the menu offers, and the line the row keeps", () => {
+  assert.deepEqual(removableStages({ status: "screening", stages_reached: ["applied", "screening", "interview", "rejected"] }), ["interview"], "not where it stands, and only what counts");
+  assert.deepEqual(removableStages({ status: "rejected", stages_reached: ["applied", "Screening", "Offer", "rejected"] }), ["screening", "offer"], "old labels too");
+  assert.deepEqual(removableStages({ status: "interview", stages_reached: ["applied", "interview"] }), []);
+  assert.deepEqual(removableStages({ status: "applied", stages_reached: null }), []);
+  assert.equal(removedStageNote("interview", new Date("2026-11-05T10:00:00Z")), "Removed 'interview' on 5 Nov — picked by mistake");
+  assert.equal(removedStageNote("interview", new Date("2026-07-01T23:30:00Z")), "Removed 'interview' on 2 Jul — picked by mistake", "the UK's day, not the server's");
+});
+
+test("only the page can ask to remove a stage", () => {
+  const from = (headers: Record<string, string>) => cameFromPage({ get: (name: string) => headers[name] ?? null });
+  assert.equal(from({ "sec-fetch-site": "same-origin" }), true);
+  assert.equal(from({ "sec-fetch-site": "cross-site" }), false);
+  assert.equal(from({ "sec-fetch-site": "none", origin: "https://www.jobhuntz.app", host: "www.jobhuntz.app" }), false, "the browser's word wins");
+  assert.equal(from({}), false, "a script sends neither");
+  assert.equal(from({ "sec-fetch-mode": "cors" }), false, "as Node's fetch does");
+  assert.equal(from({ origin: "https://www.jobhuntz.app", host: "www.jobhuntz.app" }), true, "an older browser");
+  assert.equal(from({ origin: "https://evil.example", host: "www.jobhuntz.app" }), false);
+  assert.equal(from({ origin: "not a url", host: "www.jobhuntz.app" }), false);
 });
 
 test("Ready to submit to Applied is the one step forward below screening", () => {

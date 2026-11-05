@@ -81,7 +81,11 @@ try {
   check("so ending it still needs the user", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Rejected" }) })).status === 409);
   check("a notes write that doesn't move it still lands", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening", notes: "Sweep note" }) })).status === 200 && (await detail(id)).notes === "Sweep note");
   check("a move forward still needs nothing", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Interview" }) })).status === 200);
-  await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening" }) });
+  const stepBack = await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening", notes: "Sweep wrote this" }) });
+  const stepBackRow = await detail(id);
+  check("a step back on a live row answers 202 and asks", stepBack.status === 202 && (await stepBack.json()).pending_outcome?.outcome === "move_back", String(stepBack.status));
+  check("and moves nothing, notes included", stepBackRow.status === "Interview" && stepBackRow.notes === "Sweep note", `${stepBackRow.status} / ${stepBackRow.notes}`);
+  check("the user's word moves it", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening", confirmed_move_back: true }) })).status === 200 && (await detail(id)).status === "Screening");
 
   // Closing a row that never reached screening words its note as before.
   const plainId = (await (await call("/api/applications", { method: "POST", body: json({ company_name: "Sweep plain", role: "Engineer", status: "Applied", date_applied: "2026-10-20" }) })).json()).id;

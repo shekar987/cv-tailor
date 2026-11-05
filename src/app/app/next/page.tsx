@@ -236,7 +236,7 @@ export default function NextPage() {
         message,
         undo: async () => {
           const restore = followup ? { followup_date: followup, ...(answer.cleared ? { notes: removeFollowupClearedNote(answer.cleared.notes, followup) } : {}) } : {};
-          if (await putApplication(application.id, { status: previous, confirmed_reopen: true, ...restore })) await refresh();
+          if (await putApplication(application.id, { status: previous, confirmed_reopen: true, confirmed_move_back: true, ...restore })) await refresh();
         },
       });
     });
@@ -281,7 +281,7 @@ export default function NextPage() {
         const next = outcome === "offer" ? "offer" : NEXT_STAGE[stage];
         const previousEvent = item.event.status;
         const undo = async () => {
-          const moved = next ? await putApplication(application.id, { status: stage }) : true;
+          const moved = next ? await putApplication(application.id, { status: stage, confirmed_move_back: true }) : true;
           if (moved && (await putEvent(item.event.id, { status: previousEvent }))) await refresh();
         };
         leaveThen([item.event.id], async () => {
