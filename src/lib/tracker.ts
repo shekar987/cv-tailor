@@ -107,19 +107,13 @@ export function isActiveStatus(status: unknown): boolean {
 }
 
 // A row's stage history after a status change: what the database trigger writes
-// (migration 20261103120000), for a page that keeps the row in memory. One ending at a
-// time; a move back drops later stages; an ending keeps the path that led to it.
-const STAGE_RANK: Partial<Record<Status, number>> = { saved: 0, applied: 1, screening: 2, interview: 3, assessment: 3, offer: 4, accepted: 5 };
-const ENDINGS: ReadonlySet<string> = new Set<Status>(["rejected", "withdrawn", "ghosted"]);
+// (migration 20261105120000), for a page that keeps the row in memory. Append-only: a count
+// of how far applications got never drops without the owner knowing. The current stage is
+// the status, never the last entry.
 export function stagesAfterMove(stages: readonly string[] | null | undefined, status: unknown): string[] {
   const stage = normalizeStatus(status);
   const known = (stages ?? []).map(normalizeStatus).filter((s): s is Status => !!s);
-  if (!stage) return known;
-  const kept = known.filter((s) => {
-    if (ENDINGS.has(s) || s === stage) return false;
-    return ENDINGS.has(stage) || (STAGE_RANK[s] ?? 9) <= (STAGE_RANK[stage] ?? 9);
-  });
-  return [...kept, stage];
+  return !stage || known.includes(stage) ? known : [...known, stage];
 }
 
 // The tabs with date columns. Won holds offers too, so an offer is celebrated from

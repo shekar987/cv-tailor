@@ -79,17 +79,23 @@ try {
   const tab = async (name) => { await page.locator(`[data-stage-tab="${name}"]`).click(); await page.waitForTimeout(120); };
 
   // ── Header ───────────────────────────────────────────────────────────────
+  // Screening and Interview carry their own summary (lib/closing); the others the overall one.
+  const firstTab = await page.locator('[role="tab"][aria-selected="true"]').getAttribute("data-stage-tab");
+  check("the Interview tab says how many reached it", /^Reached interview \d+ times? · \d+ live · \d+ closed$/.test(await page.locator("[data-stage-summary]").innerText()), await page.locator("[data-stage-summary]").innerText());
+  await tab("applied");
   const summary = await page.locator("[data-apps-summary]").innerText();
   check("one summary line", new RegExp(`${TOTAL} tracked · 3 applied · 6 in progress · 1 rejected`).test(summary), summary);
   check("the old subtitle is gone", !/Click any cell to edit it/.test(await page.locator("body").innerText()));
+  await tab(firstTab);
   check("+ Add application and Export", (await page.locator("[data-apps-add]").innerText()) === "+ Add application" && (await page.locator("[data-apps-export]").count()) === 1);
 
   // ── Tabs and counts ──────────────────────────────────────────────────────
   check("the tabs are a real tablist", (await page.locator('[role="tablist"] [role="tab"]').count()) >= 5);
   const shown = await page.locator("[data-stage-tab]").evaluateAll((els) => els.map((e) => e.getAttribute("data-stage-tab")));
-  check("to submit, applied, screening, interview, assessment, closed", shown.join(",") === "to_submit,applied,screening,interview,assessment,closed", shown.join(","));
+  // Wins is a view over the stages, not one of them, so it is last and is not in the sum.
+  check("to submit, applied, screening, interview, assessment, closed, then Wins", shown.join(",") === "to_submit,applied,screening,interview,assessment,closed,wins", shown.join(","));
   check("a tab with nothing in it is not drawn", (await page.locator('[data-stage-tab="offer"], [data-stage-tab="won"]').count()) === 0);
-  const sum = (await Promise.all(shown.map(countOf))).reduce((a, b) => a + b, 0);
+  const sum = (await Promise.all(shown.filter((t) => t !== "wins").map(countOf))).reduce((a, b) => a + b, 0);
   check("the counts add up to the total", sum === TOTAL, `${sum} of ${TOTAL}`);
   check("the page opens on Interview", (await page.locator('[data-stage-tab="interview"]').getAttribute("aria-selected")) === "true");
   check("Assessment is above 0", (await countOf("assessment")) === 3);

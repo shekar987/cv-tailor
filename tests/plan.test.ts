@@ -339,7 +339,7 @@ test("the funnel follows the stages a row really reached", () => {
   assert.equal(f.total, 6);
   assert.equal(f.excluded, 2);
   const node = (key: string) => f.nodes.find((n) => n.key === key)!;
-  assert.equal(node("applied").count, 6);
+  assert.equal(node("applied").count, 7, "what a withdrawn row reached still counts");
   assert.equal(node("screening").count, 3);
   assert.equal(node("interview").count, 2);
   assert.equal(node("assessment").count, 1);
@@ -353,6 +353,38 @@ test("the funnel follows the stages a row really reached", () => {
   assert.equal(link("applied", "assessment"), 1, "a row can skip stages");
   assert.equal(link("applied", "rejected"), 1);
   assert.equal(link("interview", "ghosted"), 1);
+});
+
+test("a count never drops: withdrawn or moved back, a row stays counted at every stage it reached", () => {
+  const before = buildFunnel([{ status: "interview", stages_reached: ["applied", "screening", "interview"] }]);
+  const nodeOf = (f: typeof before, key: string) => f.nodes.find((n) => n.key === key)!;
+  assert.equal(nodeOf(before, "interview").count, 1);
+  for (const status of ["withdrawn", "saved", "screening", "applied", "rejected"]) {
+    const after = buildFunnel([{ status, stages_reached: ["applied", "screening", "interview", ...(status === "withdrawn" || status === "rejected" ? [status] : [])] }]);
+    assert.equal(nodeOf(after, "interview").count, 1, status);
+    assert.equal(nodeOf(after, "screening").count, 1, status);
+  }
+  const withdrawn = buildFunnel([{ status: "withdrawn", stages_reached: ["applied", "screening", "interview", "withdrawn"] }]);
+  assert.equal(nodeOf(withdrawn, "interview").decided, 0, "it says nothing about how the interview went");
+  assert.equal(nodeOf(withdrawn, "interview").here, 0);
+  assert.equal(nodeOf(withdrawn, "screening").decided, 1, "it did get past screening");
+  assert.equal(withdrawn.excluded, 1);
+  assert.equal(withdrawn.total, 0);
+  assert.equal(buildFunnel([{ status: "saved", stages_reached: ["saved", "applied"] }]).nodes[0].count, 0, "an undone Submit is not an application");
+  const unsent = buildFunnel([{ status: "saved", stages_reached: ["applied", "screening", "saved"] }]);
+  assert.equal(nodeOf(unsent, "screening").count, 1);
+  assert.equal(unsent.nodes[0].decided, 0, "back at unsent, it went further from nothing yet");
+});
+
+test("a row moved back is here now, and is not also counted as having gone further from here", () => {
+  const f = buildFunnel([{ status: "screening", stages_reached: ["applied", "screening", "interview"] }]);
+  const screening = f.nodes.find((n) => n.key === "screening")!;
+  const interview = f.nodes.find((n) => n.key === "interview")!;
+  assert.equal(screening.here, 1);
+  assert.equal(screening.decided, 0);
+  assert.equal(interview.count, 1);
+  assert.equal(interview.decided, 0);
+  assert.equal(f.nodes[0].decided, 1, "it did get past Applied");
 });
 
 test("a row with no history still counts at its current stage; old labels read the same", () => {

@@ -12,6 +12,7 @@
 // keys, 434 without: dropping the JD alone left 2.2 MB at the 2,000-row cap. So
 // the JD becomes a flag, notes a preview, and null keys are not sent. Full
 // text comes from the detail read (GET /api/applications?id=).
+import { reachedScreening } from "./closing.ts";
 import { apiStatus, notesSayNotSubmitted } from "./tracker.ts";
 
 export const MAX_APPLICATIONS = 2000;
@@ -112,6 +113,8 @@ export function toListRow(row: Record<string, unknown>): Record<string, unknown>
   }
   // The API's spelling, whichever one is stored (lib/tracker API_STATUS).
   if (typeof row.status === "string") out.status = apiStatus(row.status);
+  // Only a row that got shortlisted needs it, for the Live section's order: every row's would cost 40 KB.
+  if (typeof row.updated_at === "string" && reachedScreening({ status: row.status, stages_reached: row.stages_reached as string[] | null })) out.updated_at = row.updated_at;
   if (typeof row.job_description === "string" && row.job_description.trim()) out.has_job_description = true;
   for (const [key, value] of Object.entries(notesListFields(row.notes))) {
     if (value !== undefined) out[key] = value;

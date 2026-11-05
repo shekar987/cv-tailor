@@ -552,7 +552,11 @@ function pathOf(row: FunnelRow, status: Status): FunnelStep[] {
 /**
  * Applied → Screening → Interview → Assessment → Offer → Won, with who dropped
  * where. A row follows the stages it really reached (one can skip Screening).
- * Unsent and withdrawn rows are outside the funnel and counted as `excluded`.
+ * The history is append-only and a count never drops: a withdrawn row, or a shortlisted one moved
+ * back to unsent, still counts at every stage it reached. They hold no outcome at the stage they
+ * stopped at, so they join no bucket and are left out of that stage's share, and are counted as
+ * `excluded`. A row "went further" only from the stages below where it stands now, so one back
+ * at unsent went further from none.
  */
 export function buildFunnel(rows: readonly FunnelRow[]): Funnel {
   const counts = new Map<FunnelStep, { count: number; here: number; rejected: number; ghosted: number; further: number }>(
@@ -571,18 +575,25 @@ export function buildFunnel(rows: readonly FunnelRow[]): Funnel {
   let ghosted = 0;
   for (const row of rows) {
     const status = normalizeStatus(row.status);
-    if (!status || status === "saved" || status === "withdrawn") { excluded++; continue; }
-    total++;
+    if (!status) { excluded++; continue; }
     const path = pathOf(row, status);
+    // Unsent and never shortlisted: not an application, whatever an undone Submit left behind.
+    if (status === "saved" && path.length === 1) { excluded++; continue; }
+    const outside = status === "saved" || status === "withdrawn";
+    if (outside) excluded++;
+    else total++;
+    const standing = path.indexOf(status as FunnelStep);
+    const furthestLeft = standing >= 0 ? standing : status === "saved" ? 0 : path.length - 1;
     path.forEach((step, i) => {
       const c = counts.get(step)!;
       c.count++;
-      if (i < path.length - 1) c.further++;
+      if (i < furthestLeft) c.further++;
       if (i === 0) return;
       let from = i - 1;
       while (STEP_RANK[path[from]] === STEP_RANK[step]) from--;
       addLink(path[from], step);
     });
+    if (outside) continue;
     const last = counts.get(path[path.length - 1])!;
     if (status === "rejected") { last.rejected++; rejected++; addLink(path[path.length - 1], "rejected"); }
     else if (status === "ghosted") { last.ghosted++; ghosted++; addLink(path[path.length - 1], "ghosted"); }

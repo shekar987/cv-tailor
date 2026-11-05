@@ -4095,3 +4095,79 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 .projectsUsedList strong { color: var(--text); font-weight: 600; }
 .projectsUsedSwap { min-height: 32px; }
 .poolCard > .poolCardField { flex: none; }
+
+/* Closing a row and Wins (Chunk 15): lib/closing. */
+.pendingRow td { padding: 0 var(--space-3) var(--space-3); border-top: 0; }
+.pendingBanner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--amber-border);
+  border-radius: var(--radius-sm);
+  background: var(--amber-dim);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+.closedSection { margin-top: var(--space-6); border-top: 1px solid var(--border-card); }
+.closedSectionSummary {
+  padding: var(--space-3) 0;
+  color: var(--text-subtle);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.closedSectionSummary:hover { color: var(--text); }
+.closedSectionSummary:focus-visible { box-shadow: var(--focus-ring); }
+.closedEmpty { padding-bottom: var(--space-3); }
+.closedList { margin: 0; padding: 0; list-style: none; }
+.closedRow {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) auto auto minmax(0, 2fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+.closedCompany { font-weight: 600; overflow-wrap: anywhere; }
+.closedRole { color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.closedChip {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-pill);
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.closedResult { color: var(--text-subtle); font-size: var(--text-sm); white-space: nowrap; }
+.closedLesson { width: 100%; min-width: 0; font-size: var(--text-sm); }
+.closeDialogForm { display: flex; flex-direction: column; gap: var(--space-3); }
+.closeDialogField { display: flex; flex-direction: column; gap: var(--space-1); }
+.winsView { display: flex; flex-direction: column; gap: var(--space-6); margin-top: var(--space-4); }
+.winsFunnel { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.winsConversion { color: var(--muted); font-size: var(--text-xs); }
+.winsGroups { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-6); }
+.winsGroup .label, .winsReached .label { display: block; margin-bottom: var(--space-2); }
+.winsTable { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.winsTable th { padding: var(--space-2) var(--space-3) var(--space-2) 0; color: var(--muted); font-weight: 500; text-align: left; white-space: nowrap; }
+.winsTable td { padding: var(--space-2) var(--space-3) var(--space-2) 0; border-top: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .closedRow { grid-template-columns: minmax(0, 1fr) auto; }
+  .closedWho { grid-column: 1; }
+  .closedRow .rowMenu { grid-column: 2; grid-row: 1; }
+  .closedChip { grid-column: 1; justify-self: start; }
+  .closedResult { grid-column: 2; justify-self: end; }
+  .closedLesson { grid-column: 1 / -1; }
+  .winsFunnel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .winsTable thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .winsTable, .winsTable tbody, .winsTable tr, .winsTable td { display: block; }
+  .winsTable tr { padding: var(--space-2) 0; border-top: 1px solid var(--border); }
+  .winsTable td { display: flex; justify-content: space-between; gap: var(--space-3); padding: 2px 0; border: 0; text-align: right; }
+  .winsTable td:empty { display: none; }
+  .winsTable td::before { content: attr(data-label); color: var(--muted); text-align: left; white-space: nowrap; }
+}
+.pendingBanner .appsActionBtn { margin-left: 0; border-color: var(--amber-border); color: var(--text); }
+.pendingNote { flex-basis: 100%; order: 1; color: var(--muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.closedRow .closedLesson { min-height: 32px; padding: var(--space-1) var(--space-2); }
+.closedBanner { grid-column: 1 / -1; }

@@ -18,6 +18,7 @@ import { normalizeStyleCheck } from "@/lib/styleCheck";
 import { validateReferralFields, REFERRAL_MIGRATION_HINT, type ReferralFields } from "@/lib/referrals";
 import { triageJd, buildTriageProfile, type JdTriage } from "@/lib/triage/jdTriage";
 import { MAX_APPLICATIONS, readApplicationPages, toListRow, type OrderableQuery } from "@/lib/applicationRows";
+import { MAX_LESSON_CHARS, MOVE_BACK_RECORDED, REOPEN_RECORDED, REPORT_DISMISSED, REPORT_HELD, UNDO_EXPIRED, decideClosingWrite, isCloseReason, isEnding, mergePendingOutcome, normalizePendingOutcome, normalizeUndoSnapshot, reportTaken, undoIsLive, undoWrite, type ClosingCurrent, type CloseReason, type PendingOutcome, type UndoSnapshot } from "@/lib/closing";
 
 const REFERRAL_KEYS = ["referral", "referrer_name", "req_id", "referral_status"] as const;
 
@@ -78,6 +79,15 @@ const LIST_COLUMNS_CONTACT = `${LIST_COLUMNS_SENT}, last_contact_from, last_cont
 const LIST_COLUMNS_REFERRAL = `${LIST_COLUMNS_CONTACT}, referral, referrer_name, req_id, referral_status`;
 // The stages a row has passed through and why it ended (migration 20261103120000).
 const LIST_COLUMNS_STAGES = `${LIST_COLUMNS_REFERRAL}, stages_reached, outcome_reason`;
+// Closing a row (migration 20261104130000; lib/closing), the newest rung.
+const LIST_COLUMNS_CLOSED = `${LIST_COLUMNS_STAGES}, closed_at, close_reason, lesson, pending_outcome`;
+const CLOSED_MIGRATION_HINT = "Closing a row needs migration 20261104130000_applications_closed.sql. Run it in the Supabase SQL editor, then try again.";
+const CLOSED_SAVED_WITHOUT = "The status is saved, but the date, reason and lesson are not: run migration 20261104130000_applications_closed.sql in the Supabase SQL editor.";
+const CLOSING_LADDER = ["status, stages_reached, pending_outcome, lesson, closed_at, close_reason, followup_date, notes", "status, stages_reached", "status"];
+const UNDO_MIGRATION_HINT = "Undo needs migration 20261105120000_stages_append_only.sql. Run it in the Supabase SQL editor.";
+const UNDO_READ = "status, notes, followup_date, undo_snapshot";
+const UNDO_ANSWER = "status, stages_reached, closed_at, close_reason, lesson, pending_outcome, followup_date, notes";
+const CLOSE_KEYS = ["closed_at", "close_reason", "lesson", "pending_outcome"] as const;
 const CONTACT_MIGRATION_HINT =
   "Recording who spoke last needs the database migration supabase/migrations/20261030120000_applications_last_contact.sql. Run it in the Supabase SQL editor, then try again.";
 const DETAIL_COLUMNS_NO_PREP = `${SELECT_COLUMNS}, tailored_cv`;
@@ -274,6 +284,11 @@ type Editable = {
   job_description?: string | null;
   last_contact_from?: LastContactFrom | null;
   last_contact_at?: string | null;
+  closed_at?: string | null;
+  close_reason?: CloseReason | null;
+  lesson?: string | null;
+  pending_outcome?: PendingOutcome | null;
+  undo_snapshot?: UndoSnapshot | null;
 } & ReferralFields;
 
 type Validation = { fields: Editable } | { error: string };
@@ -291,6 +306,26 @@ function validateEditable(body: Record<string, unknown>, partial: boolean): Vali
     (key) => key in body && body[key] != null && typeof body[key] !== "string"
   );
   if (typeProblem) return { error: `${typeProblem.replace("_", " ")} must be text.` };
+
+  if (partial && "lesson" in body) {
+    if (body.lesson != null && typeof body.lesson !== "string") return { error: "lesson must be text." };
+    const lesson = typeof body.lesson === "string" ? body.lesson.trim() : "";
+    if (lesson.length > MAX_LESSON_CHARS) return { error: `The lesson is too long (max ${MAX_LESSON_CHARS} characters).` };
+    fields.lesson = lesson || null;
+  }
+  if (partial && "close_reason" in body) {
+    if (body.close_reason != null && !isCloseReason(body.close_reason)) return { error: "Pick a valid reason." };
+    fields.close_reason = (body.close_reason ?? null) as CloseReason | null;
+  }
+  if (partial && "closed_at" in body) {
+    if (body.closed_at != null && (typeof body.closed_at !== "string" || !Number.isFinite(Date.parse(body.closed_at)))) return { error: "Enter a valid date." };
+    fields.closed_at = (body.closed_at ?? null) as string | null;
+  }
+  if (partial && "pending_outcome" in body) {
+    const pending = body.pending_outcome == null ? null : normalizePendingOutcome(body.pending_outcome);
+    if (body.pending_outcome != null && !pending) return { error: "That isn't a valid outcome." };
+    fields.pending_outcome = pending;
+  }
 
   if (!partial || "company_name" in body) {
     const company = typeof body.company_name === "string" ? body.company_name.trim() : "";
@@ -449,7 +484,7 @@ export async function GET(req: NextRequest) {
     // and the upload route name the migration when it matters.
     let rows: Record<string, unknown>[] | null = null;
     let readError: { code?: string; message: string } | null = null;
-    const listLadder = [LIST_COLUMNS_STAGES, LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
+    const listLadder = [LIST_COLUMNS_CLOSED, LIST_COLUMNS_STAGES, LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
     for (let rung = 0; rung < listLadder.length; rung++) {
       const read = await readApplicationPages(
         () => supabase.from("applications").select(listLadder[rung]) as unknown as OrderableQuery
@@ -730,11 +765,84 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ ok: true, gates: snapshot?.gates ?? null });
     }
 
+    // Undo of Move to Closed: restored from what the close stored, never from the request.
+    if (body.undo_close === true) {
+      const { data: row, error: readError } = await supabase.from("applications").select(UNDO_READ).eq("id", id).eq("user_id", userId).maybeSingle();
+      if (readError) {
+        if (isMissingColumn(readError)) return NextResponse.json({ error: UNDO_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+        console.error("applications undo lookup error:", readError.code ?? "unknown");
+        return NextResponse.json({ error: "Could not undo that" }, { status: 500 });
+      }
+      if (!row) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+      const stored = row as unknown as { notes: string | null; followup_date: string | null; undo_snapshot: unknown };
+      const snapshot = normalizeUndoSnapshot(stored.undo_snapshot);
+      if (!snapshot || !undoIsLive(snapshot, Date.now())) return NextResponse.json({ error: UNDO_EXPIRED, errorType: "undo_expired" }, { status: 409 });
+      // Only the close this snapshot belongs to: any later write has cleared it (the trigger).
+      const { data: restored, error: writeError } = await supabase.from("applications").update(undoWrite(snapshot, stored)).eq("id", id).eq("user_id", userId).eq("undo_snapshot->>at", snapshot.at).select(UNDO_ANSWER).maybeSingle();
+      if (writeError) {
+        console.error("applications undo error:", writeError.code ?? "unknown");
+        return NextResponse.json({ error: "Could not undo that" }, { status: 500 });
+      }
+      if (!restored) return NextResponse.json({ error: UNDO_EXPIRED, errorType: "undo_expired" }, { status: 409 });
+      const answer = restored as unknown as Record<string, unknown>;
+      return NextResponse.json({ ok: true, restored: { ...answer, status: apiStatus(answer.status) } });
+    }
+
     const validated = validateEditable(body, true);
     if ("error" in validated) {
       return NextResponse.json({ error: validated.error }, { status: 400 });
     }
     const { fields } = validated;
+    // The rule (lib/closing): a row that reached screening ends only on the user's own word,
+    // and only the Move to Closed dialog says so. A sweep uses the pending-outcome route.
+    const confirmed = body.confirmed_by_user === true;
+    let reportNotes: string | null | undefined;
+    let reportLeftOut: string | undefined;
+    if (fields.status !== undefined || CLOSE_KEYS.some((k) => k in fields)) {
+      let current: ClosingCurrent | null = null;
+      if (fields.status !== undefined) {
+        for (const columns of CLOSING_LADDER) {
+          const read = await supabase.from("applications").select(columns).eq("id", id).eq("user_id", userId).maybeSingle();
+          if (read.error && isMissingColumn(read.error) && columns !== CLOSING_LADDER.at(-1)) continue;
+          if (read.error) {
+            console.error("applications lookup error:", read.error.message);
+            return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
+          }
+          if (!read.data) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+          current = read.data as unknown as ClosingCurrent;
+          break;
+        }
+      }
+      const decision = decideClosingWrite(current, fields, { confirmed, confirmedMoveBack: body.confirmed_move_back === true, confirmedReopen: body.confirmed_reopen === true }, new Date().toISOString());
+      if ("refuse" in decision) {
+        const { status, ...refusal } = decision.refuse;
+        return NextResponse.json({ ...refusal, ...(refusal.errorType === "needs_confirmation" ? { pendingOutcomeUrl: `/api/applications/${id}/pending-outcome` } : {}) }, { status });
+      }
+      // An open status on a closed row, or a step back on a live one, without the user's word:
+      // this row may not even be the right one, so nothing in this write lands. The banner asks,
+      // quoting what it reported, and the row takes those words only if the user says yes.
+      if ("ask" in decision) {
+        const merged = mergePendingOutcome(current?.pending_outcome, decision.ask);
+        if (!merged.ignored) {
+          const { error: askError } = await supabase.from("applications").update({ pending_outcome: merged.value }).eq("id", id).eq("user_id", userId);
+          if (askError) {
+            if (isMissingColumn(askError)) return NextResponse.json({ error: CLOSED_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+            console.error("applications question error:", askError.code ?? "unknown");
+            return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
+          }
+        }
+        const message = merged.ignored ? (merged.value.dismissed || merged.value.outcome === decision.ask.outcome ? REPORT_DISMISSED : REPORT_HELD) : decision.ask.outcome === "reopen" ? REOPEN_RECORDED : MOVE_BACK_RECORDED;
+        return NextResponse.json({ ok: true, applied: false, message, status: apiStatus(current?.status), pending_outcome: merged.value, ...(merged.ignored ? { ignored: message === REPORT_HELD ? "pending" : "dismissed" } : {}) }, { status: 202 });
+      }
+      // Object.assign can't take a key away: a null the rule refused to honour must not reach the write.
+      if (!("pending_outcome" in decision.fields)) delete fields.pending_outcome;
+      if (!("notes" in fields)) {
+        const asked = normalizePendingOutcome(current?.pending_outcome);
+        if (decision.fields.notes !== undefined) reportNotes = decision.fields.notes;
+        else if (asked && !isEnding(fields.status) && reportTaken(asked, fields.status) && asked.note && !asked.dismissed && decision.fields.pending_outcome !== undefined) reportLeftOut = `Your notes are full, so this was not added to them: "${asked.note}"`;
+      }
+      Object.assign(fields, decision.fields);
+    }
     // The format-style tag of a hand-added row (lib/formatStyles): null or
     // "unknown" clears it, a style id sets it; merged into the row's
     // tailored_cv below. A tailored row keeps the style it was made with.
@@ -855,6 +963,28 @@ export async function PUT(req: NextRequest) {
       .eq("user_id", userId)
       .select("id");
 
+    // No closing columns yet (migration 20261104130000): clearing a column that is not there
+    // is nothing, and the user's own close still moves the status, saying what it could not keep.
+    let closeWarning = reportLeftOut;
+    if (updateError && isMissingColumn(updateError) && "undo_snapshot" in update) {
+      delete update.undo_snapshot;
+      closeWarning = UNDO_MIGRATION_HINT;
+      ({ data: updated, error: updateError } = await supabase.from("applications").update(update).eq("id", id).eq("user_id", userId).select("id"));
+    }
+    if (updateError && isMissingColumn(updateError) && CLOSE_KEYS.some((k) => k in update)) {
+      const onlyClearing = CLOSE_KEYS.every((k) => update[k] == null);
+      if (onlyClearing || (confirmed && isEnding(fields.status))) {
+        for (const k of CLOSE_KEYS) delete update[k];
+        if (!onlyClearing) closeWarning = CLOSED_SAVED_WITHOUT;
+        if (Object.keys(update).length === 0) {
+          updated = [{ id }];
+          updateError = null;
+        } else {
+          ({ data: updated, error: updateError } = await supabase.from("applications").update(update).eq("id", id).eq("user_id", userId).select("id"));
+        }
+      }
+    }
+
     const oldUpdateLabel = isStatusCheckViolation(updateError) && fields.status ? oldStatusLabel(fields.status) : null;
     if (oldUpdateLabel) {
       ({ data: updated, error: updateError } = await supabase
@@ -868,6 +998,9 @@ export async function PUT(req: NextRequest) {
     if (updateError) {
       if (isStatusCheckViolation(updateError) && fields.status) {
         return NextResponse.json({ error: STATUS_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+      }
+      if (isMissingColumn(updateError) && CLOSE_KEYS.some((k) => k in fields)) {
+        return NextResponse.json({ error: CLOSED_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
       }
       if (isMissingColumn(updateError) && "outcome_reason" in fields) {
         return NextResponse.json({ error: OUTCOME_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
@@ -888,7 +1021,7 @@ export async function PUT(req: NextRequest) {
     // the new triage without a reload.
     const gates = jdChanged && snapshotPatch !== undefined ? (snapshotPatch?.gates ?? null) : undefined;
     const autoClose = notesBefore !== undefined && confirmationAdded(notesBefore, fields.notes as string | null) ? await closeOnConfirmation(supabase, userId, id) : null;
-    return NextResponse.json({ ok: true, ...(followupCleared ? { followupCleared } : {}), ...(gates !== undefined ? { gates } : {}), ...(autoClose ? { autoClose } : {}) });
+    return NextResponse.json({ ok: true, ...(reportNotes !== undefined ? { reportNotes } : {}), ...(closeWarning ? { warning: closeWarning } : {}), ...(followupCleared ? { followupCleared } : {}), ...(gates !== undefined ? { gates } : {}), ...(autoClose ? { autoClose } : {}) });
   } catch (err) {
     console.error("applications PUT error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not save that application" }, { status: 500 });

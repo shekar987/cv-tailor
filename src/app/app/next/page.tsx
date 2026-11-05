@@ -21,6 +21,8 @@ import {
 import { addDays, dayKey, formatWhen, mondayOf, monthName, shortDay, weekdayOf } from "@/lib/planTime";
 import { normalizeStatus, removeFollowupClearedNote, type Status } from "@/lib/tracker";
 import EventCard, { type CardActions } from "./EventCard";
+import MoveToClosedDialog, { closeBody, type CloseChoice } from "@/components/MoveToClosedDialog";
+import { UNDO_WINDOW_MS, needsConfirmation, reasonForStatus, type CloseReason } from "@/lib/closing";
 import EventForm, { describeConflict, type EventFormMode } from "./EventForm";
 import { CompanyInitial, StageChip, browserTimeZone, copyText } from "./planUi";
 import WeekView from "./WeekView";
@@ -87,6 +89,7 @@ function MiniCalendar({ events, now, tz, selected, onSelect }: { events: readonl
 export default function NextPage() {
   const [data, setData] = useState<PlanData | null>(null);
   const [load, setLoad] = useState<Load>("loading");
+  const [closing, setClosing] = useState<{ application: PlanApplication; reason: CloseReason; reasonEvents: PlanItem[] } | null>(null);
   const [errorText, setErrorText] = useState("");
   const [actionError, setActionError] = useState("");
   const [refreshError, setRefreshError] = useState("");
@@ -158,10 +161,10 @@ export default function NextPage() {
     setLiveText(`Next up: ${nextName}, ${timing.left}.`);
   }, [nextEvent, nextName, now, tz]);
 
-  function showToast(next: Toast) {
+  function showToast(next: Toast, ms = TOAST_MS) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(next);
-    toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
+    toastTimer.current = setTimeout(() => setToast(null), ms);
   }
 
   async function putEvent(id: string, patch: Record<string, unknown>): Promise<boolean> {
@@ -181,6 +184,12 @@ export default function NextPage() {
       setActionError(body.error || "Could not save that change. Try again.");
       return null;
     }
+    // Closed on the server, whatever this page last read: nothing moved, and the tracker asks.
+    if (res.status === 202) {
+      setActionError(typeof body.message === "string" ? body.message : "This row is closed.");
+      return null;
+    }
+    if (typeof body.warning === "string") setActionError(body.warning);
     return body;
   }
 
@@ -209,6 +218,11 @@ export default function NextPage() {
   }
 
   function moveApplication(application: PlanApplication, status: Status, reasonEvents: PlanItem[], message: string) {
+    // A row that reached screening leaves on the user's word, in the dialog (lib/closing).
+    if (needsConfirmation(application, status, false)) {
+      setClosing({ application, reason: reasonForStatus(status), reasonEvents });
+      return;
+    }
     const previous = normalizeStatus(application.status) ?? "screening";
     const followup = application.followup_date ?? null;
     // Closing a row clears its follow-up and notes that in the row's notes; undo takes both back.
@@ -222,9 +236,29 @@ export default function NextPage() {
         message,
         undo: async () => {
           const restore = followup ? { followup_date: followup, ...(answer.cleared ? { notes: removeFollowupClearedNote(answer.cleared.notes, followup) } : {}) } : {};
-          if (await putApplication(application.id, { status: previous, ...restore })) await refresh();
+          if (await putApplication(application.id, { status: previous, confirmed_reopen: true, confirmed_move_back: true, ...restore })) await refresh();
         },
       });
+    });
+  }
+
+  function confirmClose(choice: CloseChoice) {
+    if (!closing) return;
+    const { application, reasonEvents } = closing;
+    setClosing(null);
+    leaveThen(reasonEvents.map((i) => i.event.id), async () => {
+      // This page never read the row's lesson, so an empty box must not wipe one.
+      const sent: Record<string, unknown> = { ...closeBody(choice) };
+      if (!choice.lesson) delete sent.lesson;
+      return !!(await putApplication(application.id, sent));
+    }, () => {
+      showToast({
+        message: "Moved to Closed",
+        // Restored from what the close stored on the server.
+        undo: async () => {
+          if (await putApplication(application.id, { undo_close: true })) await refresh();
+        },
+      }, UNDO_WINDOW_MS);
     });
   }
 
@@ -247,7 +281,7 @@ export default function NextPage() {
         const next = outcome === "offer" ? "offer" : NEXT_STAGE[stage];
         const previousEvent = item.event.status;
         const undo = async () => {
-          const moved = next ? await putApplication(application.id, { status: stage }) : true;
+          const moved = next ? await putApplication(application.id, { status: stage, confirmed_move_back: true }) : true;
           if (moved && (await putEvent(item.event.id, { status: previousEvent }))) await refresh();
         };
         leaveThen([item.event.id], async () => {
@@ -293,7 +327,7 @@ export default function NextPage() {
   const walk = useRef({ ids: [] as string[], selectedId, items: allItems, form: false, onPlan: true });
   useEffect(() => {
     const drawn = view === "plan" ? filterDay(allItems) : [];
-    walk.current = { ids: drawn.map((i) => i.event.id), selectedId, items: drawn, form: form !== null, onPlan: view === "plan" };
+    walk.current = { ids: drawn.map((i) => i.event.id), selectedId, items: drawn, form: form !== null || closing !== null, onPlan: view === "plan" };
   });
   const doneRef = useRef(actions.onDone);
   useEffect(() => { doneRef.current = actions.onDone; });
@@ -557,6 +591,15 @@ export default function NextPage() {
         />
       )}
 
+      {closing && (
+        <MoveToClosedDialog
+          company={closing.application.company_name}
+          reason={closing.reason}
+          date={dayKey(now, tz)}
+          onCancel={() => setClosing(null)}
+          onSubmit={confirmClose}
+        />
+      )}
       {toast && (
         <div className="planToast" role="status" data-toast>
           <span>{toast.message}</span>
