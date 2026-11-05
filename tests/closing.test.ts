@@ -4,12 +4,16 @@ import {
   CONFIRMATION_MESSAGE,
   MOVE_BACK_MESSAGE,
   PENDING_VIA_PATCH,
+  REOPEN_QUIET_DAYS,
+  REOPEN_RECORDED,
+  UNDO_WINDOW_MS,
   activePending,
   backfillPatch,
   closedAtFromDate,
   closedRows,
   conversionBy,
   decideClosingWrite,
+  dismissPending,
   highestStage,
   isClosed,
   isMoveBack,
@@ -17,15 +21,21 @@ import {
   mergePendingOutcome,
   needsConfirmation,
   normalizePendingOutcome,
+  normalizeUndoSnapshot,
+  pendingBanner,
   pendingLine,
   progressChip,
   reachedInterview,
   reachedScreening,
   reasonForStatus,
+  reopenTarget,
+  reportedNote,
   resultLine,
   sourceOf,
   stageSummary,
   statusForReason,
+  undoIsLive,
+  undoWrite,
   winsFunnel,
 } from "../src/lib/closing.ts";
 
@@ -61,10 +71,13 @@ test("an application that never got that far moves freely, as the sweeps expect"
 });
 
 const NOW = "2026-11-04T20:00:00.000Z";
-const noFlags = { confirmed: false, confirmedMoveBack: false };
-const word = { confirmed: true, confirmedMoveBack: false };
+const noFlags = { confirmed: false, confirmedMoveBack: false, confirmedReopen: false };
+const word = { ...noFlags, confirmed: true };
+const backWord = { ...noFlags, confirmedMoveBack: true };
+const reopenWord = { ...noFlags, confirmedReopen: true };
 const refused = (d: ReturnType<typeof decideClosingWrite>) => ("refuse" in d ? d.refuse : null);
 const fieldsOf = (d: ReturnType<typeof decideClosingWrite>) => ("fields" in d ? d.fields : null);
+const askOf = (d: ReturnType<typeof decideClosingWrite>) => ("reopenRequest" in d ? d.reopenRequest : null);
 
 test("a 409 without confirmation, and success with it", () => {
   const no = refused(decideClosingWrite(screened, { status: "rejected" }, noFlags, NOW));
@@ -86,11 +99,15 @@ test("no two writes around the rule: moving a screened row back needs the user t
     const no = refused(decideClosingWrite(screened, { status }, noFlags, NOW));
     assert.equal(no?.status, 409, status);
     assert.equal(no?.error, MOVE_BACK_MESSAGE);
-    assert.ok(fieldsOf(decideClosingWrite(screened, { status }, { confirmed: false, confirmedMoveBack: true }, NOW)), "the user can still correct a mistake");
+    assert.ok(fieldsOf(decideClosingWrite(screened, { status }, backWord, NOW)), "the user can still say where it stands");
     assert.ok(refused(decideClosingWrite(screened, { status }, word, NOW)), "the closing word is not the same word");
   }
   const closedRow = { status: "rejected", stages_reached: ["applied", "screening", "rejected"] };
-  assert.equal(refused(decideClosingWrite(closedRow, { status: "applied" }, noFlags, NOW))?.status, 409, "nor from Closed");
+  assert.equal(refused(decideClosingWrite(closedRow, { status: "applied" }, reopenWord, NOW))?.status, 409, "reopening below screening needs both words");
+  assert.ok(fieldsOf(decideClosingWrite(closedRow, { status: "applied" }, { ...reopenWord, confirmedMoveBack: true }, NOW)));
+  // The history is append-only, so a row moved back is still a row that reached screening.
+  const movedBack = { status: "applied", stages_reached: ["applied", "screening"] };
+  assert.equal(refused(decideClosingWrite(movedBack, { status: "rejected" }, noFlags, NOW))?.error, CONFIRMATION_MESSAGE, "no two writes around the rule");
   assert.ok(fieldsOf(decideClosingWrite({ status: "applied", stages_reached: ["applied"] }, { status: "saved" }, noFlags, NOW)), "below screening moves as ever");
   assert.ok(fieldsOf(decideClosingWrite(screened, { status: "interview" }, noFlags, NOW)), "forward moves as ever");
   assert.ok(fieldsOf(decideClosingWrite({ status: "interview", stages_reached: ["applied", "interview"] }, { status: "screening" }, noFlags, NOW)), "it still reached screening");
@@ -114,8 +131,7 @@ test("a detected outcome goes through its own route, so the merge rule holds", (
   const pending = { outcome: "rejected" as const, date: "2026-11-02", source: "gmail" };
   assert.equal(refused(decideClosingWrite(screened, { pending_outcome: pending }, noFlags, NOW))?.error, PENDING_VIA_PATCH);
   assert.equal(refused(decideClosingWrite(screened, { status: "screening", pending_outcome: pending }, noFlags, NOW))?.error, PENDING_VIA_PATCH);
-  const undo = fieldsOf(decideClosingWrite({ status: "rejected", stages_reached: ["applied", "screening", "rejected"] }, { status: "screening", closed_at: null, close_reason: null, pending_outcome: pending }, noFlags, NOW));
-  assert.deepEqual(undo?.pending_outcome, pending, "Undo puts back what a close took");
+  assert.equal(refused(decideClosingWrite({ status: "rejected", stages_reached: ["applied", "screening", "rejected"] }, { status: "screening", closed_at: null, close_reason: null, pending_outcome: pending }, reopenWord, NOW))?.error, PENDING_VIA_PATCH, "Undo has its own path now");
   assert.ok(fieldsOf(decideClosingWrite(screened, { pending_outcome: null }, noFlags, NOW)), "clearing is allowed");
 });
 
@@ -127,12 +143,163 @@ test("a close keeps what it took as dismissed, so a reopened row isn't re-flagge
   assert.equal(fieldsOf(decideClosingWrite(screened, { status: "rejected" }, word, NOW))?.pending_outcome, null, "nothing stored, nothing kept");
 });
 
-test("back at an open stage the row is Live, whoever moved it", () => {
-  const closedRow = { status: "rejected", stages_reached: ["applied", "screening", "rejected"] };
-  const open = fieldsOf(decideClosingWrite(closedRow, { status: "interview" }, noFlags, NOW));
+test("an open status on a closed row asks, and only the user's word reopens it", () => {
+  const closedRow = { status: "rejected", stages_reached: ["applied", "screening", "rejected"], closed_at: "2026-11-02T12:00:00.000Z" };
+  const ask = askOf(decideClosingWrite(closedRow, { status: "interview" }, noFlags, NOW));
+  assert.deepEqual(ask, { outcome: "reopen", date: "2026-11-04", source: "sweep", status: "interview" });
+  assert.ok(askOf(decideClosingWrite({ status: "rejected", stages_reached: ["applied", "rejected"] }, { status: "screening" }, noFlags, NOW)), "any ended row: the match may be wrong");
+  assert.ok(askOf(decideClosingWrite(closedRow, { status: "interview" }, word, NOW)), "the closing word is not this word");
+  const open = fieldsOf(decideClosingWrite(closedRow, { status: "interview" }, reopenWord, NOW));
   assert.equal(open?.closed_at, null);
   assert.equal(open?.close_reason, null);
   assert.equal(fieldsOf(decideClosingWrite(closedRow, { status: "rejected" }, noFlags, NOW))?.closed_at, undefined, "a sweep rewriting the same status leaves the close alone");
+  assert.equal(fieldsOf(decideClosingWrite(screened, { status: "interview" }, noFlags, NOW))?.closed_at, null, "a live row is not asked about");
+  assert.match(REOPEN_RECORDED, /nothing was written/);
+});
+
+test("the reopen question: its answer clears it, and a dismissal holds until the stage changes", () => {
+  const asked = { outcome: "reopen", date: "2026-11-05", source: "sweep", status: "interview" };
+  const closedRow = { status: "rejected", stages_reached: ["applied", "screening", "rejected"], pending_outcome: asked };
+  assert.deepEqual(normalizePendingOutcome(asked), asked);
+  assert.equal(fieldsOf(decideClosingWrite(closedRow, { status: "interview" }, reopenWord, NOW))?.pending_outcome, null, "answered");
+  const memory = { ...closedRow, pending_outcome: { outcome: "rejected", date: "2026-11-02", source: "gmail", dismissed: true } };
+  assert.equal(fieldsOf(decideClosingWrite(memory, { status: "screening" }, reopenWord, NOW))?.pending_outcome, undefined, "a dismissal kept from a close stays as memory");
+  const dismissed = { ...asked, dismissed: true };
+  assert.equal(mergePendingOutcome(dismissed, { ...asked, date: "2026-11-09" } as never).ignored, true, "a wrong-row match stays quiet on the next run");
+  assert.equal(mergePendingOutcome(dismissed, { ...asked, status: "offer" } as never).ignored, false, "further than the one dismissed is new news");
+  assert.equal(mergePendingOutcome(dismissed, { ...asked, status: "applied" } as never).ignored, true, "lower than the one dismissed is not");
+  const noStage = { outcome: "reopen", date: "2026-11-05", source: "sweep" };
+  assert.equal(mergePendingOutcome(dismissed, noStage as never).ignored, true, "a report naming no stage matches");
+  assert.equal(mergePendingOutcome({ ...noStage, dismissed: true }, asked as never).ignored, true, "in either direction");
+  assert.equal(REOPEN_QUIET_DAYS, 14);
+  const late = dismissPending({ outcome: "reopen", date: "2026-11-01", source: "sweep", status: "interview" }, "2026-11-20");
+  assert.equal(late.date, "2026-11-20", "the window starts at the dismissal, not at whenever the sweep ran");
+  assert.equal(mergePendingOutcome(late, { outcome: "reopen", date: "2026-11-21", source: "sweep", status: "interview" }).ignored, true);
+  assert.equal(dismissPending({ outcome: "rejected", date: "2026-11-02", source: "gmail" }, "2026-11-20").date, "2026-11-02", "an ending keeps the date it is known by");
+  assert.equal(mergePendingOutcome(dismissed, { ...asked, date: "2026-11-18" } as never).ignored, true, "thirteen days on");
+  assert.equal(mergePendingOutcome(dismissed, { ...asked, date: "2026-11-19" } as never).ignored, false, "a real invite weeks later still reaches the user");
+  assert.equal(normalizePendingOutcome({ outcome: "reopen", date: "2026-11-05", status: "rejected" })?.status, undefined, "it can't ask for an ending");
+});
+
+test("the report's words reach the banner, and the row only if the user reopens it", () => {
+  assert.equal(reportedNote("Mine\nOlder line", "Mine\nOlder line\nInvite for 12 Nov 14:00"), "Invite for 12 Nov 14:00", "only what the report adds");
+  assert.equal(reportedNote("Mine", "Mine"), undefined);
+  assert.equal(reportedNote(null, "One\nTwo"), "One · Two");
+  assert.equal(reportedNote("Mine", undefined), undefined);
+  assert.equal(reportedNote(null, null), undefined);
+  assert.equal(reportedNote(null, "x".repeat(900))?.length, 240);
+  const closedRow = { status: "rejected", stages_reached: ["applied", "screening", "rejected"], notes: "Mine" };
+  const ask = askOf(decideClosingWrite(closedRow, { status: "interview", notes: "Mine\nInvite for 12 Nov" }, noFlags, NOW));
+  assert.equal(ask?.note, "Invite for 12 Nov");
+  const stored = { ...closedRow, pending_outcome: ask };
+  assert.equal(normalizePendingOutcome(ask)?.note, "Invite for 12 Nov", "it survives being stored");
+  assert.equal(fieldsOf(decideClosingWrite(stored, { status: "interview" }, reopenWord, NOW))?.notes, "Mine\nInvite for 12 Nov", "the row takes it on the user's word");
+  assert.equal(fieldsOf(decideClosingWrite({ ...closedRow, pending_outcome: { ...ask, dismissed: true } }, { status: "interview" }, reopenWord, NOW))?.notes, undefined, "not after they said it isn't about this row");
+  assert.equal(fieldsOf(decideClosingWrite(stored, { status: "interview", notes: "Theirs" }, reopenWord, NOW))?.notes, "Theirs", "what the user writes wins");
+  assert.equal(fieldsOf(decideClosingWrite({ ...stored, notes: "x".repeat(1990) }, { status: "interview" }, reopenWord, NOW))?.notes, undefined, "past the cap it never truncates their notes");
+  assert.equal(mergePendingOutcome(ask, { outcome: "reopen", date: "2026-11-06", source: "sweep", status: "interview" }).value.note, "Invite for 12 Nov", "a repeat keeps the words");
+  const lower = mergePendingOutcome(ask, { outcome: "reopen", date: "2026-11-06", source: "sweep", status: "applied" }).value;
+  assert.equal(lower.status, "interview", "and a later, lower report doesn't overwrite a higher question");
+  assert.equal(lower.date, "2026-11-06");
+  assert.equal(mergePendingOutcome(ask, { outcome: "reopen", date: "2026-11-06", source: "sweep" }).value.status, "interview");
+  assert.equal(mergePendingOutcome(ask, { outcome: "reopen", date: "2026-11-06", source: "sweep", status: "offer" }).value.status, "offer");
+});
+
+test("a question on a closed row keeps what the close remembered, so answering it brings nothing back", () => {
+  const ending = { outcome: "rejected", date: "2026-11-02", source: "gmail" };
+  const live = { status: "screening", stages_reached: ["applied", "screening"], pending_outcome: ending };
+  const close = fieldsOf(decideClosingWrite(live, { status: "rejected" }, word, NOW))!;
+  const closedRow = { status: "rejected", stages_reached: ["applied", "screening", "rejected"], pending_outcome: close.pending_outcome };
+  const ask = mergePendingOutcome(closedRow.pending_outcome, { outcome: "reopen", date: "2026-11-05", source: "sweep", status: "interview" }).value;
+  assert.equal(ask.outcome, "reopen");
+  assert.deepEqual(ask.earlier, { ...ending, dismissed: true });
+  assert.equal(pendingBanner({ ...closedRow, pending_outcome: ask })?.kind, "reopen");
+  const again = mergePendingOutcome(ask, { outcome: "reopen", date: "2026-11-06", source: "sweep", status: "interview" }).value;
+  assert.deepEqual(again.earlier, { ...ending, dismissed: true }, "through a repeat too");
+  const reopened = fieldsOf(decideClosingWrite({ ...closedRow, pending_outcome: again }, { status: "interview" }, reopenWord, NOW))!;
+  assert.deepEqual(reopened.pending_outcome, { ...ending, dismissed: true }, "the answer restores it");
+  const report = mergePendingOutcome(reopened.pending_outcome, ending as never);
+  assert.equal(report.ignored, true, "the same email after the Reopen stays quiet");
+  assert.equal(pendingBanner({ status: "interview", pending_outcome: report.value }), null);
+  assert.equal(normalizePendingOutcome({ ...ending, earlier: ending })?.earlier, undefined, "only a question carries one");
+  assert.equal(normalizePendingOutcome({ outcome: "reopen", date: "2026-11-05", earlier: { outcome: "reopen", date: "2026-11-01" } })?.earlier, undefined, "and it is an ending, one level deep");
+  let deep: Record<string, unknown> = { outcome: "reopen", date: "2026-11-05" };
+  for (let i = 0; i < 20000; i++) deep = { outcome: "reopen", date: "2026-11-05", earlier: deep };
+  assert.equal(normalizePendingOutcome(deep)?.earlier, undefined, "a value written by hand can't recurse");
+});
+
+test("the banner: an ending asks a live row, a reopen asks a closed one", () => {
+  const ending = { outcome: "rejected", date: "2026-11-02", source: "gmail" };
+  const asked = { outcome: "reopen", date: "2026-11-05", source: "sweep", status: "interview" };
+  assert.equal(pendingBanner({ status: "screening", pending_outcome: ending })?.kind, "close");
+  assert.equal(pendingBanner({ status: "rejected", pending_outcome: ending }), null);
+  assert.equal(pendingBanner({ status: "rejected", pending_outcome: asked })?.kind, "reopen");
+  assert.equal(pendingBanner({ status: "screening", pending_outcome: asked }), null);
+  assert.equal(pendingBanner({ status: "rejected", pending_outcome: { ...asked, dismissed: true } }), null);
+  assert.equal(pendingLine(normalizePendingOutcome(asked)!, "Shell"), "New activity from Shell — Reopen?");
+  assert.equal(reopenTarget({ status: "rejected", stages_reached: ["applied", "screening", "rejected"], pending_outcome: asked }), "interview", "where the report asked");
+  assert.equal(reopenTarget({ status: "rejected", stages_reached: ["applied", "interview", "rejected"] }), "interview", "else the furthest it reached");
+  assert.equal(reopenTarget({ status: "rejected", stages_reached: ["applied", "rejected"] }), "applied");
+  assert.equal(reopenTarget({ status: "rejected", stages_reached: ["applied", "interview", "rejected"], pending_outcome: { ...asked, status: "applied" } }), "interview", "a lower report never sets a row back");
+  assert.equal(reopenTarget({ status: "rejected", stages_reached: ["applied", "interview", "rejected"], pending_outcome: { ...asked, status: "screening" } }), "interview");
+  assert.equal(reopenTarget({ status: "rejected", stages_reached: ["applied", "rejected"], pending_outcome: { ...asked, status: "screening" } }), "screening", "a higher one moves it on");
+  assert.equal(reopenTarget({ status: "rejected", stages_reached: ["applied", "offer", "rejected"], pending_outcome: { ...asked, status: "accepted" } }), "accepted");
+  for (const row of [{ status: "rejected", stages_reached: ["applied", "interview", "rejected"], pending_outcome: { ...asked, status: "applied" } }, { status: "ghosted", stages_reached: ["applied", "screening", "ghosted"] }]) {
+    assert.equal(isMoveBack(row, reopenTarget(row)), false, "so a Reopen never needs the move-back word");
+  }
+});
+
+test("a close stores what it replaced, and Undo restores from that without touching the history", () => {
+  const pending = { outcome: "rejected", date: "2026-11-02", source: "gmail" };
+  const current = { status: "Screening", stages_reached: ["applied", "screening"], pending_outcome: pending, lesson: "old", followup_date: "2026-11-20" };
+  const close = fieldsOf(decideClosingWrite(current, { status: "rejected", lesson: "new" }, word, NOW));
+  assert.deepEqual(close?.undo_snapshot, { status: "screening", closed_at: null, close_reason: null, lesson: "old", pending_outcome: pending, followup_date: "2026-11-20", at: NOW });
+  const snapshot = normalizeUndoSnapshot(close?.undo_snapshot)!;
+  const back = undoWrite(snapshot, { followup_date: null, notes: "Mine\nFollow-up 2026-11-20 cleared when marked rejected on 2026-11-04." });
+  assert.equal(back.status, "screening");
+  assert.equal(back.closed_at, null);
+  assert.equal(back.close_reason, null);
+  assert.equal(back.lesson, "old");
+  assert.deepEqual(back.pending_outcome, pending);
+  assert.equal(back.followup_date, "2026-11-20");
+  assert.equal(back.notes, "Mine");
+  assert.equal(back.undo_snapshot, null);
+  assert.equal("stages_reached" in back, false, "the history is not edited");
+  assert.equal("followup_date" in undoWrite({ ...snapshot, followup_date: null }, { notes: "Mine" }), false, "no follow-up to restore, and the notes are left alone");
+  assert.equal(normalizeUndoSnapshot({ status: "nonsense", at: NOW }), null);
+  assert.equal(normalizeUndoSnapshot(null), null);
+});
+
+test("Ready to submit to Applied is the one step forward below screening", () => {
+  const movedBack = { status: "saved", stages_reached: ["applied", "screening", "saved"] };
+  assert.equal(isMoveBack(movedBack, "applied"), false, "Submit is a step forward");
+  assert.ok(fieldsOf(decideClosingWrite(movedBack, { status: "applied" }, noFlags, NOW)));
+  const applied = { status: "applied", stages_reached: ["applied", "interview"] };
+  assert.equal(isMoveBack(applied, "saved"), true, "Applied to Ready to submit is the owner's call");
+  assert.equal(refused(decideClosingWrite(applied, { status: "saved" }, noFlags, NOW))?.errorType, "needs_move_back_confirmation");
+  assert.ok(fieldsOf(decideClosingWrite(applied, { status: "saved" }, backWord, NOW)));
+  assert.equal(isMoveBack({ status: "screening", stages_reached: ["applied", "screening"] }, "applied"), true);
+  assert.equal(isMoveBack({ status: "rejected", stages_reached: ["applied", "screening", "rejected"] }, "applied"), true, "an ended row still stands above it");
+});
+
+test("a replaced close comes back as it was", () => {
+  const earlier = { status: "rejected", stages_reached: ["applied", "screening", "rejected"], closed_at: "2026-11-02T12:00:00.000Z", close_reason: "rejected", lesson: "first" };
+  const snapshot = normalizeUndoSnapshot(fieldsOf(decideClosingWrite(earlier, { status: "withdrawn", close_reason: "role_closed" }, word, NOW))?.undo_snapshot)!;
+  const back = undoWrite(snapshot, {});
+  assert.equal(back.status, "rejected");
+  assert.equal(back.closed_at, "2026-11-02T12:00:00.000Z");
+  assert.equal(back.close_reason, "rejected");
+  assert.equal(back.lesson, "first");
+});
+
+test("Undo lasts the toast's ten seconds, and a little for the click to arrive", () => {
+  const at = Date.parse(NOW);
+  const snapshot = normalizeUndoSnapshot({ status: "screening", at: NOW })!;
+  assert.equal(UNDO_WINDOW_MS, 10000);
+  assert.equal(undoIsLive(snapshot, at + UNDO_WINDOW_MS), true);
+  assert.equal(undoIsLive(snapshot, at + UNDO_WINDOW_MS + 4000), true, "the click was on its way");
+  assert.equal(undoIsLive(snapshot, at + 60000), false);
+  assert.equal(undoIsLive({ ...snapshot, at: "nonsense" }, at), false);
 });
 
 test("an ended row that reached screening is never lost from the page", () => {
@@ -268,6 +435,12 @@ test("the funnel counts by stages_reached, all time", () => {
   assert.equal(funnel[2].fromPrevious, 45);
   assert.equal(funnel[0].fromPrevious, null);
   assert.equal(winsFunnel([{ status: "saved", stages_reached: ["saved"] }])[0].count, 0, "an unsent row is no application");
+  assert.equal(winsFunnel([{ status: "saved", stages_reached: ["saved", "applied"] }])[0].count, 0, "nor is one with an undone Submit in its history");
+  assert.deepEqual(winsFunnel([{ status: "screening", stages_reached: ["applied", "screening", "interview"] }]).map((s) => s.count), [1, 1, 1, 0], "moved back, it still counts as reaching interview");
+  assert.deepEqual(winsFunnel([{ status: "saved", stages_reached: ["applied", "screening", "saved"] }]).map((s) => s.count), [1, 1, 0, 0], "moved back to unsent, too");
+  const [group] = conversionBy([{ status: "saved", stages_reached: ["applied", "screening", "saved"] }], () => "Added by hand");
+  assert.equal(group?.reached, 1, "and the by-source table agrees with the funnel above it");
+  assert.equal(conversionBy([{ status: "saved", stages_reached: ["saved", "applied"] }], () => "Added by hand").length, 0);
   assert.equal(winsFunnel([{ status: "accepted", stages_reached: ["applied", "accepted"] }])[3].count, 1, "won counts as an offer");
 });
 

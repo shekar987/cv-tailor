@@ -95,7 +95,7 @@ test("the page opens on Interview, else the furthest stage with something in it"
 
 test("past stages, and where a new row starts", () => {
   assert.equal(reachedTab(["applied", "interview", "rejected"], "interview"), true);
-  assert.equal(reachedTab(["applied", "rejected"], "closed"), true);
+  assert.equal(reachedTab(["applied", "screening", "rejected"], "closed"), false, "a rejection on record is not a row that is Closed now");
   assert.equal(reachedTab(["applied"], "interview"), false);
   assert.equal(reachedTab(null, "interview"), false);
   assert.equal(statusForNewRow("to_submit"), "saved");

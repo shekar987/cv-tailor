@@ -103,8 +103,12 @@ export function visibleTabs(counts: Record<TabKey, number>, current?: TabKey | n
   return TAB_ORDER.filter((t) => !WHEN_FULL.has(t) || counts[t] > 0 || t === current);
 }
 
-/** A row that has been through this tab, for "Include past stages". */
+/**
+ * A row that has been through this tab, for "Include past stages". The history keeps endings, so
+ * a row rejected and then reopened has one on record, and it is not Closed: that reads the status.
+ */
 export function reachedTab(stages: readonly string[] | null | undefined, tab: TabKey): boolean {
+  if (tab === "closed") return false;
   return (stages ?? []).some((s) => {
     const stage = normalizeStatus(s);
     return !!stage && tabOfStage(stage) === tab;

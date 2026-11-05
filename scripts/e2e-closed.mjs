@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { decideClosingWrite, isEnding, mergePendingOutcome, normalizePendingOutcome } from "../src/lib/closing.ts";
+import { REOPEN_RECORDED, UNDO_EXPIRED, decideClosingWrite, isEnding, mergePendingOutcome, normalizePendingOutcome, normalizeUndoSnapshot, undoIsLive, undoWrite } from "../src/lib/closing.ts";
 import { apiStatus, followupClearedNote, normalizeStatus, stagesAfterMove } from "../src/lib/tracker.ts";
 
 const BASE = process.env.SMOKE_BASE || "http://localhost:3100";
@@ -77,20 +77,31 @@ async function standIn(ctx) {
     const body = r.request().postDataJSON();
     patches.push({ id, body });
     if (body.dismiss) target.pending_outcome = { ...normalizePendingOutcome(target.pending_outcome), dismissed: true };
-    else if (!isEnding(target.status)) target.pending_outcome = mergePendingOutcome(target.pending_outcome, normalizePendingOutcome(body)).value;
+    else if (!isEnding(target.status) || body.outcome === "reopen") target.pending_outcome = mergePendingOutcome(target.pending_outcome, normalizePendingOutcome(body)).value;
     await r.fulfill({ json: { ok: true, status: apiStatus(target.status), pending_outcome: target.pending_outcome } });
   });
   await ctx.route(/\/api\/applications(\?.*)?$/, async (r) => {
     const req = r.request();
     if (req.method() === "GET") {
       // As lib/applicationRows toListRow: no null keys.
-      await r.fulfill({ json: { applications: rows.map((x) => Object.fromEntries(Object.entries({ ...x, status: apiStatus(x.status) }).filter(([, v]) => v !== null && v !== undefined))) } });
+      await r.fulfill({ json: { applications: rows.map((x) => Object.fromEntries(Object.entries({ ...x, status: apiStatus(x.status) }).filter(([k, v]) => k !== "undo_snapshot" && v !== null && v !== undefined))) } });
       return;
     }
     if (req.method() !== "PUT") return r.fallback();
     const body = req.postDataJSON();
     puts.push(body);
     const target = rows.find((x) => x.id === body.id);
+    if (body.undo_close) {
+      const snapshot = normalizeUndoSnapshot(target.undo_snapshot);
+      if (!snapshot || !undoIsLive(snapshot, Date.now())) {
+        await r.fulfill({ status: 409, json: { error: UNDO_EXPIRED, errorType: "undo_expired" } });
+        return;
+      }
+      Object.assign(target, undoWrite(snapshot, target));
+      target.stages_reached = stagesAfterMove(target.stages_reached, target.status);
+      await r.fulfill({ json: { ok: true, restored: { status: apiStatus(target.status), stages_reached: target.stages_reached, closed_at: target.closed_at, close_reason: target.close_reason, lesson: target.lesson, pending_outcome: target.pending_outcome, followup_date: target.followup_date ?? null, notes: target.notes ?? null } } });
+      return;
+    }
     if (failNextLesson && "lesson" in body) {
       failNextLesson = false;
       await r.fulfill({ status: 500, json: { error: "Could not save that application" } });
@@ -99,14 +110,19 @@ async function standIn(ctx) {
     const write = {};
     for (const key of ["closed_at", "close_reason", "lesson", "pending_outcome", "followup_date", "notes"]) if (key in body) write[key] = body[key];
     if (body.status) write.status = normalizeStatus(body.status);
-    const decision = decideClosingWrite(target, write, { confirmed: body.confirmed_by_user === true, confirmedMoveBack: body.confirmed_move_back === true }, new Date().toISOString());
+    const decision = decideClosingWrite(target, write, { confirmed: body.confirmed_by_user === true, confirmedMoveBack: body.confirmed_move_back === true, confirmedReopen: body.confirmed_reopen === true }, new Date().toISOString());
     if ("refuse" in decision) {
       refused++;
       const { status, ...refusal } = decision.refuse;
       await r.fulfill({ status, json: refusal });
       return;
     }
-    const closedFrom = body.confirmed_by_user && isEnding(write.status) ? { lesson: target.lesson ?? null, pending_outcome: normalizePendingOutcome(target.pending_outcome) } : undefined;
+    if ("reopenRequest" in decision) {
+      const merged = mergePendingOutcome(target.pending_outcome, decision.reopenRequest);
+      target.pending_outcome = merged.value;
+      await r.fulfill({ status: 202, json: { ok: true, message: REOPEN_RECORDED, status: apiStatus(target.status), pending_outcome: merged.value, ...(merged.ignored ? { ignored: "dismissed" } : {}) } });
+      return;
+    }
     // As the route: an ending clears an open follow-up and notes it.
     let followupCleared;
     if (isEnding(write.status) && target.followup_date && !("followup_date" in write)) {
@@ -117,13 +133,15 @@ async function standIn(ctx) {
     }
     const { status, ...rest } = decision.fields;
     Object.assign(target, rest);
+    // As the trigger: a write that sets no snapshot of its own clears the one there.
+    if (!("undo_snapshot" in rest)) target.undo_snapshot = null;
     if (status) {
       target.stages_reached = stagesAfterMove(target.stages_reached, status);
       target.status = status;
     }
-    const warning = warnNextClose && closedFrom ? "The status is saved, but the date, reason and lesson are not: run migration 20261104130000." : undefined;
+    const warning = warnNextClose && isEnding(write.status) ? "The status is saved, but the date, reason and lesson are not: run migration 20261104130000." : undefined;
     if (warning) warnNextClose = false;
-    await r.fulfill({ json: { ok: true, ...(closedFrom ? { closedFrom } : {}), ...(followupCleared ? { followupCleared } : {}), ...(warning ? { warning } : {}) } });
+    await r.fulfill({ json: { ok: true, ...(followupCleared ? { followupCleared } : {}), ...(warning ? { warning } : {}) } });
   });
 }
 
@@ -218,7 +236,7 @@ try {
   check("Undo restores the status", byName("ShellCo").status === "screening" && !byName("ShellCo").closed_at);
   check("Undo brings the banner back", (await bannerOf("ShellCo").count()) === 1);
   check("and the lesson goes back", !byName("ShellCo").lesson, JSON.stringify(byName("ShellCo").lesson));
-  check("the stage history drops the ending", byName("ShellCo").stages_reached.join() === "applied,screening", byName("ShellCo").stages_reached.join());
+  check("the history is not edited", byName("ShellCo").stages_reached.join() === "applied,screening,rejected", byName("ShellCo").stages_reached.join());
   check("the row is Live again", (await live()).includes("ShellCo") && /17 live · 0 closed/.test(await summary()), await summary());
 
   // Undo of a close that cleared a follow-up: the date and the note both go back.
@@ -380,7 +398,7 @@ try {
   await page.locator('[data-stage-row="Charlie"] [data-stage-status]').selectOption("applied");
   const ask = page.locator("[data-confirm-dialog]");
   await ask.waitFor({ timeout: 5000 });
-  check("moving a screened row back asks first", /takes it off that count/.test(await ask.innerText()), (await ask.innerText()).slice(0, 160));
+  check("moving a screened row back asks first", /stays on its record/.test(await ask.innerText()), (await ask.innerText()).slice(0, 160));
   check("and sends nothing yet", puts.length === beforeBack);
   await page.locator("[data-confirm-cancel]").click();
   await page.waitForTimeout(150);
@@ -391,7 +409,47 @@ try {
   await page.locator("[data-confirm-ok], [data-confirm-dialog] button.cta:not(.secondary)").first().click();
   await page.waitForTimeout(250);
   check("confirmed, it moves, with its own word", byName("Charlie").status === "applied" && puts.at(-1).confirmed_move_back === true && puts.at(-1).confirmed_by_user === undefined, JSON.stringify(puts.at(-1)).slice(0, 180));
-  check("the count follows", /reached screening 25 times/.test(await summary()), await summary());
+  check("and the count does not drop", /reached screening 26 times/.test(await summary()) && byName("Charlie").stages_reached.includes("screening"), await summary());
+
+  // ── A sweep writing an open status on a closed row asks instead ──────────
+  const bravo = byName("Bravo");
+  const sweepPut = (status, notes) => page.evaluate(async ([id, st, n]) => {
+    const res = await fetch("/api/applications", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status: st, ...(n ? { notes: n } : {}) }) });
+    return { status: res.status, body: await res.json() };
+  }, [bravo.id, status, notes]);
+  const bravoClosedAt = bravo.closed_at;
+  const bravoStatus = bravo.status;
+  const asked = await sweepPut("Interview", "Invite the sweep found");
+  check("a sweep's open status answers 202", asked.status === 202 && asked.body.pending_outcome?.outcome === "reopen", JSON.stringify(asked).slice(0, 200));
+  check("and doesn't reopen it", bravo.status === bravoStatus && bravo.closed_at === bravoClosedAt && !bravo.stages_reached.includes("interview"));
+  check("nor writes anything else: it may be the wrong row", !bravo.notes);
+  await open();
+  const reopenNotice = page.locator("[data-reopen-notice]");
+  check("a notice says so, wherever you are", /New activity on 1 closed application/.test(await reopenNotice.innerText()), await reopenNotice.innerText());
+  check("the folded section says so too", /1 with new activity/.test(await page.locator("[data-closed-summary]").innerText()), await page.locator("[data-closed-summary]").innerText());
+  await page.locator("[data-reopen-show]").click();
+  await page.waitForTimeout(150);
+  const reopenBanner = page.locator('[data-pending-row="Bravo"] [data-pending-banner="reopen"]');
+  check("the banner asks, as you wrote it", /^New activity from Bravo — Reopen\?/.test(await reopenBanner.innerText()), await reopenBanner.innerText());
+  check("and quotes what the report said, to judge the match by", (await reopenBanner.locator("[data-pending-note]").innerText()) === "Invite the sweep found");
+  check("only the rows asking are listed", (await page.locator("[data-stage-row]").count()) === 1);
+  await page.screenshot({ path: path.join(SHOTS, "reopen.png"), fullPage: false });
+  await reopenBanner.locator("[data-pending-dismiss]").click();
+  await page.waitForTimeout(200);
+  check("Not true holds", bravo.pending_outcome.dismissed === true && (await page.locator("[data-reopen-notice]").count()) === 0);
+  const repeat = await sweepPut("Interview");
+  check("against the next sweep too", repeat.body.ignored === "dismissed" && bravo.pending_outcome.dismissed === true, JSON.stringify(repeat.body).slice(0, 180));
+  await sweepPut("Offer");
+  await open();
+  await page.locator("[data-reopen-show]").click();
+  await page.waitForTimeout(150);
+  check("a different stage asks again", bravo.pending_outcome.status === "offer" && (await page.locator('[data-pending-row="Bravo"] [data-pending-reopen]').count()) === 1);
+  await page.locator('[data-pending-row="Bravo"] [data-pending-reopen]').click();
+  await page.waitForTimeout(250);
+  check("Reopen moves it where the report asked", bravo.status === "offer" && !bravo.closed_at && !bravo.close_reason, JSON.stringify([bravo.status, bravo.closed_at]));
+  check("and sends the user's word", puts.at(-1).confirmed_reopen === true && puts.at(-1).confirmed_by_user === undefined, JSON.stringify(puts.at(-1)).slice(0, 180));
+  check("the question is answered", !bravo.pending_outcome);
+  await page.reload({ waitUntil: "load" });
 
   check("no console errors", errors.length === 0, errors.slice(0, 3).join(" | ").slice(0, 300));
 
@@ -419,18 +477,21 @@ try {
   const realBody = await (await realPut).json();
   await planPage.locator("[data-toast-undo]").waitFor({ timeout: 15000 });
   if (realBody.warning) {
-    console.log("info: the closing columns are not on this database yet");
-    check("What's next shows the warning", (await planPage.locator('[role="alert"]').allInnerTexts()).some((t) => /20261104130000/.test(t)));
+    console.log("SKIP the real close's columns and its Undo: migration 20261105120000 is not on this database yet");
+    check("What's next shows the warning", (await planPage.locator('[role="alert"]').allInnerTexts()).some((t) => /2026110(4130000|5120000)/.test(t)));
   } else {
     check("the real row stores the close", /^\d{4}-\d{2}-\d{2}/.test((await realRead0()).closed_at ?? "") && (await realRead0()).lesson === "wanted 3+ yrs", JSON.stringify(await realRead0()).slice(0, 200));
   }
   const realRead = async () => (await (await fetch(`${BASE}/api/applications`, { headers: { cookie } })).json()).applications.find((r) => r.id === realRow.id);
   check("the real route takes the user's word", (await realRead()).status === "Rejected", (await realRead()).status);
   check("the toast says it moved", /Moved to Closed/.test(await planPage.locator("[data-toast]").innerText()));
-  await planPage.locator("[data-toast-undo]").click();
-  await waiting.waitFor({ timeout: 15000 });
-  const backAgain = await realRead();
-  check("Undo puts the real row back", backAgain.status === "Interview" && !backAgain.closed_at && !backAgain.lesson && backAgain.stages_reached.join() === "interview", JSON.stringify([backAgain.status, backAgain.closed_at, backAgain.stages_reached]));
+  if (!realBody.warning) {
+    await planPage.locator("[data-toast-undo]").click();
+    await waiting.waitFor({ timeout: 15000 });
+    const backAgain = await realRead();
+    check("Undo puts the real row back", backAgain.status === "Interview" && !backAgain.closed_at && !backAgain.lesson, JSON.stringify([backAgain.status, backAgain.closed_at, backAgain.lesson]));
+    check("and its history keeps what happened", backAgain.stages_reached.join() === "interview,rejected", backAgain.stages_reached.join());
+  }
   await real.close();
 
   // ── The ten-second toast, on a phone ─────────────────────────────────────

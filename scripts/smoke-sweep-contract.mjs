@@ -46,15 +46,16 @@ try {
   check(`a POST with no status reads "Applied"`, (await detail(noStatus.id)).status === "Applied");
 
   // Partial PUT, moving one row through every string, with the sweeps' other fields.
-  // The endings first: once a row has reached screening, ending it needs the user (below).
-  const id = ids.Applied;
-  for (const status of ["Rejected", "Withdrawn", "Ready to submit", "Applied", "Screening", "Interview"]) {
+  // One fresh row each: an ended row no longer moves on a sweep's word (below).
+  for (const status of SWEEP_STATUSES) {
+    const id = (await (await call("/api/applications", { method: "POST", body: json({ company_name: `Sweep move ${status}`, role: "Engineer", date_applied: "2026-10-20" }) })).json()).id;
     const res = await call("/api/applications", { method: "PUT", body: json({ id, status, notes: `Moved to ${status}`, job_description: `JD while ${status}` }) });
     const row = await detail(id);
     check(`PUT to "${status}" reads back exactly`, res.status === 200 && row.status === status && row.job_description === `JD while ${status}` && (row.notes ?? "").includes(`Moved to ${status}`), `${res.status} ${row.status}`);
     const listed = (await list()).find((r) => r.id === id);
     check(`list agrees on "${status}"`, listed.status === status, listed.status);
   }
+  const id = ids.Applied;
   const statusOnly = await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening" }) });
   check("a PUT of status alone works", statusOnly.status === 200 && (await detail(id)).status === "Screening");
   const notesOnly = await call("/api/applications", { method: "PUT", body: json({ id, notes: "Only notes" }) });
@@ -70,7 +71,7 @@ try {
   }
   const refusedWithNotes = await call("/api/applications", { method: "PUT", body: json({ id, status: "Rejected", notes: "Rejection email", job_description: "Should not land" }) });
   check("a refused write changes nothing else either", refusedWithNotes.status === 409 && (await detail(id)).notes !== "Rejection email");
-  // Nor by two writes: moving it below screening would erase the proof and open the rule.
+  // Moving it below screening needs the user too; the history keeps the proof regardless.
   for (const status of ["Applied", "Ready to submit"]) {
     const back = await call("/api/applications", { method: "PUT", body: json({ id, status }) });
     check(`a screened row refuses "${status}" without the user`, back.status === 409 && (await back.json()).errorType === "needs_move_back_confirmation", String(back.status));
@@ -87,6 +88,13 @@ try {
   await call("/api/applications", { method: "PUT", body: json({ id: plainId, followup_date: "2026-11-20" }) });
   const closed = await (await call("/api/applications", { method: "PUT", body: json({ id: plainId, status: "Rejected" }) })).json();
   check('closing clears the follow-up with the same note', closed.followupCleared?.followup_date === null && /Follow-up 2026-11-20 cleared when marked Rejected on /.test(closed.followupCleared?.notes ?? ""), json(closed).slice(0, 160));
+
+  // An open status on an ended row asks instead: the sweep's match may be the wrong row.
+  const notesBefore = (await detail(plainId)).notes;
+  const asked = await call("/api/applications", { method: "PUT", body: json({ id: plainId, status: "Screening", notes: "Sweep wrote this" }) });
+  const askedRow = await detail(plainId);
+  check("an open status on an ended row answers 202", asked.status === 202 && (await asked.json()).pending_outcome?.outcome === "reopen", String(asked.status));
+  check("and moves nothing", askedRow.status === "Rejected" && askedRow.notes === notesBefore, askedRow.status);
 
   // POST /api/applications/cv, as multipart { id, file }.
   const form = new FormData();

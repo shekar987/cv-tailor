@@ -3,13 +3,17 @@
 // detects a rejection records it as pending; only the user's own confirmation moves the row.
 // Pure, so node:test can run it (tests/closing).
 import { MIN_DECIDED } from "./insights.ts";
-import { STATUS_LABELS, isSubmitted, normalizeStatus, type Status } from "./tracker.ts";
+import { MAX_NOTES_CHARS } from "./limits.ts";
+import { STATUS_LABELS, appendNoteLine, normalizeStatus, removeFollowupClearedNote, type Status } from "./tracker.ts";
 
 // ── The rule ────────────────────────────────────────────────────────────────
 
 export const CONFIRMATION_MESSAGE = "Needs the user's confirmation; set pending_outcome instead.";
-export const MOVE_BACK_MESSAGE = "Needs the user's confirmation: this row reached screening, and moving it back takes it off that count.";
+export const MOVE_BACK_MESSAGE = "Needs the user's confirmation: this row reached screening.";
 export const PENDING_VIA_PATCH = "Record a detected outcome with PATCH /api/applications/{id}/pending-outcome.";
+export const REOPEN_RECORDED = "This row is closed, so nothing was written. It now shows a banner asking the user whether to reopen it.";
+export const REOPEN_DISMISSED = "This row is closed and the user already said this report is not about it, so nothing was written.";
+export const UNDO_EXPIRED = "That can no longer be undone.";
 
 const ENDINGS: readonly Status[] = ["rejected", "withdrawn", "ghosted"];
 const REACHED_SCREENING: readonly Status[] = ["screening", "assessment", "interview", "offer", "accepted"];
@@ -45,12 +49,15 @@ export function needsConfirmation(row: StageFields, nextStatus: unknown, confirm
 }
 
 /**
- * A move below screening. The stage trigger drops later stages on a move back, so this would
- * erase the proof, and leave the row free to end with no one's word: two writes around the rule.
+ * A move below screening. The history keeps the proof either way (it is append-only), but where
+ * a shortlisted row stands is still the user's to say. Ready to submit to Applied is the one step
+ * forward down there: a row moved back that far can be submitted again.
  */
 export function isMoveBack(row: StageFields, nextStatus: unknown): boolean {
   const next = normalizeStatus(nextStatus);
-  return !!next && BELOW_SCREENING.includes(next) && normalizeStatus(row.status) !== next && reachedScreening(row);
+  const now = normalizeStatus(row.status);
+  if (!next || !BELOW_SCREENING.includes(next) || now === next || now === "saved") return false;
+  return reachedScreening(row);
 }
 
 // ── How far it got ──────────────────────────────────────────────────────────
@@ -131,18 +138,44 @@ export function closedAtFromDate(date: string): string | null {
 
 // ── A detected outcome, not yet the user's word ─────────────────────────────
 
-export type PendingOutcome = { outcome: Status; date: string; source: string; dismissed?: boolean };
+// "reopen" is the other direction: an automation saw activity on a closed row. Company-name
+// matching can hit the wrong row (93 of the owner's company names repeat), so it asks instead.
+// note is what the report said, the user's only way to judge the match. earlier is the answered
+// ending the question took the place of, kept so answering it does not bring that report back.
+export type PendingOutcome = { outcome: Status | "reopen"; date: string; source: string; status?: Status; dismissed?: boolean; note?: string; earlier?: PendingOutcome };
 const MAX_SOURCE_CHARS = 40;
+const MAX_REPORT_NOTE_CHARS = 240;
 
-/** A stored or sent value re-bounded: an ending, a real date, a short source. Anything else is no outcome. */
+/** A stored or sent value re-bounded: an ending or a reopen, a real date, a short source. Anything else is no outcome. */
 export function normalizePendingOutcome(value: unknown): PendingOutcome | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const o = value as Record<string, unknown>;
-  const outcome = normalizeStatus(o.outcome);
-  if (!outcome || !ENDINGS.includes(outcome)) return null;
+  const reopen = o.outcome === "reopen";
+  const outcome = reopen ? "reopen" : normalizeStatus(o.outcome);
+  if (!outcome || (!reopen && !ENDINGS.includes(outcome as Status))) return null;
   if (typeof o.date !== "string" || !isRealDate(o.date)) return null;
   const source = typeof o.source === "string" ? o.source.trim().slice(0, MAX_SOURCE_CHARS) : "";
-  return { outcome, date: o.date, source, ...(o.dismissed === true ? { dismissed: true } : {}) };
+  const target = reopen ? normalizeStatus(o.status) : null;
+  const note = reopen && typeof o.note === "string" ? o.note.trim().slice(0, MAX_REPORT_NOTE_CHARS) : "";
+  // One level, and an ending never reads further, so a value written by hand can't recurse.
+  const earlier = reopen && (o.earlier as { outcome?: unknown } | null | undefined)?.outcome !== "reopen" ? normalizePendingOutcome(o.earlier) : null;
+  return {
+    outcome,
+    date: o.date,
+    source,
+    ...(target && !isEnding(target) ? { status: target } : {}),
+    ...(o.dismissed === true ? { dismissed: true } : {}),
+    ...(note ? { note } : {}),
+    ...(earlier ? { earlier: { ...earlier, dismissed: true } } : {}),
+  };
+}
+
+/** The lines a sweep's notes add to what is stored: what the banner quotes, since the row takes none of it. */
+export function reportedNote(stored: string | null | undefined, sent: unknown): string | undefined {
+  if (typeof sent !== "string") return undefined;
+  const known = new Set((stored ?? "").split(/\r?\n/).map((l) => l.trim()));
+  const fresh = sent.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !known.has(l));
+  return fresh.length ? fresh.join(" · ").slice(0, MAX_REPORT_NOTE_CHARS) : undefined;
 }
 
 /** What the banner shows: dismissed means the user said it isn't true. */
@@ -151,14 +184,41 @@ export function activePending(value: unknown): PendingOutcome | null {
   return p && !p.dismissed ? p : null;
 }
 
+const STAGE_ORDER: readonly Status[] = ["saved", "applied", "screening", "assessment", "interview", "offer", "accepted"];
+const DAY_MS = 86_400_000;
+/** How long "Not true" holds against activity on a closed row, so a real invite later still reaches the user. */
+export const REOPEN_QUIET_DAYS = 14;
+
+// A reopen is dated by whenever the sweep ran, so it is the same report for a while, unless it
+// reaches further than the one dismissed. A report that names no stage matches any.
+function isSameReport(before: PendingOutcome, incoming: PendingOutcome): boolean {
+  if (before.outcome !== incoming.outcome) return false;
+  if (incoming.outcome !== "reopen") return before.date === incoming.date;
+  if (Date.parse(incoming.date) - Date.parse(before.date) >= REOPEN_QUIET_DAYS * DAY_MS) return false;
+  return !before.status || !incoming.status || STAGE_ORDER.indexOf(incoming.status) <= STAGE_ORDER.indexOf(before.status);
+}
+
 /**
  * What an automation's report does to what is stored. The same outcome the user already
- * dismissed stays dismissed, or every sweep would bring back what they said wasn't true.
+ * dismissed stays dismissed, or every sweep would bring back what they said wasn't true. A
+ * question about a closed row keeps the answered ending it replaces, and a repeat keeps the
+ * words of the report before it and the furthest stage either one named.
  */
 export function mergePendingOutcome(stored: unknown, incoming: PendingOutcome): { value: PendingOutcome; ignored: boolean } {
   const before = normalizePendingOutcome(stored);
-  if (before?.dismissed && before.outcome === incoming.outcome && before.date === incoming.date) return { value: before, ignored: true };
-  return { value: incoming, ignored: false };
+  if (before?.dismissed && isSameReport(before, incoming)) return { value: before, ignored: true };
+  if (incoming.outcome !== "reopen" || !before) return { value: incoming, ignored: false };
+  const asked = before.outcome === "reopen";
+  const earlier = asked ? before.earlier : { ...before, dismissed: true };
+  const open = asked && !before.dismissed;
+  const note = incoming.note ?? (open ? before.note : undefined);
+  const higher = open && before.status && (!incoming.status || STAGE_ORDER.indexOf(incoming.status) < STAGE_ORDER.indexOf(before.status)) ? before.status : incoming.status;
+  return { value: { ...incoming, ...(higher ? { status: higher } : {}), ...(note ? { note } : {}), ...(earlier ? { earlier } : {}) }, ignored: false };
+}
+
+/** "Not true". On a question the quiet window starts now: its date is only whenever the sweep last ran. */
+export function dismissPending(stored: PendingOutcome, today: string): PendingOutcome {
+  return { ...stored, dismissed: true, ...(stored.outcome === "reopen" ? { date: today } : {}) };
 }
 
 const SOURCE_NAMES: Record<string, string> = { gmail: "Gmail", sweep: "a sweep", aiapply: "AIApply" };
@@ -167,10 +227,30 @@ function shortDate(date: string): string {
   return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 }
 
-/** "Rejected on 2 Nov (from Gmail)." */
-export function pendingLine(p: PendingOutcome): string {
+/** "Rejected on 2 Nov (from Gmail)."; "New activity from Shell — Reopen?" */
+export function pendingLine(p: PendingOutcome, company = ""): string {
+  if (p.outcome === "reopen") return `New activity from ${company} — Reopen?`;
   const source = p.source ? ` (from ${SOURCE_NAMES[p.source.toLowerCase()] ?? p.source})` : "";
   return `${STATUS_LABELS[p.outcome]} on ${shortDate(p.date)}${source}.`;
+}
+
+/** The banner a row shows: an ending asks a live row, a reopen asks a closed one, and neither asks the other. */
+export function pendingBanner(row: { status?: unknown; closed_at?: string | null; pending_outcome?: unknown }): { kind: "close" | "reopen"; pending: PendingOutcome } | null {
+  const pending = activePending(row.pending_outcome);
+  if (!pending) return null;
+  const closed = isClosed(row);
+  if (pending.outcome === "reopen") return closed ? { kind: "reopen", pending } : null;
+  return closed ? null : { kind: "close", pending };
+}
+
+/** Where a Reopen lands: the stage the report asked for, unless the row already got further. */
+export function reopenTarget(row: StageFields & { pending_outcome?: unknown }): Status {
+  const pending = activePending(row.pending_outcome);
+  const asked = pending?.outcome === "reopen" ? pending.status : undefined;
+  const furthest = highestStage(row);
+  if (!asked) return furthest ?? "applied";
+  if (!furthest) return asked;
+  return HIGHEST_ORDER.indexOf(asked === "accepted" ? "offer" : (asked as HighestStage)) >= HIGHEST_ORDER.indexOf(furthest) ? asked : furthest;
 }
 
 // ── What the Closed section and the Wins table say ──────────────────────────
@@ -178,7 +258,7 @@ export function pendingLine(p: PendingOutcome): string {
 type ClosedFields = StageFields & { closed_at?: string | null; close_reason?: string | null };
 
 /** Closed by the dialog, or ended some other way: either way it is proof, and belongs in Closed. */
-export function isClosed(row: Pick<ClosedFields, "closed_at" | "status">): boolean {
+export function isClosed(row: { closed_at?: string | null; status?: unknown }): boolean {
   return !!row.closed_at || isEnding(row.status);
 }
 
@@ -192,23 +272,72 @@ export function resultLine(row: ClosedFields): string {
 
 // ── What a write may do ─────────────────────────────────────────────────────
 
-export type ClosingWrite = { status?: Status; closed_at?: string | null; close_reason?: CloseReason | null; lesson?: string | null; pending_outcome?: PendingOutcome | null };
-export type ClosingCurrent = StageFields & { pending_outcome?: unknown };
+export type UndoSnapshot = {
+  status: Status;
+  closed_at: string | null;
+  close_reason: CloseReason | null;
+  lesson: string | null;
+  pending_outcome: PendingOutcome | null;
+  followup_date: string | null;
+  at: string;
+};
+export type ClosingWrite = { status?: Status; closed_at?: string | null; close_reason?: CloseReason | null; lesson?: string | null; pending_outcome?: PendingOutcome | null; undo_snapshot?: UndoSnapshot | null; notes?: string | null };
+export type ClosingCurrent = StageFields & { pending_outcome?: unknown; closed_at?: string | null; close_reason?: unknown; lesson?: string | null; followup_date?: string | null; notes?: string | null };
 export type ClosingRefusal = { status: 400 | 409; error: string; errorType?: "needs_confirmation" | "needs_move_back_confirmation" };
+
+/** The toast's ten seconds, and a little for the click to arrive. */
+export const UNDO_WINDOW_MS = 10_000;
+const UNDO_GRACE_MS = 5_000;
+
+export function normalizeUndoSnapshot(value: unknown): UndoSnapshot | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const o = value as Record<string, unknown>;
+  const status = normalizeStatus(o.status);
+  if (!status || typeof o.at !== "string") return null;
+  return {
+    status,
+    closed_at: typeof o.closed_at === "string" ? o.closed_at : null,
+    close_reason: isCloseReason(o.close_reason) ? o.close_reason : null,
+    lesson: typeof o.lesson === "string" ? o.lesson : null,
+    pending_outcome: normalizePendingOutcome(o.pending_outcome),
+    followup_date: typeof o.followup_date === "string" ? o.followup_date : null,
+    at: o.at,
+  };
+}
+
+export function undoIsLive(snapshot: UndoSnapshot, nowMs: number): boolean {
+  const at = Date.parse(snapshot.at);
+  return Number.isFinite(at) && nowMs - at <= UNDO_WINDOW_MS + UNDO_GRACE_MS;
+}
+
+/** What an Undo writes. The history stays as it is: the row just stands where it stood. */
+export function undoWrite(snapshot: UndoSnapshot, current: { followup_date?: string | null; notes?: string | null }) {
+  const followupBack = !!snapshot.followup_date && !current.followup_date;
+  return {
+    status: snapshot.status,
+    closed_at: snapshot.closed_at,
+    close_reason: snapshot.close_reason,
+    lesson: snapshot.lesson,
+    pending_outcome: snapshot.pending_outcome,
+    undo_snapshot: null,
+    ...(followupBack ? { followup_date: snapshot.followup_date, notes: removeFollowupClearedNote(current.notes, snapshot.followup_date as string) || null } : {}),
+  };
+}
 
 /**
  * Every rule PUT /api/applications holds a closing write to, in one place, before anything is
  * written. Only an ending, on the user's word, may set closed_at; a detected outcome goes through
- * its own route, except when Undo puts back what a close took. A row moved back to an open stage
- * is Live again, whoever moved it. A close keeps what it took as dismissed, so a sweep reporting
- * the same email after a Reopen does not bring it back.
+ * its own route. An open status on a closed row, without the user's word, moves nothing: it comes
+ * back as a reopen request for the banner to ask about. A close keeps what it took as dismissed,
+ * so a sweep reporting the same email after a Reopen does not bring it back, and it leaves a
+ * snapshot for Undo to restore from.
  */
 export function decideClosingWrite<W extends ClosingWrite>(
   current: ClosingCurrent | null,
   write: W,
-  flags: { confirmed: boolean; confirmedMoveBack: boolean },
+  flags: { confirmed: boolean; confirmedMoveBack: boolean; confirmedReopen: boolean },
   now: string
-): { refuse: ClosingRefusal } | { fields: W } {
+): { refuse: ClosingRefusal } | { fields: W } | { reopenRequest: PendingOutcome } {
   const fields: W = { ...write };
   const { status } = fields;
   if (("closed_at" in fields || "close_reason" in fields) && status === undefined) return { refuse: { status: 400, error: "A close needs a status." } };
@@ -218,9 +347,7 @@ export function decideClosingWrite<W extends ClosingWrite>(
   if (("closed_at" in fields || "close_reason" in fields) && isEnding(status) && !flags.confirmed) {
     return { refuse: { status: 409, error: CONFIRMATION_MESSAGE, errorType: "needs_confirmation" } };
   }
-  if (fields.pending_outcome != null && !(status !== undefined && !isEnding(status) && fields.closed_at === null)) {
-    return { refuse: { status: 400, error: PENDING_VIA_PATCH } };
-  }
+  if (fields.pending_outcome != null) return { refuse: { status: 400, error: PENDING_VIA_PATCH } };
   if (status === undefined) return { fields };
   if (isEnding(status)) {
     if (needsConfirmation(current ?? {}, status, flags.confirmed)) return { refuse: { status: 409, error: CONFIRMATION_MESSAGE, errorType: "needs_confirmation" } };
@@ -228,13 +355,36 @@ export function decideClosingWrite<W extends ClosingWrite>(
       const stored = normalizePendingOutcome(current?.pending_outcome);
       fields.closed_at ??= now;
       fields.close_reason ??= reasonForStatus(status);
-      fields.pending_outcome = stored ? { ...stored, dismissed: true } : null;
+      fields.pending_outcome = stored ? dismissPending(stored, now.slice(0, 10)) : null;
+      fields.undo_snapshot = {
+        status: normalizeStatus(current?.status) ?? "applied",
+        closed_at: current?.closed_at ?? null,
+        close_reason: isCloseReason(current?.close_reason) ? current.close_reason : null,
+        lesson: current?.lesson ?? null,
+        pending_outcome: stored,
+        followup_date: current?.followup_date ?? null,
+        at: now,
+      };
     }
     return { fields };
+  }
+  if (current && isClosed(current) && !flags.confirmedReopen) {
+    const note = reportedNote(current.notes, fields.notes);
+    return { reopenRequest: { outcome: "reopen", date: now.slice(0, 10), source: "sweep", status, ...(note ? { note } : {}) } };
   }
   if (isMoveBack(current ?? {}, status) && !flags.confirmedMoveBack) return { refuse: { status: 409, error: MOVE_BACK_MESSAGE, errorType: "needs_move_back_confirmation" } };
   fields.closed_at ??= null;
   fields.close_reason ??= null;
+  // The question a reopen asked is answered, and the row takes what the report said. A dismissal
+  // kept from a close stays as memory, or the same email would raise its banner again.
+  const asked = normalizePendingOutcome(current?.pending_outcome);
+  if (asked?.outcome === "reopen") {
+    fields.pending_outcome = asked.earlier ?? null;
+    if (asked.note && !asked.dismissed && fields.notes === undefined) {
+      const notes = appendNoteLine(current?.notes, asked.note);
+      if (notes.length <= MAX_NOTES_CHARS) fields.notes = notes;
+    }
+  }
   return { fields };
 }
 
@@ -280,9 +430,15 @@ const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / who
 
 export type FunnelStep = { key: "applied" | "screening" | "interview" | "offer"; label: string; count: number; fromPrevious: number | null };
 
+// An unsent row with an undone Submit in its history is still unsent; one that got shortlisted
+// and was moved back to Ready to submit never stops counting.
+function isApplication(row: StageFields): boolean {
+  return normalizeStatus(row.status) !== "saved" || reachedScreening(row);
+}
+
 /** Applied → Reached screening → Reached interview → Offer, by stages_reached, all time. */
 export function winsFunnel(rows: readonly StageFields[]): FunnelStep[] {
-  const submitted = rows.filter((r) => stagesOf(r).some((s) => s !== "saved"));
+  const submitted = rows.filter(isApplication);
   const screening = rows.filter(reachedScreening);
   const interview = rows.filter(reachedInterview);
   const offer = rows.filter((r) => stagesOf(r).some((s) => s === "offer" || s === "accepted"));
@@ -312,7 +468,7 @@ export type Conversion = { label: string; submitted: number; reached: number; ra
 export function conversionBy<R extends StageFields>(rows: readonly R[], labelOf: (row: R) => string): Conversion[] {
   const groups = new Map<string, { submitted: number; reached: number }>();
   for (const row of rows) {
-    if (!isSubmitted(normalizeStatus(row.status) ?? "applied")) continue;
+    if (!isApplication(row)) continue;
     const label = labelOf(row);
     const g = groups.get(label) ?? { submitted: 0, reached: 0 };
     g.submitted += 1;

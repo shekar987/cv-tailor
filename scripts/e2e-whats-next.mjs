@@ -126,6 +126,11 @@ async function route(page) {
     if (req.method() === "PUT") {
       const body = req.postDataJSON();
       const row = db.applications.find((a) => a.id === body.id);
+      if (body.undo_close) {
+        Object.assign(row, row.undoSnapshot, { undoSnapshot: null });
+        return json(r, { ok: true, restored: { status: apiStatus(row.status) } });
+      }
+      if (body.confirmed_by_user) row.undoSnapshot = { status: row.status, followup_date: row.followup_date ?? null, notes: row.notes ?? null };
       if (body.status) {
         row.status = normalizeStatus(body.status);
         if (!row.stages_reached.includes(row.status)) row.stages_reached.push(row.status);

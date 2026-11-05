@@ -75,13 +75,13 @@ try {
   const listed = (await (await a.route("/api/applications")).json()).applications.find((r) => r.id === appId);
   check("the trigger recorded the stages", JSON.stringify(listed.stages_reached) === '["screening","rejected"]' || JSON.stringify(listed.stages_reached) === '["applied","screening","rejected"]', json(listed.stages_reached));
   check("the reason reads back", listed.outcome_reason === "Wanted more years");
-  await a.route("/api/applications", { method: "PUT", body: json({ id: appId, status: "screening" }) });
+  await a.route("/api/applications", { method: "PUT", body: json({ id: appId, status: "screening", confirmed_reopen: true }) });
   check("moved back: the event returns", (await plan()).events.some((e) => e.id === eventId));
 
   const ghost = await a.route("/api/applications", { method: "PUT", body: json({ id: appId, status: "ghosted", confirmed_by_user: true }) });
   check("a new status saves", ghost.status === 200, String(ghost.status));
   check("ghosted is off the plan", !(await plan()).events.some((e) => e.id === eventId));
-  await a.route("/api/applications", { method: "PUT", body: json({ id: appId, status: "assessment" }) });
+  await a.route("/api/applications", { method: "PUT", body: json({ id: appId, status: "assessment", confirmed_reopen: true }) });
   check("assessment is on the plan", (await plan()).events.some((e) => e.id === eventId));
 
   const bad = await a.route("/api/events", { method: "POST", body: json({ kind: "party", title: "x", starts_at: when, application_id: appId }) });

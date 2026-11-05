@@ -2,12 +2,14 @@
 // records a rejection it detected, without moving the row. The status never changes here: the
 // row stays Live with a banner, until the user confirms in the Move to Closed dialog.
 //
-//   { "outcome": "rejected", "date": "2026-11-02", "source": "gmail" }   record it
+//   { "outcome": "rejected", "date": "2026-11-02", "source": "gmail" }   record it on a live row
+//   { "outcome": "reopen", "date": "2026-11-05", "source": "gmail", "status": "interview", "note": "Invite for 12 Nov" }
+//                                                                         ask on a closed row
 //   { "dismiss": true }                                                   "Not true": stays dismissed
 //   { "clear": true }                                                     forget it
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
-import { isEnding, mergePendingOutcome, normalizePendingOutcome } from "@/lib/closing";
+import { dismissPending, isEnding, mergePendingOutcome, normalizePendingOutcome } from "@/lib/closing";
 import { apiStatus } from "@/lib/tracker";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -39,16 +41,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       next = null;
     } else if (body.dismiss === true) {
       const stored = normalizePendingOutcome(row.pending_outcome);
-      next = stored ? { ...stored, dismissed: true } : null;
+      next = stored ? dismissPending(stored, new Date().toISOString().slice(0, 10)) : null;
     } else {
       const incoming = normalizePendingOutcome(body);
-      if (!incoming) return NextResponse.json({ error: "Send an outcome (rejected, withdrawn or ghosted) and a date (YYYY-MM-DD)." }, { status: 400 });
-      if (isEnding(row.status)) {
+      if (!incoming) return NextResponse.json({ error: "Send an outcome (rejected, withdrawn, ghosted or reopen) and a date (YYYY-MM-DD)." }, { status: 400 });
+      if (incoming.outcome === "reopen") {
+        // It only means something on a closed row; a live one is open already.
+        if (!isEnding(row.status)) return NextResponse.json({ ok: true, status: apiStatus(row.status), pending_outcome: normalizePendingOutcome(row.pending_outcome), ignored: "live" });
+        // A report says what happened. What is dismissed and what is remembered are not its to say.
+        const merged = mergePendingOutcome(row.pending_outcome, { ...incoming, dismissed: undefined, earlier: undefined });
+        next = merged.value;
+        ignored = merged.ignored;
+      } else if (isEnding(row.status)) {
         // A row that already ended has nothing left to confirm: the sweep's next report is old
         // news. Remembered as answered, so the same report after a Reopen raises no banner.
         const stored = normalizePendingOutcome(row.pending_outcome);
-        next = stored ?? { ...incoming, dismissed: true };
-        ignored = !!stored;
+        const answered = { ...incoming, dismissed: true };
+        // A question stands in the way of remembering it, so it is kept behind the question.
+        next = !stored ? answered : stored.outcome === "reopen" && !stored.earlier ? { ...stored, earlier: answered } : stored;
+        ignored = next === stored;
         closedNote = true;
       } else {
         const merged = mergePendingOutcome(row.pending_outcome, { ...incoming, dismissed: undefined });

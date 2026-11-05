@@ -67,7 +67,7 @@ export default function EventForm({
   otherEvents: readonly PlanEvent[];
   windows: readonly AvailabilityWindow[];
   onClose: () => void;
-  onSaved: (message: string, moved?: { id: string; status: Status }) => void;
+  onSaved: (message: string, moved?: { id: string; status: Status; reportNotes?: string }) => void;
 }) {
   const existing = mode.type === "edit" ? mode.event : null;
   const seed = existing ?? (mode.type === "new" ? mode.preset : undefined);
@@ -206,17 +206,22 @@ export default function EventForm({
       if (!res.ok) { setError(data.error || "Could not save that event."); return; }
       eventWritten = true;
       setSavedId(data.event?.id ?? savedId);
+      let reportNotes: string | undefined;
       if (movesTo && application) {
         const moved = await fetch("/api/applications", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: application.id, status: movesTo }),
+          // The user ticked this move, so a closed row reopens on their word.
+          body: JSON.stringify({ id: application.id, status: movesTo, confirmed_reopen: true }),
         });
         if (!moved.ok) {
           const detail = await moved.json().catch(() => ({}));
           setError(`The event is saved, but ${application.company_name} did not move to ${STATUS_LABELS[movesTo]}, so it stays off your plan.${detail.error ? ` ${detail.error}` : ""} Saving again will not add a second event.`);
           return;
         }
+        // Reopening took the words of a report into the notes: the page must not save over them.
+        const answer = await moved.json().catch(() => ({}));
+        if (typeof answer.reportNotes === "string") reportNotes = answer.reportNotes;
       }
       const hidden = inactive && !movesTo;
       const message = existing
@@ -226,7 +231,7 @@ export default function EventForm({
           : hidden
             ? `Event saved. It stays off your plan until ${application?.company_name} reaches Screening or later.`
             : "Event added.";
-      onSaved(message, movesTo && application ? { id: application.id, status: movesTo } : undefined);
+      onSaved(message, movesTo && application ? { id: application.id, status: movesTo, reportNotes } : undefined);
     } catch {
       setError(eventWritten ? "The event is saved, but the application could not be moved: couldn't reach the server. Saving again will not add a second event." : "Couldn't reach the server. Try again.");
     } finally {

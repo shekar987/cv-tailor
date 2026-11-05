@@ -22,7 +22,7 @@ import { addDays, dayKey, formatWhen, mondayOf, monthName, shortDay, weekdayOf }
 import { normalizeStatus, removeFollowupClearedNote, type Status } from "@/lib/tracker";
 import EventCard, { type CardActions } from "./EventCard";
 import MoveToClosedDialog, { closeBody, type CloseChoice } from "@/components/MoveToClosedDialog";
-import { needsConfirmation, reasonForStatus, type CloseReason } from "@/lib/closing";
+import { UNDO_WINDOW_MS, needsConfirmation, reasonForStatus, type CloseReason } from "@/lib/closing";
 import EventForm, { describeConflict, type EventFormMode } from "./EventForm";
 import { CompanyInitial, StageChip, browserTimeZone, copyText } from "./planUi";
 import WeekView from "./WeekView";
@@ -41,7 +41,6 @@ type Toast = { message: string; undo?: () => Promise<void> | void };
 const TICK_MS = 30_000;
 const LIVE_EVERY_MS = 5 * 60_000;
 const TOAST_MS = 8000;
-const CLOSE_TOAST_MS = 10000;
 const LEAVE_MS = 220;
 const NEXT_STAGE: Partial<Record<Status, Status>> = { screening: "interview" };
 
@@ -185,6 +184,11 @@ export default function NextPage() {
       setActionError(body.error || "Could not save that change. Try again.");
       return null;
     }
+    // Closed on the server, whatever this page last read: nothing moved, and the tracker asks.
+    if (res.status === 202) {
+      setActionError(typeof body.message === "string" ? body.message : "This row is closed.");
+      return null;
+    }
     if (typeof body.warning === "string") setActionError(body.warning);
     return body;
   }
@@ -232,7 +236,7 @@ export default function NextPage() {
         message,
         undo: async () => {
           const restore = followup ? { followup_date: followup, ...(answer.cleared ? { notes: removeFollowupClearedNote(answer.cleared.notes, followup) } : {}) } : {};
-          if (await putApplication(application.id, { status: previous, ...restore })) await refresh();
+          if (await putApplication(application.id, { status: previous, confirmed_reopen: true, ...restore })) await refresh();
         },
       });
     });
@@ -242,25 +246,19 @@ export default function NextPage() {
     if (!closing) return;
     const { application, reasonEvents } = closing;
     setClosing(null);
-    const previous = normalizeStatus(application.status) ?? "screening";
-    const followup = application.followup_date ?? null;
-    const answer: { cleared?: { notes: string | null }; from?: { lesson?: string | null; pending_outcome?: unknown } } = {};
     leaveThen(reasonEvents.map((i) => i.event.id), async () => {
       // This page never read the row's lesson, so an empty box must not wipe one.
       const sent: Record<string, unknown> = { ...closeBody(choice) };
       if (!choice.lesson) delete sent.lesson;
-      const body = await putApplication(application.id, sent);
-      if (body?.followupCleared) answer.cleared = body.followupCleared as { notes: string | null };
-      if (body?.closedFrom) answer.from = body.closedFrom as { lesson?: string | null; pending_outcome?: unknown };
-      return !!body;
+      return !!(await putApplication(application.id, sent));
     }, () => {
       showToast({
         message: "Moved to Closed",
+        // Restored from what the close stored on the server.
         undo: async () => {
-          const restore = followup ? { followup_date: followup, ...(answer.cleared ? { notes: removeFollowupClearedNote(answer.cleared.notes, followup) || null } : {}) } : {};
-          if (await putApplication(application.id, { status: previous, closed_at: null, close_reason: null, lesson: answer.from?.lesson ?? null, pending_outcome: answer.from?.pending_outcome ?? null, ...restore })) await refresh();
+          if (await putApplication(application.id, { undo_close: true })) await refresh();
         },
-      }, CLOSE_TOAST_MS);
+      }, UNDO_WINDOW_MS);
     });
   }
 

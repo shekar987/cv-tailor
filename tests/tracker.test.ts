@@ -135,12 +135,12 @@ test("undo takes back only the follow-up line it added", () => {
 test("the stage history after a move matches what the database trigger writes", () => {
   const walk = (start: string[], ...moves: string[]) => moves.reduce((h, m) => stagesAfterMove(h, m), start).join();
   assert.equal(walk(["applied"], "screening", "rejected"), "applied,screening,rejected", "an ending keeps the path");
-  assert.equal(walk(["applied"], "screening", "rejected", "screening"), "applied,screening", "undoing Rejected removes it");
-  assert.equal(walk(["applied"], "screening", "offer", "screening"), "applied,screening", "undoing Offer removes it");
+  assert.equal(walk(["applied"], "screening", "rejected", "screening"), "applied,screening,rejected", "append-only: what happened stays");
+  assert.equal(walk(["applied"], "screening", "offer", "screening"), "applied,screening,offer", "a move back never takes an offer off the count");
   assert.equal(walk(["applied"], "screening", "assessment", "interview"), "applied,screening,assessment,interview");
-  assert.equal(walk(["applied"], "screening", "assessment", "interview", "assessment"), "applied,screening,interview,assessment", "going back puts it last");
-  assert.equal(walk(["applied"], "screening", "ghosted", "rejected"), "applied,screening,rejected", "one ending at a time");
-  assert.equal(walk(["applied", "Screening"], "Applied"), "applied", "old labels too");
+  assert.equal(walk(["applied"], "screening", "assessment", "interview", "assessment"), "applied,screening,assessment,interview", "a stage keeps its place: last");
+  assert.equal(walk(["applied"], "screening", "ghosted", "rejected"), "applied,screening,ghosted,rejected", "every ending that happened");
+  assert.equal(walk(["applied", "Screening"], "Applied"), "applied,screening", "old labels too");
   assert.equal(walk(["applied"], "screening", "screening"), "applied,screening", "an unchanged status changes nothing");
   assert.deepEqual(stagesAfterMove(null, "applied"), ["applied"]);
 });

@@ -6,7 +6,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import Button from "@/components/ui/Button";
 import { trapFocusIndex } from "@/lib/confirm";
-import { CLOSE_REASONS, CLOSE_REASON_LABELS, LESSON_PLACEHOLDER, MAX_LESSON_CHARS, closedAtFromDate, isEnding, statusForReason, type CloseReason } from "@/lib/closing";
+import { CLOSE_REASONS, CLOSE_REASON_LABELS, LESSON_PLACEHOLDER, MAX_LESSON_CHARS, closedAtFromDate, statusForReason, type CloseReason } from "@/lib/closing";
 import type { Status } from "@/lib/tracker";
 
 export type CloseChoice = { status: Status; close_reason: CloseReason; closed_at: string; lesson: string | null };
@@ -14,11 +14,6 @@ export type CloseChoice = { status: Status; close_reason: CloseReason; closed_at
 /** What goes in the PUT. The one place this flag is set. */
 export function closeBody(choice: CloseChoice) {
   return { ...choice, confirmed_by_user: true as const };
-}
-
-/** Undo of a close that replaced an earlier close: going back to an ending is the user's word too. */
-export function undoCloseFlag(previousStatus: unknown) {
-  return isEnding(previousStatus) ? { confirmed_by_user: true as const } : {};
 }
 
 export default function MoveToClosedDialog({

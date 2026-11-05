@@ -5,7 +5,7 @@
 // fold is remembered per tab in this browser. Every rule is lib/closing.
 import { useEffect, useState } from "react";
 import RowMenu from "./RowMenu";
-import { LESSON_PLACEHOLDER, MAX_LESSON_CHARS, progressChip, resultLine, type StageTab } from "@/lib/closing";
+import { LESSON_PLACEHOLDER, MAX_LESSON_CHARS, pendingBanner, pendingLine, progressChip, resultLine, type StageTab } from "@/lib/closing";
 import type { PlanEvent } from "@/lib/plan";
 
 const foldKey = (tab: StageTab) => `jobhuntz:closed-open:${tab}`;
@@ -35,6 +35,7 @@ export type ClosedRow = {
   closed_at?: string | null;
   close_reason?: string | null;
   lesson?: string | null;
+  pending_outcome?: unknown;
 };
 
 function Lesson({ row, onSave }: { row: ClosedRow; onSave: (id: string, lesson: string | null) => void }) {
@@ -66,15 +67,17 @@ function Lesson({ row, onSave }: { row: ClosedRow; onSave: (id: string, lesson: 
 }
 
 export default function ClosedSection({
-  tab, rows, eventsOf, onReopen, onLesson,
+  tab, rows, eventsOf, onReopen, onDismiss, onLesson,
 }: {
   tab: StageTab;
   rows: readonly ClosedRow[];
   eventsOf: (id: string) => readonly PlanEvent[];
   onReopen: (row: ClosedRow) => void;
+  onDismiss: (row: ClosedRow) => void;
   onLesson: (id: string, lesson: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const asking = rows.filter((r) => pendingBanner(r)?.kind === "reopen").length;
   // Read after mounting: the server has no storage, and the first paint must match it.
   useEffect(() => {
     let live = true;
@@ -100,7 +103,7 @@ export default function ClosedSection({
       }}
       data-closed-section={tab}
     >
-      <summary className="closedSectionSummary" data-closed-summary>Closed after {tab} ({rows.length})</summary>
+      <summary className="closedSectionSummary" data-closed-summary>Closed after {tab} ({rows.length}){asking > 0 ? ` · ${asking} with new activity` : ""}</summary>
       {rows.length === 0 ? (
         <p className="fitEvidence closedEmpty" data-closed-empty>Nothing closed yet. A row you move to Closed stays here, with how far it got.</p>
       ) : (
@@ -115,6 +118,17 @@ export default function ClosedSection({
               <span className="closedResult" data-closed-result>{resultLine(row)}</span>
               <Lesson row={row} onSave={onLesson} />
               <RowMenu label={`Actions for ${row.company_name}`} items={[{ key: "reopen", label: "Reopen", onSelect: () => onReopen(row) }]} />
+              {(() => {
+                const banner = pendingBanner(row);
+                return banner?.kind === "reopen" ? (
+                  <div className="pendingBanner closedBanner" role="status" data-pending-banner="reopen">
+                    <span>{pendingLine(banner.pending, row.company_name)}</span>
+                    {banner.pending.note && <span className="pendingNote" data-pending-note>{banner.pending.note}</span>}
+                    <button type="button" className="appsActionBtn" onClick={() => onReopen(row)} data-pending-reopen>Reopen</button>
+                    <button type="button" className="inlineLink" onClick={() => onDismiss(row)} data-pending-dismiss>Not true / dismiss</button>
+                  </div>
+                ) : null;
+              })()}
             </li>
           ))}
         </ul>

@@ -91,7 +91,7 @@ export default function PipelineChart({ funnel }: { funnel: Funnel }) {
       </div>
       <p className="cvHelp">
         Select a stage to see those applications on the tracker. Stages have been recorded only since 3 November 2026, so an earlier rejection counts at Applied whatever stage it reached, and an earlier row shows only its current stage. The share who went further is out of those with an outcome from that stage; someone still there is not counted.
-        {funnel.excluded > 0 ? ` ${funnel.excluded} unsent or withdrawn ${funnel.excluded === 1 ? "application is" : "applications are"} not counted.` : ""}
+        {funnel.excluded > 0 ? ` ${funnel.excluded} unsent or withdrawn ${funnel.excluded === 1 ? "application is" : "applications are"} left out of the share at the stage they stopped at, though every stage they reached still counts.` : ""}
       </p>
       <details className="pipeTableWrap">
         <summary className="inlineLink">As a table</summary>

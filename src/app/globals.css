@@ -4168,4 +4168,6 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
   .winsTable td::before { content: attr(data-label); color: var(--muted); text-align: left; white-space: nowrap; }
 }
 .pendingBanner .appsActionBtn { margin-left: 0; border-color: var(--amber-border); color: var(--text); }
+.pendingNote { flex-basis: 100%; order: 1; color: var(--muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .closedRow .closedLesson { min-height: 32px; padding: var(--space-1) var(--space-2); }
+.closedBanner { grid-column: 1 / -1; }
