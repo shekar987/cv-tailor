@@ -93,7 +93,7 @@ function labelLevel(value: string): Level | null {
 // Duties that go with a mid-level band: mentoring others, or owning the architecture.
 // The verb, not the job title: "work alongside our architects" is no duty.
 const ARCHITECTURE_RE =
-  /\barchitect(?:ing|ed)\b|\b(?:own|owns|owning|lead|leads|leading|drive|drives|driving|make|makes|making|shape|shapes|shaping|define|defines|defining)\s+(?:the\s+|our\s+)?(?:key\s+)?(?:platform\s+|system\s+|technical\s+|solution\s+)?architectur(?:e|al\s+decisions?)\b/i;
+  /(?<!\bwell[-\s]?)\barchitect(?:ing|ed)\b|\b(?:own|owns|owning|lead|leads|leading|drive|drives|driving|make|makes|making|shape|shapes|shaping|define|defines|defining)\s+(?:the\s+|our\s+)?(?:key\s+)?(?:platform\s+|system\s+|technical\s+|solution\s+)?architectur(?:e|al\s+decisions?)\b/i;
 
 // Annual bands. Day and hourly rates say nothing about level.
 const SALARY_RE = /(£|\$|€|\bGBP\s?|\bUSD\s?|\bEUR\s?)\s?(\d{2,3}(?:,\d{3})+|\d{2,3}\s?k\b|\d{5,6})(?:\s*(?:-|–|to)\s*(?:£|\$|€|GBP\s?|USD\s?|EUR\s?)?\s?(\d{2,3}(?:,\d{3})+|\d{2,3}\s?k\b|\d{5,6}))?/gi;
@@ -153,7 +153,8 @@ export function classifySeniority(jd: string, roleTitle?: string | null): Senior
 
   const label = LABEL_RE.exec(text);
   const labelled = label ? labelLevel(label[1]) : null;
-  if (label && labelled) signals.push({ kind: "label", text: label[0].replace(/\s+/g, " ").trim(), level: labelled, weight: 3 });
+  // An entry-level label weighs what a stated minimum does, so "5+ years" is not outvoted by it.
+  if (label && labelled) signals.push({ kind: "label", text: label[0].replace(/\s+/g, " ").trim(), level: labelled, weight: labelled === "junior" ? 2 : 3 });
 
   let ownership = 0;
   for (const o of OWNERSHIP_RES) {
@@ -178,9 +179,10 @@ export function classifySeniority(jd: string, roleTitle?: string | null): Senior
     const shown = m[0].replace(/\s+/g, " ").trim();
     signals.push({ kind: "salary", text: shown, level, weight: 1 });
     // A mid-level floor with the duties that go with it: decisive, like a title,
-    // except against a junior title — graduate schemes at £55k+ are common.
+    // but only where the title names no level — a graduate scheme at £55k+ is
+    // common, and a Senior or Lead title says more than the pay does.
     const duty = OWNERSHIP_RES[0].re.test(text) ? "mentoring" : ARCHITECTURE_RE.test(text) ? "architecture" : null;
-    if (cur === "GBP" && level === "mid" && low >= SALARY_FLOOR_MID && duty && title?.level !== "junior") {
+    if (cur === "GBP" && level === "mid" && low >= SALARY_FLOOR_MID && duty && !title) {
       signals.push({ kind: "salary", text: `${shown} with ${duty} duties`, level: "mid", weight: 3 });
     }
     break;

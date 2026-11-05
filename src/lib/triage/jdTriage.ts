@@ -293,6 +293,11 @@ const TECHS: Tech[] = [
 ];
 const TECH_BY_NAME = new Map(TECHS.map((t) => [t.name, t]));
 
+/** Whether a short term names one of the closed list's languages or frameworks (lib/gapCheck). */
+export function namesLanguage(term: string): boolean {
+  return typeof term === "string" && TECHS.some((t) => t.re.test(term));
+}
+
 function inExperience(t: Tech, experience: string): boolean {
   return t.re.test(experience) || (t.impliedBy ?? []).some((name) => TECH_BY_NAME.get(name)?.re.test(experience));
 }
@@ -406,9 +411,19 @@ const PROGRAMME_START = new RegExp(
   String.raw`\b(?:start(?:s|ing)?(?:\s+date)?|commenc\w*|joining(?:\s+us)?|intake)\s*[:\-–]?\s*(?:(?:in|from|on|is)\s+)?(?:(?:early|mid|late)\s+)?${MONTH}\s+((?:19|20)\d{2})\b|\b${MONTH}\s+((?:19|20)\d{2})\s+(?:start|intake|cohort)\b`,
   "gi"
 );
-const COUNT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, twelve: 12, eighteen: 18, "twenty-four": 24, "twenty four": 24 };
+const COUNT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, ten: 10, twelve: 12, eighteen: 18, "twenty-four": 24, "twenty four": 24 };
+// Each length names its own noun ("our 10-week internship", "the two-year graduate
+// programme"), so the rule reads only the length of the thing its right-to-work
+// sentence names: an internship's sponsorship line never takes a programme's length.
 const PROGRAMME_LENGTH =
-  /\b(\d{1,2}|one|two|three|four|five|six|twelve|eighteen|twenty[-\s]four)[-\s](year|month)s?(?:[-\s]long)?\s+(?:(?:graduate|rotational|training|early[-\s]careers?|development|apprenticeship|placement|technology|engineering)\s+)*(?:programme|program|scheme|apprenticeship)\b|\b(?:programme|program|scheme)\s+(?:lasts|runs\s+for|is|of|spans)\s+(\d{1,2}|one|two|three|four|five|six|twelve|eighteen|twenty[-\s]four)\s+(year|month)s?\b/gi;
+  /\b(\d{1,2}|one|two|three|four|five|six|ten|twelve|eighteen|twenty[-\s]four)[-\s](year|month|week)s?(?:[-\s]long)?\s+(?:(?:graduate|rotational|training|early[-\s]careers?|development|apprenticeship|placement|technology|engineering|summer|industrial|software|paid)\s+)*(programme|program|scheme|apprenticeship|internship|placement|residency)\b|\b(programme|program|scheme|internship|placement|apprenticeship|residency)\s+(?:lasts|runs\s+for|is|of|spans)\s+(\d{1,2}|one|two|three|four|five|six|ten|twelve|eighteen|twenty[-\s]four)\s+(year|month|week)s?\b/gi;
+// programme / program / scheme are one thing; the others are their own.
+function nounFamily(noun: string): string {
+  const n = noun.toLowerCase();
+  return /^(?:programme|program|scheme)$/.test(n) ? "programme" : n;
+}
+// The noun a right-to-work sentence is about: "the full duration of the internship".
+const DURATION_NOUN = /\b(?:duration|length|entirety|whole|end)\s+of\s+(?:the|your|this|our)?\s*(?:[\w-]+\s+){0,2}?(programme|program|scheme|placement|apprenticeship|internship|residency)\b/i;
 // The right-to-work sentence must be about the programme itself, not "your employment".
 const PROGRAMME_WORD = /\b(?:programme|program|scheme|placement|apprenticeship|internship|residency|rotation)\b/i;
 const SPONSOR_NONE = /\bwithout\s+(?:requiring\s+|needing\s+|the\s+need\s+for\s+)?(?:visa\s+|work\s+)?sponsorship\b|\b(?:unable|not\s+able|cannot|can['’]t|do\s+not|don['’]t|will\s+not|won['’]t)\s+(?:to\s+)?(?:offer\s+|provide\s+)?sponsor/i;
@@ -426,15 +441,20 @@ function count(word: string): number {
  * length: the earliest end the posting allows, so a misread can only ever
  * make the rule less likely to Skip.
  */
-export function programmeEnd(text: string): ProgrammeEnd | null {
+export function programmeEnd(text: string, noun?: string): ProgrammeEnd | null {
   const starts = [...(text || "").matchAll(PROGRAMME_START)]
     .map((s) => ({ m0: MONTHS.indexOf((s[1] ?? s[3]).toLowerCase().slice(0, 3)), year: parseInt(s[2] ?? s[4], 10) }))
     .filter((s) => s.m0 >= 0)
     .map((s) => s.year * 12 + s.m0);
+  const family = noun ? nounFamily(noun) : null;
   const lengths = [...(text || "").matchAll(PROGRAMME_LENGTH)]
+    .filter((l) => !family || nounFamily(l[3] ?? l[4]) === family)
     .map((l) => {
-      const n = count(l[1] ?? l[3]);
-      return (l[2] ?? l[4]).toLowerCase().startsWith("year") ? n * 12 : n;
+      const n = count(l[1] ?? l[5]);
+      const unit = (l[2] ?? l[6]).toLowerCase();
+      // Weeks count as the whole months they certainly fill (rounded down): an earlier
+      // end only ever makes a Skip less likely.
+      return unit.startsWith("year") ? n * 12 : unit.startsWith("week") ? Math.max(1, Math.floor((n * 7) / 30.44)) : n;
     })
     .filter((n) => n > 0 && n <= 72);
   if (starts.length === 0 || lengths.length === 0) return null;
@@ -474,7 +494,7 @@ export function triageJd(text: string, profile?: TriageProfile): JdTriage {
   const status = profile?.rightToWork ?? null;
   const experience = profile?.experience;
   // Read once, the first time a right-to-work sentence asks for the whole programme.
-  let programme: ProgrammeEnd | null | undefined;
+  const programmes = new Map<string, ProgrammeEnd | null>();
   let section: Section = null;
   let titleSeen = false;
   for (const raw of (text || "").split(/\r?\n/)) {
@@ -535,7 +555,10 @@ export function triageJd(text: string, profile?: TriageProfile): JdTriage {
         // is the user's own answer. Either unknown stays a Review, never a guess.
         // Only a sentence about the programme itself: "for the duration of your employment" stays a Review.
         const aboutProgramme = PROGRAMME_WORD.test(sentence);
-        const ends = !aboutProgramme ? null : programme === undefined ? (programme = programmeEnd(text)) : programme;
+        const noun = sentence.match(DURATION_NOUN)?.[1] ?? sentence.match(PROGRAMME_WORD)?.[0] ?? "programme";
+        const family = nounFamily(noun);
+        if (aboutProgramme && !programmes.has(family)) programmes.set(family, programmeEnd(text, noun));
+        const ends = aboutProgramme ? (programmes.get(family) ?? null) : null;
         const permission = profile?.permissionEnds ?? null;
         const noSponsor = SPONSOR_NONE.test(sentence);
         if (aboutProgramme && status === "needs_sponsorship" && noSponsor) {

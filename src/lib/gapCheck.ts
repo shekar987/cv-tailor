@@ -23,6 +23,7 @@
 //
 // Relative .ts imports only, so it runs under node:test.
 import { evidenceLines, isNamedTechnology, type EvidenceMap, type Importance, type RequirementKind, type SourceLine } from "./evidenceMap.ts";
+import { namesLanguage } from "./triage/jdTriage.ts";
 import { distinctiveTokens } from "./claims.ts";
 
 export type GapClass = "rename" | "core";
@@ -75,10 +76,14 @@ export const RENAME_RULES: { term: RegExp; shown: RegExp }[] = [
 // Named platforms and products, whatever their case: never sent to the model,
 // never renamed. (lib/evidenceMap isNamedTechnology reads capitals, so
 // "Version Control" looks named and "kubernetes" doesn't.)
+// Lookarounds, not \b: "C#", "C++" and ".NET" end or start on a symbol, where \b never matches.
 const PRODUCT_RE =
-  /\b(?:kubernetes|k8s|terraform|docker|ansible|jenkins|aws|azure|gcp|google\s+cloud|salesforce|workday|intune|jamf|mdm|okta|saml|sso|ldap|active\s+directory|snowflake|dbt|databricks|spark|kafka|airflow|react|angular|vue|svelte|java|kotlin|scala|rust|golang|ruby|rails|php|c\+\+|c#|\.net|swift|sql\s+server|oracle|sap|tableau|power\s+bi|looker|linux|windows|macos|ios|android|dns|tcp\/?ip|bgp|vpns?|firewalls?|networking|xero|quickbooks|netsuite|accounting|bookkeeping)\b/i;
+  /(?<![\w.+#])(?:kubernetes|k8s|helm|terraform|docker|ansible|jenkins|nginx|aws|azure|gcp|google\s+cloud|salesforce|workday|intune|jamf|mdm|okta|saml|sso|ldap|active\s+directory|snowflake|dbt|databricks|spark|hadoop|kafka|airflow|splunk|datadog|grafana|prometheus|elasticsearch|redis|postgres(?:ql)?|mysql|mongodb|graphql|python|pandas|numpy|django|flask|fastapi|typescript|javascript|node(?:\.?js)?|react|angular|vue|svelte|java|kotlin|scala|rust|golang|ruby|rails|php|c\+\+|c#|\.net|swift|bash|powershell|selenium|cypress|playwright|jest|pytest|excel|jira|confluence|figma|sql\s+server|oracle|sap|tableau|power\s+bi|looker|linux|windows|macos|ios|android|dns|tcp\/?ip|bgp|vpns?|firewalls?|networking|xero|quickbooks|netsuite|accounting|bookkeeping)(?![\w+#])/i;
 function isNamed(term: string): boolean {
-  return distinctiveTokens(term).length > 0 || PRODUCT_RE.test(term) || isNamedTechnology(term.toLowerCase());
+  // isNamedTechnology reads a capital as a product, and postings capitalise plain
+  // words ("Routing"), so it sees the lowercased term; the product list and the
+  // triage's language list read any case.
+  return distinctiveTokens(term).length > 0 || PRODUCT_RE.test(term) || /^\s*go\s*$/i.test(term) || namesLanguage(term) || isNamedTechnology(term.toLowerCase());
 }
 
 function clip(s: string): string {
@@ -204,9 +209,11 @@ export function gapFor(check: GapCheck | null | undefined, term: string): GapIte
   const items = check?.items ?? [];
   const exact = items.find((i) => key(i.term) === t);
   if (exact) return exact;
-  // The evidence map splits "X and Y" and trims leads: the term or its part, as whole words.
+  // The evidence map splits "X and Y" and trims leads: a missed keyword may carry a gap's
+  // whole words ("Kubernetes clusters" → Kubernetes). Never the other way: a shorter miss
+  // ("AWS", which the master CV shows) is not the longer gap ("AWS Lambda").
   const within = (a: string, b: string) => b.length >= 3 && ` ${a} `.includes(` ${b} `);
-  return items.find((i) => within(t, key(i.term)) || within(key(i.term), t)) ?? null;
+  return items.find((i) => within(t, key(i.term))) ?? null;
 }
 
 /** A check from the response or a stored workspace, re-bounded. */

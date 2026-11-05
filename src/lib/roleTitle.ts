@@ -70,9 +70,20 @@ export function titleAsIdentity(title: unknown, heldTitles: string[]): boolean {
 // not only this run's, since a fact-check fix can word it differently.
 // A title may carry dots ("Node.js Developer", ".NET Engineer"): a dot followed by a letter is part of it.
 const TITLE_CHARS = String.raw`(?:[^.!?\n]|\.(?=\w))`;
+// The clause is the candidate's applied-for form only where it starts: the sentence's
+// start, a comma or dash, or straight after a singular job noun ("Software developer
+// applying for the X role"), and then only with an article — "a CV tool that helps
+// engineers apply for graduate roles at 120 UK companies" is a fact, never the clause.
+// No "i" flag: the employer test needs its capital letter, so every other word is
+// spelled case-free here instead.
+const anyCase = (s: string) => s.replace(/[a-z]/g, (c) => `[${c}${c.toUpperCase()}]`);
+const JOB_NOUN = anyCase(String.raw`(?:developer|engineer|graduate|analyst|scientist|consultant|specialist|designer|architect|programmer|technologist|researcher|student)`);
+// An employer after it is capitalised words, never "with two years' …" (the candidate's own facts).
+const EMPLOYER_WORD = String.raw`(?!I\b)[A-Z](?:[\w&'’-]|\.(?=\w))*`;
+const W = (s: string) => anyCase(s);
 const APPLIED_FOR_RE = new RegExp(
-  String.raw`(?:^|[,;:]\s*|\s+[—–-]\s+|\s+)(?:(?:and|now|currently|while)\s+)*(?:applying|apply)\s+(?:for|to)\s+(?:(?:the|this|a|an|your)\s+)?(?:(?:role|position)\s+of\s+(?:[^.!?\n,;]|\.(?=\w)){1,90}|${TITLE_CHARS}{1,90}?\b(?:roles?|positions?|opportunit(?:y|ies)|jobs?|post|vacanc(?:y|ies)))(?=[\s,;:.!?]|$)(?:\s+(?:at|with)\s+(?:[^.!?\n,;]|\.(?=\w)){1,60})?`,
-  "gi"
+  String.raw`(?:^|[,;:]\s*|\s+[—–-]\s+|(?<=\b${JOB_NOUN})\s+(?=(?:(?:currently|now)\s+)?applying\s+for\s+(?:the|this|a|an)\s))(?:(?:and|now|currently|while)\s+)*${W("(?:applying|apply)")}\s+(?:for|to)\s+(?:(?:the|this|a|an|your)\s+)?(?:${W("(?:role|position)")}\s+of\s+(?:[^.!?\n,;]|\.(?=\w)){1,90}|${TITLE_CHARS}{1,90}?\b${W("(?:roles?|positions?|opportunit(?:y|ies)|jobs?|post|vacanc(?:y|ies)|programmes?|programs?|schemes?|placements?|internships?|apprenticeships?)")})(?=[\s,;:.!?]|$)(?:\s+at\s+${EMPLOYER_WORD}(?:\s+(?:${EMPLOYER_WORD}|&|of))*)?`,
+  "g"
 );
 const WORDS_RE = /[A-Za-z0-9]+/g;
 
