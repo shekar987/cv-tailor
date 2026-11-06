@@ -13,7 +13,7 @@ import TriageBadge from "../TriageBadge";
 import { normalizeTriage } from "@/lib/triage/jdTriage";
 import { notesListFields, listTriageFields } from "@/lib/applicationRows";
 import RowFlags from "./RowFlags";
-import { coldEmailNeedsFollowup } from "@/lib/coldEmails";
+import { coldEmailNeedsFollowup, isColdOutreach } from "@/lib/coldEmails";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
@@ -322,9 +322,10 @@ type Lane = { level: Seniority; applied: number; decided: number; progressed: nu
 // 7 Oct read 351 mid-level with 1 progressed against 88 junior with 5, and
 // nothing else in the tracker separated outcomes at all. A rate shows only
 // from MIN_DECIDED decided applications, as every other bucket.
-export function laneStats(rows: { role: string; status: string }[]): Lane[] {
+export function laneStats(rows: { role: string; status: string; source?: string | null }[]): Lane[] {
   return (["junior", "mid", "senior"] as Seniority[]).map((level) => {
-    const lane = rows.filter((r) => { const s = normalizeStatus(r.status); return s !== "saved" && s !== "withdrawn" && seniorityOf(r.role) === level; });
+    // Cold emails and speculative outreach name no job, so they sit in no lane.
+    const lane = rows.filter((r) => { const s = normalizeStatus(r.status); return s !== "saved" && s !== "withdrawn" && !isColdOutreach(r) && seniorityOf(r.role) === level; });
     const progressed = lane.filter((r) => hasProgressed(r.status)).length;
     const decided = progressed + lane.filter((r) => endedWithoutProgress(r.status)).length;
     return { level, applied: lane.length, decided, progressed, rate: decided >= MIN_DECIDED ? progressed / decided : null };

@@ -3,7 +3,7 @@ import { signedIn, unauthorized, declaresMoreThan, payloadTooLarge } from "@/lib
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { MAX_APPLICATIONS, readApplicationPages, type OrderableQuery } from "@/lib/applicationRows";
 import { coldEmailKey, coldEmailRecord, MAX_BULK_ROWS, planBulkUpsert, readColdEmails, type ExistingRow } from "@/lib/coldEmails";
-import { oldStatusLabel } from "@/lib/tracker";
+import { apiStatus, oldStatusLabel } from "@/lib/tracker";
 
 // POST /api/applications/bulk-upsert (6 Nov 2026, Chunk 18): cold emails a
 // Gmail Sent sweep found, logged on the tracker. Body: an array of
@@ -23,7 +23,9 @@ export const runtime = "nodejs";
 const MIGRATION_HINT =
   "Logging cold emails needs the database migration supabase/migrations/20261106120000_applications_cold_email.sql. Run it in the Supabase SQL editor, then try again.";
 const MAX_BODY_BYTES = 512 * 1024;
-const EXISTING_COLUMNS = "id, company_name, contact_email, status, source, role";
+// date_applied and notes: a row logged by hand stands for an email only when its notes name
+// the address or it is dated near the send (lib/coldEmails planBulkUpsert).
+const EXISTING_COLUMNS = "id, company_name, contact_email, status, source, role, date_applied, notes";
 
 function isMissingColumn(err: { code?: string } | null): boolean {
   return err?.code === "42703" || err?.code === "PGRST204";
@@ -77,18 +79,18 @@ export async function POST(req: NextRequest) {
       console.error("bulk-upsert read error:", existingRead.error.message);
       return NextResponse.json({ error: "Could not read your tracker" }, { status: 500 });
     }
-    const existing = existingRead.rows;
-    const plan = planBulkUpsert(existing, read.rows);
-
-    if (existing.length + plan.insert.length > MAX_APPLICATIONS) {
-      return NextResponse.json(
-        { error: `You can track up to ${MAX_APPLICATIONS} applications. These ${plan.insert.length} would pass it: delete some to add more.` },
-        { status: 400 }
-      );
-    }
-
+    // Plan, insert; when the unique index refuses a row a concurrent post just inserted
+    // (23505: a sweep retrying a timed-out request), read again and re-plan once.
+    let plan = planBulkUpsert(existingRead.rows, read.rows);
     let inserted: { index: number; id: string }[] = [];
-    if (plan.insert.length > 0) {
+    for (let attempt = 0; ; attempt++) {
+      if (existingRead.rows.length + plan.insert.length > MAX_APPLICATIONS) {
+        return NextResponse.json(
+          { error: `You can track up to ${MAX_APPLICATIONS} applications. These ${plan.insert.length} would pass it: delete some to add more.` },
+          { status: 400 }
+        );
+      }
+      if (plan.insert.length === 0) break;
       const records = (status: string) => plan.insert.map(({ row }) => ({ ...coldEmailRecord(row, status), user_id: userId }));
       const back = "id, company_name, contact_email";
       let { data, error } = await supabase.from("applications").insert(records("applied")).select(back);
@@ -96,9 +98,22 @@ export async function POST(req: NextRequest) {
         // A database before the status migration stores the old label.
         ({ data, error } = await supabase.from("applications").insert(records(oldStatusLabel("applied") ?? "Applied")).select(back));
       }
+      if (error && error.code === "23505" && attempt === 0) {
+        const again = await readApplicationPages<ExistingRow>(() => supabase.from("applications").select(EXISTING_COLUMNS) as unknown as OrderableQuery);
+        if (again.error) {
+          console.error("bulk-upsert re-read error:", again.error.message);
+          return NextResponse.json({ error: "Could not save those cold emails" }, { status: 500 });
+        }
+        existingRead.rows.splice(0, existingRead.rows.length, ...again.rows);
+        plan = planBulkUpsert(existingRead.rows, read.rows);
+        continue;
+      }
       if (error) {
         if (isMissingColumn(error) || isMigrationCheck(error)) {
           return NextResponse.json({ error: MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+        }
+        if (error.code === "23505") {
+          return NextResponse.json({ error: "Another sync is saving the same cold emails. Try again in a moment." }, { status: 409 });
         }
         console.error("bulk-upsert insert error:", error.message);
         return NextResponse.json({ error: "Could not save those cold emails" }, { status: 500 });
@@ -108,12 +123,14 @@ export async function POST(req: NextRequest) {
       inserted = plan.insert
         .map(({ index, row }) => ({ index, id: idByKey.get(coldEmailKey(row.company_name, row.contact_email)) }))
         .filter((r): r is { index: number; id: string } => typeof r.id === "string");
+      break;
     }
 
     return NextResponse.json({
       ok: true,
       inserted,
-      existing: plan.existing,
+      // The API's spelling, as GET /api/applications answers it (the sweeps read exactly these).
+      existing: plan.existing.map((e) => ({ ...e, status: e.status === null ? null : apiStatus(e.status) })),
       duplicateInPayload: plan.duplicateInPayload,
       problems: read.problems,
     });

@@ -54,7 +54,8 @@ test("the same pair twice in one payload is one row", () => {
 test("a second contact at the same company is a second row; a cold email logged by hand without an address is the same one", () => {
   const withEmail: ExistingRow[] = [{ id: "a1", company_name: "Acme", contact_email: "jane@acme.example", status: "Applied", source: "cold-email" }];
   assert.equal(planBulkUpsert(withEmail, read([row({ contact_email: "joe@acme.example" })]).rows).insert.length, 1);
-  const byHand: ExistingRow[] = [{ id: "m1", company_name: "Acme", contact_email: null, status: "Applied", source: "manual", role: "Cold email to Acme" }];
+  // Logged by hand on the day it was sent (lib/coldEmails HAND_ROW_DAYS): the same email.
+  const byHand = [{ id: "m1", company_name: "Acme", contact_email: null, status: "Applied", source: "manual", role: "Cold email to Acme", date_applied: "2026-10-30" }];
   const plan = planBulkUpsert(byHand, read([row()]).rows);
   assert.deepEqual(plan.insert, []);
   assert.deepEqual(plan.existing, [{ index: 0, id: "m1", status: "Applied", matchedWithoutEmail: true }]);

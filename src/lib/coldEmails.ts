@@ -14,6 +14,7 @@
 //   - a new row is Applied, source "cold-email", dated the day the email was sent.
 //
 // Relative .ts imports only, so it runs under node:test.
+import { companyNamesMatch, normalizeCompanyName } from "./companyMatch.ts";
 import { isValidEmail } from "./contactCheck.ts";
 import { MAX_NOTES_CHARS } from "./limits.ts";
 
@@ -59,24 +60,43 @@ function isRealDate(s: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
 
-const text = (v: unknown): string => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
+// Control characters (a NUL fails the whole insert) and invisible format characters (a
+// zero-width space made "Acme​" a new company) never reach the database.
+const CONTROL_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+const FORMAT_RE = /\p{Cf}/gu;
+const clean = (v: unknown): string => (typeof v === "string" ? v.replace(CONTROL_RE, "").replace(FORMAT_RE, "") : "");
+const text = (v: unknown): string => clean(v).replace(/\s+/g, " ").trim();
 
 export function companyKey(company: string | null | undefined): string {
-  return (company ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+  return clean(company).replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 export function emailKey(email: string | null | undefined): string {
-  return (email ?? "").trim().replace(/^mailto:/i, "").toLowerCase();
+  return clean(email).trim().replace(/^mailto:\s*/i, "").trim().toLowerCase();
 }
 
 export function coldEmailKey(company: string | null | undefined, email: string | null | undefined): string {
   return `${companyKey(company)}|${emailKey(email)}`;
 }
 
-// A row the user logged by hand for a cold email: its source says so, or its role does.
-function looksLikeColdEmail(row: ExistingRow): boolean {
-  return row.source === COLD_EMAIL_SOURCE || /^\s*(?:cold\s*email|speculative)/i.test(row.role ?? "");
+// The same thread: the same address and the same company, read loosely (lib/companyMatch: a
+// rename to "Umbrella Corporation", "Acme Ltd" for "Acme"). The same address at a clearly
+// different company is another email (an agency recruiter writing for two clients).
+function sameThread(e: ExistingRow, company: string): boolean {
+  return companyKey(e.company_name) === companyKey(company) || companyNamesMatch(e.company_name ?? "", company);
 }
+
+// A cold email the user logged by hand, before rows carried an address: its source says so,
+// or its role does ("Cold email", "Cold-email outreach", "Speculative …"), or its notes name an address.
+export const COLD_ROLE_RE = /^\s*(?:cold[\s-]*e-?mail|speculative|outreach)|\bcold[\s-]*e-?mail\b|\boutreach\b/i;
+function looksLikeColdEmail(row: ExistingRow): boolean {
+  return row.source === COLD_EMAIL_SOURCE || COLD_ROLE_RE.test(row.role ?? "");
+}
+// A hand-logged row stands for an email only when its notes name the address, or it is dated
+// within this many days of the send: a June row is never November's email.
+export const HAND_ROW_DAYS = 7;
+const daysApart = (a: string | null | undefined, b: string): number =>
+  a ? Math.abs(Date.parse(`${a.slice(0, 10)}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000 : Infinity;
 
 /**
  * The payload read into rows, each checked; the body may be an array or
@@ -96,11 +116,11 @@ export function readColdEmails(body: unknown, today: string): { rows: { index: n
     }
     const r = raw as Record<string, unknown>;
     const company = text(r.company_name);
-    const email = text(r.contact_email).replace(/^mailto:/i, "");
+    const email = text(r.contact_email).replace(/^mailto:\s*/i, "").trim();
     const role = text(r.role) || DEFAULT_COLD_ROLE;
     const sent = text(r.date_sent);
     const followup = text(r.followup_date);
-    const notes = typeof r.notes === "string" ? r.notes.trim() : "";
+    const notes = typeof r.notes === "string" ? r.notes.replace(CONTROL_RE, "").trim() : "";
     const checks: [boolean, string][] = [
       [!company, "company_name is required."],
       [company.length > MAX_COMPANY_CHARS, `company_name is too long (max ${MAX_COMPANY_CHARS} characters).`],
@@ -126,35 +146,40 @@ export function readColdEmails(body: unknown, today: string): { rows: { index: n
  * What to insert, and which rows already exist. There is no update: an
  * existing row is reported with its id and status and left exactly as it is.
  */
-export function planBulkUpsert(existing: readonly ExistingRow[], rows: readonly { index: number; row: ColdEmailInput }[]): BulkPlan {
-  const byPair = new Map<string, ExistingRow>();
-  const withoutEmail = new Map<string, ExistingRow>();
+export function planBulkUpsert(existing: readonly (ExistingRow & { date_applied?: string | null; notes?: string | null })[], rows: readonly { index: number; row: ColdEmailInput }[]): BulkPlan {
+  // Rows that carry an address, by address: the one field the user never edits.
+  const byEmail = new Map<string, ExistingRow[]>();
+  const handRows: (ExistingRow & { date_applied?: string | null; notes?: string | null })[] = [];
   for (const e of existing) {
-    if (e.contact_email && e.contact_email.trim()) {
-      const key = coldEmailKey(e.company_name, e.contact_email);
-      if (!byPair.has(key)) byPair.set(key, e);
-    } else if (looksLikeColdEmail(e)) {
-      const key = companyKey(e.company_name);
-      if (!withoutEmail.has(key)) withoutEmail.set(key, e);
-    }
+    const k = emailKey(e.contact_email);
+    if (k) byEmail.set(k, [...(byEmail.get(k) ?? []), e]);
+    else if (looksLikeColdEmail(e) || /@/.test(e.notes ?? "")) handRows.push(e);
   }
+  const usedHand = new Set<string>();
   const plan: BulkPlan = { insert: [], existing: [], duplicateInPayload: [] };
   const seen = new Set<string>();
   for (const { index, row } of rows) {
-    const key = coldEmailKey(row.company_name, row.contact_email);
+    const address = emailKey(row.contact_email);
+    const key = `${normalizeCompanyName(row.company_name) || companyKey(row.company_name)}|${address}`;
     if (seen.has(key)) {
       plan.duplicateInPayload.push(index);
       continue;
     }
     seen.add(key);
-    const match = byPair.get(key);
+    const match = (byEmail.get(address) ?? []).find((e) => sameThread(e, row.company_name));
     if (match) {
       plan.existing.push({ index, id: match.id, status: match.status ?? null, matchedWithoutEmail: false });
       continue;
     }
-    const loose = withoutEmail.get(companyKey(row.company_name));
-    if (loose) {
-      plan.existing.push({ index, id: loose.id, status: loose.status ?? null, matchedWithoutEmail: true });
+    // A row logged by hand stands for at most one email: the one its notes name, else one sent
+    // within HAND_ROW_DAYS of its date.
+    const candidates = handRows.filter((h) => !usedHand.has(h.id) && sameThread(h, row.company_name));
+    const hand =
+      candidates.find((h) => !!address && (h.notes ?? "").toLowerCase().includes(address)) ??
+      candidates.find((h) => looksLikeColdEmail(h) && !/@/.test(h.notes ?? "") && daysApart(h.date_applied, row.date_sent) <= HAND_ROW_DAYS);
+    if (hand) {
+      usedHand.add(hand.id);
+      plan.existing.push({ index, id: hand.id, status: hand.status ?? null, matchedWithoutEmail: true });
       continue;
     }
     plan.insert.push({ index, row });
@@ -178,6 +203,11 @@ export function coldEmailRecord(row: ColdEmailInput, status: string): Record<str
 }
 
 /** The tracker's "Cold emails missing a follow-up date" filter. */
+/** A cold email or speculative outreach: no job title, so no seniority and no JD check. */
+export function isColdOutreach(row: { source?: string | null; role?: string | null }): boolean {
+  return row.source === COLD_EMAIL_SOURCE || COLD_ROLE_RE.test(row.role ?? "");
+}
+
 export function coldEmailNeedsFollowup(row: { source?: string | null; status?: string | null; followup_date?: string | null }): boolean {
   return row.source === COLD_EMAIL_SOURCE && /^applied$/i.test((row.status ?? "").trim()) && !row.followup_date;
 }
