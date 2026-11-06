@@ -23,6 +23,8 @@
 //
 // Relative .ts imports only, so it runs under node:test.
 import { evidenceLines, isNamedTechnology, type EvidenceMap, type Importance, type RequirementKind, type SourceLine } from "./evidenceMap.ts";
+import { languagesIn, namesLanguage } from "./triage/jdTriage.ts";
+import { matchAtsKeywords } from "./atsMatch.ts";
 import { distinctiveTokens } from "./claims.ts";
 
 export type GapClass = "rename" | "core";
@@ -75,10 +77,90 @@ export const RENAME_RULES: { term: RegExp; shown: RegExp }[] = [
 // Named platforms and products, whatever their case: never sent to the model,
 // never renamed. (lib/evidenceMap isNamedTechnology reads capitals, so
 // "Version Control" looks named and "kubernetes" doesn't.)
+// Lookarounds, not \b: "C#", "C++" and ".NET" end or start on a symbol, where \b never matches.
 const PRODUCT_RE =
-  /\b(?:kubernetes|k8s|terraform|docker|ansible|jenkins|aws|azure|gcp|google\s+cloud|salesforce|workday|intune|jamf|mdm|okta|saml|sso|ldap|active\s+directory|snowflake|dbt|databricks|spark|kafka|airflow|react|angular|vue|svelte|java|kotlin|scala|rust|golang|ruby|rails|php|c\+\+|c#|\.net|swift|sql\s+server|oracle|sap|tableau|power\s+bi|looker|linux|windows|macos|ios|android|dns|tcp\/?ip|bgp|vpns?|firewalls?|networking|xero|quickbooks|netsuite|accounting|bookkeeping)\b/i;
-function isNamed(term: string): boolean {
-  return distinctiveTokens(term).length > 0 || PRODUCT_RE.test(term) || isNamedTechnology(term.toLowerCase());
+  /(?<![\w.+#])(?:kubernetes|k8s|helm|terraform|docker|ansible|jenkins|nginx|aws|azure|gcp|google\s+cloud|salesforce|workday|intune|jamf|mdm|okta|saml|sso|ldap|active\s+directory|snowflake|dbt|databricks|spark|hadoop|kafka|airflow|splunk|datadog|grafana|prometheus|elasticsearch|redis|postgres(?:ql)?|mysql|mongodb|graphql|python|pandas|numpy|django|flask|fastapi|typescript|javascript|node(?:\.?js)?|react|angular|vue|svelte|java|kotlin|scala|rust|golang|ruby|rails|php|c\+\+|c#|\.net|swift|bash|powershell|selenium|cypress|playwright|jest|pytest|excel|jira|confluence|figma|sql\s+server|oracle|sap|tableau|power\s+bi|looker|linux|windows|macos|ios|android|dns|tcp\/?ip|bgp|vpns?|firewalls?|networking|xero|quickbooks|netsuite|accounting|bookkeeping)(?![\w+#])/i;
+const PRODUCT_ALL_RE = new RegExp(PRODUCT_RE.source, "gi");
+// The products a term names: the product list, the triage's languages, distinctive tokens.
+function productsIn(term: string): string[] {
+  const found = [...term.matchAll(PRODUCT_ALL_RE)].map((m) => m[0]);
+  // The triage's languages and frameworks on the whole term ("Spring Boot") and per word.
+  found.push(...languagesIn(term));
+  for (const w of term.split(/[\s/,&]+/)) if (w && (namesLanguage(w) || /^go$/i.test(w))) found.push(w);
+  found.push(...distinctiveTokens(term));
+  return [...new Set(found.map((p) => p.trim()).filter(Boolean))].sort((a, b) => b.length - a.length);
+}
+// The second word of a two-word product: "AWS Lambda", "React Native", "GitHub
+// Actions", "Docker Compose", "Kafka Streams", "AWS Step Functions". A word beside
+// a product is part of its NAME only when it is one of these (or a product itself);
+// any other word ("cloud", "front-end", "web framework", "unit testing") asks how
+// the product is used.
+const PRODUCT_SECOND_WORDS = new Set([
+  "lambda", "native", "actions", "compose", "streams", "functions", "step", "pages", "workers", "connect", "studio", "router",
+  "hooks", "redux", "beam", "glue", "athena", "redshift", "sagemaker", "bedrock", "kinesis", "fargate", "cloudformation",
+  "cdk", "amplify", "cognito", "dynamodb", "aurora", "bigquery", "dataflow", "pubsub", "vertex", "registry", "mesh",
+  "swarm", "kernel", "asyncio", "copilot", "synapse", "fabric", "lakehouse", "sentinel", "defender", "streaming", "apex",
+]);
+// Words that say how a product is used, never part of its name. In a term written
+// all in capitals ("Python Test Automation") a capital says nothing, so a word not
+// on this list is read as a name ("Azure Synapse Analytics"); in a term written in
+// sentence case only a capitalised word is ("Docker Swarm orchestration").
+// "query" is a use ("SQL query optimisation"); "React Query" is a capital in
+// sentence case, or two words of a title-case term that this list leaves named.
+const PRACTICE_WORDS = new Set([
+  "test", "tests", "testing", "unit", "automation", "automated", "scripting", "scripts", "development", "developer", "engineering",
+  "programming", "coding", "code", "pipeline", "pipelines", "clusters", "cluster", "administration", "admin", "performance", "tuning",
+  "optimisation", "optimization", "design", "integration", "integrations", "deployment", "deployments", "monitoring", "migration",
+  "migrations", "modelling", "modeling", "data", "analysis", "analytics", "backend", "frontend", "front", "back", "end", "web",
+  "framework", "frameworks", "cloud", "services", "service", "applications", "application", "apps", "app", "apis", "api", "rest",
+  "queries", "query", "querying", "reporting", "dashboards", "debugging", "troubleshooting", "maintenance", "configuration",
+  "management", "security", "best", "practices", "infrastructure", "platform", "platforms", "systems", "system", "solutions",
+  "architecture", "components", "component", "libraries", "library", "tools", "tooling", "ecosystem", "environment", "environments",
+  "experience", "knowledge", "skills", "proficiency", "stack", "server", "servers", "containers", "containerisation", "orchestration",
+  "mobile", "desktop", "ui", "ux", "workflows", "workflow", "processes", "concepts", "fundamentals", "principles", "advanced", "strong",
+  "solid", "good", "basic", "using", "with", "of", "in", "on", "for", "the", "to", "based", "including",
+]);
+// A capitalised word directly after a product, in a term otherwise written in sentence case,
+// is part of the product's name: "Swarm" in "Docker Swarm orchestration". Never in a term
+// written all in capitals (postings title-case plain words: "AWS EC2 Instances", "Python
+// Coding Standards" are uses, and the 6 Nov review found them filed as core gaps), never an
+// all-caps acronym ("Python for ML"), never a practice word.
+function namesByCase(term: string, products: readonly string[]): boolean {
+  const words = term.split(/[^\p{L}\p{N}+#.]+/u).filter((w) => /\p{L}/u.test(w));
+  const titleCase = words.every((w) => /^\p{Lu}/u.test(w) || /^(?:and|or|of|in|on|for|the|to|with|a|an)$/.test(w));
+  if (titleCase) return false;
+  const lower = products.map((p) => p.toLowerCase());
+  for (let i = 0; i + 1 < words.length; i++) {
+    if (!lower.includes(words[i].toLowerCase())) continue;
+    const next = words[i + 1];
+    if (/^\p{Lu}\p{Ll}/u.test(next) && !PRACTICE_WORDS.has(next.toLowerCase()) && !lower.includes(next.toLowerCase())) return true;
+  }
+  return false;
+}
+// A named technology is never sent to the model:
+//   - a term that IS a product, a language or framework ("Spring Boot"), or a
+//     two-word product ("AWS Lambda", "GitHub Actions", "React Native");
+//   - a named method around a product ("Kafka stream processing", "AWS serverless"
+//     — lib/evidenceMap's methods, read by isNamedTechnology);
+//   - any term around a product the master CV never shows ("Kubernetes clusters"
+//     — asking could only invite a graft).
+// A product the CV shows plus plain words ("Python test automation", "AWS cloud",
+// "React front-end", "Django web framework") is a question of wording, so the
+// model is asked. With no product word, isNamedTechnology reads the LOWERCASED
+// term: it reads a capital as a product, and postings capitalise plain words ("Routing").
+// Products of three words or a common word that no list above can read: always a name.
+const PRODUCT_PHRASE_RE = /\b(?:react\s+server\s+components|(?:react|tanstack)\s+query|unity\s+catalog|data\s+factory|step\s+functions|app\s+router)\b/i;
+function isNamed(term: string, sources: string): boolean {
+  if (PRODUCT_PHRASE_RE.test(term)) return true;
+  const products = productsIn(term);
+  if (products.length === 0) return isNamedTechnology(term.toLowerCase());
+  const rest = products.reduce((s, p) => s.split(p).join(" "), term).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  if (!rest || /^(?:and|or)$/i.test(rest)) return true;
+  if (isNamedTechnology(rest.toLowerCase())) return true;
+  const words = rest.toLowerCase().split(/\s+/).filter((w) => w && w !== "and" && w !== "or");
+  if (words.some((w) => PRODUCT_SECOND_WORDS.has(w))) return true;
+  if (namesByCase(term, products)) return true;
+  return products.some((p) => matchAtsKeywords(sources, [p]).matched === 0);
 }
 
 function clip(s: string): string {
@@ -130,7 +212,7 @@ export function classifyByRules(map: EvidenceMap | null | undefined, cv: string,
       items.push({ ...base, class: "rename", line: clip(hit.text), where: hit.where, via: "rule" });
       continue;
     }
-    if (rule || isNamed(i.term) || i.kind === "soft") {
+    if (rule || isNamed(i.term, pool ? `${cv}\n${pool}` : cv) || i.kind === "soft") {
       items.push(base);
       continue;
     }
@@ -197,16 +279,24 @@ export function coreGapBanner(check: GapCheck | null | undefined): { terms: stri
 }
 
 /** The class of a term the tailored CV still misses, from the pre-check, if it was read. */
-export function gapFor(check: GapCheck | null | undefined, term: string): GapItem | null {
+export function gapFor(check: GapCheck | null | undefined, term: string, masterCv?: string): GapItem | null {
   const key = (s: string) => s.replace(/\s+—.*$/, "").toLowerCase().replace(/[^a-z0-9+#./]+/g, " ").trim();
   const t = key(term);
   if (!t) return null;
   const items = check?.items ?? [];
   const exact = items.find((i) => key(i.term) === t);
   if (exact) return exact;
-  // The evidence map splits "X and Y" and trims leads: the term or its part, as whole words.
+  // The evidence map splits "X and Y" and trims leads: a missed keyword may carry a gap's
+  // whole words ("Kubernetes clusters — not present" → Kubernetes). The other way — a
+  // shorter miss inside a longer gap (the keyword "Kubernetes" folded into the required
+  // "Kubernetes clusters") — only when the master CV doesn't show the miss: "AWS", which
+  // it shows, is never the core gap "AWS Lambda".
   const within = (a: string, b: string) => b.length >= 3 && ` ${a} `.includes(` ${b} `);
-  return items.find((i) => within(t, key(i.term)) || within(key(i.term), t)) ?? null;
+  const forward = items.find((i) => within(t, key(i.term)));
+  if (forward) return forward;
+  const bare = term.replace(/\s+—.*$/, "").trim();
+  if (!masterCv || matchAtsKeywords(masterCv, [bare]).matched > 0) return null;
+  return items.find((i) => within(key(i.term), t)) ?? null;
 }
 
 /** A check from the response or a stored workspace, re-bounded. */

@@ -28,7 +28,9 @@ test("the summary never names the job applied for: the clause goes, the rest sta
     assert.equal(r.text, want, input);
     assert.equal(r.removed.length, 1, input);
   }
-  assert.equal(stripAppliedFor("Applying for the Support Engineer role, I bring two years of Python.").text, "I bring two years of Python.");
+  // Only where the clause ends the sentence (6 Nov): an opening clause is left as it is.
+  const opening = "Applying for the Support Engineer role, I bring two years of Python.";
+  assert.deepEqual(stripAppliedFor(opening), { text: opening, removed: [] });
   const lines = "Software developer with two years of Python.\nBuilt REST APIs for 2,000 users, applying for the API Engineer role.";
   assert.equal(stripAppliedFor(lines).text, "Software developer with two years of Python.\nBuilt REST APIs for 2,000 users.");
   const clean = "Software developer applying machine learning to support tickets.";
@@ -37,7 +39,8 @@ test("the summary never names the job applied for: the clause goes, the rest sta
   assert.equal(stripAppliedFor("Python developer with two years of APIs, applying for the role of Platform Engineer.").text, "Python developer with two years of APIs.");
   assert.equal(stripAppliedFor("Backend developer with Express APIs, applying for the Node.js Developer role at Acme Ltd.").text, "Backend developer with Express APIs.");
   assert.equal(stripAppliedFor("Engineer with Swift apps, applying for Senior iOS Engineer roles.").text, "Engineer with Swift apps.", "no article");
-  assert.equal(stripAppliedFor("Applying for the Mobile Engineer role, iOS developer with Swift apps shipped to 5,000 users.").text, "IOS developer with Swift apps shipped to 5,000 users.".replace("IOS", "iOS"), "iOS keeps its capitals");
+  const ios = "Applying for the Mobile Engineer role, iOS developer with Swift apps shipped to 5,000 users.";
+  assert.equal(stripAppliedFor(ios).text, ios);
 });
 
 // ── How a role is described ────────────────────────────────────────────────
@@ -55,13 +58,16 @@ test("a placement is never called completed while the master CV shows it as curr
   assert.equal(guardRoleStatus("Currently on an industrial placement at Example Lab.", CURRENT).removed.length, 0, "true of a current placement");
 });
 
-test("placement wording never comes back once the master CV no longer uses it: the clause goes first", () => {
-  const r = guardRoleStatus("Full-stack engineer currently on an industrial placement at Example Lab, building retrieval tools.\nPython, FastAPI and React.", RENAMED);
-  assert.equal(r.text, "Full-stack engineer, building retrieval tools.\nPython, FastAPI and React.");
-  assert.deepEqual(r.removed, ["currently on an industrial placement at Example Lab"]);
+test("placement wording the master CV no longer uses: a pure claim goes, anything else is kept and flagged", () => {
+  const mixed = "Full-stack engineer currently on an industrial placement at Example Lab, building retrieval tools.";
+  const r = guardRoleStatus(`${mixed}\nPython, FastAPI and React.`, RENAMED);
+  assert.equal(r.text, `${mixed}\nPython, FastAPI and React.`, "never cut: the sentence carries true facts too");
+  assert.deepEqual(r.flagged, [mixed]);
+  assert.deepEqual(r.removed, []);
   const during = guardRoleStatus("During my placement I built retrieval tools.", RENAMED);
-  assert.equal(during.text, "I built retrieval tools.");
-  assert.equal(guardRoleStatus("Currently on a research placement at Example Lab.", RENAMED).removed.length, 1, "a placement of any kind");
+  assert.equal(during.text, "During my placement I built retrieval tools.");
+  assert.equal(during.flagged.length, 1);
+  assert.equal(guardRoleStatus("Currently on a research placement at Example Lab.", RENAMED).removed.length, 1, "nothing but the claim: removed");
   assert.equal(guardRoleStatus("Research assistant building retrieval tools in Python.", RENAMED).removed.length, 0);
 });
 
@@ -82,10 +88,12 @@ test("each role decides for itself: one ended, one current", () => {
 
 test("a numbered reason stays whole, and an abbreviation is no sentence end", () => {
   const letter = "1. I built the billing API.\n2. During my placement I built retrieval tools for three teams.";
-  assert.equal(guardRoleStatus(letter, RENAMED).text, "1. I built the billing API.\n2. I built retrieval tools for three teams.");
+  const r = guardRoleStatus(letter, RENAMED);
+  assert.equal(r.text, letter);
+  assert.deepEqual(r.flagged, ["2. During my placement I built retrieval tools for three teams."]);
   const ltd = guardRoleStatus("I worked at Example Ltd. on search, and I am currently on an industrial placement.", RENAMED);
-  assert.equal(ltd.removed.length, 1);
-  assert.match(ltd.text, /^I worked at Example Ltd\. on search/);
+  assert.deepEqual(ltd.flagged, ["I worked at Example Ltd. on search, and I am currently on an industrial placement."], "one sentence, flagged whole");
+  assert.equal(ltd.removed.length, 0);
 });
 
 test("an ended placement is never current, and another user's real internship is theirs to describe", () => {
@@ -103,9 +111,10 @@ test("the letter's furniture and the job applied for are never a claim; a kept s
   const kept = guardRoleStatus("Software engineer currently on an industrial placement.", RENAMED, { keep: () => true });
   assert.equal(kept.text, "Software engineer currently on an industrial placement.", "nothing sound left of it once cut: kept and reported");
   assert.deepEqual(kept.flagged, ["Software engineer currently on an industrial placement."]);
-  const titled = guardRoleStatus("Software Engineer currently completing an industrial placement at Example Lab, building retrieval tools.", RENAMED, { keep: () => true });
-  assert.equal(titled.text, "Software Engineer, building retrieval tools.", "a kept sentence still loses the clause");
-  assert.deepEqual(titled.flagged, []);
+  const t = "Software Engineer currently completing an industrial placement at Example Lab, building retrieval tools.";
+  const titled = guardRoleStatus(t, RENAMED, { keep: () => true });
+  assert.equal(titled.text, t, "kept as written");
+  assert.deepEqual(titled.flagged, [t]);
   assert.deepEqual(guardRoleStatus("", RENAMED), { text: "", removed: [], flagged: [] });
 });
 

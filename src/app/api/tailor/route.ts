@@ -1188,6 +1188,8 @@ async function runPipeline(opts: {
   // current, comes out of the letter here and the summary below.
   if (typeof coverLetter === "string") {
     const g = guardRoleStatus(coverLetter, cv);
+    // Kept as written and shown for the user to check: the guard cuts nothing.
+    factGuard.report.roleStatusCheck.push(...g.flagged);
     if (g.removed.length > 0) {
       coverLetter = g.text;
       factGuard.report.roleStatus.push(...g.removed);

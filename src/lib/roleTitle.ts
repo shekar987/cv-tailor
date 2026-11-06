@@ -65,35 +65,97 @@ export function titleAsIdentity(title: unknown, heldTitles: string[]): boolean {
 
 // "…, applying for the Product Engineer role." (5 Nov 2026, the owner's call):
 // the summary never names the job being applied for — it ended 6 of 6 tailors
-// that way. Removed server-side, last, so no later pass brings it back: the
-// clause goes, and a sentence that was nothing else goes with it. Any title,
-// not only this run's, since a fact-check fix can word it differently.
-// A title may carry dots ("Node.js Developer", ".NET Engineer"): a dot followed by a letter is part of it.
-const TITLE_CHARS = String.raw`(?:[^.!?\n]|\.(?=\w))`;
-const APPLIED_FOR_RE = new RegExp(
-  String.raw`(?:^|[,;:]\s*|\s+[—–-]\s+|\s+)(?:(?:and|now|currently|while)\s+)*(?:applying|apply)\s+(?:for|to)\s+(?:(?:the|this|a|an|your)\s+)?(?:(?:role|position)\s+of\s+(?:[^.!?\n,;]|\.(?=\w)){1,90}|${TITLE_CHARS}{1,90}?\b(?:roles?|positions?|opportunit(?:y|ies)|jobs?|post|vacanc(?:y|ies)))(?=[\s,;:.!?]|$)(?:\s+(?:at|with)\s+(?:[^.!?\n,;]|\.(?=\w)){1,60})?`,
-  "gi"
+// that way. Removed server-side, last, so no later pass brings it back. Any
+// title, not only this run's, since a fact-check fix can word it differently.
+//
+// Only the shape those six tailors wrote (6 Nov 2026, after four reviews of a
+// wider rule each found a new way to cut true text): the clause ENDS the
+// sentence after a comma — ", applying for the <title> role[ at <employer>]."
+// — or it is the whole sentence. The title is a run of plain words, never a
+// linking word ("… role after completing a 12-month placement …" is no title),
+// ending in a role / position / programme / scheme / placement / internship /
+// apprenticeship (a year after it allowed). After it, at most one place: "at"
+// an organisation ("the BBC", "J.P. Morgan", "monday.com", "the Bank of
+// England"), "with" one that says so ("with Acme Bank"; never "with Python"),
+// or "in" a team, a city or one word ("in the payments team", "in fintech").
+// Anything else — mid-sentence, before "with two years' …", before a comma — is
+// left exactly as it is: a summary that names the job is a style miss, a
+// damaged one is a lie.
+const anyCase = (s: string) => s.replace(/\\.|[a-z]/g, (c) => (c.length === 2 ? c : `[${c}${c.toUpperCase()}]`));
+const W = anyCase;
+const LINKING = W(String.raw`(?:after|before|having|following|since|while|whilst|with|and|or|to|in|at|on|for|from|by|as|where|which|who|that|of|following|during|then)`);
+// A word of a title: letters, digits, a dot inside ("Node.js"), never a linking word.
+const TITLE_WORD = String.raw`(?!${LINKING}\b)[A-Za-z0-9(][\w&'’+#/()-]*(?:\.(?=\w)[\w&'’+#/()-]+)*`;
+const ROLE_NOUNS = W(String.raw`(?:roles?|positions?|opportunit(?:y|ies)|jobs?|post|vacanc(?:y|ies)|programmes?|programs?|schemes?|placements?|internships?|apprenticeships?)`);
+const TITLE = String.raw`(?:${TITLE_WORD}\s+){0,11}?${ROLE_NOUNS}(?:\s+(?:19|20)\d{2})?`;
+const ROLE_OF = String.raw`${W("(?:role|position)")}\s+of\s+(?:${TITLE_WORD}\s+){0,10}?${TITLE_WORD}`;
+// An organisation: initials ("J.P."), a capitalised name, or a domain ("monday.com").
+const ORG_TOKEN = String.raw`(?:(?:[A-Z]\.){2,}|[A-Z0-9][\w&'’+-]*(?:\.(?=\w)[\w&'’+-]+)*|[a-z][a-z0-9-]*\.[a-z]{2,}(?:\.[a-z]{2,})?)`;
+const ORG = String.raw`(?:the\s+)?${ORG_TOKEN}(?:\s+(?:(?:of|for|and|&)\s+)?${ORG_TOKEN}){0,5}`;
+const ORG_SAYS_SO = String.raw`(?:Bank|Group|Ltd|plc|PLC|LLP|Inc|Trust|Council|Partners|Capital|Labs?|Systems|Technologies|Solutions|Consulting|Insurance|Health|Hospitals?|University|Agency|Authority|Foundation|Holdings|Services|NHS|Digital|Media|Studios?)`;
+const PLACE = String.raw`(?:at\s+${ORG}|with\s+(?:the\s+${ORG}|(?:${ORG_TOKEN}\s+){0,4}${ORG_SAYS_SO}\b)|(?:in|on)\s+(?:the\s+)?(?:${ORG_TOKEN}(?:\s+${ORG_TOKEN}){0,3}|(?:[a-z-]+\s+){0,3}(?:team|squad|group|division|department|unit|function|practice|office)|[a-z-]+))`;
+const CLAUSE = String.raw`(?:(?:and|now|currently)\s+)?${W("applying")}\s+(?:for|to)\s+(?:(?:the|this|a|an|your)\s+)?(?:${ROLE_OF}|${TITLE})(?:\s+${PLACE})?\s*[.!?]?\s*$`;
+// ", applying for …." ending the sentence (after a comma, a semicolon, a dash, or a
+// singular job noun: "Engineer applying for the X role."), or "Applying for …." as
+// the whole sentence.
+const JOB_NOUN = W(String.raw`(?:developer|engineer|graduate|analyst|scientist|consultant|specialist|designer|architect|programmer|technologist|researcher|student)`);
+// After a singular job noun only with an article ("Software developer applying for the X
+// role."): "for any software engineer applying for graduate roles" is about someone else.
+// After a full stop too, when the clause is a sentence of its own ("… at Acme Ltd. Applying
+// for the X role."), which the split keeps joined behind an abbreviation.
+const APPLIED_FOR_END_RE = new RegExp(
+  String.raw`(?:\s*[,;]\s*|\s+[—–-]\s+|(?<=[.!?])\s+(?=[A-Z])|(?<=\b${JOB_NOUN})\s+(?=(?:(?:and|now|currently)\s+)?applying\s+(?:for|to)\s+(?:the|this|a|an)\s))${CLAUSE}`
 );
+const APPLIED_FOR_WHOLE_RE = new RegExp(String.raw`^\s*${CLAUSE}`);
 const WORDS_RE = /[A-Za-z0-9]+/g;
+// A remainder that is only a job noun, with at most two words before it ("Software developer").
+const JOB_NOUN_ONLY_RE = new RegExp(String.raw`^\s*(?:[A-Za-z-]+\s+){0,2}${JOB_NOUN}\s*$`);
+// A sentence ends before a capital: "J.P. Morgan" and "Acme Inc. in London" stay one.
+// A sentence ends before a capital, never after an abbreviation or an initial ("e.g. React",
+// "Dr. Patel", "J. Sainsbury", "J.P. Morgan", "Acme Ltd. in London").
+const SUMMARY_SPLIT = /(?<!\b(?:[A-Z]|[A-Z]\.[A-Z]|Ltd|Inc|Co|Corp|plc|St|Dr|Mr|Mrs|Ms|No|vs|etc|e\.g|i\.e)\.)(?<=[.!?])\s+(?=[A-Z0-9"“‘(])/;
 
 export function stripAppliedFor(summary: string): { text: string; removed: string[] } {
   const removed: string[] = [];
   const lines = summary.split("\n").map((line) => {
-    const sentences = line.split(/(?<=[.!?])\s+/);
     const kept: string[] = [];
-    for (const sentence of sentences) {
-      APPLIED_FOR_RE.lastIndex = 0;
-      if (!APPLIED_FOR_RE.test(sentence)) {
+    for (const sentence of line.split(SUMMARY_SPLIT)) {
+      if (APPLIED_FOR_WHOLE_RE.test(sentence)) {
+        removed.push(sentence.trim());
+        continue;
+      }
+      const m = APPLIED_FOR_END_RE.exec(sentence);
+      if (!m || m.index === undefined) {
         kept.push(sentence);
         continue;
       }
-      APPLIED_FOR_RE.lastIndex = 0;
-      let rest = sentence.replace(APPLIED_FOR_RE, "").replace(/^[\s,;:—–-]+/, "").replace(/[\s,;:—–-]+([.!?])?\s*$/, "$1");
+      const rest = sentence.slice(0, m.index).replace(/[\s,;:—–-]+$/, "");
+      // What is left must be whole. The opener "Software developer applying for the X role."
+      // goes with its clause; any other short remainder ("Uses R.") means the sentence's start
+      // can't be told apart from its end, so the sentence stays exactly as written. A job noun
+      // left after an initial ("… built test rigs in C. Software engineer") is that opener.
+      const short = (s: string) => (s.match(WORDS_RE) ?? []).length < 3;
+      const dropTail = (tail: string) => {
+        removed.push(sentence.trim());
+        const head = rest.slice(0, rest.length - tail.length).trimEnd();
+        if (head) kept.push(/[.!?]$/.test(head) ? head : `${head}.`);
+      };
+      // A job-noun opener after any full stop, an initial's included ("in C. Software engineer").
+      const plainTail = rest.split(/(?<=[.!?])\s+(?=[A-Z])/).pop() ?? rest;
+      if (plainTail !== rest && short(plainTail) && JOB_NOUN_ONLY_RE.test(plainTail)) {
+        dropTail(plainTail);
+        continue;
+      }
+      // Otherwise the last real sentence, initials and abbreviations kept whole ("J. Sainsbury", "e.g. React").
+      const tail = rest.split(SUMMARY_SPLIT).pop() ?? rest;
+      if (short(tail)) {
+        if (JOB_NOUN_ONLY_RE.test(tail)) dropTail(tail);
+        else kept.push(sentence);
+        continue;
+      }
       removed.push(sentence.trim());
-      if ((rest.match(WORDS_RE) ?? []).length < 3) continue;
-      if (!/[.!?]$/.test(rest)) rest += ".";
-      // "iOS developer…" keeps its own capitals.
-      kept.push(/^[a-z](?![A-Z])/.test(rest) ? rest.charAt(0).toUpperCase() + rest.slice(1) : rest);
+      // "… at Example Lab Ltd." keeps its own full stop.
+      kept.push(/[.!?]$/.test(rest) ? rest : `${rest}.`);
     }
     return kept.join(" ");
   });

@@ -191,75 +191,191 @@ export function keepOutOfLead(skills: string, shape: SkillsShape = FLAT_SKILLS):
 //   1. a claim about the candidate's own placement, internship, apprenticeship
 //      or secondment, where the master CV never names one;
 //   2. "completed" / "finished" one, where every such role the master CV
-//      dates is current;
+//      dates is still running (an end of "Present", "expected …" or a month
+//      not yet reached);
 //   3. "currently on" one, where every such role it dates has ended.
-// Never a sentence about the future or the job applied for ("I am applying
-// for the Industrial Placement", "I hope to spend my placement year with
-// you"). The claim's own clause goes first; the sentence only when nothing
-// sound is left of it, and not even then when `keep` says it must stay (the
-// summary's title sentence) — then it is reported for the user to check.
+// Unsure (two such roles, one running and one ended; an end this calendar
+// year with no month) → nothing.
+//
+// Detection, not surgery (6 Nov 2026): four fresh reviews of clause cuts found
+// a new way to damage true text each round. So a sentence that is NOTHING BUT
+// the claim ("Completed an industrial placement at Example Lab.") is removed,
+// and every other sentence stays exactly as written and is FLAGGED for the user
+// to check — never half a sentence, never a fact lost with the false one. A
+// user who wants a phrase never to appear puts it in their retired-wording list
+// (lib/retiredClaims), which removes it at tailor time and refuses the download.
+// The summary's title sentence (`keep`) is flagged even when it is a pure claim.
+
+// Case-free spelling for a pattern with no "i" flag: the employer after a role
+// noun must keep its capital letter ("at Example Lab", never "and two years'").
+const anyCase = (s: string) => s.replace(/\\.|[a-z]/g, (c) => (c.length === 2 ? c : `[${c}${c.toUpperCase()}]`));
 const ROLE_KINDS: { noun: string; inMaster: RegExp }[] = [
-  { noun: String.raw`(?:placements?|year\s+in\s+industry|sandwich\s+year)`, inMaster: /\bplacements?\b|\byear\s+in\s+industry\b|\bsandwich\s+year\b/i },
-  { noun: String.raw`internships?`, inMaster: /\bintern(?:ship|ed|ing)?s?\b/i },
-  { noun: String.raw`apprenticeships?`, inMaster: /\bapprentice(?:ship)?s?\b/i },
-  { noun: String.raw`secondments?`, inMaster: /\bsecond(?:ment|ed)\b/i },
+  { noun: anyCase(String.raw`(?:placements?(?:\s+years?)?|year\s+in\s+industry|sandwich\s+year)`), inMaster: /\bplacements?\b|\byear\s+in\s+industry\b|\bsandwich\s+year\b/i },
+  { noun: anyCase(String.raw`internships?`), inMaster: /\bintern(?:ship|ed|ing)?s?\b/i },
+  { noun: anyCase(String.raw`apprenticeships?`), inMaster: /\bapprentice(?:ship)?s?\b/i },
+  { noun: anyCase(String.raw`secondments?`), inMaster: /\bsecond(?:ment|ed)\b/i },
 ];
-const ROLE_ADJ = String.raw`(?:(?:an?|my|the|his|her|their)\s+)?(?:(?:industrial|professional|research|industry|technical|engineering|software|data|work|summer|paid|graduate|year[-\s]long|\d{1,2}[-\s]month|one[-\s]year|12[-\s]month)\s+){0,3}`;
-// The rest of the claim: where and when ("at Example Lab", "in 2025").
-const ROLE_TAIL = String.raw`(?:\s+(?:at|with|in)\s+[^,.;:!?]{1,60})?`;
-const ONGOING_RE = /\b(?:present|current|now|ongoing|to\s+date)\b/i;
+const ROLE_ADJ = anyCase(String.raw`(?:(?:an?|my|the|his|her|their)\s+)?(?:(?:industrial|professional|research|industry|technical|engineering|software|data|work|summer|paid|graduate|year[-\s]long|\d{1,2}[-\s]month|one[-\s]year|12[-\s]month)\s+){0,3}`);
+// The rest of the claim: an organisation ("at Example Lab", "at the NHS") and a year.
+const ORG_WORD = String.raw`(?!I\b)[A-Z](?:[\w&'’+-]|\.(?=\w))*`;
+const ROLE_TAIL = String.raw`(?:\s+${anyCase("(?:at|with)")}\s+(?:${anyCase("the")}\s+)?${ORG_WORD}(?:\s+(?:${ORG_WORD}|&|of))*)?(?:\s+${anyCase("in")}\s+(?:19|20)\d{2})?`;
+const ONGOING_RE = /\b(?:present|current|now|ongoing|to\s+date|expected|anticipated)\b/i;
 const DATED_RE = /\b(?:19|20)\d{2}\b/;
-// A sentence about the future or the job applied for is never a claim about a past role.
-const INTENT_RE = /\b(?:apply|applying|keen|hope|hoping|would|will|looking\s+(?:for|to)|seeking|eager|want|wish|plan|planning|aim|aiming|interested|excited|opportunity|joining|join)\b/i;
-// Sentence ends that are not abbreviations ("Ltd. ", "e.g. ").
-const SENTENCE_SPLIT = /(?<!\b(?:Ltd|Inc|Co|Corp|e\.g|i\.e|etc|vs|Dr|Mr|Mrs|Ms|St|No)\.)(?<=[.!?])\s+/;
-// The claim is the predicate ("…, and I am currently on a placement."): cutting
-// the clause alone would leave "I am.", so the cut runs back to the coordinator.
-const COPULA_BEFORE_RE = /\b(?:am|is|are|was|were|been|being)\s*$|['’](?:m|s|re)\s*$/i;
-const COORDINATOR_RE = /(?:,\s*(?:and|but)\s+|;\s*)(?![\s\S]*(?:,\s*(?:and|but)\s+|;\s*))/i;
+// Intent BEFORE the claim in its own clause makes the role the one hoped for:
+// "I am keen to spend my placement year …", "I am planning to do my placement year …".
+// Phrases, not words, where the word alone has a past sense ("sprint planning").
+// "planning on" only before a verb ("planning on doing"): "test plans on my placement" is a noun.
+const INTENT_BEFORE_RE = /\b(?:apply|applying|keen|hope|hoping|would|will|looking\s+(?:for|to)|seeking|eager|want|wish|aim|aiming|excited|joining|join|intend|intending|interested\s+in|opportunit(?:y|ies)\s+(?:to|for)|plans?\s+to|planning\s+to|planning\s+on\s+\w+ing)\b/gi;
+// The intent governs the claim unless something between them says the claim is a past
+// fact: a past verb ("I am keen to bring the Python skills I built during my placement"),
+// or a word that hangs the claim on the past ("skills from my placement", "after my
+// placement", "the experience of my internship"). And an intent with "since" or a past
+// verb right before it is a fact itself ("I became interested in … during my placement",
+// "Since joining Example Lab on my placement year"). The 6 Nov review found the earlier
+// allow-list of governing words flagged real intent ("I am seeking a 12-month role for my
+// placement year", "I would welcome the chance to spend my placement year at Acme").
+const GOVERN_BLOCK_RE = /\b(?:from|after|since|following|during|through|throughout|skills?|experience|knowledge|lessons?|insights?)\b/i;
+// AFTER the claim, only a future word, only on a claim with no tense of its own
+// ("During my internship I hope to learn …"), and only with no past verb between
+// ("My placement taught me skills I would bring …" is a claim about the past).
+// Not "would" (habitual past: "I would pair with senior engineers") and not "my aim was".
+// "would like / love / welcome" is intent ("During my placement year I would like to work on …").
+const INTENT_AFTER_RE = /\b(?:hope|hoping|will|intend|intending|look(?:ing)?\s+forward|keen|eager|want|wish|(?<!\bmy\s)aim(?:ing)?\s+to|seek|plans?\s+to|planning\s+to|would\s+(?:like|love|welcome|enjoy|relish|value|hope))\b/i;
+const TENSED_CLAIM_RE = /\b(?:completed|finished|concluded|wrapped|undertook|undertaken|undertaking|spent|currently|now|am|was|while|whilst|when)\b|['’]m\b/i;
+const PAST_VERB_RE = /\b(?:\w{3,}ed|taught|gave|given|built|led|ran|made|meant|showed|shown|let|grew|took|brought|got|won|became|wrote|drove|held|kept|left|met|saw|sold|spent|told|thought|understood)\b/i;
+// A degree line's dates are the degree's, never the placement's: a line under an
+// Education heading (to the next heading of any kind), or one that opens with a
+// degree. "University College London Hospitals" in a role line is an employer.
+const EDUCATION_HEAD_RE = /^\s*(?:education|academic(?:\s+\w+)?|qualifications|education\s+(?:&|and)\s+\w+)\s*:?\s*$/i;
+// A heading: a short line of capitals, or a short line ending in a colon, with no dates.
+const HEADING_SHAPE_RE = /^\s*(?:[A-Z][A-Z &/,'’-]{2,40}|[A-Z][\w &/,'’-]{2,40}:)\s*$/;
+// In Education, every heading ends it except one that names an institution or a part of a
+// course: "UNIVERSITY OF BATH" and "Relevant modules:" stay Education; "RELEVANT EXPERIENCE",
+// "PROFESSIONAL BACKGROUND", "POSITIONS OF RESPONSIBILITY" and "Work Experience" end it.
+const EDU_PART_RE = /\b(?:universit(?:y|ies)|college|school|institute|academy|polytechnic|modules?|coursework|courses?|dissertation|thesis|a[-\s]?levels?|gcses?|honours|degree|b\.?sc|m\.?sc|ba|ma|beng|meng|ph\.?d|mba|llb|bachelor|master|diploma|hnd|btec)\b/i;
+// A Title Case heading with no colon ("Work Experience", "Professional Background").
+const TITLE_HEADING_RE = /^\s*(?:[A-Z][\w&'’-]*\s+){0,3}(?:Experience|Employment|History|Background|Projects?|Skills|Roles|Positions|Responsibilit(?:y|ies)|Expertise|Industry|Work|Career|Placements?|Internships?|Volunteering|Leadership|Achievements|Certifications?|Awards|Publications|Interests|Languages|Profile|Summary)\s*:?\s*$/;
+const DEGREE_FIRST_RE = /^\s*(?:[-•*]\s*)?(?:B\.?Sc|BEng|MEng|M\.?Sc|MBA|Ph\.?D|BA|MA|LLB|Bachelor|Master|Diploma|Degree)\b/i;
+// A sentence ends before a capital: "… models in R. I recently …" are two; "J.P.
+// Morgan" and "Ltd. on search" are one.
+const SENTENCE_SPLIT = /(?<!\b[A-Z]\.[A-Z]\.)(?<!\b(?:Ltd|Inc|Co|Corp|plc|e\.g|i\.e|etc|vs|Dr|Mr|Mrs|Ms|St|No)\.)(?<=[.!?])\s+(?=[A-Z0-9"“‘(])/;
+// Words that say nothing once the claim is gone: "I am", "and", "recently".
+const EMPTY_WORDS = new Set(["i", "am", "is", "are", "was", "were", "a", "an", "the", "and", "my", "have", "has", "had", "been", "currently", "now", "recently", "also", "just", "at", "in", "on", "with", "i'm", "i’m", "i've", "i’ve", "of", "to"]);
+
+const MONTHS: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+const DATE_TOKEN_RE = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+((?:19|20)\d{2})\b|\b(0?[1-9]|1[0-2])\/((?:19|20)\d{2})\b|\b((?:19|20)\d{2})-(0[1-9]|1[0-2])\b|\b((?:19|20)\d{2})\b/gi;
+
+// Where a dated line's role stands today: its LAST date is the end.
+function lineState(line: string, now: Date): "ongoing" | "ended" | "unsure" {
+  if (ONGOING_RE.test(line)) return "ongoing";
+  let last: { year: number; month: number | null } | null = null;
+  for (const m of line.matchAll(DATE_TOKEN_RE)) {
+    if (m[1]) last = { year: Number(m[2]), month: MONTHS[m[1].toLowerCase()] };
+    else if (m[3]) last = { year: Number(m[4]), month: Number(m[3]) };
+    else if (m[5]) last = { year: Number(m[5]), month: Number(m[6]) };
+    else if (m[7]) last = { year: Number(m[7]), month: null };
+  }
+  if (!last) return "unsure";
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  if (last.month === null) return last.year > year ? "ongoing" : last.year < year ? "ended" : "unsure";
+  return last.year * 12 + last.month >= year * 12 + month ? "ongoing" : "ended";
+}
 
 type RoleState = { absent: boolean; ongoing: boolean; ended: boolean };
-function roleState(master: string, inMaster: RegExp): RoleState {
-  const lines = master.split(/\r?\n/).filter((l) => inMaster.test(l));
-  const dated = lines.filter((l) => DATED_RE.test(l));
-  return { absent: lines.length === 0, ongoing: dated.some((l) => ONGOING_RE.test(l)), ended: dated.some((l) => !ONGOING_RE.test(l)) };
+function roleState(master: string, inMaster: RegExp, now: Date): RoleState {
+  const lines: string[] = [];
+  const dated: string[] = [];
+  let inEducation = false;
+  for (const line of master.split(/\r?\n/)) {
+    if (EDUCATION_HEAD_RE.test(line)) inEducation = true;
+    else if (inEducation && (HEADING_SHAPE_RE.test(line) || TITLE_HEADING_RE.test(line)) && !DATED_RE.test(line) && !EDU_PART_RE.test(line)) inEducation = false;
+    if (!inMaster.test(line)) continue;
+    lines.push(line);
+    // The role's own dates: a role named only in a dated note in brackets is dated by the
+    // note ("Software Engineer | Acme | Sep 2025 – Present (joined after my summer internship,
+    // Jun – Aug 2024)"), any other by the line outside its brackets.
+    const notes = (line.match(/\([^)]*\)/g) ?? []).filter((b) => inMaster.test(b));
+    const outside = line.replace(/\([^)]*\)/g, " ");
+    // A role whose dates are written only in brackets ("Software Engineering Intern, Acme Ltd
+    // (Jun 2025 – Aug 2025)") is dated by the whole line.
+    const subject = !inMaster.test(outside) && notes.some((b) => DATED_RE.test(b)) ? notes.join(" ") : DATED_RE.test(outside) ? outside : line;
+    if (DATED_RE.test(subject) && !inEducation && !DEGREE_FIRST_RE.test(line)) dated.push(subject);
+  }
+  const states = dated.map((l) => lineState(l, now));
+  const unsure = states.includes("unsure");
+  return { absent: lines.length === 0, ongoing: unsure || states.includes("ongoing"), ended: unsure || states.includes("ended") };
 }
 
 export type RoleStatusResult = { text: string; removed: string[]; flagged: string[] };
-
-const wordCount = (s: string) => (s.match(/[A-Za-z0-9]+/g) ?? []).length;
 
 function sentencesOf(line: string): string[] {
   // A numbered point stays whole: "2. During my placement …" is one sentence.
   const out: string[] = [];
   for (const part of line.split(SENTENCE_SPLIT)) {
-    if (out.length > 0 && /^\s*\d{1,2}[.)]$/.test(out[out.length - 1])) out[out.length - 1] = `${out[out.length - 1]} ${part}`;
+    const last = out[out.length - 1];
+    // An initial before a name is no sentence end: "J. Sainsbury", never "in R. I recently".
+    const initial = last !== undefined && /\b[A-Z]\.$/.test(last) && /^[A-Z][a-z]/.test(part) && !/^(?:I|We|My|Our|The|This|That|These|In|At|On|During|After|Before|Since|As|It|He|She|They|Then|When|While)\b/.test(part);
+    if (last !== undefined && (/^\s*\d{1,2}[.)]$/.test(last) || initial)) out[out.length - 1] = `${last} ${part}`;
     else out.push(part);
   }
   return out;
 }
 
-export function guardRoleStatus(text: string, master: string, opts: { keep?: (sentence: string) => boolean } = {}): RoleStatusResult {
+// The last intent phrase before the claim, close enough to govern it.
+function governedByIntent(before: string): boolean {
+  const hits = [...before.matchAll(INTENT_BEFORE_RE)];
+  const last = hits[hits.length - 1];
+  if (!last || last.index === undefined) return false;
+  const lead = before.slice(0, last.index);
+  if (/\b(?:since|after|when|while)\s*$/i.test(lead) || PAST_VERB_RE.test(lead.split(/\s+/).slice(-3).join(" "))) return false;
+  const between = before.slice(last.index + last[0].length);
+  return !PAST_VERB_RE.test(between) && !GOVERN_BLOCK_RE.test(between);
+}
+
+// The clause a match sits in, as the part before the claim and the part after it.
+function clauseAround(sentence: string, at: number, end: number): { before: string; after: string } {
+  const head = sentence.slice(0, at);
+  const start = Math.max(...[",", ";", ":", "—", "–", "("].map((c) => head.lastIndexOf(c))) + 1;
+  const afterBreaks = [",", ";", ":", "—", "–", ")"].map((c) => sentence.indexOf(c, end)).filter((i) => i >= 0);
+  return { before: sentence.slice(start, at), after: sentence.slice(end, afterBreaks.length ? Math.min(...afterBreaks) : sentence.length) };
+}
+
+// Nothing but the claim: once it is gone, no word that says anything is left.
+function pureClaim(sentence: string, at: number, end: number): boolean {
+  const rest = (sentence.slice(0, at) + " " + sentence.slice(end)).replace(/^\s*\d{1,2}[.)]\s*/, "");
+  const words = (rest.toLowerCase().match(/[\p{L}\p{N}'’]+/gu) ?? []).filter((w) => !EMPTY_WORDS.has(w));
+  return words.length === 0;
+}
+
+export function guardRoleStatus(text: string, master: string, opts: { keep?: (sentence: string) => boolean; now?: Date } = {}): RoleStatusResult {
   const out: RoleStatusResult = { text, removed: [], flagged: [] };
   if (typeof text !== "string" || !text.trim()) return out;
+  const now = opts.now ?? new Date();
   const kinds = ROLE_KINDS.map((k) => ({
-    state: roleState(master || "", k.inMaster),
-    completed: new RegExp(String.raw`\b(?:completed|finished|concluded|wrapped\s+up)\s+${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`, "i"),
-    current: new RegExp(String.raw`\b(?:currently|now)\s+(?:on|in|doing|completing|undertaking)\s+${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`, "i"),
-    own: new RegExp(String.raw`\b(?:during|throughout|in)\s+my\s+(?:\w+\s+){0,2}${k.noun}\b${ROLE_TAIL}|\bmy\s+(?:\w+\s+){0,2}${k.noun}\b${ROLE_TAIL}|\bon\s+${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}|\b(?:completed|finished|concluded|undertook|undertaken|undertaking|spent\s+\w+\s+\w+\s+on)\s+${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`, "i"),
+    state: roleState(master || "", k.inMaster, now),
+    completed: new RegExp(String.raw`\b${anyCase(String.raw`(?:completed|finished|concluded|wrapped\s+up)`)}\s+${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`),
+    current: new RegExp(String.raw`\b${anyCase(String.raw`(?:currently|now)\s+(?:on|in|doing|completing|undertaking)`)}\s+${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`),
+    own: new RegExp(
+      // "on placement" only with the candidate as its subject: "I mentored two students on placement" is about them.
+      String.raw`\b${anyCase(String.raw`(?:during|throughout|in)\s+my\s+`)}(?:\w+\s+){0,2}${k.noun}\b${ROLE_TAIL}|\b${anyCase(String.raw`my\s+`)}(?:\w+\s+){0,2}${k.noun}\b${ROLE_TAIL}|\b${anyCase(String.raw`(?:i\s+(?:am|was)|i['’]m|while|whilst|when\s+i\s+was)\s+(?:currently\s+)?on\s+`)}${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}|\b${anyCase(String.raw`as\s+an?\s+(?:\w+\s+){0,2}?(?:student|intern|engineer|developer|apprentice|trainee|analyst)\s+on\s+`)}${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}|\b${anyCase(String.raw`(?:completed|finished|concluded|undertook|undertaken|undertaking|spent\s+\w+\s+\w+\s+on)\s+`)}${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`
+    ),
   }));
-  // The clause that makes the sentence false, or null.
+  // The claim that makes the sentence false, or null.
   const claim = (sentence: string): RegExpMatchArray | null => {
-    if (INTENT_RE.test(sentence)) return null;
     for (const k of kinds) {
-      const m = k.state.absent
-        ? (sentence.match(k.current) ?? sentence.match(k.completed) ?? sentence.match(k.own))
-        : k.state.ongoing && !k.state.ended
-          ? sentence.match(k.completed)
-          : k.state.ended && !k.state.ongoing
-            ? sentence.match(k.current)
-            : null;
-      if (m) return m;
+      const patterns = k.state.absent ? [k.current, k.completed, k.own] : k.state.ongoing && !k.state.ended ? [k.completed] : k.state.ended && !k.state.ongoing ? [k.current] : [];
+      for (const re of patterns) {
+        const m = sentence.match(re);
+        if (!m || m.index === undefined) continue;
+        const clause = clauseAround(sentence, m.index, m.index + m[0].length);
+        if (governedByIntent(clause.before)) continue;
+        if (!TENSED_CLAIM_RE.test(m[0])) {
+          const intent = INTENT_AFTER_RE.exec(clause.after);
+          if (intent && !PAST_VERB_RE.test(clause.after.slice(0, intent.index))) continue;
+        }
+        return m;
+      }
     }
     return null;
   };
@@ -271,34 +387,15 @@ export function guardRoleStatus(text: string, master: string, opts: { keep?: (se
       const kept: string[] = [];
       for (const sentence of sentencesOf(line)) {
         const m = claim(sentence);
-        if (!m) {
+        if (!m || m.index === undefined) {
           kept.push(sentence);
           continue;
         }
-        // The clause first: "Software Engineer currently on an industrial placement at X, building Y."
-        const at = m.index ?? sentence.indexOf(m[0]);
-        const before = sentence.slice(0, at);
-        let from = at;
-        if (COPULA_BEFORE_RE.test(before)) {
-          const c = before.match(COORDINATOR_RE);
-          from = c?.index ?? -1;
-        }
-        const span = from < 0 ? sentence : sentence.slice(from, at + m[0].length);
-        const cut = (from < 0 ? "" : `${sentence.slice(0, from)} ${sentence.slice(at + m[0].length)}`)
-          .replace(/\s+([,;:.!?])/g, "$1")
-          .replace(/([,;:])\s*([,;:.!?])/g, "$2")
-          .replace(/^\s*(?:\d{1,2}[.)]\s*)?[,;:]\s*/, (s) => s.replace(/[,;:]\s*/, ""))
-          .replace(/\s{2,}/g, " ")
-          .trim();
-        const lead = (sentence.match(/^\s*\d{1,2}[.)]\s*/) ?? [""])[0];
-        if (wordCount(cut.slice(lead.length)) >= 4 && !claim(cut)) {
-          kept.push(/^[a-z](?![A-Z])/.test(cut.slice(lead.length)) ? lead + cut.charAt(lead.length).toUpperCase() + cut.slice(lead.length + 1) : cut);
-          out.removed.push(span.replace(/^[\s,;]+/, "").trim());
-        } else if (opts.keep?.(sentence)) {
+        if (pureClaim(sentence, m.index, m.index + m[0].length) && !opts.keep?.(sentence)) {
+          out.removed.push(sentence.trim());
+        } else {
           kept.push(sentence);
           out.flagged.push(sentence.trim());
-        } else {
-          out.removed.push(sentence.trim());
         }
       }
       // A line that held nothing but the claim goes with it.
@@ -356,7 +453,7 @@ export type FactGuardNotice = { kind: FactGuardKind; label: string; items: strin
 // Lifted phrases first: they are the ones that need the user's own check.
 export const FACT_GUARD_LABELS: Record<FactGuardKind, string> = {
   roleStatus: "Removed, as your master CV describes the role differently:",
-  roleStatusCheck: "Still in your summary, check it against your master CV:",
+  roleStatusCheck: "Kept as written; check these against your master CV (Customize → Claims registry → \"Wording your CV must never say\" keeps a phrase out for good):",
   liftedPhrases: "Summary lines copied from the job ad, check they are true:",
   droppedTools: "Removed tools not in your master CV:",
   degrees: "Degree name corrected to your master CV:",
