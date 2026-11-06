@@ -69,6 +69,7 @@ import Input from "@/components/ui/Input";
 import FormField from "@/components/ui/FormField";
 import StatusText from "@/components/ui/StatusText";
 import Badge from "@/components/ui/Badge";
+import { formatDate } from "@/lib/formatDate";
 
 // Server strings for the unlimited-account provider override (tailor route Path A)
 type TailorProvider = "anthropic" | "gemini" | "openrouter";
@@ -295,8 +296,7 @@ const READ_LABEL: Record<GateRead, string> = {
 const VERDICT_RANK: Record<GateVerdict["verdict"], number> = { hard: 0, soft: 1, pass: 2, unknown: 3 };
 
 function formatDay(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return formatDate(iso) || iso;
 }
 
 // "cleared": the run was saved to the tracker and the workspace emptied for
@@ -318,8 +318,6 @@ const FIX_HOW_LABEL: Record<RepairChange["how"], string> = {
   reordered: "reordered",
 };
 const clip = (t: string, n = 160) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
-// Settings says the same: Gemini is optional and not used for tailoring yet.
-const GEMINI_UNAVAILABLE = "not used for tailoring yet";
 // The JD box no longer holds this run's posting: both downloads and Applied
 // are held shut with this reason.
 const STALE_REASON = "The job description changed since this CV was tailored — restore it or clear the result.";
@@ -756,7 +754,7 @@ export default function Home() {
   async function handleResearch(force = false) {
     if (researchLoading || loading) return;
     if (!masterCvText.trim()) {
-      setResearchError("Add your master CV in Customize first — the Fit Score compares the company against it.");
+      setResearchError("Add your master CV in Customise first — the Fit Score compares the company against it.");
       return;
     }
     const url = companyUrl.trim();
@@ -899,7 +897,7 @@ export default function Home() {
   // paid 8-step pipeline runs. Never blocks on a low score — just informs.
   async function handlePreCheck() {
     if (!masterCvText.trim()) {
-      setError("Add your master CV in Customize first.");
+      setError("Add your master CV in Customise first.");
       setErrorType(null);
       return;
     }
@@ -2029,7 +2027,7 @@ export default function Home() {
                 </svg>
               }
               title="Start with your master CV"
-              actions={<Button href="/customize">Add your CV in Customize →</Button>}
+              actions={<Button href="/customize">Add your CV in Customise →</Button>}
             >
               Add it once and it&apos;s reused for every job you tailor for here. Paste it or upload a PDF or Word file.
             </EmptyState>
@@ -2150,7 +2148,6 @@ export default function Home() {
                       disabled={gateLoading || loading}
                     >
                       <option value="anthropic">Claude</option>
-                      <option value="gemini" disabled title={GEMINI_UNAVAILABLE}>Gemini — {GEMINI_UNAVAILABLE}</option>
                       <option value="openrouter">OpenRouter</option>
                     </select>
                   </span>
@@ -2281,7 +2278,7 @@ export default function Home() {
                       {!gateExtras.knockouts.profileSet && (
                         <>
                           {" "}Set up your eligibility answers in{" "}
-                          <Link href="/customize" className="customizeLink">Customize</Link> (about 2 minutes) and this
+                          <Link href="/customize" className="customizeLink">Customise</Link> (about 2 minutes) and this
                           check turns each job&apos;s eligibility conditions into pass or fail before you spend a tailor.
                         </>
                       )}
@@ -2406,7 +2403,6 @@ export default function Home() {
                         disabled={loading}
                       >
                         <option value="anthropic">Claude</option>
-                        <option value="gemini" disabled title={GEMINI_UNAVAILABLE}>Gemini — {GEMINI_UNAVAILABLE}</option>
                         <option value="openrouter">OpenRouter</option>
                       </select>
                       {ranProvider && ranProvider in PROVIDER_LABELS && (
@@ -2867,7 +2863,7 @@ export default function Home() {
                           ) : (
                             <>
                               <strong>{s.skill}</strong> is registered as <em>project-only</em>, but the {WHERE_LABEL[s.where]} claims more — {s.claim}.
-                              Rule: {SKILL_RULE_TEXT[s.rule]}. Raise its level in Customize only if you have used it at work.
+                              Rule: {SKILL_RULE_TEXT[s.rule]}. Raise its level in Customise only if you have used it at work.
                             </>
                           )}
                         </span>
@@ -2896,7 +2892,7 @@ export default function Home() {
                       ? "Press Fix it and the flagged words are corrected for you, with the job description in view — no tailor credit is used. Or edit the highlighted text in the preview below, then click outside it or press Re-check now. Download and Applied unlock when it passes."
                       : activeCheck.mode === "enforce"
                         ? "Warnings don't block downloads; a figure missing from your CV or a skill claimed above its level would."
-                        : "Save a master CV in Customize and its skills become blocking checks."}
+                        : "Save a master CV in Customise and its skills become blocking checks."}
                   </p>
                   {claimFixError && <StatusText role="alert">{claimFixError}</StatusText>}
                 </div>
@@ -3149,7 +3145,7 @@ export default function Home() {
               <div className="limitNotice" role="status" data-lead-skills-skipped>
                 <div className="limitNotice__title">Lead skills skipped</div>
                 <div className="limitNotice__body">
-                  {leadSkillsNotice(result.variantLeadSkills.dropped)} Change the level on Customize if it is production work, or take it out of the variant.
+                  {leadSkillsNotice(result.variantLeadSkills.dropped)} Change the level on Customise if it is production work, or take it out of the variant.
                 </div>
               </div>
             )}
@@ -3198,7 +3194,7 @@ export default function Home() {
                     <div className="limitNotice__title">{title}</div>
                     <div className="limitNotice__body">
                       {fit.target === 1
-                        ? "You chose a one-page CV on Customize, so the download is laid out to one."
+                        ? "You chose a one-page CV on Customise, so the download is laid out to one."
                         : "The download is laid out to two pages."}
                       {fit.restored.length > 0 && " These bullets from your master CV were put back to fill the second page:"}
                       {leftOutTotal > 0 && " Left out for length — paste one back into the preview if it matters more than what stayed:"}
@@ -3310,7 +3306,7 @@ export default function Home() {
                     ))}
                     {result.rightToWork.availability.removed.length > 0 && (
                       <p className="fitEvidence" data-rtw-availability-removed>
-                        Removed, because it is not an answer you gave on Customize:{" "}
+                        Removed, because it is not an answer you gave on Customise:{" "}
                         {result.rightToWork.availability.removed.map((s) => `“${clip(s)}”`).join(" · ")}
                       </p>
                     )}
@@ -3322,7 +3318,7 @@ export default function Home() {
                           : result.rightToWork.asked.includes("status")
                             ? "your right to work"
                             : "your availability"}{" "}
-                        under Eligibility on <Link href="/customize">Customize</Link>, so the letter can state it in your words.
+                        under Eligibility on <Link href="/customize">Customise</Link>, so the letter can state it in your words.
                       </p>
                     )}
                   </div>
@@ -3365,7 +3361,7 @@ export default function Home() {
                 <div className="limitNotice__body">
                   <p className="fitEvidence">
                     These bullets break a rule of the {styleLabel} style that the tailoring may not fix for you — it never changes a master
-                    CV bullet by more than two words. Edit them on <Link href="/customize">Customize</Link>.
+                    CV bullet by more than two words. Edit them on <Link href="/customize">Customise</Link>.
                   </p>
                   <ul className="atsList">
                     {result.masterCvNotes.map((n, i) => (
@@ -3409,7 +3405,7 @@ export default function Home() {
                       <li data-quality-one-page={quality.pages.fitsOnePage ? "stretched" : "over"}>
                         <Badge variant="dot" tone="miss">✕</Badge>
                         <span>
-                          About <strong>{quality.pages.pages} pages</strong> — over the one page you chose on Customize.{" "}
+                          About <strong>{quality.pages.pages} pages</strong> — over the one page you chose on Customise.{" "}
                           Cut the least relevant bullets and projects in the preview below, or switch the CV length back to two pages.
                         </span>
                       </li>
@@ -3571,7 +3567,7 @@ export default function Home() {
             )}
             {!!result?.retiredClaims && (result.retiredClaims.replaced.length > 0 || result.retiredClaims.removed.length > 0) && (
               <div className="limitNotice" role="status" data-retired-notice>
-                From your list on Customize:{" "}
+                From your list on Customise:{" "}
                 {[
                   ...result.retiredClaims.replaced.map((r) => `"${r.from}" now reads "${r.to}"`),
                   ...result.retiredClaims.removed.map((p) => `the line saying "${p}" was removed`),

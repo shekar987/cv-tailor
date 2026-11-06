@@ -180,7 +180,7 @@ export async function POST(req: NextRequest) {
     const pool = typeof cvRow?.projects_pool === "string" ? cvRow.projects_pool.trim() : "";
     if (!cv) {
       return NextResponse.json(
-        { error: "Save your master CV in Customize first — every answer is built from it.", errorType: "needs_cv" },
+        { error: "Save your master CV in Customise first — every answer is built from it.", errorType: "needs_cv" },
         { status: 400 }
       );
     }

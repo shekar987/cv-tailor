@@ -7,6 +7,7 @@
 // Imports only ./companyMatch.ts so node:test can run it (tests/tracker.test.ts).
 
 import { companyNamesMatch } from "./companyMatch.ts";
+import { addDays, mondayOf } from "./planTime.ts";
 
 // "saved" is a row the user has prepared but not yet sent (shown as "Ready to
 // submit"): it sits in the tracker so nothing is lost, but it is not an
@@ -160,6 +161,23 @@ export const LIVE_STATUSES: ReadonlySet<string> = new Set<Status>(["applied", "s
 
 export function isFollowupDue(row: { followup_date: string | null; status: string }, today: string): boolean {
   return !!row.followup_date && row.followup_date <= today && LIVE_STATUSES.has(normalizeStatus(row.status) ?? "");
+}
+
+// "Follow-ups due" on /applications counts this week's (6 Nov 2026, Chunk 19):
+// every live row with a past date was 240 on the owner's tracker, mostly
+// cadences that had run out weeks before. This week is Monday to Sunday of the
+// week holding `today`, its earlier days included. The overdue list is still
+// the sheet's "Follow-ups due" filter (isFollowupDue).
+export function weekOf(today: string): { from: string; to: string } {
+  const from = mondayOf(today);
+  return { from, to: addDays(from, 6) };
+}
+export function isFollowupDueThisWeek(row: { followup_date: string | null | undefined; status: unknown }, today: string): boolean {
+  const date = row.followup_date;
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  if (!LIVE_STATUSES.has(normalizeStatus(row.status) ?? "")) return false;
+  const { from, to } = weekOf(today);
+  return date >= from && date <= to;
 }
 
 // A row marked Rejected, Withdrawn, Ghosted or Won has ended: an open follow-up

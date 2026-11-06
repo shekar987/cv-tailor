@@ -19,6 +19,7 @@ import AvatarStage, { type AvatarHandle } from "./AvatarStage";
 import InterviewRoom, { type StartedInterview } from "./InterviewRoom";
 import FeedbackView from "./FeedbackView";
 import { normalizeStatus } from "@/lib/tracker";
+import { formatDate } from "@/lib/formatDate";
 
 // /applications/[id]/interview — a mock interview with an AI interviewer for
 // one tracked application: pick the UK round, get interviewed out loud (or by
@@ -36,11 +37,6 @@ type KokoroState = { state: "idle" } | { state: "loading"; pct: number } | { sta
 
 function defaultRound(status: string): InterviewType {
   return normalizeStatus(status) === "interview" ? "competency" : "screening";
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 export default function InterviewPage({ params }: { params: Promise<{ id: string }> }) {
@@ -282,7 +278,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
       </div>
     );
     switch (errorType) {
-      case "needs_cv": return notice("Save your master CV first.", "The interviewer's questions are built from it.", "/customize", "Go to Customize →");
+      case "needs_cv": return notice("Save your master CV first.", "The interviewer's questions are built from it.", "/customize", "Go to Customise →");
       case "needs_jd": return notice("Add the job description first.", "The interview is built from it. Paste it into this application in the tracker, then come back.", "/applications", "Open the tracker →");
       case "needs_migration": return notice("Mock interviews aren't switched on yet.", error);
       case "needs_keys": return notice("Your 3 free tailors are used up.", "Add your own key to keep going — it takes 2 minutes and the tool stays free.", "/settings", "Add your key in Settings →");

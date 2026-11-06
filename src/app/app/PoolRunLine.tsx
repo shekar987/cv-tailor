@@ -31,7 +31,7 @@ export default function PoolRunLine({ settings, count, onChange }: { settings: P
             <option value="relevance">Most relevant first</option>
             <option value="date">Newest first</option>
           </select>
-          <span className="cvHelp">For this run. Change the defaults on <a href="/customize#advanced" className="inlineLink">Customize</a>.</span>
+          <span className="cvHelp">For this run. Change the defaults on <a href="/customize#advanced" className="inlineLink">Customise</a>.</span>
         </span>
       )}
     </span>

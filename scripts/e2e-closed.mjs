@@ -189,7 +189,7 @@ try {
 
   // ── The page ─────────────────────────────────────────────────────────────
   await open();
-  check("the H1 is the stage", (await page.locator("h1").innerText()) === "Screening", await page.locator("h1").innerText());
+  check("the H1 stays Applications; the selected tab is the stage", (await page.locator("h1").innerText()) === "Applications" && (await page.locator('[role="tab"][aria-selected="true"]').getAttribute("data-stage-tab")) === "screening", await page.locator("h1").innerText());
   check("the summary counts every row that reached screening", (await summary()) === "Your CV reached screening 26 times · 17 live · 0 closed", await summary());
   let names = await live();
   check("a row whose test overtook it is under Assessment, not here", !names.includes("HasTest") && names.length === 17, names.join());
@@ -355,7 +355,7 @@ try {
 
   // ── Interview: the identical pattern ─────────────────────────────────────
   await open("interview");
-  check("the Interview page has its own title", (await page.locator("h1").innerText()) === "Interview");
+  check("the Interview tab is selected under the same title", (await page.locator("h1").innerText()) === "Applications" && (await page.locator('[role="tab"][aria-selected="true"]').getAttribute("data-stage-tab")) === "interview");
   check("and its own summary", (await summary()) === "Reached interview 8 times · 8 live · 0 closed", await summary());
   check("and its own Closed section", /^Closed after interview \(0\)$/.test((await page.locator("[data-closed-summary]").innerText()).trim()));
 
@@ -379,7 +379,7 @@ try {
   // ── Add application from Wins ────────────────────────────────────────────
   await page.locator("[data-apps-add]").click();
   await page.waitForTimeout(150);
-  check("+ Add application leaves Wins for the form", (await page.locator("[data-wins]").count()) === 0 && (await page.locator("h1").innerText()) !== "Wins");
+  check("+ Add application leaves Wins for the form", (await page.locator("[data-wins]").count()) === 0 && (await page.locator('[role="tab"][aria-selected="true"]').getAttribute("data-stage-tab")) !== "wins");
   await page.reload({ waitUntil: "load" });
 
   // ── A close the server could only half save says so ───────────────────────
