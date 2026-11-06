@@ -110,7 +110,7 @@ export default function PrivacyPage() {
           immediately and permanently.
         </li>
         <li>
-          <strong>Correct.</strong> Everything is editable in the app: Customize for your CV and answers, the tracker for applications.
+          <strong>Correct.</strong> Everything is editable in the app: Customise for your CV and answers, the tracker for applications.
         </li>
       </ul>
       <p>

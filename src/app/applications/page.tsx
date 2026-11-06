@@ -70,6 +70,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import Skeleton from "@/components/ui/Skeleton";
 import Textarea from "@/components/ui/Textarea";
 import StatusText from "@/components/ui/StatusText";
+import { formatDate } from "@/lib/formatDate";
 
 const MAX_JD_CHARS = JD_LIMIT;
 const MAX_NOTES = MAX_NOTES_CHARS;
@@ -505,8 +506,6 @@ type NewRow = {
 };
 const ROW_STYLES: readonly RowStyle[] = ["unknown", "ukji", "careerset"];
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
 function todayLocal(): string {
   return localIsoDate(new Date());
 }
@@ -559,13 +558,6 @@ function periodBounds(period: Period): { from: string; to: string } | null {
   return { from: localIsoDate(first), to: localIsoDate(last) };
 }
 
-// Dates arrive as plain YYYY-MM-DD strings; format them without a Date
-// round-trip so the day never shifts with the viewer's timezone.
-function formatDate(iso: string | null): string {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-");
-  return `${Number(d)} ${MONTHS[Number(m) - 1]} ${y}`;
-}
 
 type ApiResult = { ok: boolean; status: number; data: { error?: string } & Record<string, unknown> };
 
@@ -2238,7 +2230,7 @@ export default function ApplicationsPage() {
     <main className="page">
       <div className="container appsContainer">
         <AppHeader
-          title={stageTabNow ? TAB_LABELS[stageTabNow] : winsOpen ? "Wins" : "Applications"}
+          title="Applications"
           tagline={stageTabNow ? <span data-stage-summary>{stageSummary(rows, stageTabNow, counts[stageTabNow]).text}</span> : summary}
           actions={
             <>

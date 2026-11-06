@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { rewriteKey, type PrepPack, type PrepQuestion, type PrepCategory, type PrepFlag, type PrepFlagField, type PrepRewriteTarget } from "@/lib/prepPack";
 import type { PrepRatings } from "@/lib/prepProgress";
+import { formatDate } from "@/lib/formatDate";
 
 // The reading view of a prep pack. Every answer is shown WITH the CV lines it
 // was built from and the tracer's verdict on each — the honesty contract made
@@ -140,8 +141,7 @@ function QuestionCard({ q, index, rating, flags, onRewrite, rewriting }: { q: Pr
 }
 
 export function formatGenerated(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return formatDate(iso);
 }
 
 export default function PrepPackView({ pack, ratings, onRewrite, rewriting }: { pack: PrepPack; ratings: PrepRatings; onRewrite?: (t: PrepRewriteTarget) => void; rewriting?: string | null }) {

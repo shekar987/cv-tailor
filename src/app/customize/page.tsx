@@ -87,6 +87,7 @@ import { taglineRoles } from "@/lib/roleTitle";
 import { classificationDisagrees, CLASS_LABEL } from "@/lib/knockouts";
 import CvUpload from "../CvUpload";
 import AppHeader from "@/components/ui/AppHeader";
+import { formatDate } from "@/lib/formatDate";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Skeleton from "@/components/ui/Skeleton";
@@ -1153,7 +1154,7 @@ export default function CustomizePage() {
     <main className="page">
       <div className="container container--ruled cstContainer">
         <AppHeader
-          title="Customize"
+          title="Customise"
           tagline="Manage your master CV, your details, and how your tailored CV is laid out."
         />
         {settingsReadFailed && (
@@ -1250,7 +1251,7 @@ export default function CustomizePage() {
               <div>
                 <div className="cvSavedLabel">✓ Master CV saved</div>
                 {cvSavedAt && (
-                  <div className="cvSavedMeta">Last updated {new Date(cvSavedAt).toLocaleDateString()}</div>
+                  <div className="cvSavedMeta">Last updated {formatDate(cvSavedAt)}</div>
                 )}
               </div>
               <div className="cvSavedActions">
@@ -1755,7 +1756,7 @@ export default function CustomizePage() {
                   {eligSaving ? "Saving…" : "Save eligibility"}
                 </Button>
                 {isEligibilitySet(eligibility) && eligibility.updatedAt && (
-                  <span className="cvSavedMeta">Last saved {new Date(eligibility.updatedAt).toLocaleDateString()}</span>
+                  <span className="cvSavedMeta">Last saved {formatDate(eligibility.updatedAt)}</span>
                 )}
               </div>
               {eligError && <StatusText className="msgBelow" role="alert">{eligError}</StatusText>}

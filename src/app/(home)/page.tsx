@@ -7,7 +7,7 @@ import Button from "@/components/ui/Button";
 import Wordmark from "@/components/ui/Wordmark";
 import Folio from "@/components/ui/Folio";
 import HeroCanvas from "./HeroCanvas";
-// Real screenshots of the product from a test account (Alex Tester, Northwind
+// Real screenshots of the product from a test account (Northwind
 // Labs and every company in them are made up), captured by the design-loop
 // harness (scratchpad/design-loop/recapture.mjs): one 600×400 frame each, a
 // single detail at 1× set on the surface tone, 2× density. Re-capture after
@@ -356,15 +356,16 @@ export default function Landing() {
         </div>
 
         <footer className="lpFooter">
-          {/* The page's one footnote: privacy, the screenshots, and the honest
-              note on testimonials — never an invented quote. */}
-          <p className="lpFootnote" data-quotes-empty>
+          {/* The page's one footnote: privacy and the screenshots' provenance. No
+              testimonials until real ones exist — never an invented quote. */}
+          <p className="lpFootnote">
             Your CV stays in your account and is processed only by the AI provider that runs your tailoring. The
-            screenshots above are the real screens on a test account — Alex Tester and every company are made up.
-            Testimonials: Nothing yet — and nothing made up. Real users&apos; words will go here, unedited and with their
-            permission.
+            screenshots above are real screens from a test account; Jordan Reyes and every company shown are made up.
           </p>
-          <span>Built by Soma Shekar Keesari · <span className="lpFooterTag">Welcome to the jungle.</span></span>
+          <span>
+            Built by Soma Shekar Keesari · <a href="https://github.com/shekar987/cv-tailor" rel="noopener">The code on GitHub</a> ·{" "}
+            <Link href="/privacy">Privacy</Link>
+          </span>
           <nav className="lpFooterLinks" aria-label="Footer">
             <Link href="/auth/login">Sign in</Link>
             <Link href="/app">Tailor my CV</Link>
