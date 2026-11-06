@@ -10,7 +10,7 @@
 import { EVENT_KIND_LABELS, describeTiming, displayZone, eventMs, type EventKind, type PlanEvent } from "./plan.ts";
 import { DEFAULT_TIMEZONE, HOUR_MS, addDays, dayKey, formatWhen, zonedTimeToMs } from "./planTime.ts";
 import { referralAsks, type ReferralRow } from "./referrals.ts";
-import { STATUS_LABELS, isFollowupDue, missingAttachments, normalizeStatus, type RowFlagFields, type Status } from "./tracker.ts";
+import { STATUS_LABELS, isFollowupDueThisWeek, missingAttachments, normalizeStatus, type RowFlagFields, type Status } from "./tracker.ts";
 
 export type StageKey = Status | "take_home" | "video" | "work_trial";
 
@@ -276,7 +276,8 @@ export function attentionCounts(
   return {
     dueSoon,
     dueSoonRows: new Set(soon.map((e) => e.application_id)).size,
-    followups: rows.filter((r) => isFollowupDue({ followup_date: r.followup_date, status: r.status as string }, today)).length,
+    // This week's (lib/tracker isFollowupDueThisWeek), never every date that has passed.
+    followups: rows.filter((r) => isFollowupDueThisWeek({ followup_date: r.followup_date, status: r.status }, today)).length,
     statusToFix,
     attachmentsToFix,
     dataToFix: rows.filter(isDataToFix).length,

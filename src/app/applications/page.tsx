@@ -60,8 +60,11 @@ import {
   replyOwedFirst,
   rowCheck,
   CLOSED_STATUSES,
+  isFollowupDueThisWeek,
   type Status,
 } from "@/lib/tracker";
+import type { TrackerCounts } from "@/lib/trackerCounts";
+import type { TabKey } from "@/lib/applicationStage";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -557,7 +560,15 @@ function periodBounds(period: Period): { from: string; to: string } | null {
 
 type ApiResult = { ok: boolean; status: number; data: { error?: string } & Record<string, unknown> };
 
+// Every write bumps this, so a full list that was read before a write landed is
+// known to be older than the screen and is read again (the first paint shows one
+// page, and the full list arrives a moment later).
+let mutationCount = 0;
+// The first paint: the open tab's newest rows, before the full list arrives.
+const FIRST_PAGE_ROWS = 50;
+
 async function api(method: string, body?: unknown, query = ""): Promise<ApiResult> {
+  if (method !== "GET") mutationCount++;
   try {
     const res = await fetch(`/api/applications${query}`, {
       method,
@@ -580,8 +591,9 @@ const EMPTY_LIST_FIELDS = { cv_reference: null, salary: null, followup_date: nul
 // back, or the preview would overwrite them.
 type RowText = { job_description?: string | null; notes?: string | null; gates?: unknown };
 
-async function fetchApplications(): Promise<{ rows: Application[] } | { error: string; expired?: boolean }> {
-  const { ok, status, data } = await api("GET");
+// The full list (?all=1, the list exactly as it always was); `query` asks for one page instead.
+async function fetchApplications(query = "?all=1"): Promise<{ rows: Application[] } | { error: string; expired?: boolean }> {
+  const { ok, status, data } = await api("GET", undefined, query);
   if (status === 401) return { error: SESSION_EXPIRED, expired: true };
   if (!ok) return { error: data.error || "Could not load your applications." };
   // The list leaves out null keys to stay small; the sheet's required fields
@@ -624,6 +636,11 @@ export default function ApplicationsPage() {
   const autoCloseNote = useRef<string | null>(null);
   rowsRef.current = rows;
   const [loaded, setLoaded] = useState(false);
+  // The full list is in (search, the sheet, Wins and the tiles need every row). Until
+  // then the page shows one page per tab and the server's counts.
+  const [fullLoaded, setFullLoaded] = useState(false);
+  const fullLoadedRef = useRef(false);
+  const [serverCounts, setServerCounts] = useState<(TrackerCounts & { today?: string }) | null>(null);
   const [pageError, setPageError] = useState("");
   const [sessionExpired, setSessionExpired] = useState(false);
 
@@ -745,16 +762,41 @@ export default function ApplicationsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchApplications().then((result) => {
+    // The full list, and in parallel the counts and the open tab's first page, which
+    // paint first. A write made while the full list was on its way makes it stale:
+    // it is read again (twice at most).
+    const loadFull = async (tries = 0): Promise<void> => {
+      const seq = mutationCount;
+      const result = await fetchApplications();
       if (cancelled) return;
       if ("error" in result) {
         setPageError(result.error);
         if (result.expired) setSessionExpired(true);
-      } else {
-        setRows(result.rows);
+        setLoaded(true);
+        return;
       }
+      if (mutationCount !== seq && tries < 2) return loadFull(tries + 1);
+      fullLoadedRef.current = true;
+      setRows(result.rows);
+      setFullLoaded(true);
       setLoaded(true);
-    });
+    };
+    void loadFull();
+    fetch(`/api/applications/counts?today=${todayLocal()}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then(async (data: (TrackerCounts & { today?: string }) | null) => {
+        if (cancelled || !data?.counts) return;
+        setServerCounts(data);
+        if (fullLoadedRef.current) return;
+        const tabFirst = tabForStatus(new URLSearchParams(window.location.search).get("status")) ?? defaultTab(data.counts);
+        const page = await fetchApplications(`?stage=${tabFirst}&limit=${FIRST_PAGE_ROWS}`);
+        if (cancelled || fullLoadedRef.current || "error" in page) return;
+        setRows(page.rows);
+        setLoaded(true);
+      })
+      .catch(() => {
+        /* the full list paints instead */
+      });
     getProfile().then((p) => {
       if (!cancelled) setProfile(p);
     });
@@ -858,9 +900,9 @@ export default function ApplicationsPage() {
   // The overview is always over ALL rows, so it stays stable while filters narrow the
   // table. Tabs count the derived stage: every row once, so they add up to the total.
   const byApp = useMemo(() => eventsByApplication(events), [events]);
-  const anyClosed = useMemo(() => rows.some(isClosed), [rows]);
+  // Every event, for a closed row's progress chip: fetched with everything else on
+  // first load (it used to wait for the rows, and started ~4 s in on 1,127 of them).
   useEffect(() => {
-    if (!anyClosed) return;
     let cancelled = false;
     fetch("/api/events")
       .then((res) => (res.ok ? res.json() : null))
@@ -872,9 +914,36 @@ export default function ApplicationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [anyClosed]);
-  const counts = useMemo(() => tabCounts(rows, byApp), [rows, byApp]);
-  const attentionNumbers = useMemo(() => attentionCounts(rows, events, todayLocal(), clock, tz), [rows, events, clock, tz]);
+  }, [stageRefresh]);
+  // Until the full list is in, the tabs count from the server (every row); after, from the rows.
+  const counts = useMemo(
+    () => (!fullLoaded && serverCounts ? serverCounts.counts : tabCounts(rows, byApp)),
+    [fullLoaded, serverCounts, rows, byApp]
+  );
+  const attentionAll = useMemo(() => attentionCounts(rows, events, todayLocal(), clock, tz), [rows, events, clock, tz]);
+  // The follow-ups tile is this week's, from the server until the rows can count it.
+  const attentionNumbers = useMemo(
+    () => (!fullLoaded && serverCounts ? { ...attentionAll, followups: serverCounts.followups_due_this_week } : attentionAll),
+    [fullLoaded, serverCounts, attentionAll]
+  );
+  // A tab opened before the full list is in gets its own first page.
+  useEffect(() => {
+    if (fullLoaded || !serverCounts || !loaded || tab === null || tab === "all") return;
+    const want = Math.min(serverCounts.counts[tab as TabKey] ?? 0, FIRST_PAGE_ROWS);
+    const have = rowsRef.current.filter((r) => tabOfStage(deriveStage(r.status, byApp.get(r.id))) === tab).length;
+    if (have >= want) return;
+    let cancelled = false;
+    fetchApplications(`?stage=${tab}&limit=${FIRST_PAGE_ROWS}`).then((page) => {
+      if (cancelled || fullLoadedRef.current || "error" in page) return;
+      setRows((rs) => {
+        const known = new Set(rs.map((r) => r.id));
+        return [...rs, ...page.rows.filter((r) => !known.has(r.id))];
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, fullLoaded, serverCounts, loaded, byApp]);
   const referral = useMemo(() => referralCard(rows), [rows]);
   const referralIds = useMemo(() => new Set(referralAsks(rows).map((r) => r.id)), [rows]);
   const tabNow: TabChoice = tab ?? defaultTab(counts);
@@ -888,7 +957,7 @@ export default function ApplicationsPage() {
     // An attention card filters across the tabs; otherwise the tab decides.
     const inView = (r: Application): boolean => {
       if (attention === "due") return (byApp.get(r.id) ?? []).some((e) => isDueSoon(e, clock, tz));
-      if (attention === "followups") return isDue(r);
+      if (attention === "followups") return isFollowupDueThisWeek(r, todayLocal());
       if (attention === "fix") return isDataToFix(r);
       if (attention === "referrals") return referralIds.has(r.id);
       if (attention === "reopen") return isAsking(r);
@@ -1248,6 +1317,7 @@ export default function ApplicationsPage() {
       danger: true,
     });
     if (!yes) return;
+    mutationCount++;
     const res = await fetch(`/api/applications/${row.id}/remove-stage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage, confirmed_by_user: true }) }).catch(() => null);
     const data = res ? await res.json().catch(() => ({})) : {};
     if (res?.status === 401) {
@@ -1275,6 +1345,7 @@ export default function ApplicationsPage() {
   // "Not true": the banner goes and stays gone; the row never moved.
   async function dismissPending(row: { id: string; pending_outcome?: unknown }) {
     const seen = activePending(row.pending_outcome);
+    mutationCount++;
     const res = await fetch(`/api/applications/${row.id}/pending-outcome`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dismiss: true, outcome: seen?.outcome, date: seen?.date }) }).catch(() => null);
     const data = res ? await res.json().catch(() => ({})) : {};
     if (!res || !res.ok) {
@@ -2193,14 +2264,18 @@ export default function ApplicationsPage() {
     );
   }
 
-  const hasRows = rows.length > 0;
+  const hasRows = rows.length > 0 || (!fullLoaded && (serverCounts?.total ?? 0) > 0);
   const showTable = visible.length > 0 || newRow !== null;
   // One line under the title. In progress is what the tabs count, so it adds up with them.
   const fmt = (n: number) => n.toLocaleString("en-GB");
   const rejectedCount = rows.filter((r) => r.status === "rejected").length;
   const withdrawnCount = rows.filter((r) => r.status === "withdrawn").length;
   const ghostedCount = rows.filter((r) => r.status === "ghosted").length;
-  const summary = hasRows ? (
+  const summary = !fullLoaded && serverCounts ? (
+    <span data-apps-summary>
+      <strong>{fmt(serverCounts.total)}</strong> tracked · <strong>{fmt(counts.applied)}</strong> applied · <strong>{fmt(counts.screening + counts.interview + counts.assessment)}</strong> in progress
+    </span>
+  ) : hasRows ? (
     <span data-apps-summary>
       <strong>{fmt(rows.length)}</strong> tracked · <strong>{fmt(counts.applied)}</strong> applied · <strong>{fmt(counts.screening + counts.interview + counts.assessment)}</strong> in progress · <strong>{fmt(rejectedCount)}</strong> rejected
     </span>
@@ -2214,7 +2289,7 @@ export default function ApplicationsPage() {
   // The page's own filters reach the Closed section too; the summary above stays all time.
   const closedHere = stageTabNow ? closedRows(rows.filter((r) => (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) && (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to))), stageTabNow) : [];
   const noFilters = periodFilter === "all" && styleFilter === "all";
-  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
+  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due this week" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
   const viewTotal = !attention && searchTerm ? rows.length : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : tabNow === "all" ? rows.length : counts[tabNow];
   const elsewhere = !attention && !searchTerm && tabNow !== "all" && tabNow !== "assessment" ? countedElsewhere(rows, byApp, tabNow) : 0;
   const activeFilters = (styleFilter !== "all" ? 1 : 0) + (includePast ? 1 : 0) + (listSort !== "next" ? 1 : 0);
@@ -2267,6 +2342,7 @@ export default function ApplicationsPage() {
         {hasRows && (
           <AttentionStrip
             counts={attentionNumbers}
+            loading={!fullLoaded}
             dueLabel={`Due by ${tomorrowName} night`}
             referral={referral}
             active={attention === "reopen" ? null : attention}
@@ -2883,6 +2959,7 @@ export default function ApplicationsPage() {
             <div className="appsFootLeft">
               <span data-apps-count>
                 {sheet.pages > 1 ? `Showing ${sheet.from}–${sheet.to} of ${visible.length} ${viewLabel}` : `Showing ${visible.length} of ${Math.max(viewTotal, visible.length)} ${viewLabel}`}
+                {!fullLoaded && <span className="appsFootNote" data-apps-loading-rest> · loading the rest</span>}
               </span>
               {!attention && !searchTerm && tabNow === "closed" && (
                 <span className="appsFootNote" data-closed-breakdown>{fmt(rejectedCount)} rejected · {fmt(withdrawnCount)} withdrawn · {fmt(ghostedCount)} ghosted</span>

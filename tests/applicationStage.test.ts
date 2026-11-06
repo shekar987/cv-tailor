@@ -214,7 +214,9 @@ test("the attention counts", () => {
   const rows = [
     row({ id: "soon", status: "Interview", has_job_description: true }),
     row({ id: "later", status: "Interview", has_job_description: true }),
-    row({ id: "chase", status: "Applied", followup_date: "2026-11-01" }),
+    row({ id: "chase", status: "Applied", followup_date: "2026-11-02" }),
+    row({ id: "later_this_week", status: "Applied", followup_date: "2026-11-08" }),
+    row({ id: "last_week", status: "Applied", followup_date: "2026-11-01" }),
     row({ id: "future", status: "Applied", followup_date: "2026-12-01" }),
     row({ id: "closed", status: "Rejected", followup_date: "2026-11-01" }),
     row({ id: "unsent", status: "Applied", notes_not_submitted: true }),
@@ -230,7 +232,7 @@ test("the attention counts", () => {
   const c = attentionCounts(rows, events, "2026-11-04", NOW);
   assert.equal(c.dueSoon, 1, "two items due together on one row read as one, as in its Next step");
   assert.equal(c.dueSoonRows, 1);
-  assert.equal(c.followups, 1, "the existing rule: never on a closed row, never ahead of its date");
+  assert.equal(c.followups, 2, "this week's (Mon 2 to Sun 8 Nov): never last week's, never next month's, never on a closed row");
   assert.equal(c.statusToFix, 1);
   assert.equal(c.attachmentsToFix, 1);
   assert.equal(c.dataToFix, 2, "the two lists never overlap, so the card is their sum");

@@ -4219,6 +4219,7 @@ button.inlineLink,
 .stageListRole { margin-top: 0; }
 .stageListRow > td { padding-top: var(--space-2); padding-bottom: var(--space-2); }
 .cstNavItem { min-height: 36px; }
+.attnPending { color: var(--muted); font-weight: 400; }
 @media (pointer: coarse) {
   .cta,
   .linkBtn,
