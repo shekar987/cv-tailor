@@ -204,10 +204,15 @@ export type ListMode =
 /** Which list the query string asks for. Nothing, or ?all=1, is the full list. */
 export function readListMode(params: URLSearchParams): ListMode {
   if (params.get("all") === "1") return { mode: "all" };
-  const stage = params.get("stage"), limitText = params.get("limit"), cursorText = params.get("cursor");
+  // An empty value asks for nothing: only a stage, limit or cursor with something in it is a page.
+  const value = (k: string) => {
+    const v = params.get(k);
+    return v !== null && v.trim() !== "" ? v.trim() : null;
+  };
+  const stage = value("stage"), limitText = value("limit"), cursorText = value("cursor");
   if (stage === null && limitText === null && cursorText === null) return { mode: "all" };
   let statuses: Status[] | null = null;
-  if (stage !== null && stage.trim() !== "") {
+  if (stage !== null) {
     statuses = stageStatuses(stage);
     if (!statuses) return { mode: "error", error: `Unknown stage "${stage.slice(0, 40)}".` };
   }
@@ -218,17 +223,23 @@ export function readListMode(params: URLSearchParams): ListMode {
     limit = Math.min(n, PAGE_LIMIT_MAX);
   }
   let cursor: ListCursor | null = null;
-  if (cursorText !== null && cursorText !== "") {
+  if (cursorText !== null) {
     cursor = decodeCursor(cursorText);
     if (!cursor) return { mode: "error", error: "That cursor is not one this list gave out." };
   }
   return { mode: "page", statuses, limit, cursor };
 }
 
-/** A row of one page: the list row without the notes preview (the flags stay). */
+/**
+ * A row of one page: the list row without the notes preview. Any row with notes says
+ * notes_more, so the page knows its notes are not known yet: the Notes box stays locked
+ * until the detail read brings the full text (a preview-less row read as "no notes" and a
+ * Save there wiped them — the 6 Nov review).
+ */
 export function toPageRow(row: Record<string, unknown>): Record<string, unknown> {
   const out = toListRow(row);
   delete out.notes_preview;
-  delete out.notes_more;
+  if (typeof row.notes === "string" && row.notes.trim()) out.notes_more = true;
+  else delete out.notes_more;
   return out;
 }

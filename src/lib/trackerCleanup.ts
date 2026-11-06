@@ -36,6 +36,8 @@ import { CLOSED_STATUSES, followupClearedNote, normalizeStatus, statusLabel, sto
 export const CADENCE_DAYS = 35;
 export const READY_STALE_DAYS = 3;
 export const MAX_CLEANUP_IDS = 500;
+// The panel applies in requests of this many ids, so no one request runs long enough to time out half done.
+export const CLEANUP_APPLY_CHUNK = 50;
 
 // The statuses this tool never touches.
 export const PROTECTED_STATUSES: ReadonlySet<Status> = new Set<Status>(["screening", "interview", "assessment", "offer", "accepted"]);
@@ -56,6 +58,15 @@ export type CleanupRow = {
   tailor_session_id?: string | null;
   sent_cv_name?: string | null;
   prep_generated_at?: string | null;
+  // What a delete would take with it and a merge never carries (only notes are joined).
+  job_description?: string | null;
+  salary?: string | null;
+  req_id?: string | null;
+  referral?: boolean | null;
+  referrer_name?: string | null;
+  lesson?: string | null;
+  close_reason?: string | null;
+  last_contact_at?: string | null;
 };
 export type Attachments = { events: number; interviews: number };
 
@@ -93,8 +104,17 @@ function daysBetween(from: string, to: string): number {
 const text = (s: string | null | undefined) => (s ?? "").trim();
 
 /** Rule B's role key: case, punctuation and spacing folded; the words in brackets kept. */
+// "C#" and "C++" are different jobs; so are "Developer (東京)" and "Developer (大阪)".
 export function cleanupRoleKey(role: string | null | undefined): string {
-  return (role ?? "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").trim();
+  return (role ?? "")
+    .toLowerCase()
+    .replace(/c\+\+/g, " cplusplus ")
+    .replace(/c#/g, " csharp ")
+    .replace(/f#/g, " fsharp ")
+    .replace(/\.net\b/g, " dotnet ")
+    .replace(/&/g, " and ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 export function cleanupCompanyKey(company: string | null | undefined): string {
   return (company ?? "").trim().toLowerCase();
@@ -122,12 +142,19 @@ export function mergeNote(dup: Pick<CleanupRow, "role" | "date_applied" | "statu
   return text(dup.notes) ? `${head}\n${text(dup.notes)}` : head;
 }
 
+// Anything a delete would lose: only the notes are ever joined into the kept row.
 function holds(row: CleanupRow, att: Attachments | undefined): string | null {
   if (row.sent_cv_name) return "it holds the CV file you sent";
   if (row.tailor_session_id) return "it holds a tailored CV";
   if (row.prep_generated_at) return "it holds a prep pack";
   if (att && att.events > 0) return "it has events on What's next";
   if (att && att.interviews > 0) return "it has mock interviews";
+  if (text(row.job_description)) return "it holds a job description";
+  if (text(row.req_id)) return "it holds a req ID";
+  if (text(row.salary)) return "it holds a salary";
+  if (row.referral || text(row.referrer_name)) return "it holds a referral";
+  if (text(row.lesson) || text(row.close_reason)) return "it holds a closing reason or lesson";
+  if (row.last_contact_at) return "it holds contact history";
   return null;
 }
 
@@ -212,7 +239,7 @@ export type Expect = { status: string[]; followup_date?: string | null };
 export type CleanupDb = {
   readRows(): Promise<CleanupRow[]>;
   readAttachments(ids: readonly string[]): Promise<Map<string, Attachments>>;
-  update(id: string, patch: { followup_date?: null; status?: string; date_applied?: string }, expect: Expect): Promise<number>;
+  update(id: string, patch: { followup_date?: string | null; status?: string; date_applied?: string }, expect: Expect): Promise<number>;
   appendNote(id: string, line: string): Promise<boolean>;
   remove(id: string, expect: Expect): Promise<number>;
 };
@@ -220,7 +247,7 @@ export type CleanupDb = {
 export type CleanupRequest = { dryRun: boolean; ids: string[] };
 export type CleanupResult =
   | { status: 200; body: { dryRun: true; plan: CleanupPlan } }
-  | { status: 200; body: { dryRun: false; applied: { id: string; rule: "A" | "B" }[]; skipped: { id: string; reason: string }[] } }
+  | { status: 200; body: { dryRun: false; applied: { id: string; rule: "A" | "B" }[]; skipped: { id: string; reason: string }[]; warnings: { id: string; reason: string }[] } }
   | { status: 400 | 409; body: { error: string; ids?: string[] } };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -278,6 +305,7 @@ export async function runCleanup(db: CleanupDb, req: CleanupRequest, today: stri
 
   const applied: { id: string; rule: "A" | "B" }[] = [];
   const skipped: { id: string; reason: string }[] = [];
+  const warnings: { id: string; reason: string }[] = [];
   for (const id of req.ids) {
     const row = byId.get(id);
     if (!row) {
@@ -285,13 +313,19 @@ export async function runCleanup(db: CleanupDb, req: CleanupRequest, today: stri
       continue;
     }
     if (ruleA.has(id)) {
-      // The follow-up first, only while the row is still Applied with the same date; then the note.
-      const changed = await db.update(id, { followup_date: null }, { status: storedStatusValues("applied"), followup_date: row.followup_date });
+      const stillApplied = storedStatusValues("applied");
+      // The follow-up, only while the row is still Applied with the same date; then the note.
+      const changed = await db.update(id, { followup_date: null }, { status: stillApplied, followup_date: row.followup_date });
       if (changed !== 1) {
         skipped.push({ id, reason: "it changed since the dry run" });
         continue;
       }
-      await db.appendNote(id, cadenceNote(row, today));
+      if (!(await db.appendNote(id, cadenceNote(row, today)))) {
+        // Notes at their cap: the date goes back, so nothing changes without a record of it.
+        await db.update(id, { followup_date: row.followup_date }, { status: stillApplied, followup_date: null });
+        skipped.push({ id, reason: "its notes are full, so its follow-up date was left as it was" });
+        continue;
+      }
       applied.push({ id, rule: "A" });
       continue;
     }
@@ -307,40 +341,50 @@ export async function runCleanup(db: CleanupDb, req: CleanupRequest, today: stri
         skipped.push({ id, reason: "the row it would merge into reached screening" });
         continue;
       }
-      // Join the notes first (refused rather than cut when over the cap), then the status, then the delete.
       if (text(row.notes).length + text(keep.notes).length + 200 > MAX_NOTES_CHARS) {
         skipped.push({ id, reason: "the joined notes would be too long: merge it by hand" });
-        continue;
-      }
-      const joined = await db.appendNote(keep.id, mergeNote(row, today));
-      if (!joined) {
-        skipped.push({ id, reason: "the notes could not be joined: merge it by hand" });
         continue;
       }
       const keepNow = normalizeStatus(keep.status) ?? "applied";
       const dStatus = normalizeStatus(row.status) ?? "applied";
       const target = (MERGE_RANK[dStatus] ?? -1) > (MERGE_RANK[keepNow] ?? -1) ? dStatus : keepNow;
       const earlier = row.date_applied < keep.date_applied ? row.date_applied : null;
-      if (target !== keepNow || earlier) {
-        const patch: { status?: string; followup_date?: null; date_applied?: string } = {};
-        if (target !== keepNow) patch.status = target;
-        if (earlier) patch.date_applied = earlier;
-        if (CLOSED_STATUSES.has(target) && target !== keepNow && keep.followup_date) patch.followup_date = null;
-        const changed = await db.update(keep.id, patch, { status: storedStatusValues(keepNow as Status) });
-        // As the tracker's own PUT does: an ending clears the follow-up and says so in the notes.
-        if (changed === 1 && patch.followup_date === null && keep.followup_date) await db.appendNote(keep.id, followupClearedNote(keep.followup_date, target, today));
-        keep.status = target;
-        if (earlier) keep.date_applied = earlier;
+      const keepValues = storedStatusValues(keepNow as Status);
+      // 1. The kept row is still what the plan read: a write conditional on its status (its
+      //    own applied date, or the duplicate's earlier one) proves it before anything else.
+      if ((await db.update(keep.id, { date_applied: earlier ?? keep.date_applied }, { status: keepValues })) !== 1) {
+        skipped.push({ id, reason: "the row it would merge into changed since the dry run" });
+        continue;
       }
-      const removed = await db.remove(id, { status: storedStatusValues(dStatus as Status) });
-      if (removed !== 1) {
-        skipped.push({ id, reason: "its notes were joined, but it changed since the dry run and was not deleted" });
+      // 2. The notes, refused rather than cut.
+      if (!(await db.appendNote(keep.id, mergeNote(row, today)))) {
+        if (earlier) await db.update(keep.id, { date_applied: keep.date_applied }, { status: keepValues });
+        skipped.push({ id, reason: "the notes could not be joined: merge it by hand" });
+        continue;
+      }
+      if (earlier) keep.date_applied = earlier;
+      keep.notes = text(keep.notes) ? `${mergeNote(row, today)}\n${text(keep.notes)}` : mergeNote(row, today);
+      // 3. The duplicate, only while it is as the plan read it.
+      if ((await db.remove(id, { status: storedStatusValues(dStatus as Status) })) !== 1) {
+        warnings.push({ id, reason: "it changed since the dry run, so it was kept; its notes are now on the kept row too" });
         continue;
       }
       applied.push({ id, rule: "B" });
+      // 4. Last, the most advanced status (an ending clears the follow-up, as the tracker's PUT does).
+      if (target !== keepNow) {
+        const patch: { status: string; followup_date?: null } = { status: target };
+        if (CLOSED_STATUSES.has(target) && keep.followup_date) patch.followup_date = null;
+        if ((await db.update(keep.id, patch, { status: keepValues })) === 1) {
+          if (patch.followup_date === null && keep.followup_date) await db.appendNote(keep.id, followupClearedNote(keep.followup_date, target, today));
+          keep.status = target;
+          if (patch.followup_date === null) keep.followup_date = null;
+        } else {
+          warnings.push({ id: keep.id, reason: `the kept row changed before it could become ${statusLabel(target)}; the duplicate's status is in its notes` });
+        }
+      }
       continue;
     }
     skipped.push({ id, reason: "not in the clean-up plan any more" });
   }
-  return { status: 200, body: { dryRun: false, applied, skipped } };
+  return { status: 200, body: { dryRun: false, applied, skipped, warnings } };
 }

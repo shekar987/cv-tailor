@@ -78,7 +78,7 @@ try {
   const pageText = await pageRes.text();
   const page = JSON.parse(pageText);
   check("?stage=Applied&limit=50 answers 50 rows or fewer", pageRes.status === 200 && page.applications.length <= 50 && page.applications.length === 50, `${pageRes.status}, ${page.applications?.length} rows`);
-  check("…with no notes_preview (and no notes_more) on any row", page.applications.every((r) => !("notes_preview" in r) && !("notes_more" in r)));
+  check("…with no notes_preview, and notes_more on every row with notes (its Notes box stays locked until the full text loads)", page.applications.every((r) => !("notes_preview" in r) && r.notes_more === true));
   check("…and under 80 KB", Buffer.byteLength(pageText) < 80 * 1024, `${(Buffer.byteLength(pageText) / 1024).toFixed(1)} KB in ${pageMs} ms`);
   const seen = new Set(page.applications.map((r) => r.id));
   let cursor = page.nextCursor, pages = 1;
