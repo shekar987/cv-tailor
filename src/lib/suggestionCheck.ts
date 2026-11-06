@@ -61,7 +61,7 @@ const QUOTE_RES = [
 ];
 // The posting's own words, quoted to say what it asks for: the posting is the
 // subject, and the cue stands right before the quote.
-const POSTING_QUOTE_RE = /\b(?:the\s+)?(?:posting|job\s+description|JD|advert|job\s+ad|role|employer|they)\s+(?:also\s+|specifically\s+|explicitly\s+)?(?:asks?\s+for|requires?|wants?|mentions?|says|calls?\s+for|lists?|is\s+looking\s+for|looks?\s+for)\s*:?\s*$/i;
+const POSTING_QUOTE_RE = /\b(?:the\s+)?(?:posting|job\s+description|JD|advert|job\s+ad|role|employer|they)\s+(?:also\s+|specifically\s+|explicitly\s+)?(?:asks?\s+for|requires?|wants?|mentions?|says|calls?\s+for|lists?|is\s+looking\s+for|looks?\s+for)(?:\s+(?:experience|skills?|knowledge|expertise|a\s+background)\s+(?:with|in|of))?\s*:?\s*$/i;
 // An unquoted proposed line: after a writing cue and a colon ("Change the bullet
 // to: Optimised …", "Add: Led …"), after a rewrite verb's "to" / "as" before a
 // capital ("Rewrite the booking bullet as Led …"), or an arrow. Never any colon or
@@ -72,13 +72,27 @@ const UNQUOTED_RES = [
   /\b(?:[Rr]ewrite|[Rr]ephrase|[Rr]eword|[Cc]hange|[Rr]eplace|[Uu]pdate|[Ee]dit|[Tt]urn)\b[^.:"“”]*?\b(?:to|as|with)\s+([A-Z][^"“”]+?)\s*\.?\s*$/,
   /(?:→|->)\s*([^"“”]+?)\s*\.?\s*$/,
 ];
-// A move into paid work: the destination right after the moved line, with no
-// other verb between ("… to show React experience" is a purpose, not a place).
-const QUOTED = String.raw`(?:"[^"\n]+"|“[^”\n]+”|‘[^’\n]+’)`;
-const MOVE_RE = new RegExp(
-  String.raw`\b(?:move|add|put|place|bring|copy)\s+(?:${QUOTED}|(?:the|this|that|your)\s+(?:[\w&.'’-]+\s+){0,4}?(?:bullet|line|point))\s+(?:into|under|to|in)\s+(?:your\s+|the\s+)?(?:(?!(?:to|show|surface|evidence|highlight|demonstrate|prove|top|front|summary|projects?)\b)[\w&.'’-]+\s+){0,5}?(?:role|job|position|employment|(?:work\s+)?experience(?:\s+section)?)\b`,
-  "i"
-);
+// A move into paid work: a move verb and a destination that is a paid role — the
+// word role / job / experience, or an employer the master CV's own role headers
+// name — wherever it stands ("Move '…' from your Ride App project into your
+// Northgate Systems role", "Copy "…" over to your Northgate experience"). A purpose
+// ("… to show React experience") is no destination.
+const MOVE_VERB_RE = /\b(?:move|add|put|place|bring|copy|shift|transfer|include|insert)\b/i;
+const PURPOSE_RE = /\bto\s+(?:show|surface|highlight|demonstrate|evidence|prove|signal|support)\b[^.;]*/gi;
+const ROLE_DEST_RE = /\b(?:into|under|to|in)\s+(?:your\s+|the\s+)?(?:[\w&.'’-]+\s+){0,5}?(?:role|job|position|employment|work\s+experience|experience(?:\s+section)?)\b/i;
+// The employer words of the master CV's role headers ("Northgate Systems"), never job words.
+const JOB_WORDS = /^(?:software|senior|junior|lead|staff|principal|full|stack|full-stack|data|engineer|developer|analyst|scientist|graduate|intern|placement|research|assistant|associate|consultant|manager|backend|frontend|front-end|back-end|web|mobile|platform|devops|cloud|machine|learning|ai|and|of|the|at|year)$/i;
+function employerWords(where: (string | null)[]): string[] {
+  const out = new Set<string>();
+  for (const w of where) for (const word of (w ?? "").split(/[\s,|—–()]+/)) if (word.length >= 4 && /^[A-Z]/.test(word) && !JOB_WORDS.test(word)) out.add(word);
+  return [...out];
+}
+function movesIntoPaidWork(suggestion: string, employers: readonly string[]): boolean {
+  if (!MOVE_VERB_RE.test(suggestion)) return false;
+  const t = suggestion.replace(PURPOSE_RE, " ");
+  if (ROLE_DEST_RE.test(t)) return true;
+  return employers.some((e) => new RegExp(String.raw`\b(?:into|under|to|in)\s+(?:your\s+|the\s+)?(?:[\w&.'’-]+\s+){0,3}?${e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\b`).test(t));
+}
 
 const words = (s: string) => s.split(/\s+/).filter(Boolean).length;
 
@@ -95,8 +109,10 @@ export function proposedLines(suggestion: string): string[] {
   if (out.length === 0) {
     for (const re of UNQUOTED_RES) {
       const m = re.exec(suggestion);
-      // Four letter-words or more: "to Technical Tools" names a place, not a line.
-      if (m && (m[1].match(/\p{L}{2,}/gu) ?? []).length >= 4) {
+      // A CV line: four letter-words or more ("to Technical Tools" names a place), a
+      // capital first, and never addressed to the reader ("your Northgate bullet
+      // already shows it" is a reason, not a line).
+      if (m && (m[1].match(/\p{L}{2,}/gu) ?? []).length >= 4 && /^[A-Z0-9]/.test(m[1].trim()) && !/\byou(?:r|rs)?\b/i.test(m[1])) {
         out.push(m[1].trim());
         break;
       }
@@ -131,6 +147,7 @@ export function checkSuggestions(
   // line about a skill being learnt.
   const ev = evidenceLines(cv, pool);
   const experience = ev.experience.map((l) => l.text);
+  const employers = employerWords(ev.experience.map((l) => l.where));
   const projects = ev.projects.map((l) => l.text);
   const evidence = [...experience, ...projects, ...ev.listed.map((l) => l.text)];
   const learnt = ev.learnt.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -157,7 +174,7 @@ export function checkSuggestions(
     const proposed = proposedLines(suggestion);
     const untraced = proposed.filter((line) => !tracedIn(line, lines));
     // Project work moved into a paid role is the setting changed, not a rename.
-    const moved = MOVE_RE.test(suggestion) && proposed.some((line) => !tracedIn(line, experience) && tracedIn(line, projects));
+    const moved = movesIntoPaidWork(suggestion, employers) && proposed.some((line) => !tracedIn(line, experience) && tracedIn(line, projects));
     if (unbacked.length === 0 && untraced.length === 0 && !moved && !claimsFail(own.replace(COUNT_RE, " "))) {
       kept.push(suggestion);
       continue;

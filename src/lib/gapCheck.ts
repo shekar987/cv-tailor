@@ -23,7 +23,7 @@
 //
 // Relative .ts imports only, so it runs under node:test.
 import { evidenceLines, isNamedTechnology, type EvidenceMap, type Importance, type RequirementKind, type SourceLine } from "./evidenceMap.ts";
-import { namesLanguage } from "./triage/jdTriage.ts";
+import { languagesIn, namesLanguage } from "./triage/jdTriage.ts";
 import { matchAtsKeywords } from "./atsMatch.ts";
 import { distinctiveTokens } from "./claims.ts";
 
@@ -84,21 +84,40 @@ const PRODUCT_ALL_RE = new RegExp(PRODUCT_RE.source, "gi");
 // The products a term names: the product list, the triage's languages, distinctive tokens.
 function productsIn(term: string): string[] {
   const found = [...term.matchAll(PRODUCT_ALL_RE)].map((m) => m[0]);
+  // The triage's languages and frameworks on the whole term ("Spring Boot") and per word.
+  found.push(...languagesIn(term));
   for (const w of term.split(/[\s/,&]+/)) if (w && (namesLanguage(w) || /^go$/i.test(w))) found.push(w);
   found.push(...distinctiveTokens(term));
-  return [...new Set(found.map((p) => p.trim()).filter(Boolean))];
+  return [...new Set(found.map((p) => p.trim()).filter(Boolean))].sort((a, b) => b.length - a.length);
 }
-// A named technology is never sent to the model: a term that IS a product, or a
-// practice around a product the master CV never shows ("Kubernetes clusters" —
-// asking could only invite a graft). A practice around a product the CV does show
-// ("Python test automation") is a question of wording, so the model is asked.
-// With no product word, isNamedTechnology reads the LOWERCASED term: it reads a
-// capital as a product, and postings capitalise plain words ("Routing").
+// Plain words of practice: what a term adds to a product when it asks how the
+// product is used ("Python test automation"), not which product.
+const PRACTICE_WORDS = new Set([
+  "test", "tests", "testing", "automation", "automated", "scripting", "scripts", "development", "engineering", "programming",
+  "pipeline", "pipelines", "clusters", "cluster", "administration", "admin", "performance", "tuning", "optimisation", "optimization",
+  "design", "integration", "integrations", "deployment", "deployments", "monitoring", "migration", "migrations", "modelling", "modeling",
+  "data", "analysis", "analytics", "backend", "frontend", "services", "applications", "apps", "queries", "query", "querying",
+  "reporting", "dashboards", "debugging", "troubleshooting", "maintenance", "configuration", "management", "security", "best", "practices",
+]);
+// A named technology is never sent to the model:
+//   - a term that IS a product, a language or framework ("Spring Boot"), or a
+//     product plus another name ("AWS Lambda", "GitHub Actions", "React Native");
+//   - a named method around a product ("Kafka stream processing", "AWS serverless"
+//     — lib/evidenceMap's methods, read by isNamedTechnology);
+//   - a practice around a product the master CV never shows ("Kubernetes
+//     clusters" — asking could only invite a graft).
+// Only a practice of plain words around a product the CV shows ("Python test
+// automation") is a question of wording, so the model is asked. With no product
+// word, isNamedTechnology reads the LOWERCASED term: it reads a capital as a
+// product, and postings capitalise plain words ("Routing").
 function isNamed(term: string, sources: string): boolean {
   const products = productsIn(term);
   if (products.length === 0) return isNamedTechnology(term.toLowerCase());
   const rest = products.reduce((s, p) => s.split(p).join(" "), term).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   if (!rest || /^(?:and|or)$/i.test(rest)) return true;
+  if (isNamedTechnology(rest.toLowerCase())) return true;
+  const words = rest.toLowerCase().split(/\s+/).filter((w) => w && w !== "and" && w !== "or");
+  if (!words.every((w) => PRACTICE_WORDS.has(w))) return true;
   return products.some((p) => matchAtsKeywords(sources, [p]).matched === 0);
 }
 

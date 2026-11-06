@@ -298,6 +298,12 @@ export function namesLanguage(term: string): boolean {
   return typeof term === "string" && TECHS.some((t) => t.re.test(term));
 }
 
+/** The closed list's languages and frameworks a term names, as written ("Spring Boot", "Python"). */
+export function languagesIn(term: string): string[] {
+  if (typeof term !== "string") return [];
+  return TECHS.map((t) => term.match(t.re)?.[0]).filter((m): m is string => !!m);
+}
+
 function inExperience(t: Tech, experience: string): boolean {
   return t.re.test(experience) || (t.impliedBy ?? []).some((name) => TECH_BY_NAME.get(name)?.re.test(experience));
 }
@@ -424,7 +430,9 @@ function nounFamily(noun: string): string {
 }
 // The noun a right-to-work sentence is about: "the full duration of the internship".
 // Greedy, so the head noun wins: "the placement programme" is the programme.
-const DURATION_NOUN = /\b(?:duration|length|entirety|whole|end)\s+of\s+(?:the|your|this|our)?\s*(?:[\w-]+\s+){0,2}(programme|program|scheme|placement|apprenticeship|internship|residency)\b/i;
+// Group 1: the words before the head noun ("placement" in "the placement programme").
+const DURATION_NOUN = /\b(?:duration|length|entirety|whole|end)\s+of\s+(?:the|your|this|our)?\s*((?:[\w-]+\s+){0,2})(programme|program|scheme|placement|apprenticeship|internship|residency)\b/i;
+const PROGRAMME_NOUN_RE = /^(?:programme|program|scheme|placement|apprenticeship|internship|residency)$/i;
 // The right-to-work sentence must be about the programme itself, not "your employment".
 const PROGRAMME_WORD = /\b(?:programme|program|scheme|placement|apprenticeship|internship|residency|rotation)\b/i;
 const SPONSOR_NONE = /\bwithout\s+(?:requiring\s+|needing\s+|the\s+need\s+for\s+)?(?:visa\s+|work\s+)?sponsorship\b|\b(?:unable|not\s+able|cannot|can['’]t|do\s+not|don['’]t|will\s+not|won['’]t)\s+(?:to\s+)?(?:offer\s+|provide\s+)?sponsor/i;
@@ -442,16 +450,17 @@ function count(word: string): number {
  * length: the earliest end the posting allows, so a misread can only ever
  * make the rule less likely to Skip.
  */
-export function programmeEnd(text: string, noun?: string): ProgrammeEnd | null {
+export function programmeEnd(text: string, noun?: string | readonly string[]): ProgrammeEnd | null {
   const starts = [...(text || "").matchAll(PROGRAMME_START)]
     .map((s) => ({ m0: MONTHS.indexOf((s[1] ?? s[3]).toLowerCase().slice(0, 3)), year: parseInt(s[2] ?? s[4], 10) }))
     .filter((s) => s.m0 >= 0)
     .map((s) => s.year * 12 + s.m0);
-  const family = noun ? nounFamily(noun) : null;
+  // One noun, or several ("the placement programme" is the placement and the programme).
+  const families = noun === undefined ? null : new Set((typeof noun === "string" ? [noun] : noun).map(nounFamily));
   // A length counts for the noun it names, or for a noun its modifiers name:
   // "a 24-month apprenticeship programme" is the apprenticeship's length too.
   const forFamily = (l: RegExpMatchArray) =>
-    !family || nounFamily(l[4] ?? l[5]) === family || (l[3] ?? "").toLowerCase().split(/\s+/).some((w) => w !== "" && nounFamily(w) === family);
+    !families || families.has(nounFamily(l[4] ?? l[5])) || (l[3] ?? "").toLowerCase().split(/\s+/).some((w) => w !== "" && families.has(nounFamily(w)));
   // In months, two ways: `lo` the months it certainly fills (the Skip reads that, so
   // a misread only ever makes a Skip less likely) and `hi` the most it can reach (the
   // Review drops only when that is covered). Weeks: lo rounded down, hi rounded up
@@ -564,9 +573,12 @@ export function triageJd(text: string, profile?: TriageProfile): JdTriage {
         // is the user's own answer. Either unknown stays a Review, never a guess.
         // Only a sentence about the programme itself: "for the duration of your employment" stays a Review.
         const aboutProgramme = PROGRAMME_WORD.test(sentence);
-        const noun = sentence.match(DURATION_NOUN)?.[1] ?? sentence.match(PROGRAMME_WORD)?.[0] ?? "programme";
-        const family = nounFamily(noun);
-        if (aboutProgramme && !programmes.has(family)) programmes.set(family, programmeEnd(text, noun));
+        const duration = sentence.match(DURATION_NOUN);
+        const head = duration?.[2] ?? sentence.match(PROGRAMME_WORD)?.[0] ?? "programme";
+        // A programme noun before the head names the same thing ("the placement programme").
+        const nouns = [head, ...(duration?.[1] ?? "").split(/\s+/).filter((w) => PROGRAMME_NOUN_RE.test(w))];
+        const family = [...new Set(nouns.map(nounFamily))].sort().join("+");
+        if (aboutProgramme && !programmes.has(family)) programmes.set(family, programmeEnd(text, nouns));
         const ends = aboutProgramme ? (programmes.get(family) ?? null) : null;
         const permission = profile?.permissionEnds ?? null;
         const noSponsor = SPONSOR_NONE.test(sentence);

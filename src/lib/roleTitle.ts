@@ -69,48 +69,62 @@ export function titleAsIdentity(title: unknown, heldTitles: string[]): boolean {
 // clause goes, and a sentence that was nothing else goes with it. Any title,
 // not only this run's, since a fact-check fix can word it differently.
 //
-// The clause, and nothing of the candidate's: it starts the sentence, follows a
-// comma or dash, or follows a singular job noun with an article ("Software
-// developer applying for the X role"; never "a CV tool that helps engineers
-// apply for graduate roles at 120 UK companies"); its title stops at a comma
-// (so "applying to Monzo, with a 12-month industrial placement at X" is never
-// read as one title); it names a role, position, programme, scheme, placement,
-// internship or apprenticeship, with a trailing year ("Programme 2027"); and it
-// takes with it only a tail that ends the clause: "at the BBC", "with Acme
-// Bank", "in the payments team". A tail that runs on ("… role in London with
-// two years' Python") is not taken, and then the sentence is left as it is:
-// cutting it would hand the place to the candidate. "with two years' …" is the
-// candidate's own fact and stays.
+// Only where the clause's end is unambiguous; anywhere else the sentence is
+// left exactly as it is (a summary that names the job is a style miss, a
+// damaged summary is a lie). The clause:
+//   - starts the sentence, follows a comma or dash, or follows a singular job
+//     noun with an article ("Software developer applying for the X role");
+//     never "a CV tool that helps engineers apply for graduate roles";
+//   - has a title that never crosses a comma and ends in a role, position,
+//     programme, scheme, placement, internship or apprenticeship (a trailing
+//     year included), the LAST such noun before the clause's end — backtracking
+//     finds "Software Engineer Internship 2027 role at Acme" whole;
+//   - may take one place: "at the BBC", "at J.P. Morgan", "in the payments
+//     team", or "with" an organisation ("with Acme Bank" — never "with Python",
+//     a skill of the candidate's);
+//   - then must END: at the sentence's end; before "with" and the candidate's
+//     own facts ("with two years' …", "with hands-on experience …" — never
+//     "with a focus on payments", the role's); or, when it opens the sentence,
+//     before a comma that starts no relative clause ("Applying for the X role,
+//     iOS developer with …"). ", where REST APIs are core." stays whole.
 // A title may carry dots ("Node.js Developer", ".NET Engineer"): a dot followed by a letter is part of it.
 const TITLE_CHARS = String.raw`(?:[^.!?\n,;]|\.(?=\w))`;
-// No "i" flag: the employer after "with" needs its capital letter, so every other
-// word is spelled case-free here instead (escapes such as \s are left alone).
+// No "i" flag: an organisation needs its capital letter, so every other word is
+// spelled case-free here instead (escapes such as \s are left alone).
 const anyCase = (s: string) => s.replace(/\\.|[a-z]/g, (c) => (c.length === 2 ? c : `[${c}${c.toUpperCase()}]`));
 const W = anyCase;
 const JOB_NOUN = W(String.raw`(?:developer|engineer|graduate|analyst|scientist|consultant|specialist|designer|architect|programmer|technologist|researcher|student)`);
 const ROLE_NOUNS = W(String.raw`(?:roles?|positions?|opportunit(?:y|ies)|jobs?|post|vacanc(?:y|ies)|programmes?|programs?|schemes?|placements?|internships?|apprenticeships?)`);
-// A word of a place or employer: never a linking word, so "in London with two years'
-// Python" is not one tail (and then the sentence is left as it is).
-const TAIL_WORD = String.raw`(?!(?:with|and|or|for|to|in|at|as|using|by|from|where|while|which|who)\b)(?:[^\s,.;!?]|\.(?=\w))+`;
+// A word of a place or employer: initials ("J.P."), an abbreviation ("Inc."), or a
+// plain word that is no linking word (so a place never runs on into the candidate).
+const TAIL_WORD = String.raw`(?:(?:[A-Z]\.){2,}|(?:Inc|Ltd|Co|Corp|plc)\.(?=\s)|(?!(?:with|and|or|for|to|in|at|as|using|by|from|where|while|which|who)\b)(?:[^\s,.;!?]|\.(?=\w))+)`;
+const AT_TAIL = String.raw`\s+(?:at|in|within|on|across)\s+(?:the\s+)?${TAIL_WORD}(?:\s+${TAIL_WORD}){0,5}`;
+// "with" an organisation: a word that says so, or "the" before a capital.
+const ORG_WORD = String.raw`(?:Bank|Group|Ltd|plc|PLC|LLP|Inc|Trust|Council|Partners|Capital|Labs?|Systems|Technologies|Solutions|Consulting|Insurance|Health|Hospitals?|University|Agency|Authority|Foundation|Holdings|Services|NHS|Digital|Media|Studios?)`;
 const CAP_WORD = String.raw`(?!I\b)[A-Z](?:[\w&'’-]|\.(?=\w))*`;
-const CLAUSE_END = String.raw`(?=\s*(?:[,;.!?]|$))`;
-const AT_TAIL = String.raw`\s+(?:at|in|within|on|across)\s+(?:the\s+)?${TAIL_WORD}(?:\s+${TAIL_WORD}){0,5}${CLAUSE_END}`;
-const WITH_TAIL = String.raw`\s+with\s+(?:the\s+)?${CAP_WORD}(?:\s+(?:${CAP_WORD}|&|of))*${CLAUSE_END}`;
-const APPLIED_FOR_RE = new RegExp(
-  String.raw`(?:^|[,;:]\s*|\s+[—–-]\s+|(?<=\b${JOB_NOUN})\s+(?=(?:(?:currently|now)\s+)?applying\s+for\s+(?:the|this|a|an)\s))(?:(?:and|now|currently|while)\s+)*${W("(?:applying|apply)")}\s+(?:for|to)\s+(?:(?:the|this|a|an|your)\s+)?(?:${W("(?:role|position)")}\s+of\s+(?:[^.!?\n,;]|\.(?=\w)){1,90}?${CLAUSE_END}|${TITLE_CHARS}{1,90}?\b${ROLE_NOUNS}(?:\s+(?:19|20)\d{2})?(?=[\s,;:.!?]|$))(?:${AT_TAIL}|${WITH_TAIL})?`
+const WITH_TAIL = String.raw`\s+with\s+(?:(?:the\s+${CAP_WORD}(?:\s+(?:${CAP_WORD}|&|of))*)|(?:${CAP_WORD}\s+)*${ORG_WORD}\b)`;
+// The candidate's own facts after "with": years, experience, a degree … — never the role's focus.
+const OWN_FACTS = String.raw`\s+with\s+(?:\d|one|two|three|four|five|six|seven|eight|nine|ten|several|over|more\s+than|hands-on|strong|solid|proven|practical|commercial|production|professional|experience|expertise|skills|knowledge|a\s+(?:background|track\s+record|portfolio|degree|first|2:1|master)|an\s+(?:MSc|BSc|MEng|BEng|MA|BA))`;
+const CLAUSE = String.raw`(?:(?:and|now|currently|while)\s+)*${W("(?:applying|apply)")}\s+(?:for|to)\s+(?:(?:the|this|a|an|your)\s+)?(?:${W("(?:role|position)")}\s+of\s+${TITLE_CHARS}{1,90}?|${TITLE_CHARS}{1,90}?\b${ROLE_NOUNS}(?:\s+(?:19|20)\d{2})?)(?:${AT_TAIL}|${WITH_TAIL})?`;
+const ENDS = String.raw`(?=\s*[.!?]?\s*$|${OWN_FACTS})`;
+// Mid-sentence: after a comma or dash, or straight after a singular job noun with an article.
+const APPLIED_FOR_MID_RE = new RegExp(
+  String.raw`(?:[,;:]\s*|\s+[—–-]\s+|(?<=\b${JOB_NOUN})\s+(?=(?:(?:currently|now)\s+)?applying\s+for\s+(?:the|this|a|an)\s))${CLAUSE}${ENDS}`
 );
-// After the clause, a place or employer that was not taken would be left on the candidate.
-const RUN_ON_RE = /^\s+(?:(?:in|within|on|at|for|to|across|from)\b|with\s+(?:the\s+)?[A-Z])/;
+// Opening the sentence: it may also end before a comma that starts no relative clause.
+const APPLIED_FOR_START_RE = new RegExp(String.raw`^${CLAUSE}(?=\s*[.!?]?\s*$|${OWN_FACTS}|\s*,\s*(?!(?:where|which|who|whose|when|that|whereby)\b))`);
 const WORDS_RE = /[A-Za-z0-9]+/g;
+// Sentence ends that are not abbreviations or initials ("Ltd. ", "J.P. Morgan").
+const SUMMARY_SPLIT = /(?<!\b(?:[A-Z]|Ltd|Inc|Co|Corp|plc|St|Dr|Mr|Mrs|Ms|No|vs|etc|e\.g|i\.e)\.)(?<=[.!?])\s+/;
 
 export function stripAppliedFor(summary: string): { text: string; removed: string[] } {
   const removed: string[] = [];
   const lines = summary.split("\n").map((line) => {
-    const sentences = line.split(/(?<=[.!?])\s+/);
+    const sentences = line.split(SUMMARY_SPLIT);
     const kept: string[] = [];
     for (const sentence of sentences) {
-      const m = APPLIED_FOR_RE.exec(sentence);
-      if (!m || m.index === undefined || RUN_ON_RE.test(sentence.slice(m.index + m[0].length))) {
+      const m = APPLIED_FOR_START_RE.exec(sentence) ?? APPLIED_FOR_MID_RE.exec(sentence);
+      if (!m || m.index === undefined) {
         kept.push(sentence);
         continue;
       }

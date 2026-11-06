@@ -22,7 +22,8 @@ test("applied-for: the employer goes with the clause, in any form, and never the
   assert.ok(same("Python developer with FastAPI APIs, applying to Monzo, with a 12-month industrial placement at Example Lab."));
   assert.ok(same("Computer Science student, applying to Acme's graduate intake, with a summer internship at Example Lab."));
   assert.ok(same("Full-stack developer, applying for the Software Engineer opening at Acme, with a 12-month industrial placement at Example Lab."));
-  assert.ok(same("Software developer applying for the Product Engineer role in London with two years' Python."), "a run-on place is left, never handed to the candidate");
+  // The place is the role's and goes with it; "with two years' Python" is the candidate's and stays (third review).
+  assert.equal(stripAppliedFor("Software developer applying for the Product Engineer role in London with two years' Python.").text, "Software developer with two years' Python.");
   assert.equal(stripAppliedFor("Python developer with FastAPI APIs, applying for the Technology Graduate Programme 2027.").text, "Python developer with FastAPI APIs.");
 });
 
