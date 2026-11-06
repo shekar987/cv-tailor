@@ -12,6 +12,7 @@
 // null until at least MIN_DECIDED applications in it have an outcome - a
 // 1-of-1 "100%" would mislead.
 
+import { isColdOutreach } from "./coldEmails.ts";
 import { POSTING_AGE_BANDS } from "./postingAge.ts";
 import { endedWithoutProgress, hasProgressed, normalizeStatus } from "./tracker.ts";
 import { isFormatStyleId, FORMAT_STYLE_LABELS, type FormatStyleId } from "./formatStyles/ids.ts";
@@ -35,7 +36,7 @@ export type InsightRow = {
   formatStyle?: FormatStyleId;
   // Prompt 13: how the row was made, whether a follow-up date was set, the
   // page count of the CV sent, and how old the posting was at application.
-  source?: "tailored" | "manual";
+  source?: "tailored" | "manual" | "cold-email";
   followupSet?: boolean;
   pages?: number;
   postingAgeDays?: number;
@@ -122,7 +123,7 @@ export function rowFromApplication(row: unknown): InsightRow {
     company: typeof r.company_name === "string" ? r.company_name.trim() : "",
   };
   const snapshot = obj(r.tailored_cv);
-  if (r.source === "tailored" || r.source === "manual") out.source = r.source;
+  if (r.source === "tailored" || r.source === "manual" || r.source === "cold-email") out.source = r.source;
   if (r.followup_date !== undefined) out.followupSet = typeof r.followup_date === "string" && r.followup_date.trim() !== "";
   const pages = Number(r.pages ?? snapshot.pages);
   if (Number.isFinite(pages) && pages >= 1 && pages <= 5) out.pages = Math.round(pages);
@@ -143,7 +144,9 @@ export function rowFromApplication(row: unknown): InsightRow {
   if (gates.read === "apply" || gates.read === "long_shot" || gates.read === "skip") out.gateRead = gates.read;
   const stored = r.seniority ?? snapshot.seniority;
   if (stored === "junior" || stored === "mid" || stored === "senior") out.seniority = stored;
-  else if (out.role) out.seniority = seniorityOf(out.role);
+  // A cold email or speculative outreach names no job, so it has no seniority: read as "mid"
+  // (the old default) the hand-logged "Cold email…" rows were swelling the mid-level lane.
+  else if (out.role && !isColdOutreach({ source: typeof r.source === "string" ? r.source : null, role: out.role })) out.seniority = seniorityOf(out.role);
   const style = r.format_style ?? snapshot.formatStyle;
   if (isFormatStyleId(style)) out.formatStyle = style;
   return out;
@@ -233,7 +236,7 @@ export function computeInsights(rows: InsightRow[]): Insights {
     if (row.seniority) bucketOf(bySeniority, row.seniority, SENIORITY_LABEL[row.seniority], row);
     if (row.role) bucketOf(byRole, row.role.toLowerCase(), row.role, row);
     if (row.company) bucketOf(byCompany, row.company.toLowerCase(), row.company, row);
-    if (row.source) bucketOf(bySource, row.source, row.source === "tailored" ? "Tailored here" : "Added by hand", row);
+    if (row.source) bucketOf(bySource, row.source, row.source === "tailored" ? "Tailored here" : row.source === "cold-email" ? "Cold email" : "Added by hand", row);
     if (row.followupSet !== undefined) bucketOf(byFollowup, row.followupSet ? "set" : "none", row.followupSet ? "Follow-up date set" : "No follow-up date", row);
     if (row.pages !== undefined) bucketOf(byPages, String(row.pages), row.pages === 1 ? "One-page CV" : `${row.pages}-page CV`, row);
     if (row.postingAgeDays !== undefined) {
@@ -270,7 +273,7 @@ export function computeInsights(rows: InsightRow[]): Insights {
     bySeniority: ordered(bySeniority, ["junior", "mid", "senior"]),
     byRole: top(byRole),
     byCompany: top(byCompany),
-    bySource: ordered(bySource, ["tailored", "manual"]),
+    bySource: ordered(bySource, ["tailored", "manual", "cold-email"]),
     byFollowup: ordered(byFollowup, ["set", "none"]),
     byPages: ordered(byPages, ["1", "2", "3", "4", "5"]),
     byPostingAge: ordered(byPostingAge, ["fresh", "week", "old"]),

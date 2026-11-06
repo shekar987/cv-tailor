@@ -3953,6 +3953,7 @@ td[data-stage-deadline][data-soon] .stageDue { color: var(--danger); font-weight
 
 .attnStrip { display: grid; grid-template-columns: repeat(var(--attn-cards, 4), minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-5); }
 .attnStrip[data-cards="3"] { --attn-cards: 3; }
+.attnStrip[data-cards="5"] { --attn-cards: 5; }
 .attnCard { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: var(--space-3) var(--space-4); text-align: left; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border-card); border-radius: var(--radius-lg); box-shadow: var(--surface-inset); cursor: pointer; transition: border-color var(--duration) var(--ease), transform var(--duration) var(--ease); }
 button.attnCard:hover { border-color: var(--border-strong); }
 button.attnCard:active { transform: translateY(1px); }
@@ -4045,7 +4046,7 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 .appsFootNote { font-size: var(--text-xs); }
 
 @media (max-width: 860px) {
-  .attnStrip, .attnStrip[data-cards="3"] { --attn-cards: 2; }
+  .attnStrip, .attnStrip[data-cards="3"], .attnStrip[data-cards="5"] { --attn-cards: 2; }
   .appsTools { width: 100%; }
   .appsTools .appsSearchWrap { width: 100%; flex: 1 1 100%; }
   .stageList, .stageList tbody { display: block; }

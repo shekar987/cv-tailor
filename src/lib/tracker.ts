@@ -258,6 +258,8 @@ export type RowFlagFields = {
   triage_reasons?: string[];
 };
 export function missingAttachments(row: RowFlagFields): ("Missing JD" | "Missing CV")[] {
+  // A cold email has no posting and was sent without a CV file: nothing is missing.
+  if (row.source === "cold-email") return [];
   if (!ATTACHMENT_STATUSES.has(normalizeStatus(row.status) ?? "")) return [];
   const out: ("Missing JD" | "Missing CV")[] = [];
   if (!row.has_job_description) out.push("Missing JD");
@@ -273,6 +275,8 @@ export type RowCheck =
   | { kind: "run" }
   | { kind: "add_jd" };
 export function rowCheck(row: RowFlagFields): RowCheck | null {
+  // A cold email has no posting to triage.
+  if (row.source === "cold-email" && !row.triage_verdict) return null;
   const manual = row.source !== "tailored";
   if (row.triage_verdict && (manual || row.triage_verdict !== "apply")) {
     return { kind: "checked", verdict: row.triage_verdict, reasons: row.triage_reasons ?? [] };
