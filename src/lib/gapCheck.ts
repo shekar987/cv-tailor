@@ -90,26 +90,27 @@ function productsIn(term: string): string[] {
   found.push(...distinctiveTokens(term));
   return [...new Set(found.map((p) => p.trim()).filter(Boolean))].sort((a, b) => b.length - a.length);
 }
-// Plain words of practice: what a term adds to a product when it asks how the
-// product is used ("Python test automation"), not which product.
-const PRACTICE_WORDS = new Set([
-  "test", "tests", "testing", "automation", "automated", "scripting", "scripts", "development", "engineering", "programming",
-  "pipeline", "pipelines", "clusters", "cluster", "administration", "admin", "performance", "tuning", "optimisation", "optimization",
-  "design", "integration", "integrations", "deployment", "deployments", "monitoring", "migration", "migrations", "modelling", "modeling",
-  "data", "analysis", "analytics", "backend", "frontend", "services", "applications", "apps", "queries", "query", "querying",
-  "reporting", "dashboards", "debugging", "troubleshooting", "maintenance", "configuration", "management", "security", "best", "practices",
+// The second word of a two-word product: "AWS Lambda", "React Native", "GitHub
+// Actions", "Docker Compose", "Kafka Streams", "AWS Step Functions". A word beside
+// a product is part of its NAME only when it is one of these (or a product itself);
+// any other word ("cloud", "front-end", "web framework", "unit testing") asks how
+// the product is used.
+const PRODUCT_SECOND_WORDS = new Set([
+  "lambda", "native", "actions", "compose", "streams", "functions", "step", "pages", "workers", "connect", "studio", "router",
+  "query", "hooks", "redux", "flow", "beam", "glue", "athena", "redshift", "sagemaker", "bedrock", "kinesis", "fargate", "cloudformation",
+  "cdk", "amplify", "cognito", "dynamodb", "aurora", "bigquery", "dataflow", "pubsub", "vertex", "functions", "registry", "mesh",
 ]);
 // A named technology is never sent to the model:
 //   - a term that IS a product, a language or framework ("Spring Boot"), or a
-//     product plus another name ("AWS Lambda", "GitHub Actions", "React Native");
+//     two-word product ("AWS Lambda", "GitHub Actions", "React Native");
 //   - a named method around a product ("Kafka stream processing", "AWS serverless"
 //     — lib/evidenceMap's methods, read by isNamedTechnology);
-//   - a practice around a product the master CV never shows ("Kubernetes
-//     clusters" — asking could only invite a graft).
-// Only a practice of plain words around a product the CV shows ("Python test
-// automation") is a question of wording, so the model is asked. With no product
-// word, isNamedTechnology reads the LOWERCASED term: it reads a capital as a
-// product, and postings capitalise plain words ("Routing").
+//   - any term around a product the master CV never shows ("Kubernetes clusters"
+//     — asking could only invite a graft).
+// A product the CV shows plus plain words ("Python test automation", "AWS cloud",
+// "React front-end", "Django web framework") is a question of wording, so the
+// model is asked. With no product word, isNamedTechnology reads the LOWERCASED
+// term: it reads a capital as a product, and postings capitalise plain words ("Routing").
 function isNamed(term: string, sources: string): boolean {
   const products = productsIn(term);
   if (products.length === 0) return isNamedTechnology(term.toLowerCase());
@@ -117,7 +118,7 @@ function isNamed(term: string, sources: string): boolean {
   if (!rest || /^(?:and|or)$/i.test(rest)) return true;
   if (isNamedTechnology(rest.toLowerCase())) return true;
   const words = rest.toLowerCase().split(/\s+/).filter((w) => w && w !== "and" && w !== "or");
-  if (!words.every((w) => PRACTICE_WORDS.has(w))) return true;
+  if (words.some((w) => PRODUCT_SECOND_WORDS.has(w))) return true;
   return products.some((p) => matchAtsKeywords(sources, [p]).matched === 0);
 }
 

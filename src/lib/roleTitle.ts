@@ -65,79 +65,64 @@ export function titleAsIdentity(title: unknown, heldTitles: string[]): boolean {
 
 // "…, applying for the Product Engineer role." (5 Nov 2026, the owner's call):
 // the summary never names the job being applied for — it ended 6 of 6 tailors
-// that way. Removed server-side, last, so no later pass brings it back: the
-// clause goes, and a sentence that was nothing else goes with it. Any title,
-// not only this run's, since a fact-check fix can word it differently.
+// that way. Removed server-side, last, so no later pass brings it back. Any
+// title, not only this run's, since a fact-check fix can word it differently.
 //
-// Only where the clause's end is unambiguous; anywhere else the sentence is
-// left exactly as it is (a summary that names the job is a style miss, a
-// damaged summary is a lie). The clause:
-//   - starts the sentence, follows a comma or dash, or follows a singular job
-//     noun with an article ("Software developer applying for the X role");
-//     never "a CV tool that helps engineers apply for graduate roles";
-//   - has a title that never crosses a comma and ends in a role, position,
-//     programme, scheme, placement, internship or apprenticeship (a trailing
-//     year included), the LAST such noun before the clause's end — backtracking
-//     finds "Software Engineer Internship 2027 role at Acme" whole;
-//   - may take one place: "at the BBC", "at J.P. Morgan", "in the payments
-//     team", or "with" an organisation ("with Acme Bank" — never "with Python",
-//     a skill of the candidate's);
-//   - then must END: at the sentence's end; before "with" and the candidate's
-//     own facts ("with two years' …", "with hands-on experience …" — never
-//     "with a focus on payments", the role's); or, when it opens the sentence,
-//     before a comma that starts no relative clause ("Applying for the X role,
-//     iOS developer with …"). ", where REST APIs are core." stays whole.
-// A title may carry dots ("Node.js Developer", ".NET Engineer"): a dot followed by a letter is part of it.
-const TITLE_CHARS = String.raw`(?:[^.!?\n,;]|\.(?=\w))`;
-// No "i" flag: an organisation needs its capital letter, so every other word is
-// spelled case-free here instead (escapes such as \s are left alone).
+// Only the shape those six tailors wrote (6 Nov 2026, after four reviews of a
+// wider rule each found a new way to cut true text): the clause ENDS the
+// sentence after a comma — ", applying for the <title> role[ at <employer>]."
+// — or it is the whole sentence. The title is a run of plain words, never a
+// linking word ("… role after completing a 12-month placement …" is no title),
+// ending in a role / position / programme / scheme / placement / internship /
+// apprenticeship (a year after it allowed). After it, at most one place: "at"
+// an organisation ("the BBC", "J.P. Morgan", "monday.com", "the Bank of
+// England"), "with" one that says so ("with Acme Bank"; never "with Python"),
+// or "in" a team, a city or one word ("in the payments team", "in fintech").
+// Anything else — mid-sentence, before "with two years' …", before a comma — is
+// left exactly as it is: a summary that names the job is a style miss, a
+// damaged one is a lie.
 const anyCase = (s: string) => s.replace(/\\.|[a-z]/g, (c) => (c.length === 2 ? c : `[${c}${c.toUpperCase()}]`));
 const W = anyCase;
-const JOB_NOUN = W(String.raw`(?:developer|engineer|graduate|analyst|scientist|consultant|specialist|designer|architect|programmer|technologist|researcher|student)`);
+const LINKING = W(String.raw`(?:after|before|having|following|since|while|whilst|with|and|or|to|in|at|on|for|from|by|as|where|which|who|that|of|following|during|then)`);
+// A word of a title: letters, digits, a dot inside ("Node.js"), never a linking word.
+const TITLE_WORD = String.raw`(?!${LINKING}\b)[A-Za-z0-9(][\w&'’+#/()-]*(?:\.(?=\w)[\w&'’+#/()-]+)*`;
 const ROLE_NOUNS = W(String.raw`(?:roles?|positions?|opportunit(?:y|ies)|jobs?|post|vacanc(?:y|ies)|programmes?|programs?|schemes?|placements?|internships?|apprenticeships?)`);
-// A word of a place or employer: initials ("J.P."), an abbreviation ("Inc."), or a
-// plain word that is no linking word (so a place never runs on into the candidate).
-const TAIL_WORD = String.raw`(?:(?:[A-Z]\.){2,}|(?:Inc|Ltd|Co|Corp|plc)\.(?=\s)|(?!(?:with|and|or|for|to|in|at|as|using|by|from|where|while|which|who)\b)(?:[^\s,.;!?]|\.(?=\w))+)`;
-const AT_TAIL = String.raw`\s+(?:at|in|within|on|across)\s+(?:the\s+)?${TAIL_WORD}(?:\s+${TAIL_WORD}){0,5}`;
-// "with" an organisation: a word that says so, or "the" before a capital.
-const ORG_WORD = String.raw`(?:Bank|Group|Ltd|plc|PLC|LLP|Inc|Trust|Council|Partners|Capital|Labs?|Systems|Technologies|Solutions|Consulting|Insurance|Health|Hospitals?|University|Agency|Authority|Foundation|Holdings|Services|NHS|Digital|Media|Studios?)`;
-const CAP_WORD = String.raw`(?!I\b)[A-Z](?:[\w&'’-]|\.(?=\w))*`;
-const WITH_TAIL = String.raw`\s+with\s+(?:(?:the\s+${CAP_WORD}(?:\s+(?:${CAP_WORD}|&|of))*)|(?:${CAP_WORD}\s+)*${ORG_WORD}\b)`;
-// The candidate's own facts after "with": years, experience, a degree … — never the role's focus.
-const OWN_FACTS = String.raw`\s+with\s+(?:\d|one|two|three|four|five|six|seven|eight|nine|ten|several|over|more\s+than|hands-on|strong|solid|proven|practical|commercial|production|professional|experience|expertise|skills|knowledge|a\s+(?:background|track\s+record|portfolio|degree|first|2:1|master)|an\s+(?:MSc|BSc|MEng|BEng|MA|BA))`;
-const CLAUSE = String.raw`(?:(?:and|now|currently|while)\s+)*${W("(?:applying|apply)")}\s+(?:for|to)\s+(?:(?:the|this|a|an|your)\s+)?(?:${W("(?:role|position)")}\s+of\s+${TITLE_CHARS}{1,90}?|${TITLE_CHARS}{1,90}?\b${ROLE_NOUNS}(?:\s+(?:19|20)\d{2})?)(?:${AT_TAIL}|${WITH_TAIL})?`;
-const ENDS = String.raw`(?=\s*[.!?]?\s*$|${OWN_FACTS})`;
-// Mid-sentence: after a comma or dash, or straight after a singular job noun with an article.
-const APPLIED_FOR_MID_RE = new RegExp(
-  String.raw`(?:[,;:]\s*|\s+[—–-]\s+|(?<=\b${JOB_NOUN})\s+(?=(?:(?:currently|now)\s+)?applying\s+for\s+(?:the|this|a|an)\s))${CLAUSE}${ENDS}`
-);
-// Opening the sentence: it may also end before a comma that starts no relative clause.
-const APPLIED_FOR_START_RE = new RegExp(String.raw`^${CLAUSE}(?=\s*[.!?]?\s*$|${OWN_FACTS}|\s*,\s*(?!(?:where|which|who|whose|when|that|whereby)\b))`);
+const TITLE = String.raw`(?:${TITLE_WORD}\s+){0,11}?${ROLE_NOUNS}(?:\s+(?:19|20)\d{2})?`;
+const ROLE_OF = String.raw`${W("(?:role|position)")}\s+of\s+(?:${TITLE_WORD}\s+){0,10}?${TITLE_WORD}`;
+// An organisation: initials ("J.P."), a capitalised name, or a domain ("monday.com").
+const ORG_TOKEN = String.raw`(?:(?:[A-Z]\.){2,}|[A-Z0-9][\w&'’+-]*(?:\.(?=\w)[\w&'’+-]+)*|[a-z][a-z0-9-]*\.[a-z]{2,}(?:\.[a-z]{2,})?)`;
+const ORG = String.raw`(?:the\s+)?${ORG_TOKEN}(?:\s+(?:(?:of|for|and|&)\s+)?${ORG_TOKEN}){0,5}`;
+const ORG_SAYS_SO = String.raw`(?:Bank|Group|Ltd|plc|PLC|LLP|Inc|Trust|Council|Partners|Capital|Labs?|Systems|Technologies|Solutions|Consulting|Insurance|Health|Hospitals?|University|Agency|Authority|Foundation|Holdings|Services|NHS|Digital|Media|Studios?)`;
+const PLACE = String.raw`(?:at\s+${ORG}|with\s+(?:the\s+${ORG}|(?:${ORG_TOKEN}\s+){0,4}${ORG_SAYS_SO}\b)|(?:in|on)\s+(?:the\s+)?(?:${ORG_TOKEN}(?:\s+${ORG_TOKEN}){0,3}|(?:[a-z-]+\s+){0,3}(?:team|squad|group|division|department|unit|function|practice|office)|[a-z-]+))`;
+const CLAUSE = String.raw`(?:(?:and|now|currently)\s+)?${W("applying")}\s+(?:for|to)\s+(?:(?:the|this|a|an|your)\s+)?(?:${ROLE_OF}|${TITLE})(?:\s+${PLACE})?\s*[.!?]?\s*$`;
+// ", applying for …." ending the sentence (after a comma, a semicolon, a dash, or a
+// singular job noun: "Engineer applying for the X role."), or "Applying for …." as
+// the whole sentence.
+const JOB_NOUN = W(String.raw`(?:developer|engineer|graduate|analyst|scientist|consultant|specialist|designer|architect|programmer|technologist|researcher|student)`);
+const APPLIED_FOR_END_RE = new RegExp(String.raw`(?:\s*[,;]\s*|\s+[—–-]\s+|(?<=\b${JOB_NOUN})\s+)${CLAUSE}`);
+const APPLIED_FOR_WHOLE_RE = new RegExp(String.raw`^\s*${CLAUSE}`);
 const WORDS_RE = /[A-Za-z0-9]+/g;
-// Sentence ends that are not abbreviations or initials ("Ltd. ", "J.P. Morgan").
-const SUMMARY_SPLIT = /(?<!\b(?:[A-Z]|Ltd|Inc|Co|Corp|plc|St|Dr|Mr|Mrs|Ms|No|vs|etc|e\.g|i\.e)\.)(?<=[.!?])\s+/;
+// A sentence ends before a capital: "J.P. Morgan" and "Acme Inc. in London" stay one.
+const SUMMARY_SPLIT = /(?<!\b[A-Z]\.[A-Z]\.)(?<=[.!?])\s+(?=[A-Z0-9"“‘(])/;
 
 export function stripAppliedFor(summary: string): { text: string; removed: string[] } {
   const removed: string[] = [];
   const lines = summary.split("\n").map((line) => {
-    const sentences = line.split(SUMMARY_SPLIT);
     const kept: string[] = [];
-    for (const sentence of sentences) {
-      const m = APPLIED_FOR_START_RE.exec(sentence) ?? APPLIED_FOR_MID_RE.exec(sentence);
+    for (const sentence of line.split(SUMMARY_SPLIT)) {
+      if (APPLIED_FOR_WHOLE_RE.test(sentence)) {
+        removed.push(sentence.trim());
+        continue;
+      }
+      const m = APPLIED_FOR_END_RE.exec(sentence);
       if (!m || m.index === undefined) {
         kept.push(sentence);
         continue;
       }
-      let rest = (sentence.slice(0, m.index) + sentence.slice(m.index + m[0].length))
-        .replace(/^[\s,;:—–-]+/, "")
-        .replace(/[\s,;:—–-]+([.!?])?\s*$/, "$1")
-        .replace(/\s+([,;.!?])/g, "$1")
-        .replace(/,\s*,/g, ",");
+      const rest = sentence.slice(0, m.index).replace(/[\s,;:—–-]+$/, "");
       removed.push(sentence.trim());
       if ((rest.match(WORDS_RE) ?? []).length < 3) continue;
-      if (!/[.!?]$/.test(rest)) rest += ".";
-      // "iOS developer…" keeps its own capitals.
-      kept.push(/^[a-z](?![A-Z])/.test(rest) ? rest.charAt(0).toUpperCase() + rest.slice(1) : rest);
+      kept.push(`${rest}.`);
     }
     return kept.join(" ");
   });

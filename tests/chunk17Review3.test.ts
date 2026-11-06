@@ -12,7 +12,6 @@ import { triageJd } from "../src/lib/triage/jdTriage.ts";
 const NOW = new Date("2026-11-05T12:00:00Z");
 const NONE = "EXPERIENCE\nSoftware Engineer | Acme | 2022 – Present";
 const CURRENT = "EXPERIENCE\nSoftware Engineer (Industrial Placement) | Example Lab | Jul 2025 – Present";
-const guard = (text: string, master: string) => guardRoleStatus(text, master, { now: NOW }).text;
 const strip = (s: string) => stripAppliedFor(s).text;
 
 test("applied-for: the whole title to its last role noun, only where the clause ends; never a skill, a focus or a relative clause", () => {
@@ -21,9 +20,7 @@ test("applied-for: the whole title to its last role noun, only where the clause 
     ["Python developer with two years of FastAPI work, applying for the Technology Graduate Programme role.", "Python developer with two years of FastAPI work."],
     ["Software engineer with two years of Python, applying for the Industrial Placement Year role at Acme.", "Software engineer with two years of Python."],
     ["Software engineer with two years of Python, applying for the Software Engineering Placement Student role at Acme.", "Software engineer with two years of Python."],
-    ["Computer Science graduate applying for the Junior Developer role at Acme with hands-on experience in Python and React.", "Computer Science graduate with hands-on experience in Python and React."],
     ["Python developer with two years of FastAPI work, applying for the Software Engineer role at J.P. Morgan.", "Python developer with two years of FastAPI work."],
-    ["Python developer applying for the role of Software Engineer at Acme with two years of FastAPI experience.", "Python developer with two years of FastAPI experience."],
   ];
   for (const [input, want] of full) assert.equal(strip(input), want, input);
   for (const s of [
@@ -34,23 +31,33 @@ test("applied-for: the whole title to its last role noun, only where the clause 
     "Python developer with two years of FastAPI work, applying for the Software Engineer role at Acme Inc. in London.",
     "Python developer with two years of FastAPI work, applying for the Associate Software Engineer role at Acme, where REST APIs and AWS are core.",
     "Python developer, applying for the role of Software Engineer, Backend at Monzo.",
+    // Mid-sentence, before the candidate's facts: left as it is (6 Nov).
+    "Computer Science graduate applying for the Junior Developer role at Acme with hands-on experience in Python and React.",
+    "Python developer applying for the role of Software Engineer at Acme with two years of FastAPI experience.",
   ]) assert.equal(strip(s), s, s);
 });
 
+// Kept as written and flagged: the claim is caught, the sentence is never cut (6 Nov).
+const flagged = (s: string, master: string) => {
+  const r = guardRoleStatus(s, master, { now: NOW });
+  assert.equal(r.text, s, s);
+  assert.deepEqual(r.flagged, [s], s);
+};
+
 test("placement guard: intent before the claim exempts it; intent after only a future word on an untensed claim", () => {
-  assert.equal(guard("My industrial placement at Example Lab gave me the opportunity to build ETL pipelines in Python.", NONE), "");
-  assert.equal(guard("During my placement at Example Lab I had the opportunity to build ETL pipelines in Python.", NONE), "I had the opportunity to build ETL pipelines in Python.");
-  assert.equal(guard("I recently completed my industrial placement at Example Lab and am interested in continuing in data engineering.", CURRENT), "");
-  assert.equal(guard("I completed my placement at Example Lab and plan to build on it in a data team.", CURRENT), "");
-  assert.equal(guard("During my internship I worked on sprint planning to cut cycle time by 20%.", NONE), "I worked on sprint planning to cut cycle time by 20%.");
+  flagged("My industrial placement at Example Lab gave me the opportunity to build ETL pipelines in Python.", NONE);
+  flagged("During my placement at Example Lab I had the opportunity to build ETL pipelines in Python.", NONE);
+  flagged("I recently completed my industrial placement at Example Lab and am interested in continuing in data engineering.", CURRENT);
+  flagged("I completed my placement at Example Lab and plan to build on it in a data team.", CURRENT);
+  flagged("During my internship I worked on sprint planning to cut cycle time by 20%.", NONE);
   const hope = "During my internship I hope to learn your deployment tooling.";
-  assert.equal(guard(hope, NONE), hope);
+  assert.deepEqual(guardRoleStatus(hope, NONE, { now: NOW }).flagged, [], "a future role: no claim");
 });
 
 test("placement guard: only Education lines and lines that open with a degree are a degree's dates", () => {
-  assert.equal(guard("I am currently on a placement at Example Lab, where I build ETL pipelines in Python.", "EXPERIENCE\nSoftware Engineer – Placement Year (BSc Computer Science) | Example Lab | Jul 2024 – Jun 2025"), "");
-  assert.equal(guard("I am currently on a placement at UCLH, building data tools.", "EXPERIENCE\nSoftware Engineering Placement | University College London Hospitals | Jul 2024 – Jun 2025"), "");
-  assert.equal(guard("As a student on placement at Example Lab, I built ETL pipelines in Python.", NONE), "I built ETL pipelines in Python.");
+  flagged("I am currently on a placement at Example Lab, where I build ETL pipelines in Python.", "EXPERIENCE\nSoftware Engineer – Placement Year (BSc Computer Science) | Example Lab | Jul 2024 – Jun 2025");
+  flagged("I am currently on a placement at UCLH, building data tools.", "EXPERIENCE\nSoftware Engineering Placement | University College London Hospitals | Jul 2024 – Jun 2025");
+  flagged("As a student on placement at Example Lab, I built ETL pipelines in Python.", NONE);
 });
 
 test("suggestions: a project line moved into a paid role is held however it is worded; a reason after a colon is no line", () => {

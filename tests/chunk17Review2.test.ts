@@ -22,8 +22,8 @@ test("applied-for: the employer goes with the clause, in any form, and never the
   assert.ok(same("Python developer with FastAPI APIs, applying to Monzo, with a 12-month industrial placement at Example Lab."));
   assert.ok(same("Computer Science student, applying to Acme's graduate intake, with a summer internship at Example Lab."));
   assert.ok(same("Full-stack developer, applying for the Software Engineer opening at Acme, with a 12-month industrial placement at Example Lab."));
-  // The place is the role's and goes with it; "with two years' Python" is the candidate's and stays (third review).
-  assert.equal(stripAppliedFor("Software developer applying for the Product Engineer role in London with two years' Python.").text, "Software developer with two years' Python.");
+  // Mid-sentence is left as it is (6 Nov): only the clause that ends the sentence goes.
+  assert.ok(same("Software developer applying for the Product Engineer role in London with two years' Python."));
   assert.equal(stripAppliedFor("Python developer with FastAPI APIs, applying for the Technology Graduate Programme 2027.").text, "Python developer with FastAPI APIs.");
 });
 
@@ -37,14 +37,23 @@ test("placement guard: intent phrases, degree dates, relative clauses, openers, 
   const sandwich = "EDUCATION\nBSc Computer Science with Industrial Placement | University of Leeds | Sep 2022 – Jun 2027\n\nEXPERIENCE\nSoftware Engineer (Placement) | Example Lab | Jul 2024 – Jun 2025";
   const done = "I completed a 12-month industrial placement at Example Lab in 2025, where I built ETL pipelines in Python.";
   assert.equal(guard(done, sandwich), done, "the degree's end date is not the placement's");
-  assert.equal(guard("Software engineer currently on an industrial placement at Example Lab, where I build ETL pipelines in Python.", RENAMED), "");
-  assert.equal(guard("Software engineer currently on an industrial placement at Example Lab, during which I shipped 14 releases.", RENAMED), "");
-  assert.equal(guard("During my placement year at Example Lab, I built ETL pipelines in Python.", RENAMED), "I built ETL pipelines in Python.");
-  assert.equal(guard("During my internship at Example Lab and later at Acme, I built ETL pipelines in Python.", RENAMED), "");
-  assert.equal(guard("During my placement at Example Lab Python was my main language.", RENAMED), "");
-  assert.equal(guard("I built ETL pipelines in Python for 40 hospitals, and I am currently on a placement at the NHS.", RENAMED), "I built ETL pipelines in Python for 40 hospitals.");
-  assert.equal(guard("Software engineer currently on a placement at the NHS, building ETL pipelines in Python.", RENAMED), "Software engineer, building ETL pipelines in Python.");
-  assert.equal(guard("I mentored two students on placement at Example Lab.", RENAMED), "I mentored two students on placement at Example Lab.");
+  // Detection, not surgery (6 Nov): each of these carries true facts beside the claim,
+  // so it is kept as written and flagged — never cut.
+  for (const s of [
+    "Software engineer currently on an industrial placement at Example Lab, where I build ETL pipelines in Python.",
+    "Software engineer currently on an industrial placement at Example Lab, during which I shipped 14 releases.",
+    "During my placement year at Example Lab, I built ETL pipelines in Python.",
+    "During my internship at Example Lab and later at Acme, I built ETL pipelines in Python.",
+    "During my placement at Example Lab Python was my main language.",
+    "I built ETL pipelines in Python for 40 hospitals, and I am currently on a placement at the NHS.",
+    "Software engineer currently on a placement at the NHS, building ETL pipelines in Python.",
+  ]) {
+    const r = guardRoleStatus(s, RENAMED, { now: NOW });
+    assert.equal(r.text, s, s);
+    assert.deepEqual(r.flagged, [s], s);
+  }
+  const other = guardRoleStatus("I mentored two students on placement at Example Lab.", RENAMED, { now: NOW });
+  assert.deepEqual(other.flagged, [], "about other people: no claim at all");
 });
 
 test("suggestions: posting quotes only when the posting is the subject; moves only into a role; every word traced", () => {

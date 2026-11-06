@@ -15,35 +15,37 @@ const CURRENT = "EXPERIENCE\nSoftware Engineer (Industrial Placement) | Example 
 const RENAMED = "EXPERIENCE\nFull-Stack & AI Engineer | Example Lab | Jul 2025 – Present";
 const guard = (text: string, master: string, keep = false) => guardRoleStatus(text, master, { now: NOW, keep: keep ? () => true : undefined });
 
-test("the placement guard never leaves half a sentence", () => {
+// Detection, not surgery (6 Nov): a sentence with true facts beside the false claim is
+// never cut; it is kept as written and flagged. Only a pure claim is removed.
+const flagged = (s: string, master: string) => {
+  const r = guard(s, master);
+  assert.equal(r.text, s, s);
+  assert.deepEqual(r.flagged, [s], s);
+  assert.deepEqual(r.removed, []);
+};
+
+test("the placement guard never leaves half a sentence: a mixed sentence is flagged whole", () => {
   for (const s of [
     "Software engineer with a completed industrial placement at Example Lab and two years' production experience in Python.",
     "Software engineer who has completed an industrial placement at Example Lab, with two years' production experience in Python.",
     "Last year I completed a 12-month placement at Example Lab, where I built ETL pipelines in Python.",
     "Software engineer who completed an industrial placement at Example Lab, seeking a graduate role in fintech.",
-  ]) {
-    const r = guard(s, CURRENT);
-    assert.equal(r.text, "", s);
-    assert.deepEqual(r.removed, [s]);
-    const kept = guard(s, CURRENT, true);
-    assert.equal(kept.text, s, "the summary's title sentence is kept whole and reported");
-    assert.deepEqual(kept.flagged, [s]);
-  }
-  assert.equal(guard("1. I built the billing API.\n2. I completed a placement at Example Lab, where I built ETL pipelines.", CURRENT).text, "1. I built the billing API.");
+  ]) flagged(s, CURRENT);
+  const letter = "1. I built the billing API.\n2. I completed a placement at Example Lab, where I built ETL pipelines.";
+  assert.equal(guard(letter, CURRENT).text, letter);
+  const pure = guard("1. I built the billing API.\n2. I completed a placement at Example Lab.", CURRENT);
+  assert.equal(pure.text, "1. I built the billing API.", "nothing but the claim: removed");
 });
 
-test("the claim's tail is the organisation only, never the candidate's next facts", () => {
-  assert.equal(guard("During my placement at Example Lab I built ETL pipelines in Python.", RENAMED).text, "I built ETL pipelines in Python.");
-  assert.equal(
-    guard("Data engineer currently on an industrial placement at Example Lab building ETL pipelines in Python with Airflow.", RENAMED).text,
-    "Data engineer, building ETL pipelines in Python with Airflow."
-  );
+test("the candidate's other facts are never lost with the claim", () => {
+  flagged("During my placement at Example Lab I built ETL pipelines in Python.", RENAMED);
+  flagged("Data engineer currently on an industrial placement at Example Lab building ETL pipelines in Python with Airflow.", RENAMED);
 });
 
 test("intent is read in the claim's own clause", () => {
-  assert.equal(guard("Having completed my industrial placement at Example Lab, I am keen to bring that experience to Acme.", CURRENT).text, "I am keen to bring that experience to Acme.");
-  assert.equal(guard("During my placement I ran sprint planning for four engineers.", RENAMED).text, "I ran sprint planning for four engineers.", "planning is not intent");
-  assert.equal(guard("I am keen to spend my placement year with your team.", RENAMED).removed.length, 0);
+  flagged("Having completed my industrial placement at Example Lab, I am keen to bring that experience to Acme.", CURRENT);
+  flagged("During my placement I ran sprint planning for four engineers.", RENAMED);
+  assert.equal(guard("I am keen to spend my placement year with your team.", RENAMED).flagged.length, 0, "intent before the claim: no claim at all");
 });
 
 test("a role whose end date is still ahead is current, and an end this year with no month decides nothing", () => {
@@ -59,10 +61,9 @@ test("a role whose end date is still ahead is current, and an end this year with
 });
 
 test("the applied-for strip keeps the candidate's own facts", () => {
-  assert.equal(
-    stripAppliedFor("Software developer applying for the Product Engineer role with two years' production experience in Python and FastAPI.").text,
-    "Software developer with two years' production experience in Python and FastAPI."
-  );
+  // Mid-sentence is left as it is (6 Nov): only the clause that ends the sentence goes.
+  const mid = "Software developer applying for the Product Engineer role with two years' production experience in Python and FastAPI.";
+  assert.equal(stripAppliedFor(mid).text, mid);
   const tool = "Built Jobhuntz, a CV tool that helps engineers apply for graduate roles at 120 UK companies.";
   assert.deepEqual(stripAppliedFor(tool), { text: tool, removed: [] });
   assert.equal(stripAppliedFor("Python developer with FastAPI APIs, applying for the 2027 Technology Graduate Programme.").text, "Python developer with FastAPI APIs.");

@@ -78,18 +78,25 @@ const UNQUOTED_RES = [
 // Northgate Systems role", "Copy "…" over to your Northgate experience"). A purpose
 // ("… to show React experience") is no destination.
 const MOVE_VERB_RE = /\b(?:move|add|put|place|bring|copy|shift|transfer|include|insert)\b/i;
-const PURPOSE_RE = /\bto\s+(?:show|surface|highlight|demonstrate|evidence|prove|signal|support)\b[^.;]*/gi;
-const ROLE_DEST_RE = /\b(?:into|under|to|in)\s+(?:your\s+|the\s+)?(?:[\w&.'’-]+\s+){0,5}?(?:role|job|position|employment|work\s+experience|experience(?:\s+section)?)\b/i;
+// A purpose, up to the next comma or quote: "To show React experience, add "…" under
+// your Northgate Systems role" keeps its destination.
+const PURPOSE_RES = [/\bto\s+(?:show|surface|highlight|demonstrate|evidence|prove|signal|support|lead\s+with)\b[^.;,"“”‘]*/gi, /\bso\s+(?:that\s+)?(?:your|it|the|this|they)\b[^.;,"“”‘]*/gi];
+// "your" / "the" role, job or experience — never "the role's top term".
+const ROLE_DEST_RE = /\b(?:into|under|to|in)\s+(?:your|the)\s+(?:[\w&.'’-]+\s+){0,4}?(?:role|job|position|employment|work\s+experience|experience(?:\s+section)?)\b(?!['’]s)/i;
 // The employer words of the master CV's role headers ("Northgate Systems"), never job words.
 const JOB_WORDS = /^(?:software|senior|junior|lead|staff|principal|full|stack|full-stack|data|engineer|developer|analyst|scientist|graduate|intern|placement|research|assistant|associate|consultant|manager|backend|frontend|front-end|back-end|web|mobile|platform|devops|cloud|machine|learning|ai|and|of|the|at|year)$/i;
 function employerWords(where: (string | null)[]): string[] {
   const out = new Set<string>();
-  for (const w of where) for (const word of (w ?? "").split(/[\s,|—–()]+/)) if (word.length >= 4 && /^[A-Z]/.test(word) && !JOB_WORDS.test(word)) out.add(word);
+  // lib/evidenceMap roleLabel writes "Title, Employer": the employer's words only.
+  for (const w of where) {
+    const employer = (w ?? "").split(/,\s+/).slice(1).join(" ");
+    for (const word of employer.split(/[\s|—–()]+/)) if (word.length >= 4 && /^[A-Z]/.test(word) && !JOB_WORDS.test(word)) out.add(word);
+  }
   return [...out];
 }
 function movesIntoPaidWork(suggestion: string, employers: readonly string[]): boolean {
   if (!MOVE_VERB_RE.test(suggestion)) return false;
-  const t = suggestion.replace(PURPOSE_RE, " ");
+  const t = PURPOSE_RES.reduce((s, re) => s.replace(re, " "), suggestion);
   if (ROLE_DEST_RE.test(t)) return true;
   return employers.some((e) => new RegExp(String.raw`\b(?:into|under|to|in)\s+(?:your\s+|the\s+)?(?:[\w&.'’-]+\s+){0,3}?${e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\b`).test(t));
 }
@@ -107,22 +114,32 @@ export function proposedLines(suggestion: string): string[] {
     }
   }
   if (out.length === 0) {
-    for (const re of UNQUOTED_RES) {
+    UNQUOTED_RES.forEach((re, i) => {
+      if (out.length > 0) return;
       const m = re.exec(suggestion);
-      // A CV line: four letter-words or more ("to Technical Tools" names a place), a
-      // capital first, and never addressed to the reader ("your Northgate bullet
-      // already shows it" is a reason, not a line).
-      if (m && (m[1].match(/\p{L}{2,}/gu) ?? []).length >= 4 && /^[A-Z0-9]/.test(m[1].trim()) && !/\byou(?:r|rs)?\b/i.test(m[1])) {
-        out.push(m[1].trim());
-        break;
-      }
-    }
+      if (!m) return;
+      const line = m[1].trim();
+      // A CV line: four letter-words or more ("to Technical Tools" names a place),
+      // never addressed to the reader ("your Northgate bullet already shows it" is a
+      // reason), never an instruction ("lead with …", "move PostgreSQL …"); after a
+      // rewrite verb's "to" / "as", a capital first ("Rewrite it as Led …"). A line
+      // after a colon may be lower case: "to: built and owned the Kafka pipeline …".
+      if ((line.match(/\p{L}{2,}/gu) ?? []).length < 4 || /\byou(?:r|rs)?\b/i.test(line) || INSTRUCTION_START_RE.test(line)) return;
+      if (i === 1 && !/^[A-Z0-9]/.test(line)) return;
+      out.push(line);
+    });
   }
   return out;
 }
 
+// An instruction to the user, not a CV line.
+const INSTRUCTION_START_RE = /^(?:move|put|lead|keep|list|add|use|mention|name|place|swap|replace|drop|remove|cut|reorder|start|open|consider|try|make|bring|highlight|emphasi[sz]e|surface|show|include|mirror|match|reword|rewrite|change|update|edit|mention|lean|frame|position)\b/i;
+// "… add it / them / both …": the suggestion tells the user to add what it quoted.
+const ADD_IT_RE = /\b(?:add|list|include|put|mention|name|use|insert|write)\b[^.;]*?\b(?:it|them|both|this|these|those|that|each)\b/i;
+
 // The suggestion with the posting's quoted words taken out: a term quoted from the
-// posting is what the role asks for, not something the suggestion claims.
+// posting is what the role asks for, not something the suggestion claims — unless
+// the suggestion then says to add it ("asks for "Kubernetes"; add it to your tools").
 function withoutPostingQuotes(suggestion: string): string {
   let out = suggestion;
   for (const re of QUOTE_RES) {
@@ -164,7 +181,8 @@ export function checkSuggestions(
   const needsEvidence: NeedsEvidence[] = [];
   for (const suggestion of suggestions) {
     if (typeof suggestion !== "string" || !suggestion.trim()) continue;
-    const own = withoutPostingQuotes(suggestion);
+    const stripped = withoutPostingQuotes(suggestion);
+    const own = ADD_IT_RE.test(stripped) ? suggestion : stripped;
     const named = ctx.absentTerms.filter((t) => t.trim() && matchAtsKeywords(own, [t]).matched > 0);
     const unbacked = named.filter((t) => !inSources(t));
     // A term the master CV names elsewhere may join a line; nothing else may.
