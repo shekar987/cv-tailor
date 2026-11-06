@@ -28,6 +28,7 @@
 import { foldWord, matchAtsKeywords } from "./atsMatch.ts";
 import { checkClaims, type ClaimsRegistry, type GraftRule } from "./claims.ts";
 import { evidenceLines } from "./evidenceMap.ts";
+import { parseMasterExperience } from "./bulletIds.ts";
 import { renameLine } from "./gapCheck.ts";
 
 // Grammatical words only: "strong", "expert", "led" and "own" are claims and are traced.
@@ -68,7 +69,11 @@ const POSTING_QUOTE_RE = /\b(?:the\s+)?(?:posting|job\s+description|JD|advert|jo
 // any capital: "Move Python to the front: it is the first term" and "Add Python to
 // Technical Tools line first" propose no line.
 const UNQUOTED_RES = [
-  /\b(?:add|write|use|say|reads?|to|as|with|bullet|line|sentence|summary)\s*:\s*([^"“”:]+?)\s*\.?\s*$/i,
+  // After a writing cue the line may start lower case ("to: built and owned …").
+  /\b(?:add|write|say|reads?|to|as|with)\s*:\s*([^"“”:]+?)\s*\.?\s*$/i,
+  // After a label ("Summary:", "Kafka bullet:") only a capital starts a line; "Summary: the
+  // first sentence should name Kafka" is advice.
+  /\b(?:[Bb]ullet|[Ll]ine|[Ss]entence|[Ss]ummary)\s*:\s*([A-Z0-9][^"“”:]+?)\s*\.?\s*$/,
   /\b(?:[Rr]ewrite|[Rr]ephrase|[Rr]eword|[Cc]hange|[Rr]eplace|[Uu]pdate|[Ee]dit|[Tt]urn)\b[^.:"“”]*?\b(?:to|as|with)\s+([A-Z][^"“”]+?)\s*\.?\s*$/,
   /(?:→|->)\s*([^"“”]+?)\s*\.?\s*$/,
 ];
@@ -80,17 +85,32 @@ const UNQUOTED_RES = [
 const MOVE_VERB_RE = /\b(?:move|add|put|place|bring|copy|shift|transfer|include|insert)\b/i;
 // A purpose, up to the next comma or quote: "To show React experience, add "…" under
 // your Northgate Systems role" keeps its destination.
-const PURPOSE_RES = [/\bto\s+(?:show|surface|highlight|demonstrate|evidence|prove|signal|support|lead\s+with)\b[^.;,"“”‘]*/gi, /\bso\s+(?:that\s+)?(?:your|it|the|this|they)\b[^.;,"“”‘]*/gi];
+// A purpose runs to the next quote mark or the sentence's end, so its reason goes with it
+// ("to show React, which is central to the role"); one before the quote stops at the quote,
+// keeping the destination after it ("To show React, add "…" under your Northgate Systems role").
+const PURPOSE_RES = [
+  /\bto\s+(?:show|surface|highlight|demonstrate|evidence|prove|signal|support|lead\s+with)\b[^.;"“”‘]*/gi,
+  /\bso\s+(?:that\s+)?(?:your|it|the|this|they)\b[^.;"“”‘]*/gi,
+  /\b(?:because|since)\b[^.;"“”‘]*/gi,
+];
 // "your" / "the" role, job or experience — never "the role's top term".
-const ROLE_DEST_RE = /\b(?:into|under|to|in)\s+(?:your|the)\s+(?:[\w&.'’-]+\s+){0,4}?(?:role|job|position|employment|work\s+experience|experience(?:\s+section)?)\b(?!['’]s)/i;
+// "your / the" before a role, job or position (never "the role's", never "the job
+// description"); none needed before a section ("under Experience", "into work experience").
+const ROLE_DEST_RE = /\b(?:into|under|to|in)\s+(?:(?:your|the)\s+(?:[\w&.'’-]+\s+){0,4}?(?:role|job|position)\b(?!['’]s|\s+(?:description|ad|advert|spec|posting|title|board|listing))|(?:your\s+|the\s+)?(?:work\s+experience|experience(?:\s+section)?|employment(?:\s+history)?)\b)/i;
 // The employer words of the master CV's role headers ("Northgate Systems"), never job words.
 const JOB_WORDS = /^(?:software|senior|junior|lead|staff|principal|full|stack|full-stack|data|engineer|developer|analyst|scientist|graduate|intern|placement|research|assistant|associate|consultant|manager|backend|frontend|front-end|back-end|web|mobile|platform|devops|cloud|machine|learning|ai|and|of|the|at|year)$/i;
-function employerWords(where: (string | null)[]): string[] {
+// From the master CV's role headers in whatever shape ("Title | Employer | Dates",
+// "Employer — Title", "Title at Employer, dates"): the capitalised words that are no job
+// word, no month and no skill the CV lists ("Python" from "Python Developer | Acme").
+const MONTH_WORDS = /^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*$|^present$|^current$/i;
+function employerWords(headers: readonly string[], skillsText: string): string[] {
+  const skills = new Set((skillsText.toLowerCase().match(/[\p{L}\p{N}+#.]+/gu) ?? []));
   const out = new Set<string>();
-  // lib/evidenceMap roleLabel writes "Title, Employer": the employer's words only.
-  for (const w of where) {
-    const employer = (w ?? "").split(/,\s+/).slice(1).join(" ");
-    for (const word of employer.split(/[\s|—–()]+/)) if (word.length >= 4 && /^[A-Z]/.test(word) && !JOB_WORDS.test(word)) out.add(word);
+  for (const h of headers) {
+    for (const word of h.split(/[\s|,—–()·]+/)) {
+      const w = word.replace(/[^\p{L}\p{N}&'’-]/gu, "");
+      if (w.length >= 4 && /^[A-Z]/.test(w) && !JOB_WORDS.test(w) && !MONTH_WORDS.test(w) && !skills.has(w.toLowerCase())) out.add(w);
+    }
   }
   return [...out];
 }
@@ -124,8 +144,9 @@ export function proposedLines(suggestion: string): string[] {
       // reason), never an instruction ("lead with …", "move PostgreSQL …"); after a
       // rewrite verb's "to" / "as", a capital first ("Rewrite it as Led …"). A line
       // after a colon may be lower case: "to: built and owned the Kafka pipeline …".
-      if ((line.match(/\p{L}{2,}/gu) ?? []).length < 4 || /\byou(?:r|rs)?\b/i.test(line) || INSTRUCTION_START_RE.test(line)) return;
-      if (i === 1 && !/^[A-Z0-9]/.test(line)) return;
+      // Nor a line about the posting ("the posting asks for event-driven design twice").
+      if ((line.match(/\p{L}{2,}/gu) ?? []).length < 4 || /\byou(?:r|rs)?\b/i.test(line) || INSTRUCTION_START_RE.test(line) || /\b(?:posting|job\s+description|JD|advert|job\s+ad|the\s+role)\b/i.test(line)) return;
+      if (i === 2 && !/^[A-Z0-9]/.test(line)) return;
       out.push(line);
     });
   }
@@ -133,9 +154,11 @@ export function proposedLines(suggestion: string): string[] {
 }
 
 // An instruction to the user, not a CV line.
-const INSTRUCTION_START_RE = /^(?:move|put|lead|keep|list|add|use|mention|name|place|swap|replace|drop|remove|cut|reorder|start|open|consider|try|make|bring|highlight|emphasi[sz]e|surface|show|include|mirror|match|reword|rewrite|change|update|edit|mention|lean|frame|position)\b/i;
+const INSTRUCTION_START_RE = /^(?:tighten|shorten|trim|expand|split|merge|quantify|cite|move|put|lead|keep|list|add|use|mention|name|place|swap|replace|drop|remove|cut|reorder|start|open|consider|try|make|bring|highlight|emphasi[sz]e|surface|show|include|mirror|match|reword|rewrite|change|update|edit|mention|lean|frame|position)\b/i;
 // "… add it / them / both …": the suggestion tells the user to add what it quoted.
-const ADD_IT_RE = /\b(?:add|list|include|put|mention|name|use|insert|write)\b[^.;]*?\b(?:it|them|both|this|these|those|that|each)\b/i;
+// The add verb's object is the quoted term itself: "add it", "list both" — never "put your
+// Docker work first instead", never "mention that your …".
+const ADD_IT_RE = /\b(?:add|list|include|insert|write)\s+(?:it|them|both|each|the\s+term|this\s+term|these\s+terms)\b(?![^.;]*\binstead\b)/i;
 
 // The suggestion with the posting's quoted words taken out: a term quoted from the
 // posting is what the role asks for, not something the suggestion claims — unless
@@ -164,7 +187,7 @@ export function checkSuggestions(
   // line about a skill being learnt.
   const ev = evidenceLines(cv, pool);
   const experience = ev.experience.map((l) => l.text);
-  const employers = employerWords(ev.experience.map((l) => l.where));
+  const employers = employerWords(parseMasterExperience(cv).map((r) => r.header), ev.listed.map((l) => l.text).join("\n"));
   const projects = ev.projects.map((l) => l.text);
   const evidence = [...experience, ...projects, ...ev.listed.map((l) => l.text)];
   const learnt = ev.learnt.split("\n").map((l) => l.trim()).filter(Boolean);

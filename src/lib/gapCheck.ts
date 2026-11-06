@@ -97,9 +97,40 @@ function productsIn(term: string): string[] {
 // the product is used.
 const PRODUCT_SECOND_WORDS = new Set([
   "lambda", "native", "actions", "compose", "streams", "functions", "step", "pages", "workers", "connect", "studio", "router",
-  "query", "hooks", "redux", "flow", "beam", "glue", "athena", "redshift", "sagemaker", "bedrock", "kinesis", "fargate", "cloudformation",
-  "cdk", "amplify", "cognito", "dynamodb", "aurora", "bigquery", "dataflow", "pubsub", "vertex", "functions", "registry", "mesh",
+  "hooks", "redux", "beam", "glue", "athena", "redshift", "sagemaker", "bedrock", "kinesis", "fargate", "cloudformation",
+  "cdk", "amplify", "cognito", "dynamodb", "aurora", "bigquery", "dataflow", "pubsub", "vertex", "registry", "mesh",
+  "swarm", "kernel", "asyncio", "copilot", "synapse", "fabric", "lakehouse", "sentinel", "defender",
 ]);
+// Words that say how a product is used, never part of its name. In a term written
+// all in capitals ("Python Test Automation") a capital says nothing, so a word not
+// on this list is read as a name ("Azure Synapse Analytics"); in a term written in
+// sentence case only a capitalised word is ("Docker Swarm orchestration").
+// "query" is a use ("SQL query optimisation"); "React Query" is a capital in
+// sentence case, or two words of a title-case term that this list leaves named.
+const PRACTICE_WORDS = new Set([
+  "test", "tests", "testing", "unit", "automation", "automated", "scripting", "scripts", "development", "developer", "engineering",
+  "programming", "coding", "code", "pipeline", "pipelines", "clusters", "cluster", "administration", "admin", "performance", "tuning",
+  "optimisation", "optimization", "design", "integration", "integrations", "deployment", "deployments", "monitoring", "migration",
+  "migrations", "modelling", "modeling", "data", "analysis", "analytics", "backend", "frontend", "front", "back", "end", "web",
+  "framework", "frameworks", "cloud", "services", "service", "applications", "application", "apps", "app", "apis", "api", "rest",
+  "queries", "query", "querying", "reporting", "dashboards", "debugging", "troubleshooting", "maintenance", "configuration",
+  "management", "security", "best", "practices", "infrastructure", "platform", "platforms", "systems", "system", "solutions",
+  "architecture", "components", "component", "libraries", "library", "tools", "tooling", "ecosystem", "environment", "environments",
+  "experience", "knowledge", "skills", "proficiency", "stack", "server", "servers", "containers", "containerisation", "orchestration",
+  "mobile", "desktop", "ui", "ux", "workflows", "workflow", "processes", "concepts", "fundamentals", "principles", "advanced", "strong",
+  "solid", "good", "basic", "using", "with", "of", "in", "on", "for", "the", "to", "based", "including",
+]);
+// A word of a term's own spelling that names something: "Swarm" in "Docker Swarm
+// orchestration" (a capital in sentence case), any non-practice word in a term
+// written all in capitals.
+function namesByCase(term: string, rest: string): boolean {
+  const words = term.split(/[^\p{L}\p{N}+#.]+/u).filter((w) => /\p{L}/u.test(w));
+  const titleCase = words.every((w) => /^\p{Lu}/u.test(w) || /^(?:and|or|of|in|on|for|the|to|with|a|an)$/.test(w));
+  const restWords = rest.split(/\s+/).filter(Boolean);
+  if (titleCase) return restWords.some((w) => !PRACTICE_WORDS.has(w.toLowerCase()) && !/^(?:and|or)$/i.test(w));
+  const first = words[0] ?? "";
+  return restWords.some((w) => w !== first && /^\p{Lu}/u.test(w) && !PRACTICE_WORDS.has(w.toLowerCase()));
+}
 // A named technology is never sent to the model:
 //   - a term that IS a product, a language or framework ("Spring Boot"), or a
 //     two-word product ("AWS Lambda", "GitHub Actions", "React Native");
@@ -111,7 +142,10 @@ const PRODUCT_SECOND_WORDS = new Set([
 // "React front-end", "Django web framework") is a question of wording, so the
 // model is asked. With no product word, isNamedTechnology reads the LOWERCASED
 // term: it reads a capital as a product, and postings capitalise plain words ("Routing").
+// Products of three words or a common word that no list above can read: always a name.
+const PRODUCT_PHRASE_RE = /\b(?:react\s+server\s+components|(?:react|tanstack)\s+query|unity\s+catalog|data\s+factory|step\s+functions|app\s+router)\b/i;
 function isNamed(term: string, sources: string): boolean {
+  if (PRODUCT_PHRASE_RE.test(term)) return true;
   const products = productsIn(term);
   if (products.length === 0) return isNamedTechnology(term.toLowerCase());
   const rest = products.reduce((s, p) => s.split(p).join(" "), term).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -119,6 +153,7 @@ function isNamed(term: string, sources: string): boolean {
   if (isNamedTechnology(rest.toLowerCase())) return true;
   const words = rest.toLowerCase().split(/\s+/).filter((w) => w && w !== "and" && w !== "or");
   if (words.some((w) => PRODUCT_SECOND_WORDS.has(w))) return true;
+  if (namesByCase(term, rest)) return true;
   return products.some((p) => matchAtsKeywords(sources, [p]).matched === 0);
 }
 

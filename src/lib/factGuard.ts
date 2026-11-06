@@ -224,11 +224,24 @@ const DATED_RE = /\b(?:19|20)\d{2}\b/;
 // Intent BEFORE the claim in its own clause makes the role the one hoped for:
 // "I am keen to spend my placement year …", "I am planning to do my placement year …".
 // Phrases, not words, where the word alone has a past sense ("sprint planning").
-const INTENT_BEFORE_RE = /\b(?:apply|applying|keen|hope|hoping|would|will|looking\s+(?:for|to)|seeking|eager|want|wish|aim|aiming|excited|joining|join|intend|intending|interested\s+in|opportunit(?:y|ies)\s+(?:to|for)|plans?\s+(?:to|on)|planning\s+(?:to|on))\b/i;
+// "planning on" only before a verb ("planning on doing"): "test plans on my placement" is a noun.
+const INTENT_BEFORE_RE = /\b(?:apply|applying|keen|hope|hoping|would|will|looking\s+(?:for|to)|seeking|eager|want|wish|aim|aiming|excited|joining|join|intend|intending|interested\s+in|opportunit(?:y|ies)\s+(?:to|for)|plans?\s+to|planning\s+to|planning\s+on\s+\w+ing)\b/gi;
+// The intent must govern the claim: at most this many words between them, and no past
+// verb ("I am keen to bring the Python skills I built during my placement" is a claim).
+const INTENT_REACH_WORDS = 3;
+// …and only these words between them: "keen to spend my placement year", "planning on
+// doing my placement", "hope to complete my internship". "interested in distributed
+// systems during my placement" and "joining Example Lab on my placement year" are facts.
+const GOVERN_WORDS = new Set([
+  "to", "for", "on", "in", "a", "an", "the", "my", "do", "doing", "spend", "spending", "complete", "completing", "start", "starting",
+  "begin", "beginning", "undertake", "undertaking", "take", "taking", "secure", "securing", "find", "finding", "gain", "gaining",
+  "make", "making", "love", "like", "be", "being", "get", "getting", "use", "using",
+]);
 // AFTER the claim, only a future word, only on a claim with no tense of its own
 // ("During my internship I hope to learn …"), and only with no past verb between
 // ("My placement taught me skills I would bring …" is a claim about the past).
-const INTENT_AFTER_RE = /\b(?:hope|hoping|will|would|intend|intending|look(?:ing)?\s+forward|keen|eager|want|wish|aim|seek|plans?\s+to|planning\s+to)\b/i;
+// Not "would" (habitual past: "I would pair with senior engineers") and not "my aim was".
+const INTENT_AFTER_RE = /\b(?:hope|hoping|will|intend|intending|look(?:ing)?\s+forward|keen|eager|want|wish|(?<!\bmy\s)aim(?:ing)?\s+to|seek|plans?\s+to|planning\s+to)\b/i;
 const TENSED_CLAIM_RE = /\b(?:completed|finished|concluded|wrapped|undertook|undertaken|undertaking|spent|currently|now|am|was|while|whilst|when)\b|['’]m\b/i;
 const PAST_VERB_RE = /\b(?:\w{3,}ed|taught|gave|given|built|led|ran|made|meant|showed|shown|let|grew|took|brought|got|won|became|wrote|drove|held|kept|left|met|saw|sold|spent|told|thought|understood)\b/i;
 // A degree line's dates are the degree's, never the placement's: a line under an
@@ -237,6 +250,9 @@ const PAST_VERB_RE = /\b(?:\w{3,}ed|taught|gave|given|built|led|ran|made|meant|s
 const EDUCATION_HEAD_RE = /^\s*(?:education|academic(?:\s+\w+)?|qualifications|education\s+(?:&|and)\s+\w+)\s*:?\s*$/i;
 // A heading: a short line of capitals, or a short line ending in a colon, with no dates.
 const HEADING_SHAPE_RE = /^\s*(?:[A-Z][A-Z &/,'’-]{2,40}|[A-Z][\w &/,'’-]{2,40}:)\s*$/;
+// A heading ends Education only when it names another section: "UNIVERSITY OF BATH" and
+// "Relevant modules:" are still Education; "RELEVANT EXPERIENCE" and "WORK HISTORY" are not.
+const SECTION_WORD_RE = /\b(?:experience|employment|work|history|career|projects?|skills|placements?|internships?|certifications?|achievements|volunteering|leadership|interests|languages|profile|summary|publications|awards)\b/i;
 const DEGREE_FIRST_RE = /^\s*(?:[-•*]\s*)?(?:B\.?Sc|BEng|MEng|M\.?Sc|MBA|Ph\.?D|BA|MA|LLB|Bachelor|Master|Diploma|Degree)\b/i;
 // A sentence ends before a capital: "… models in R. I recently …" are two; "J.P.
 // Morgan" and "Ltd. on search" are one.
@@ -271,10 +287,16 @@ function roleState(master: string, inMaster: RegExp, now: Date): RoleState {
   let inEducation = false;
   for (const line of master.split(/\r?\n/)) {
     if (EDUCATION_HEAD_RE.test(line)) inEducation = true;
-    else if (HEADING_SHAPE_RE.test(line) && !DATED_RE.test(line)) inEducation = false;
+    else if (HEADING_SHAPE_RE.test(line) && !DATED_RE.test(line) && SECTION_WORD_RE.test(line)) inEducation = false;
     if (!inMaster.test(line)) continue;
     lines.push(line);
-    if (DATED_RE.test(line) && !inEducation && !DEGREE_FIRST_RE.test(line)) dated.push(line);
+    // The role's own dates: a role named only in a dated note in brackets is dated by the
+    // note ("Software Engineer | Acme | Sep 2025 – Present (joined after my summer internship,
+    // Jun – Aug 2024)"), any other by the line outside its brackets.
+    const notes = (line.match(/\([^)]*\)/g) ?? []).filter((b) => inMaster.test(b));
+    const outside = line.replace(/\([^)]*\)/g, " ");
+    const subject = !inMaster.test(outside) && notes.some((b) => DATED_RE.test(b)) ? notes.join(" ") : outside;
+    if (DATED_RE.test(subject) && !inEducation && !DEGREE_FIRST_RE.test(line)) dated.push(subject);
   }
   const states = dated.map((l) => lineState(l, now));
   const unsure = states.includes("unsure");
@@ -287,10 +309,22 @@ function sentencesOf(line: string): string[] {
   // A numbered point stays whole: "2. During my placement …" is one sentence.
   const out: string[] = [];
   for (const part of line.split(SENTENCE_SPLIT)) {
-    if (out.length > 0 && /^\s*\d{1,2}[.)]$/.test(out[out.length - 1])) out[out.length - 1] = `${out[out.length - 1]} ${part}`;
+    const last = out[out.length - 1];
+    // An initial before a name is no sentence end: "J. Sainsbury", never "in R. I recently".
+    const initial = last !== undefined && /\b[A-Z]\.$/.test(last) && /^[A-Z][a-z]/.test(part) && !/^(?:I|We|My|Our|The|This|That|These|In|At|On|During|After|Before|Since|As|It|He|She|They|Then|When|While)\b/.test(part);
+    if (last !== undefined && (/^\s*\d{1,2}[.)]$/.test(last) || initial)) out[out.length - 1] = `${last} ${part}`;
     else out.push(part);
   }
   return out;
+}
+
+// The last intent phrase before the claim, close enough to govern it.
+function governedByIntent(before: string): boolean {
+  const hits = [...before.matchAll(INTENT_BEFORE_RE)];
+  const last = hits[hits.length - 1];
+  if (!last || last.index === undefined) return false;
+  const between = before.slice(last.index + last[0].length).toLowerCase().match(/[\p{L}\p{N}'’]+/gu) ?? [];
+  return between.length <= INTENT_REACH_WORDS && between.every((w) => GOVERN_WORDS.has(w));
 }
 
 // The clause a match sits in, as the part before the claim and the part after it.
@@ -329,7 +363,7 @@ export function guardRoleStatus(text: string, master: string, opts: { keep?: (se
         const m = sentence.match(re);
         if (!m || m.index === undefined) continue;
         const clause = clauseAround(sentence, m.index, m.index + m[0].length);
-        if (INTENT_BEFORE_RE.test(clause.before)) continue;
+        if (governedByIntent(clause.before)) continue;
         if (!TENSED_CLAIM_RE.test(m[0])) {
           const intent = INTENT_AFTER_RE.exec(clause.after);
           if (intent && !PAST_VERB_RE.test(clause.after.slice(0, intent.index))) continue;

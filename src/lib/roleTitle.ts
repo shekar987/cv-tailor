@@ -99,11 +99,19 @@ const CLAUSE = String.raw`(?:(?:and|now|currently)\s+)?${W("applying")}\s+(?:for
 // singular job noun: "Engineer applying for the X role."), or "Applying for …." as
 // the whole sentence.
 const JOB_NOUN = W(String.raw`(?:developer|engineer|graduate|analyst|scientist|consultant|specialist|designer|architect|programmer|technologist|researcher|student)`);
-const APPLIED_FOR_END_RE = new RegExp(String.raw`(?:\s*[,;]\s*|\s+[—–-]\s+|(?<=\b${JOB_NOUN})\s+)${CLAUSE}`);
+// After a singular job noun only with an article ("Software developer applying for the X
+// role."): "for any software engineer applying for graduate roles" is about someone else.
+// After a full stop too, when the clause is a sentence of its own ("… at Acme Ltd. Applying
+// for the X role."), which the split keeps joined behind an abbreviation.
+const APPLIED_FOR_END_RE = new RegExp(
+  String.raw`(?:\s*[,;]\s*|\s+[—–-]\s+|(?<=[.!?])\s+(?=[A-Z])|(?<=\b${JOB_NOUN})\s+(?=(?:(?:and|now|currently)\s+)?applying\s+(?:for|to)\s+(?:the|this|a|an)\s))${CLAUSE}`
+);
 const APPLIED_FOR_WHOLE_RE = new RegExp(String.raw`^\s*${CLAUSE}`);
 const WORDS_RE = /[A-Za-z0-9]+/g;
 // A sentence ends before a capital: "J.P. Morgan" and "Acme Inc. in London" stay one.
-const SUMMARY_SPLIT = /(?<!\b[A-Z]\.[A-Z]\.)(?<=[.!?])\s+(?=[A-Z0-9"“‘(])/;
+// A sentence ends before a capital, never after an abbreviation or an initial ("e.g. React",
+// "Dr. Patel", "J. Sainsbury", "J.P. Morgan", "Acme Ltd. in London").
+const SUMMARY_SPLIT = /(?<!\b(?:[A-Z]|[A-Z]\.[A-Z]|Ltd|Inc|Co|Corp|plc|St|Dr|Mr|Mrs|Ms|No|vs|etc|e\.g|i\.e)\.)(?<=[.!?])\s+(?=[A-Z0-9"“‘(])/;
 
 export function stripAppliedFor(summary: string): { text: string; removed: string[] } {
   const removed: string[] = [];
@@ -122,7 +130,8 @@ export function stripAppliedFor(summary: string): { text: string; removed: strin
       const rest = sentence.slice(0, m.index).replace(/[\s,;:—–-]+$/, "");
       removed.push(sentence.trim());
       if ((rest.match(WORDS_RE) ?? []).length < 3) continue;
-      kept.push(`${rest}.`);
+      // "… at Example Lab Ltd." keeps its own full stop.
+      kept.push(/[.!?]$/.test(rest) ? rest : `${rest}.`);
     }
     return kept.join(" ");
   });
