@@ -28,7 +28,7 @@ const users = (await get(`/auth/v1/admin/users?per_page=1000`)).users as { id: s
 const user = users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
 if (!user) throw new Error(`No account for ${email}.`);
 
-const cols = "id,company_name,role,status,date_applied,followup_date,notes,created_at,stages_reached,tailor_session_id,sent_cv_name:sent_cv->>fileName,prep_generated_at:prep_pack->>generatedAt";
+const cols = "id,company_name,role,status,date_applied,followup_date,notes,created_at,stages_reached,tailor_session_id,job_description,salary,req_id,referral,referrer_name,lesson,close_reason,last_contact_at,sent_cv_name:sent_cv->>fileName,prep_generated_at:prep_pack->>generatedAt";
 const rows: CleanupRow[] = [];
 for (let from = 0; from < 5000; from += 1000) {
   const res = await fetch(`${SB}/rest/v1/applications?user_id=eq.${user.id}&select=${cols}&order=date_applied.desc,created_at.desc,id.asc`, { headers: { ...admin, Range: `${from}-${from + 999}` } });
@@ -39,8 +39,8 @@ for (let from = 0; from < 5000; from += 1000) {
 }
 const attachments = new Map<string, Attachments>();
 const ids = rows.map((r) => r.id);
-for (let i = 0; i < ids.length; i += 150) {
-  const list = ids.slice(i, i + 150).join(",");
+for (let i = 0; i < ids.length; i += 20) {
+  const list = ids.slice(i, i + 20).join(",");
   for (const [table, key] of [["application_events", "events"], ["mock_interviews", "interviews"]] as const) {
     const found = (await get(`/rest/v1/${table}?application_id=in.(${list})&select=application_id`)) as { application_id: string }[];
     for (const f of found) {

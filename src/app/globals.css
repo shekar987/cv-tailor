@@ -4282,3 +4282,12 @@ button.inlineLink,
 .cleanupReport summary::-webkit-details-marker { display: none; }
 .cleanupReport summary::before { content: "▸"; margin-right: var(--space-2); color: var(--muted); }
 .cleanupReport[open] summary::before { content: "▾"; }
+/* Review fixes (6 Nov): the sheet's row actions were pinned to 0 by `.appsTable .appsActionBtn`
+   (two classes), so they never got the control height; an inline text button keeps its 36px
+   target without making its line of running text taller. */
+.appsTable .appsActionBtn { min-height: 36px; display: inline-flex; align-items: center; }
+button.inlineLink { margin-block: -8px; }
+@media (pointer: coarse) {
+  .appsTable .appsActionBtn { min-height: 44px; }
+  button.inlineLink { margin-block: -12px; }
+}

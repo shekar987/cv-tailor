@@ -59,7 +59,7 @@ test("a page row has no notes preview; the flags it needs stay", () => {
   assert.ok(typeof list.notes_preview === "string" && list.notes_more === true, "the full list keeps its preview");
   const page = toPageRow(stored);
   assert.equal("notes_preview" in page, false);
-  assert.equal("notes_more" in page, false);
+  assert.equal(page.notes_more, true, "its notes are not known yet, so the Notes box stays locked");
   assert.equal(page.notes_not_submitted, true);
   assert.equal(page.has_job_description, true);
   assert.equal("notes" in page || "job_description" in page, false);

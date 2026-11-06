@@ -15,10 +15,16 @@ import { MAX_NOTES_CHARS } from "@/lib/limits";
 import { DEFAULT_TIMEZONE, dayKey } from "@/lib/planTime";
 
 export const runtime = "nodejs";
+// Applying runs its writes one row at a time; the panel sends at most CLEANUP_APPLY_CHUNK ids a request.
+export const maxDuration = 300;
 
+// Everything a delete would lose (lib/trackerCleanup holds()), read so a row holding any of it is never deleted.
 const ROW_COLUMNS =
-  "id, company_name, role, status, date_applied, followup_date, notes, created_at, stages_reached, tailor_session_id, sent_cv_name:sent_cv->>fileName, prep_generated_at:prep_pack->>generatedAt";
-const ID_BATCH = 150;
+  "id, company_name, role, status, date_applied, followup_date, notes, created_at, stages_reached, tailor_session_id, job_description, salary, req_id, referral, referrer_name, lesson, close_reason, last_contact_at, sent_cv_name:sent_cv->>fileName, prep_generated_at:prep_pack->>generatedAt";
+// Small enough that a batch never meets PostgREST's silent 1000-row ceiling in practice; a
+// batch that does is an error, because a row whose events were cut off would look deletable.
+const ID_BATCH = 20;
+const PAGE_CEILING = 1000;
 const MIGRATION_HINT = "The clean-up needs the tracker's stage history (migration 20261103120000) and the sent-CV column (20260927120000).";
 
 class ReadFailed extends Error {}
@@ -69,6 +75,7 @@ export async function POST(req: NextRequest) {
           // A missing table holds nothing; any other read error must stop a delete.
           for (const [res, key] of [[events, "events"], [interviews, "interviews"]] as const) {
             if (res.error && res.error.code !== "PGRST205" && res.error.code !== "42P01") throw new ReadFailed(res.error.message);
+            if ((res.data ?? []).length >= PAGE_CEILING) throw new ReadFailed(`Too many ${key} to count safely; nothing was changed.`);
             for (const r of (res.data ?? []) as { application_id: string }[]) bump(r.application_id, key);
           }
         }

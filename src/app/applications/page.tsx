@@ -65,6 +65,7 @@ import {
 } from "@/lib/tracker";
 import type { TrackerCounts } from "@/lib/trackerCounts";
 import CleanupPanel from "./CleanupPanel";
+import { trackedFetch, whenNoWrites, writeSeq, writesInFlight } from "@/lib/writeTracker";
 import type { TabKey } from "@/lib/applicationStage";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -561,17 +562,13 @@ function periodBounds(period: Period): { from: string; to: string } | null {
 
 type ApiResult = { ok: boolean; status: number; data: { error?: string } & Record<string, unknown> };
 
-// Every write bumps this, so a full list that was read before a write landed is
-// known to be older than the screen and is read again (the first paint shows one
-// page, and the full list arrives a moment later).
-let mutationCount = 0;
 // The first paint: the open tab's newest rows, before the full list arrives.
 const FIRST_PAGE_ROWS = 50;
 
 async function api(method: string, body?: unknown, query = ""): Promise<ApiResult> {
-  if (method !== "GET") mutationCount++;
   try {
-    const res = await fetch(`/api/applications${query}`, {
+    // Writes are counted (lib/writeTracker), so a full list read while one travelled is read again.
+    const res = await trackedFetch(`/api/applications${query}`, {
       method,
       headers: body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -768,8 +765,14 @@ export default function ApplicationsPage() {
     // The full list, and in parallel the counts and the open tab's first page, which
     // paint first. A write made while the full list was on its way makes it stale:
     // it is read again (twice at most).
+    // A full list is fresh only when no write was in flight as it started and none started or
+    // finished while it was read (lib/writeTracker). A stale one is read again; one still stale
+    // after five reads is shown, and read once more two seconds later.
+    let lateReread = false;
     const loadFull = async (tries = 0): Promise<void> => {
-      const seq = mutationCount;
+      await whenNoWrites();
+      const seq = writeSeq();
+      const busy = writesInFlight() > 0;
       const result = await fetchApplications();
       if (cancelled) return;
       if ("error" in result) {
@@ -778,11 +781,18 @@ export default function ApplicationsPage() {
         setLoaded(true);
         return;
       }
-      if (mutationCount !== seq && tries < 2) return loadFull(tries + 1);
+      const stale = busy || writeSeq() !== seq || writesInFlight() > 0;
+      if (stale && tries < 4) return loadFull(tries + 1);
       fullLoadedRef.current = true;
       setRows(result.rows);
       setFullLoaded(true);
       setLoaded(true);
+      if (stale && !lateReread) {
+        lateReread = true;
+        setTimeout(() => {
+          if (!cancelled) void loadFull(0);
+        }, 2000);
+      }
     };
     void loadFull();
     fetch(`/api/applications/counts?today=${todayLocal()}`)
@@ -1320,8 +1330,7 @@ export default function ApplicationsPage() {
       danger: true,
     });
     if (!yes) return;
-    mutationCount++;
-    const res = await fetch(`/api/applications/${row.id}/remove-stage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage, confirmed_by_user: true }) }).catch(() => null);
+    const res = await trackedFetch(`/api/applications/${row.id}/remove-stage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage, confirmed_by_user: true }) }).catch(() => null);
     const data = res ? await res.json().catch(() => ({})) : {};
     if (res?.status === 401) {
       setSessionExpired(true);
@@ -1348,8 +1357,7 @@ export default function ApplicationsPage() {
   // "Not true": the banner goes and stays gone; the row never moved.
   async function dismissPending(row: { id: string; pending_outcome?: unknown }) {
     const seen = activePending(row.pending_outcome);
-    mutationCount++;
-    const res = await fetch(`/api/applications/${row.id}/pending-outcome`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dismiss: true, outcome: seen?.outcome, date: seen?.date }) }).catch(() => null);
+    const res = await trackedFetch(`/api/applications/${row.id}/pending-outcome`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dismiss: true, outcome: seen?.outcome, date: seen?.date }) }).catch(() => null);
     const data = res ? await res.json().catch(() => ({})) : {};
     if (!res || !res.ok) {
       setActionError(data.error || "Could not save that. Try again.");
@@ -1785,7 +1793,7 @@ export default function ApplicationsPage() {
   async function putEvent(body: Record<string, unknown>): Promise<boolean> {
     setActionError("");
     try {
-      const res = await fetch("/api/events", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const res = await trackedFetch("/api/events", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (res.ok) return true;
       const failed = await res.json().catch(() => ({}));
       setActionError(failed.error || "Could not save that change.");
@@ -1887,7 +1895,7 @@ export default function ApplicationsPage() {
     });
     items.push({ key: "cv", label: row.source === "tailored" || row.sent_cv_name ? "View CV" : "Add CV", onSelect: () => togglePanel(row, "cv") });
     items.push({ key: "jd", label: row.has_job_description ? "View JD" : "Add JD", onSelect: () => togglePanel(row, "jd") });
-    items.push({ key: "notes", label: row.notes_preview ? "Notes" : "Add notes", onSelect: () => togglePanel(row, "notes") });
+    items.push({ key: "notes", label: row.notes_preview || row.notes_more ? "Notes" : "Add notes", onSelect: () => togglePanel(row, "notes") });
     items.push({ key: "prep", label: row.prep_generated_at ? "Prep pack ✓" : "Prep pack", href: `/applications/${row.id}/prep` });
     items.push({ key: "mock", label: "Mock interview", href: `/applications/${row.id}/interview` });
     if (check?.kind === "run") items.push({ key: "run-check", label: "Run JD check", disabled: checkingId === row.id, onSelect: () => void runCheck(row) });
@@ -2269,6 +2277,9 @@ export default function ApplicationsPage() {
 
   const hasRows = rows.length > 0 || (!fullLoaded && (serverCounts?.total ?? 0) > 0);
   const showTable = visible.length > 0 || newRow !== null;
+  // Before the full list is in, an empty view is one whose rows have not arrived (the first
+  // page filters on the stored status, the tabs count the derived stage): never "No applications".
+  const viewLoading = !fullLoaded && visible.length === 0 && newRow === null;
   // One line under the title. In progress is what the tabs count, so it adds up with them.
   const fmt = (n: number) => n.toLocaleString("en-GB");
   const rejectedCount = rows.filter((r) => r.status === "rejected").length;
@@ -2537,10 +2548,13 @@ export default function ApplicationsPage() {
           </Card>
         )}
 
-        {hasRows && stageTabNow && visible.length === 0 && !newRow && noFilters && (
+        {hasRows && viewLoading && !winsOpen && (
+          <Card data-view-loading><Skeleton lines={3} label="Loading these applications" /></Card>
+        )}
+        {hasRows && !viewLoading && stageTabNow && visible.length === 0 && !newRow && noFilters && (
           <p className="fitEvidence" data-live-empty>Nothing live at this stage.</p>
         )}
-        {hasRows && visible.length === 0 && !newRow && !winsOpen && !(stageTabNow && noFilters) && (
+        {hasRows && !viewLoading && visible.length === 0 && !newRow && !winsOpen && !(stageTabNow && noFilters) && (
           <Card variant="dashed">
             <EmptyState
               title={
@@ -2873,11 +2887,11 @@ export default function ApplicationsPage() {
                         <td data-label="Notes" className="appsNotesCell">
                           <button
                             type="button"
-                            className={"appsLinkBtn appsNotesBtn" + (panelIs("notes") ? " active" : "") + (row.notes_preview ? "" : " muted")}
+                            className={"appsLinkBtn appsNotesBtn" + (panelIs("notes") ? " active" : "") + (row.notes_preview || row.notes_more ? "" : " muted")}
                             onClick={() => togglePanel(row, "notes")}
                             title={row.notes_preview ? `${row.notes_preview}${row.notes_more ? "…" : ""}` : undefined}
                           >
-                            {row.notes_preview || "Add notes"}
+                            {row.notes_preview || (row.notes_more ? "Notes…" : "Add notes")}
                           </button>
                         </td>
                         <td className="appsActions">

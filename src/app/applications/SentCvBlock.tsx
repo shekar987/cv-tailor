@@ -7,6 +7,7 @@ import { saveBlob } from "@/lib/saveBlob";
 import { formatFileSize, type SentCvInfo } from "@/lib/sentCv";
 import { MAX_UPLOAD_BYTES, UPLOAD_TOO_LARGE } from "@/lib/limits";
 import { formatDate } from "@/lib/formatDate";
+import { trackedFetch } from "@/lib/writeTracker";
 
 // The CV file a user actually sent for one application (lib/sentCv) — above
 // all for applications made on other sites, where Jobhuntz never saw the
@@ -68,7 +69,7 @@ export default function SentCvBlock({
       const body = new FormData();
       body.append("id", applicationId);
       body.append("file", file);
-      const res = await fetch("/api/applications/cv", { method: "POST", body });
+      const res = await trackedFetch("/api/applications/cv", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) return onSessionExpired();
       // The host's own refusal of an oversized body is plain text, not JSON.
@@ -115,7 +116,7 @@ export default function SentCvBlock({
     setError("");
     setBusy("remove");
     try {
-      const res = await fetch(`/api/applications/cv?id=${encodeURIComponent(applicationId)}`, { method: "DELETE" });
+      const res = await trackedFetch(`/api/applications/cv?id=${encodeURIComponent(applicationId)}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) return onSessionExpired();
       if (!res.ok) {

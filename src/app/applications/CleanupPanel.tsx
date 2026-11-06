@@ -10,15 +10,16 @@ import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Skeleton from "@/components/ui/Skeleton";
 import { formatDate } from "@/lib/formatDate";
+import { trackedFetch } from "@/lib/writeTracker";
 import { statusLabel } from "@/lib/tracker";
 import type { ConfirmOptions } from "@/lib/confirm";
-import { CADENCE_DAYS, READY_STALE_DAYS, cleanupRequestBody, type CleanupPlan, type RuleCItem } from "@/lib/trackerCleanup";
+import { CLEANUP_APPLY_CHUNK, CADENCE_DAYS, READY_STALE_DAYS, cleanupRequestBody, type CleanupPlan, type RuleCItem } from "@/lib/trackerCleanup";
 
-type ApplyResult = { applied: { id: string; rule: "A" | "B" }[]; skipped: { id: string; reason: string }[] };
+type ApplyResult = { applied: { id: string; rule: "A" | "B" }[]; skipped: { id: string; reason: string }[]; warnings: { id: string; reason: string }[] };
 
 async function post(body: unknown): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
   try {
-    const res = await fetch("/api/applications/cleanup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const res = await trackedFetch("/api/applications/cleanup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     return { ok: res.ok, status: res.status, data: (await res.json().catch(() => ({}))) as Record<string, unknown> };
   } catch {
     return { ok: false, status: 0, data: { error: "Connection error. Please try again." } };
@@ -103,13 +104,24 @@ export default function CleanupPanel({
     if (!ok) return;
     setApplying(true);
     setError("");
-    const { ok: done, status, data } = await post(cleanupRequestBody(false, [...ticked]));
-    setApplying(false);
-    if (!done) {
-      setError(status === 409 ? String(data.error ?? "Some of those rows are at Screening or later; nothing was applied.") : String(data.error ?? "The clean-up failed."));
-      return;
+    // In chunks, so no one request runs long enough to time out half done; each chunk is
+    // re-decided on the server, and a refusal stops the rest.
+    const ids = [...ticked];
+    const total: ApplyResult = { applied: [], skipped: [], warnings: [] };
+    for (let i = 0; i < ids.length; i += CLEANUP_APPLY_CHUNK) {
+      const { ok: done, status, data } = await post(cleanupRequestBody(false, ids.slice(i, i + CLEANUP_APPLY_CHUNK)));
+      if (!done) {
+        const done_ = total.applied.length ? ` ${total.applied.length} were applied before it stopped.` : "";
+        setError((status === 409 ? String(data.error ?? "Some of those rows are at Screening or later; nothing in that batch was applied.") : String(data.error ?? "The clean-up failed.")) + done_);
+        break;
+      }
+      const part = data as unknown as ApplyResult;
+      total.applied.push(...(part.applied ?? []));
+      total.skipped.push(...(part.skipped ?? []));
+      total.warnings.push(...(part.warnings ?? []));
     }
-    setResult(data as unknown as ApplyResult);
+    setApplying(false);
+    setResult(total);
     await onApplied();
     setRound((r) => r + 1);
   }
@@ -127,6 +139,7 @@ export default function CleanupPanel({
       {result && (
         <p role="status" className="cleanupResult" data-cleanup-result>
           Applied {result.applied.length}.{result.skipped.length ? ` Skipped ${result.skipped.length}: ${[...new Set(result.skipped.map((s) => s.reason))].join("; ")}.` : ""}
+          {result.warnings.length ? ` Check ${result.warnings.length}: ${[...new Set(result.warnings.map((s) => s.reason))].join("; ")}.` : ""}
         </p>
       )}
       {!plan && !error && <Skeleton lines={4} label="Reading your tracker" />}
