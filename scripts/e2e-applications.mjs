@@ -44,7 +44,9 @@ try {
   const visa = await row("Made Up Payments", "Screening");
   const advisory = await row("Made Up Advisory", "Interview", { role: "AI Engineer, Forensic and Financial Crime (Req 25246, London hybrid)" });
   await api("/api/applications", "PUT", { id: advisory, referral: true, referrer_name: "Sam Referrer", req_id: "25246", referral_status: "offered", last_contact_from: "me", last_contact_at: hours(-30) });
-  await row("Made Up Chase", "Applied", { followup_date: "2026-10-25" });
+  // "Follow-ups due" counts this week's (Chunk 19), so the chase is dated today.
+  const londonToday = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
+  await row("Made Up Chase", "Applied", { followup_date: londonToday });
   await row("Made Up Unsent", "Applied", { notes: "Form filled but not submitted yet." });
   await row("Made Up Applied", "Applied");
   await row("Made Up Draft", "Ready to submit");
@@ -156,7 +158,7 @@ try {
   check("its label names the day", /Due by \w+ night/.test(await card("due").innerText()));
   check("a red card carries an icon too", (await card("due").locator("svg").count()) === 1);
   await card("followups").click();
-  check("Follow-ups due filters the table", (await companies()).join(",") === "Made Up Chase", (await companies()).join(","));
+  check("Follow-ups due (this week) filters the table", (await companies()).join(",") === "Made Up Chase", (await companies()).join(","));
   check("no tab reads as selected while a card filters", (await page.locator('[role="tab"][aria-selected="true"]').count()) === 0);
   await card("fix").click();
   const fix = await card("fix").innerText();

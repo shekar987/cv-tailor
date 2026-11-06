@@ -20,6 +20,7 @@ const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).hre
 const { activeApplications, activeEvents, buildFunnel, readEventInput, readWindowInput } = await import(pathToFileURL(APP + "/src/lib/plan.ts").href);
 const { zonedTimeToMs } = await import(pathToFileURL(APP + "/src/lib/planTime.ts").href);
 const { apiStatus, normalizeStatus } = await import(pathToFileURL(APP + "/src/lib/tracker.ts").href);
+const { trackerCounts } = await import(pathToFileURL(APP + "/src/lib/trackerCounts.ts").href);
 const SHOTS = process.env.SHOTS_DIR || path.join(os.tmpdir(), "whats-next-shots");
 fs.mkdirSync(SHOTS, { recursive: true });
 
@@ -120,7 +121,13 @@ async function route(page) {
     db.windows = db.windows.filter((w) => w.id !== id);
     json(r, { ok: true });
   });
-  await page.route("**/api/applications", async (r) => {
+  // The tracker's counts (Chunk 19), from the same rows the stand-in list answers.
+  await page.route("**/api/applications/counts**", (r) => {
+    const today = new URL(r.request().url()).searchParams.get("today") ?? "2026-11-03";
+    json(r, { today, ...trackerCounts(db.applications, db.events.filter((e) => e.status === "scheduled" || e.status === "to_book"), today) });
+  });
+  // The list with or without a query: the full list (?all=1) and one page (?stage=…) since Chunk 19.
+  await page.route(/\/api\/applications(\?.*)?$/, async (r) => {
     const req = r.request();
     if (req.method() === "GET") return json(r, { applications: db.applications.map((a) => ({ ...a, status: apiStatus(a.status) })) });
     if (req.method() === "PUT") {
@@ -219,7 +226,7 @@ try {
   await page.locator("[data-toast-undo]").click();
   await page.locator('[data-reply-owed="Replied Ltd"]').waitFor({ timeout: 8000 });
   check("undo restores the status, the follow-up and the notes", repliedRow.status === "screening" && repliedRow.followup_date === "2026-11-20" && !repliedRow.notes, JSON.stringify(repliedRow.notes));
-  check("the promised follow-up date shows", /follow-up Tue 10 Nov/.test(await page.locator('[data-waiting="Bluebell Telecom"]').innerText()));
+  check("the promised follow-up date shows (lib/formatDate)", /follow-up 10 Nov 2026/.test(await page.locator('[data-waiting="Bluebell Telecom"]').innerText()));
   check("the calendar dots its event days", (await page.locator('[data-mini-calendar] [data-has-events]').count()) >= 3);
   check("the funnel lists its steps with counts", /Screening\s*\d+/.test(await page.locator("[data-funnel]").innerText()));
   check("under eight in a group says too few to judge", /too few to judge/.test(await page.locator("[data-funnel]").innerText()));
