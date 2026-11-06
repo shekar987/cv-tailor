@@ -64,6 +64,7 @@ import {
   type Status,
 } from "@/lib/tracker";
 import type { TrackerCounts } from "@/lib/trackerCounts";
+import CleanupPanel from "./CleanupPanel";
 import type { TabKey } from "@/lib/applicationStage";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
@@ -688,6 +689,8 @@ export default function ApplicationsPage() {
   // The format-style tag, filter, picker and tile are the owner's while the
   // two styles are compared (profiles.is_unlimited, read fail-soft).
   const [isOwner, setIsOwner] = useState(false);
+  // The tracker clean-up's dry run (owner only, lib/trackerCleanup).
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [styleFilter, setStyleFilter] = useState<"all" | RowStyle>("all");
   const [sortKey, setSortKey] = useState<SortKey>("date_applied");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -2307,6 +2310,11 @@ export default function ApplicationsPage() {
                   {exporting ? "Exporting…" : "Export"}
                 </Button>
               )}
+              {isOwner && hasRows && (
+                <Button variant="ghost" onClick={() => setCleanupOpen((o) => !o)} aria-expanded={cleanupOpen} data-apps-cleanup>
+                  Clean-up
+                </Button>
+              )}
               <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired} data-apps-add>+ Add application</Button>
             </>
           }
@@ -2460,6 +2468,18 @@ export default function ApplicationsPage() {
               </StatusText>
             )}
           </div>
+        )}
+
+        {cleanupOpen && isOwner && (
+          <CleanupPanel
+            confirm={confirm}
+            onClose={() => setCleanupOpen(false)}
+            onApplied={async () => {
+              const result = await fetchApplications();
+              if ("rows" in result) setRows(result.rows);
+              setStageRefresh((n) => n + 1);
+            }}
+          />
         )}
 
         {attention === "fix" && notSubmitted.length > 0 && bulkReady !== "dismissed" && (
