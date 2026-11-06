@@ -4260,3 +4260,26 @@ button.inlineLink,
    140px at 1100px once the rail's breakpoint moved from 1080 to 1160). */
 .planRail > [data-mini-calendar] { width: 100%; max-width: 400px; }
 @media (min-width: 1160px) { .planRail > [data-mini-calendar] { max-width: none; } }
+/* The tracker clean-up's dry run (Chunk 19, owner only). */
+.cleanupPanel { display: flex; flex-direction: column; gap: var(--space-4); margin-bottom: var(--space-6); }
+.cleanupHead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.cleanupSection { display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.cleanupSectionHead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.cleanupTitle { font-size: var(--fs-md); font-weight: 600; color: var(--text); margin: 0; }
+.cleanupCount { margin-left: var(--space-1); font-size: var(--fs-sm); font-weight: 400; color: var(--muted); }
+.cleanupList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.cleanupItem { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-4); min-height: 36px; padding: var(--space-1) 0; border-bottom: 1px solid var(--border); font-size: var(--fs-base); color: var(--text-subtle); }
+.cleanupCheck { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 36px; cursor: pointer; }
+.cleanupCheck input { width: 18px; height: 18px; accent-color: var(--amber); }
+.cleanupMeta { font-size: var(--fs-sm); color: var(--muted); }
+.cleanupGroup { padding: var(--space-2) 0; }
+.cleanupKeep { margin: 0 0 var(--space-1); font-size: var(--fs-base); color: var(--text); }
+.cleanupBlocked { font-size: var(--fs-sm); color: var(--amber-bright); }
+.cleanupResult { font-size: var(--fs-base); color: var(--success); }
+.cleanupReport summary { min-height: 36px; display: flex; align-items: center; cursor: pointer; font-size: var(--fs-base); color: var(--text); }
+.cleanupReport summary:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-sm); }
+@media (pointer: coarse) { .cleanupCheck, .cleanupItem, .cleanupReport summary { min-height: 44px; } }
+.cleanupReport summary { list-style: none; }
+.cleanupReport summary::-webkit-details-marker { display: none; }
+.cleanupReport summary::before { content: "▸"; margin-right: var(--space-2); color: var(--muted); }
+.cleanupReport[open] summary::before { content: "▾"; }
