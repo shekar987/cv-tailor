@@ -853,7 +853,7 @@ export function compareGate(gate: Gate, e: Eligibility, now: Date = new Date()):
     case "sponsorship": {
       const s = e.rightToWork.status;
       if (val.sponsorship === "available") return v(gate, "pass", "Sponsorship is offered for this role.");
-      if (s === "unknown") return v(gate, "unknown", "Set your right-to-work status in Customize to check this.");
+      if (s === "unknown") return v(gate, "unknown", "Set your right-to-work status in Customise to check this.");
       if (s === "needs_sponsorship") {
         if (val.sponsorship === "unavailable")
           return hard("This role won't sponsor a visa and your profile says you need sponsorship. Applications failing this are usually rejected automatically, without the CV being read.");
@@ -880,7 +880,7 @@ export function compareGate(gate: Gate, e: Eligibility, now: Date = new Date()):
     case "clearance": {
       const held = e.clearance.held;
       const label = CLEARANCE_LABEL[val.level];
-      if (held === "unknown") return v(gate, "unknown", "Set your clearance status in Customize to check this.");
+      if (held === "unknown") return v(gate, "unknown", "Set your clearance status in Customise to check this.");
       if (val.level === "us_secret" || val.level === "us_ts") return v(gate, "unknown", `This asks for US ${label} clearance; your profile records UK clearance only. Check it yourself.`);
       const need = CLEARANCE_RANK[val.level] ?? 0;
       const have = held === "none" ? 0 : CLEARANCE_RANK[held] ?? 0;
@@ -890,11 +890,11 @@ export function compareGate(gate: Gate, e: Eligibility, now: Date = new Date()):
       if (e.clearance.eligible === true)
         return v(gate, "pass", `You don't hold ${label} yet, but the role only asks that you can obtain it.`, `Say you meet the residency requirement and are willing to undergo ${label} vetting.`);
       if (e.clearance.eligible === false) return hard(`The role needs you to be eligible for ${label} clearance and your profile says you aren't.`);
-      return v(gate, "unknown", `The role asks that you can obtain ${label} clearance; say in Customize whether you're eligible.`);
+      return v(gate, "unknown", `The role asks that you can obtain ${label} clearance; say in Customise whether you're eligible.`);
     }
     case "years": {
       const y = e.yearsExperience;
-      if (y === null) return v(gate, "unknown", "Add your years of experience in Customize to check this.");
+      if (y === null) return v(gate, "unknown", "Add your years of experience in Customise to check this.");
       const need = val.years;
       const subj = val.subject ? ` (${val.subject})` : "";
       if (y >= need) return v(gate, "pass", `Asks for ${need}+ years${subj}; you have ${y}.`);
@@ -910,18 +910,18 @@ export function compareGate(gate: Gate, e: Eligibility, now: Date = new Date()):
         if (!place) return v(gate, "pass", "Remote role.");
         const ok = countryOk(place, loc.base.length ? loc.base : e.rightToWork.countries);
         if (ok === true || placeMatches(place, loc.base)) return v(gate, "pass", `Remote within ${place}, where you're based.`);
-        if (ok === null) return v(gate, "unknown", `Remote but restricted to ${place}; add your base location in Customize to check.`);
+        if (ok === null) return v(gate, "unknown", `Remote but restricted to ${place}; add your base location in Customise to check.`);
         return v(gate, "unknown", `Remote but restricted to ${place}; your profile lists elsewhere. Check before applying.`);
       }
       if (val.relocation === "required" && val.mode === "unstated") {
         if (loc.relocateOk === true) return v(gate, "pass", "Relocation required and you're open to it.");
         if (loc.relocateOk === false) return v(gate, "soft", "Relocation is required and you've said you won't relocate.", "Only apply if you'd genuinely consider moving; say so plainly.");
-        return v(gate, "unknown", "Relocation is required; say in Customize whether you'd relocate.");
+        return v(gate, "unknown", "Relocation is required; say in Customise whether you'd relocate.");
       }
       const modeLabel =
         val.mode === "hybrid" ? `hybrid${val.daysInOffice ? ` (${val.daysInOffice} days in the office)` : ""}` : val.mode === "onsite" ? "on-site" : "located";
       if (place) {
-        if (loc.base.length === 0) return v(gate, "unknown", `${cap(modeLabel)} in ${place}; add your base location in Customize to check the commute.`);
+        if (loc.base.length === 0) return v(gate, "unknown", `${cap(modeLabel)} in ${place}; add your base location in Customise to check the commute.`);
         // "central London near Tottenham Court Road": the place parsed is a
         // street, but the sentence names your base city — that is a pass.
         const base = placeMatches(place, loc.base) ? place : baseNamedIn(gate.requirement, loc.base);
@@ -931,16 +931,16 @@ export function compareGate(gate: Gate, e: Eligibility, now: Date = new Date()):
           if (val.mode === "onsite") return hard(`On-site in ${place}; you're based in ${loc.base.join(", ")} and not relocating.`);
           return v(gate, "soft", `${cap(modeLabel)} in ${place}; you're based in ${loc.base.join(", ")} and not relocating. Office days are sometimes negotiable.`, "Ask how fixed the office days are before you commit.");
         }
-        return v(gate, "unknown", `${cap(modeLabel)} in ${place}; say in Customize whether you'd relocate.`);
+        return v(gate, "unknown", `${cap(modeLabel)} in ${place}; say in Customise whether you'd relocate.`);
       }
       const ok = val.mode === "hybrid" ? loc.hybridOk ?? loc.onsiteOk : loc.onsiteOk;
       if (ok === true) return v(gate, "pass", `${cap(modeLabel)} role and you're fine with that.`);
       if (ok === false) return v(gate, "soft", `${cap(modeLabel)} role; you've said you'd rather not.`, "Decide whether you'd actually do the office days before applying.");
-      return v(gate, "unknown", `${cap(modeLabel)} role; say in Customize whether that works for you.`);
+      return v(gate, "unknown", `${cap(modeLabel)} role; say in Customise whether that works for you.`);
     }
     case "degree": {
       const d = e.degree;
-      if (d.level === "unknown") return v(gate, "unknown", "Add your highest degree in Customize to check this.");
+      if (d.level === "unknown") return v(gate, "unknown", "Add your highest degree in Customise to check this.");
       const need = val.level === "unstated" ? 1 : DEGREE_RANK[val.level];
       const have = DEGREE_RANK[d.level] ?? 0;
       const label = DEGREE_LABEL[val.level];
@@ -949,7 +949,7 @@ export function compareGate(gate: Gate, e: Eligibility, now: Date = new Date()):
         return hard(`Requires ${label}; your profile says you don't hold one.`);
       }
       if (val.classification) {
-        if (d.classification === "unknown") return v(gate, "unknown", `Asks for a ${val.classification}; add your degree classification in Customize.`);
+        if (d.classification === "unknown") return v(gate, "unknown", `Asks for a ${val.classification}; add your degree classification in Customise.`);
         if (d.classification === "other") return v(gate, "unknown", `Asks for a ${val.classification}; your classification isn't on the UK scale, so check how they'd treat it.`);
         if ((CLASS_RANK[d.classification] ?? 0) < (CLASS_RANK[val.classification] ?? 0))
           return hard(`Requires a ${val.classification} and your profile records a ${d.classification}. Degree class is a form question.`);
@@ -958,7 +958,7 @@ export function compareGate(gate: Gate, e: Eligibility, now: Date = new Date()):
     }
     case "graduation": {
       const g = e.graduation;
-      if (!g.completed && !g.expected) return v(gate, "unknown", "Add your graduation dates in Customize (Eligibility) to check this.");
+      if (!g.completed && !g.expected) return v(gate, "unknown", "Add your graduation dates in Customise (Eligibility) to check this.");
       const monthIndex = (s: string) => Number(s.slice(0, 4)) * 12 + Number(s.slice(5, 7)) - 1;
       const nowIdx = now.getFullYear() * 12 + now.getMonth();
       const expectedIn = g.expected ? monthIndex(g.expected) - nowIdx : null;
@@ -999,7 +999,7 @@ export function compareGate(gate: Gate, e: Eligibility, now: Date = new Date()):
       return v(gate, "soft", `Asks for a recent graduate; ${facts}. "Recent" isn't defined in the posting, so check what they mean before applying.`, say);
     }
     case "licence": {
-      if (e.licences.length === 0) return v(gate, "unknown", `Asks that you hold ${val.name}; list your licences and certifications in Customize to check.`);
+      if (e.licences.length === 0) return v(gate, "unknown", `Asks that you hold ${val.name}; list your licences and certifications in Customise to check.`);
       const want = normalizeForMatch(val.name);
       const has = e.licences.some((l) => {
         const n = normalizeForMatch(l);

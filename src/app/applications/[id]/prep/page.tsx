@@ -236,7 +236,7 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
           <div className="limitNotice" role="alert">
             <div className="limitNotice__title">Save your master CV first.</div>
             <div className="limitNotice__body">Every answer in the pack is built from it — there is nothing to build from yet.</div>
-            <Button href="/customize" className="limitNotice__cta">Go to Customize →</Button>
+            <Button href="/customize" className="limitNotice__cta">Go to Customise →</Button>
           </div>
         );
       case "needs_jd":

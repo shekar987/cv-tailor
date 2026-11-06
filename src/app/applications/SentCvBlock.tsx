@@ -6,6 +6,7 @@ import Icon from "@/components/ui/Icon";
 import { saveBlob } from "@/lib/saveBlob";
 import { formatFileSize, type SentCvInfo } from "@/lib/sentCv";
 import { MAX_UPLOAD_BYTES, UPLOAD_TOO_LARGE } from "@/lib/limits";
+import { formatDate } from "@/lib/formatDate";
 
 // The CV file a user actually sent for one application (lib/sentCv) — above
 // all for applications made on other sites, where Jobhuntz never saw the
@@ -17,14 +18,8 @@ const ACCEPT = ".pdf,.docx,.txt";
 const ACCEPT_RE = /\.(pdf|docx|txt)$/i;
 const MAX_BYTES = MAX_UPLOAD_BYTES;
 const KIND_LABEL: Record<SentCvInfo["kind"], string> = { pdf: "PDF", docx: "Word", txt: "Text" };
-// The sheet's own date style ("26 Sep 2026"); the browser's en-GB short month
-// would print "Sept".
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function uploadedOn(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-}
+// The sheet's own date style ("26 Sep 2026"), lib/formatDate.
+const uploadedOn = (iso: string): string => formatDate(iso);
 
 export default function SentCvBlock({
   applicationId,

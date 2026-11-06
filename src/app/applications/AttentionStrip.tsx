@@ -5,12 +5,12 @@
 // and urgency is an icon and words as well as a colour.
 import Icon from "@/components/ui/Icon";
 import type { AttentionCounts, ReferralCard } from "@/lib/applicationStage";
+import { formatDate } from "@/lib/formatDate";
 
 export type AttentionFilter = "due" | "followups" | "fix" | "referrals";
 
 function formatDay(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  return formatDate(iso, { year: false }) || iso;
 }
 
 export default function AttentionStrip({

@@ -1915,7 +1915,6 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 }
 .lpNav .wordmark { font-size: var(--text-lg); }
 .lpNav .wordmarkMark { height: 22px; }
-.lpFooterTag { color: var(--muted); }
 .lpNavActions { display: flex; align-items: center; gap: var(--space-3); }
 .lpNav .customizeLink { border-color: var(--border-strong); }
 /* Sign in is text: the nav's one box is the tool, the page's one filled
@@ -4016,7 +4015,10 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 .nextStepIcon { display: grid; place-items: center; width: 32px; height: 32px; flex: none; color: var(--text-subtle); background: var(--surface-2); border: 1px solid var(--border-card); border-radius: var(--radius-md); }
 .nextStepBody { min-width: 0; }
 .nextStepWhen { font-size: var(--text-sm); font-weight: 600; color: var(--text); }
-.nextStepLine { font-size: var(--text-sm); color: var(--text-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The next step wraps; it is never clipped ("set the outcome" once printed as "set the outcon"). */
+.nextStepLine { display: flex; flex-wrap: wrap; column-gap: 0; min-width: 0; font-size: var(--text-sm); color: var(--text-subtle); white-space: normal; overflow-wrap: anywhere; }
+.nextStepName { min-width: 0; max-width: 100%; }
+.nextStepLeft { flex: 0 1 auto; min-width: 0; white-space: pre-wrap; }
 .nextStepDeadline { font-size: var(--text-xs); color: var(--muted); }
 .nextStep[data-urgency="red"] .nextStepWhen, .nextStep[data-urgency="red"] .nextStepLine { color: var(--danger); }
 .nextStep[data-urgency="red"] .nextStepIcon { color: var(--danger); border-color: var(--danger-border); background: var(--danger-dim); }
@@ -4062,16 +4064,10 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 }
 .stageListCompany .appsCellBtn, .stageListRole .appsCellBtn { min-height: 0; height: auto; line-height: var(--leading-snug); }
 .stageListRole { margin-top: 2px; }
-.nextStepLine { display: flex; min-width: 0; white-space: nowrap; }
-.nextStepName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.nextStepLeft { flex: none; white-space: pre; }
 @media (max-width: 860px) {
   .attnReferralTitle { white-space: normal; overflow-wrap: anywhere; }
 }
 .stageTabs { position: relative; }
-.nextStepLine { flex-wrap: wrap; }
-.nextStepName { max-width: 100%; white-space: nowrap; }
-.nextStepLeft { white-space: normal; }
 
 /* The project pool as cards (Chunk 14). */
 .poolEditor { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4); }

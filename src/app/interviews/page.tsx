@@ -11,6 +11,7 @@ import Skeleton from "@/components/ui/Skeleton";
 import StatusText from "@/components/ui/StatusText";
 import { ROUNDS, type InterviewType } from "@/lib/interviewTypes";
 import { statusLabel } from "@/lib/tracker";
+import { formatDate } from "@/lib/formatDate";
 
 // /interviews — every mock interview and every prep pack across the tracker,
 // in one place (30 Sep audit, Phase 7). Both are made from a tracker row, so
@@ -30,12 +31,6 @@ type InterviewRow = {
   application: { company_name: string; role: string } | { company_name: string; role: string }[] | null;
 };
 type PrepRow = { id: string; company_name: string; role: string; status: string; prep_generated_at?: string | null };
-
-function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-}
 
 function appOf(row: InterviewRow): { company_name: string; role: string } | null {
   const a = row.application;

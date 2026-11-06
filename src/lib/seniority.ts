@@ -219,11 +219,11 @@ export function seniorityFit(read: SeniorityRead, yearsExperience: number | null
   if (level === "unknown") return { level, fits: null, reason: "The posting doesn't say which level it is written for.", signals };
   if (level === "junior") return { level, fits: true, reason: `This reads as ${label}.`, signals };
   if (opts.earlyCareerOnly) {
-    return { level, fits: false, reason: `This reads as ${label} — tailoring anyway will spend a credit. You look for junior and early-career roles only (Customize → Eligibility).`, signals };
+    return { level, fits: false, reason: `This reads as ${label} — tailoring anyway will spend a credit. You look for junior and early-career roles only (Customise → Eligibility).`, signals };
   }
   const need = level === "senior" ? SENIOR_MIN_YEARS : MID_MIN_YEARS;
   if (yearsExperience === null) {
-    return { level, fits: null, reason: `This reads as ${label} (roles at this level usually expect ${need}+ years) and your years of experience are not set in Customize → Eligibility, so it cannot be checked — set them. Tailoring anyway spends a credit.`, signals };
+    return { level, fits: null, reason: `This reads as ${label} (roles at this level usually expect ${need}+ years) and your years of experience are not set in Customise → Eligibility, so it cannot be checked — set them. Tailoring anyway spends a credit.`, signals };
   }
   if (yearsExperience >= need) return { level, fits: true, reason: `This reads as ${label}; your ${yearsExperience} years cover it.`, signals };
   return {

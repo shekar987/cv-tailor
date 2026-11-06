@@ -5,6 +5,7 @@
 import { MIN_DECIDED } from "./insights.ts";
 import { MAX_NOTES_CHARS } from "./limits.ts";
 import { STATUS_LABELS, appendNoteLine, normalizeStatus, removeFollowupClearedNote, type Status } from "./tracker.ts";
+import { formatDate } from "./formatDate.ts";
 
 // ── The rule ────────────────────────────────────────────────────────────────
 
@@ -261,7 +262,7 @@ export function dismissPending(stored: PendingOutcome, today: string): PendingOu
 const SOURCE_NAMES: Record<string, string> = { gmail: "Gmail", sweep: "a sweep", aiapply: "AIApply" };
 
 function shortDate(date: string): string {
-  return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  return formatDate(date, { year: false });
 }
 
 /** "Rejected on 2 Nov (from Gmail)."; "New activity from Shell — Reopen?"; "New activity from Shell — Move back to Screening?" */
@@ -310,7 +311,7 @@ export function removeStageLabel(stage: Status): string {
 
 /** The dated line the row keeps, so a count never changes without saying why. */
 export function removedStageNote(stage: Status, now: Date): string {
-  const day = now.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" });
+  const day = formatDate(now, { year: false });
   return `Removed '${stage}' on ${day} — picked by mistake`;
 }
 

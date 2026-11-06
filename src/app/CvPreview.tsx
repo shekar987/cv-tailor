@@ -736,7 +736,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
           <div className="rtwFormsBody">
             <span className="rtwFormsLabel">Right to work — for application forms (not on the CV)</span>
             <p className="fitEvidence">
-              Answer your right to work and availability under Eligibility on <Link href="/customize">Customize</Link> to get a statement in your
+              Answer your right to work and availability under Eligibility on <Link href="/customize">Customise</Link> to get a statement in your
               own words to paste into forms.
             </p>
           </div>
