@@ -126,7 +126,7 @@
      Geist (loaded by next/font in layout.tsx) with a system fallback. Base
      body copy is 16px; 14px is the working size for dense UI (tables, help). */
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --text-xs:   12px;
+  --text-xs:   13px;
   --text-sm:   14px;
   --text-base: 16px;
   --text-md:   18px;
@@ -168,6 +168,20 @@
   --radius-md: 8px;
   --radius-lg: 10px;
   --radius-pill: 999px;
+  /* The audit's scale (6 Nov 2026, Chunk 19): 6px for controls, 10px for
+     cards, 999px for badges only. */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-pill: 999px;
+  /* Type: 12px for table headers only, 13px for metadata, 14px for body and
+     row text; --text-xs (the metadata size) is 13px from this scale. */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 14px;
+  --fs-md: 16px;
+  --fs-lg: 21px;
+  --fs-xl: 34px;
+  --fs-2xl: 42px;
 
   /* Layered rather than a single blur — reads as depth, not a grey halo. */
   --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.25);
@@ -2153,15 +2167,18 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .lpFooterLinks { display: flex; gap: var(--space-4); flex-wrap: wrap; }
 .lpFooterLinks a { color: var(--muted); text-decoration: none; transition: color var(--duration-fast) var(--ease); }
 .lpFooterLinks a:hover { color: var(--text); text-decoration: underline; }
+.lpFooterCredit a { color: var(--text-subtle); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; transition: color var(--duration-fast) var(--ease); }
+.lpFooterCredit a:hover { color: var(--amber-bright); text-decoration-color: currentColor; }
+.lpFooterCredit a:active { color: var(--amber); }
 
-@media (max-width: 1000px) {
+@media (max-width: 1160px) {
   .lpJourneyStep { grid-template-columns: 64px minmax(0, 1fr) minmax(0, 440px); }
 }
 @media (max-width: 900px) {
   .lpColumns--3 { --lp-cols: 1; }
   .lpColumns--3 .lpColumn + .lpColumn { border-left: 0; border-top: 1px solid var(--border-card); padding-left: 0; }
 }
-@media (max-width: 860px) {
+@media (max-width: 900px) {
   .lpHero { grid-template-columns: 1fr; grid-template-areas: "text" "paper" "ledger"; gap: var(--space-10); align-items: start; }
   .lpLedger { grid-template-columns: 1fr; }
   .lpShowScoreGroup--hits .lpShowScoreList { columns: 1; }
@@ -2245,7 +2262,7 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .appsToolbarActions { grid-column: 2; grid-row: 2; justify-content: flex-end; }
 /* The status chips ARE the filter, on the search's row. */
 .appsToolbarSearch > .appsFunnel { margin: 0; flex: 1 1 auto; }
-@media (max-width: 720px) {
+@media (max-width: 900px) {
   /* Stacked: find, then narrow, then act — the action last so it isn't
      wedged between the two controls that describe what it will export. */
   .appsToolbar { grid-template-columns: minmax(0, 1fr); }
@@ -3458,7 +3475,7 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 }
 /* Once the run is over the game has stopped: no controls to press. */
 .gamePopup__panel:not([data-game-status="running"]) :is(.gamePopup__controls, .gamePopup__hint) { display: none; }
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .gamePopup { padding: var(--space-2); }
   .gamePopup__panel {
     gap: var(--space-3);
@@ -3692,7 +3709,7 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 /* ── What's next (/app/next, Chunk 11) ───────────────────────────────────────── */
 .nextToolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); flex-wrap: wrap; }
 .nextLayout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-8); align-items: start; }
-@media (min-width: 1080px) {
+@media (min-width: 1160px) {
   .nextLayout { grid-template-columns: minmax(0, 1fr) 340px; }
   .planRail { position: sticky; top: var(--space-16); }
   .nextHero { display: none !important; }
@@ -3899,7 +3916,7 @@ td[data-stage-deadline][data-soon] .stageDue { color: var(--danger); font-weight
 .stageActions { white-space: nowrap; text-align: right; }
 .stageMore { margin: var(--space-3); }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   .stageTable thead { display: none; }
   .stageTable, .stageTable tbody, .stageTable tr, .stageTable td { display: block; width: 100%; }
   .stageTable tr { padding: var(--space-3) 0; border-bottom: 1px solid var(--border-card); }
@@ -4046,7 +4063,7 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 .appsFootLeft { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .appsFootNote { font-size: var(--text-xs); }
 
-@media (max-width: 860px) {
+@media (max-width: 900px) {
   .attnStrip, .attnStrip[data-cards="3"] { --attn-cards: 2; }
   .appsTools { width: 100%; }
   .appsTools .appsSearchWrap { width: 100%; flex: 1 1 100%; }
@@ -4064,7 +4081,7 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 }
 .stageListCompany .appsCellBtn, .stageListRole .appsCellBtn { min-height: 0; height: auto; line-height: var(--leading-snug); }
 .stageListRole { margin-top: 2px; }
-@media (max-width: 860px) {
+@media (max-width: 900px) {
   .attnReferralTitle { white-space: normal; overflow-wrap: anywhere; }
 }
 .stageTabs { position: relative; }
@@ -4167,3 +4184,77 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 .pendingNote { flex-basis: 100%; order: 1; color: var(--muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .closedRow .closedLesson { min-height: 32px; padding: var(--space-1) var(--space-2); }
 .closedBanner { grid-column: 1 / -1; }
+
+/* ── Chunk 19 (6 Nov 2026): one control height, one radius per kind, one
+   header size. The audit measured 25 of 47 controls on /applications and 114
+   on /app/next under 32px tall, and six button radii. Controls are at least
+   36px tall (44px on a touch screen) with the control radius; badges are
+   pills; 12px is for table headers only. ─────────────────────────────── */
+.cta,
+.linkBtn,
+button.inlineLink,
+.stageTab,
+.appsSegBtn,
+.appsActionBtn,
+.appsToolBtn,
+.appsToolSelect,
+.nextStepAdd,
+.customizeLink {
+  min-height: 36px;
+}
+.cta,
+.appsActionBtn,
+.appsToolBtn,
+.appsToolSelect,
+.stageTab { border-radius: var(--r-sm); }
+.linkBtn,
+button.inlineLink,
+.nextStepAdd { display: inline-flex; align-items: center; }
+.appBarInitial { width: 36px; height: 36px; }
+.calNav { width: 36px; height: 36px; }
+/* The row's company and role still edit in place; each is a full-height target,
+   and the row's padding gives the room back. */
+.stageListCompany .appsCellBtn,
+.stageListRole .appsCellBtn { min-height: 36px; line-height: 36px; }
+.stageListRole { margin-top: 0; }
+.stageListRow > td { padding-top: var(--space-2); padding-bottom: var(--space-2); }
+.cstNavItem { min-height: 36px; }
+@media (pointer: coarse) {
+  .cta,
+  .linkBtn,
+  button.inlineLink,
+  .stageTab,
+  .appsSegBtn,
+  .appsActionBtn,
+  .appsToolBtn,
+  .appsToolSelect,
+  .nextStepAdd,
+  .customizeLink,
+  .cstNavItem,
+  .stageListCompany .appsCellBtn,
+  .stageListRole .appsCellBtn { min-height: 44px; }
+  .stageListCompany .appsCellBtn,
+  .stageListRole .appsCellBtn { line-height: 44px; }
+  .appBarInitial,
+  .calNav { width: 44px; height: 44px; }
+  .customizeLink.appBarMenuBtn { min-height: 44px; }
+}
+.savedBadge,
+.replyOwed__badge,
+.verdictPill,
+.rowFlag,
+.stageChip,
+.stagePill,
+.changesView__tag,
+.prepRatingTag { border-radius: var(--r-pill); }
+.stageList th,
+.stageTable th,
+.pipeTable thead th,
+.appsTable th,
+.winsTable th,
+.scoreTable th { font-size: var(--fs-xs); }
+/* Below 1160px the rail stacks under the plan; the month card keeps about the
+   width it has beside it, so its square days stay day-sized (they grew to
+   140px at 1100px once the rail's breakpoint moved from 1080 to 1160). */
+.planRail > [data-mini-calendar] { width: 100%; max-width: 400px; }
+@media (min-width: 1160px) { .planRail > [data-mini-calendar] { max-width: none; } }

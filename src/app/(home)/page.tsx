@@ -362,7 +362,7 @@ export default function Landing() {
             Your CV stays in your account and is processed only by the AI provider that runs your tailoring. The
             screenshots above are real screens from a test account; Jordan Reyes and every company shown are made up.
           </p>
-          <span>
+          <span className="lpFooterCredit">
             Built by Soma Shekar Keesari · <a href="https://github.com/shekar987/cv-tailor" rel="noopener">The code on GitHub</a> ·{" "}
             <Link href="/privacy">Privacy</Link>
           </span>
