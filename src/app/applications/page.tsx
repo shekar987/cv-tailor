@@ -13,6 +13,7 @@ import TriageBadge from "../TriageBadge";
 import { normalizeTriage } from "@/lib/triage/jdTriage";
 import { notesListFields, listTriageFields } from "@/lib/applicationRows";
 import RowFlags from "./RowFlags";
+import { coldEmailNeedsFollowup } from "@/lib/coldEmails";
 import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
@@ -92,7 +93,9 @@ type Application = {
   // The stored triage's verdict and reasons (lib/applicationRows listTriageFields).
   triage_verdict?: "apply" | "review" | "skip";
   triage_reasons?: string[];
-  source: "tailored" | "manual";
+  source: "tailored" | "manual" | "cold-email";
+  // Who a cold email went to (migration 20261106120000; lib/coldEmails).
+  contact_email?: string | null;
   created_at: string;
   // Stage 4: set (via a JSON-path alias in the list query) when a prep pack
   // is cached on the row; absent until the prep_pack migration is applied.
@@ -883,6 +886,7 @@ export default function ApplicationsPage() {
   }, [anyClosed]);
   const counts = useMemo(() => tabCounts(rows, byApp), [rows, byApp]);
   const attentionNumbers = useMemo(() => attentionCounts(rows, events, todayLocal(), clock, tz), [rows, events, clock, tz]);
+  const coldNoFollowup = useMemo(() => rows.filter(coldEmailNeedsFollowup).length, [rows]);
   const referral = useMemo(() => referralCard(rows), [rows]);
   const referralIds = useMemo(() => new Set(referralAsks(rows).map((r) => r.id)), [rows]);
   const tabNow: TabChoice = tab ?? defaultTab(counts);
@@ -899,6 +903,7 @@ export default function ApplicationsPage() {
       if (attention === "followups") return isDue(r);
       if (attention === "fix") return isDataToFix(r);
       if (attention === "referrals") return referralIds.has(r.id);
+      if (attention === "cold") return coldEmailNeedsFollowup(r);
       if (attention === "reopen") return isAsking(r);
       if (searchTerm) return true;
       if (tabNow === "all") return true;
@@ -1846,6 +1851,7 @@ export default function ApplicationsPage() {
     const meta = [
       attention === "followups" && row.followup_date ? `Follow-up ${formatDate(row.followup_date)}` : "",
       referralIds.has(row.id) ? `Referral: ${nextReferralAction(row)}` : "",
+      row.contact_email ? `To ${row.contact_email}` : "",
       row.last_contact_at ? `Last contact ${formatDate(row.last_contact_at.slice(0, 10))}` : "",
       row.referrer_name ? `referred by ${row.referrer_name}` : "",
     ].filter(Boolean).join(" · ");
@@ -2222,8 +2228,8 @@ export default function ApplicationsPage() {
   // The page's own filters reach the Closed section too; the summary above stays all time.
   const closedHere = stageTabNow ? closedRows(rows.filter((r) => (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) && (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to))), stageTabNow) : [];
   const noFilters = periodFilter === "all" && styleFilter === "all";
-  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
-  const viewTotal = !attention && searchTerm ? rows.length : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : tabNow === "all" ? rows.length : counts[tabNow];
+  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : attention === "cold" ? "cold emails missing a follow-up date" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
+  const viewTotal = !attention && searchTerm ? rows.length : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : attention === "cold" ? coldNoFollowup : tabNow === "all" ? rows.length : counts[tabNow];
   const elsewhere = !attention && !searchTerm && tabNow !== "all" && tabNow !== "assessment" ? countedElsewhere(rows, byApp, tabNow) : 0;
   const activeFilters = (styleFilter !== "all" ? 1 : 0) + (includePast ? 1 : 0) + (listSort !== "next" ? 1 : 0);
 
@@ -2275,6 +2281,7 @@ export default function ApplicationsPage() {
         {hasRows && (
           <AttentionStrip
             counts={attentionNumbers}
+            coldNoFollowup={coldNoFollowup}
             dueLabel={`Due by ${tomorrowName} night`}
             referral={referral}
             active={attention === "reopen" ? null : attention}

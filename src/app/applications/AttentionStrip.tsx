@@ -6,7 +6,7 @@
 import Icon from "@/components/ui/Icon";
 import type { AttentionCounts, ReferralCard } from "@/lib/applicationStage";
 
-export type AttentionFilter = "due" | "followups" | "fix" | "referrals";
+export type AttentionFilter = "due" | "followups" | "fix" | "referrals" | "cold";
 
 function formatDay(iso: string): string {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -14,9 +14,11 @@ function formatDay(iso: string): string {
 }
 
 export default function AttentionStrip({
-  counts, dueLabel, referral, active, onFilter, onOpenReferral,
+  counts, coldNoFollowup = 0, dueLabel, referral, active, onFilter, onOpenReferral,
 }: {
   counts: AttentionCounts;
+  // Cold emails logged from Gmail with no follow-up date (lib/coldEmails), shown only when there are some.
+  coldNoFollowup?: number;
   dueLabel: string;
   referral: ReferralCard | null;
   active: AttentionFilter | null;
@@ -24,7 +26,7 @@ export default function AttentionStrip({
   onOpenReferral: (id: string) => void;
 }) {
   return (
-    <section className="attnStrip" aria-label="Needs attention" data-cards={referral ? 4 : 3} data-attention>
+    <section className="attnStrip" aria-label="Needs attention" data-cards={3 + (referral ? 1 : 0) + (coldNoFollowup > 0 ? 1 : 0)} data-attention>
       <button
         type="button"
         className="attnCard"
@@ -61,6 +63,19 @@ export default function AttentionStrip({
         <span className="attnNumber">{counts.dataToFix}</span>
         <span className="attnLabel">Data to fix · {counts.statusToFix} status, {counts.attachmentsToFix} JD/CV</span>
       </button>
+      {coldNoFollowup > 0 && (
+        <button
+          type="button"
+          className="attnCard"
+          data-tone="amber"
+          aria-pressed={active === "cold"}
+          onClick={() => onFilter("cold")}
+          data-attn="cold"
+        >
+          <span className="attnNumber">{coldNoFollowup}</span>
+          <span className="attnLabel">Cold emails missing a follow-up date</span>
+        </button>
+      )}
       {referral && (
         <div className="attnCard attnCard--referral" data-attn="referral">
           <button type="button" className="attnReferralOpen" onClick={() => onOpenReferral(referral.id)} title={referral.title} data-attn-referral-open>

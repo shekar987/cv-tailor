@@ -81,6 +81,8 @@ const LIST_COLUMNS_REFERRAL = `${LIST_COLUMNS_CONTACT}, referral, referrer_name,
 const LIST_COLUMNS_STAGES = `${LIST_COLUMNS_REFERRAL}, stages_reached, outcome_reason`;
 // Closing a row (migration 20261104130000; lib/closing), the newest rung.
 const LIST_COLUMNS_CLOSED = `${LIST_COLUMNS_STAGES}, closed_at, close_reason, lesson, pending_outcome`;
+// Who a cold email went to (migration 20261106120000; lib/coldEmails), the newest rung.
+const LIST_COLUMNS_COLD = `${LIST_COLUMNS_CLOSED}, contact_email`;
 const CLOSED_MIGRATION_HINT = "Closing a row needs migration 20261104130000_applications_closed.sql. Run it in the Supabase SQL editor, then try again.";
 const CLOSED_SAVED_WITHOUT = "The status is saved, but the date, reason and lesson are not: run migration 20261104130000_applications_closed.sql in the Supabase SQL editor.";
 const CLOSING_LADDER = ["status, stages_reached, pending_outcome, lesson, closed_at, close_reason, followup_date, notes", "status, stages_reached", "status"];
@@ -484,7 +486,7 @@ export async function GET(req: NextRequest) {
     // and the upload route name the migration when it matters.
     let rows: Record<string, unknown>[] | null = null;
     let readError: { code?: string; message: string } | null = null;
-    const listLadder = [LIST_COLUMNS_CLOSED, LIST_COLUMNS_STAGES, LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
+    const listLadder = [LIST_COLUMNS_COLD, LIST_COLUMNS_CLOSED, LIST_COLUMNS_STAGES, LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
     for (let rung = 0; rung < listLadder.length; rung++) {
       const read = await readApplicationPages(
         () => supabase.from("applications").select(listLadder[rung]) as unknown as OrderableQuery
