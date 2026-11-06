@@ -99,7 +99,7 @@ const PRODUCT_SECOND_WORDS = new Set([
   "lambda", "native", "actions", "compose", "streams", "functions", "step", "pages", "workers", "connect", "studio", "router",
   "hooks", "redux", "beam", "glue", "athena", "redshift", "sagemaker", "bedrock", "kinesis", "fargate", "cloudformation",
   "cdk", "amplify", "cognito", "dynamodb", "aurora", "bigquery", "dataflow", "pubsub", "vertex", "registry", "mesh",
-  "swarm", "kernel", "asyncio", "copilot", "synapse", "fabric", "lakehouse", "sentinel", "defender",
+  "swarm", "kernel", "asyncio", "copilot", "synapse", "fabric", "lakehouse", "sentinel", "defender", "streaming", "apex",
 ]);
 // Words that say how a product is used, never part of its name. In a term written
 // all in capitals ("Python Test Automation") a capital says nothing, so a word not
@@ -120,16 +120,22 @@ const PRACTICE_WORDS = new Set([
   "mobile", "desktop", "ui", "ux", "workflows", "workflow", "processes", "concepts", "fundamentals", "principles", "advanced", "strong",
   "solid", "good", "basic", "using", "with", "of", "in", "on", "for", "the", "to", "based", "including",
 ]);
-// A word of a term's own spelling that names something: "Swarm" in "Docker Swarm
-// orchestration" (a capital in sentence case), any non-practice word in a term
-// written all in capitals.
-function namesByCase(term: string, rest: string): boolean {
+// A capitalised word directly after a product, in a term otherwise written in sentence case,
+// is part of the product's name: "Swarm" in "Docker Swarm orchestration". Never in a term
+// written all in capitals (postings title-case plain words: "AWS EC2 Instances", "Python
+// Coding Standards" are uses, and the 6 Nov review found them filed as core gaps), never an
+// all-caps acronym ("Python for ML"), never a practice word.
+function namesByCase(term: string, products: readonly string[]): boolean {
   const words = term.split(/[^\p{L}\p{N}+#.]+/u).filter((w) => /\p{L}/u.test(w));
   const titleCase = words.every((w) => /^\p{Lu}/u.test(w) || /^(?:and|or|of|in|on|for|the|to|with|a|an)$/.test(w));
-  const restWords = rest.split(/\s+/).filter(Boolean);
-  if (titleCase) return restWords.some((w) => !PRACTICE_WORDS.has(w.toLowerCase()) && !/^(?:and|or)$/i.test(w));
-  const first = words[0] ?? "";
-  return restWords.some((w) => w !== first && /^\p{Lu}/u.test(w) && !PRACTICE_WORDS.has(w.toLowerCase()));
+  if (titleCase) return false;
+  const lower = products.map((p) => p.toLowerCase());
+  for (let i = 0; i + 1 < words.length; i++) {
+    if (!lower.includes(words[i].toLowerCase())) continue;
+    const next = words[i + 1];
+    if (/^\p{Lu}\p{Ll}/u.test(next) && !PRACTICE_WORDS.has(next.toLowerCase()) && !lower.includes(next.toLowerCase())) return true;
+  }
+  return false;
 }
 // A named technology is never sent to the model:
 //   - a term that IS a product, a language or framework ("Spring Boot"), or a
@@ -153,7 +159,7 @@ function isNamed(term: string, sources: string): boolean {
   if (isNamedTechnology(rest.toLowerCase())) return true;
   const words = rest.toLowerCase().split(/\s+/).filter((w) => w && w !== "and" && w !== "or");
   if (words.some((w) => PRODUCT_SECOND_WORDS.has(w))) return true;
-  if (namesByCase(term, rest)) return true;
+  if (namesByCase(term, products)) return true;
   return products.some((p) => matchAtsKeywords(sources, [p]).matched === 0);
 }
 

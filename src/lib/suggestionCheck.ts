@@ -70,7 +70,7 @@ const POSTING_QUOTE_RE = /\b(?:the\s+)?(?:posting|job\s+description|JD|advert|jo
 // Technical Tools line first" propose no line.
 const UNQUOTED_RES = [
   // After a writing cue the line may start lower case ("to: built and owned …").
-  /\b(?:add|write|say|reads?|to|as|with)\s*:\s*([^"“”:]+?)\s*\.?\s*$/i,
+  /\b(?:add|write|use|say|reads?|to|as|with)\s*:\s*([^"“”:]+?)\s*\.?\s*$/i,
   // After a label ("Summary:", "Kafka bullet:") only a capital starts a line; "Summary: the
   // first sentence should name Kafka" is advice.
   /\b(?:[Bb]ullet|[Ll]ine|[Ss]entence|[Ss]ummary)\s*:\s*([A-Z0-9][^"“”:]+?)\s*\.?\s*$/,
@@ -88,37 +88,60 @@ const MOVE_VERB_RE = /\b(?:move|add|put|place|bring|copy|shift|transfer|include|
 // A purpose runs to the next quote mark or the sentence's end, so its reason goes with it
 // ("to show React, which is central to the role"); one before the quote stops at the quote,
 // keeping the destination after it ("To show React, add "…" under your Northgate Systems role").
+// …and at a comma that starts the next instruction (", then move it into your Northgate
+// Systems role", ", ideally under …"), so a destination after it is still seen.
+const PURPOSE_BODY = String.raw`(?:(?!,\s*(?:then|and|ideally|preferably|but|also|or)\b)[^.;"“”‘])*`;
 const PURPOSE_RES = [
-  /\bto\s+(?:show|surface|highlight|demonstrate|evidence|prove|signal|support|lead\s+with)\b[^.;"“”‘]*/gi,
-  /\bso\s+(?:that\s+)?(?:your|it|the|this|they)\b[^.;"“”‘]*/gi,
-  /\b(?:because|since)\b[^.;"“”‘]*/gi,
+  new RegExp(String.raw`\bto\s+(?:show|surface|highlight|demonstrate|evidence|prove|signal|support|lead\s+with)\b${PURPOSE_BODY}`, "gi"),
+  new RegExp(String.raw`\bso\s+(?:that\s+)?(?:your|it|the|this|they)\b${PURPOSE_BODY}`, "gi"),
+  new RegExp(String.raw`\b(?:because|since)\b${PURPOSE_BODY}`, "gi"),
 ];
+// A destination the suggestion says NOT to use ("Do not move "…" into Experience", "rather
+// than to employment history") is no destination.
+const NEGATED_BEFORE_RE = /\b(?:not|never|don['’]t|rather\s+than|instead\s+of)\b[^.;]*$/i;
 // "your" / "the" role, job or experience — never "the role's top term".
 // "your / the" before a role, job or position (never "the role's", never "the job
 // description"); none needed before a section ("under Experience", "into work experience").
 const ROLE_DEST_RE = /\b(?:into|under|to|in)\s+(?:(?:your|the)\s+(?:[\w&.'’-]+\s+){0,4}?(?:role|job|position)\b(?!['’]s|\s+(?:description|ad|advert|spec|posting|title|board|listing))|(?:your\s+|the\s+)?(?:work\s+experience|experience(?:\s+section)?|employment(?:\s+history)?)\b)/i;
 // The employer words of the master CV's role headers ("Northgate Systems"), never job words.
 const JOB_WORDS = /^(?:software|senior|junior|lead|staff|principal|full|stack|full-stack|data|engineer|developer|analyst|scientist|graduate|intern|placement|research|assistant|associate|consultant|manager|backend|frontend|front-end|back-end|web|mobile|platform|devops|cloud|machine|learning|ai|and|of|the|at|year)$/i;
+// A header segment that is a job title or a date is not the employer: "Technical Analyst",
+// "Projects Coordinator" and "Jul 2022 – Sep 2024" add no employer words.
+const TITLE_NOUN_RE = /\b(?:engineer|developer|analyst|scientist|consultant|manager|intern|internship|assistant|associate|coordinator|specialist|officer|administrator|designer|architect|lead|tester|technician|executive|director|representative|advis[eo]r|apprentice|apprenticeship|trainee|placement|researcher|tutor|teacher|volunteer|lecturer|programmer|head|founder|owner)s?\b/i;
+const DATE_SEGMENT_RE = /\b(?:19|20)\d{2}\b|\b(?:present|current)\b/i;
+// Section and label words never name an employer ("under Projects", "to Technical Tools").
+const LABEL_WORDS = /^(?:technical|tools|projects?|skills|summary|experience|education|profile|competencies|functional|key|core|highlights?|achievements|certifications?|languages?)$/i;
 // From the master CV's role headers in whatever shape ("Title | Employer | Dates",
-// "Employer — Title", "Title at Employer, dates"): the capitalised words that are no job
-// word, no month and no skill the CV lists ("Python" from "Python Developer | Acme").
+// "Employer — Title", "Title at Employer, dates"): the capitalised words of the segments that
+// are neither a title nor a date — no job word, no month, no label and no skill the CV lists.
 const MONTH_WORDS = /^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*$|^present$|^current$/i;
 function employerWords(headers: readonly string[], skillsText: string): string[] {
   const skills = new Set((skillsText.toLowerCase().match(/[\p{L}\p{N}+#.]+/gu) ?? []));
   const out = new Set<string>();
   for (const h of headers) {
-    for (const word of h.split(/[\s|,—–()·]+/)) {
-      const w = word.replace(/[^\p{L}\p{N}&'’-]/gu, "");
-      if (w.length >= 4 && /^[A-Z]/.test(w) && !JOB_WORDS.test(w) && !MONTH_WORDS.test(w) && !skills.has(w.toLowerCase())) out.add(w);
+    for (const segment of h.split(/\s*(?:\||—|–|\s-\s|·|@|,|\(|\)|\bat\b)\s*/i)) {
+      if (!segment.trim() || TITLE_NOUN_RE.test(segment) || DATE_SEGMENT_RE.test(segment)) continue;
+      for (const word of segment.split(/\s+/)) {
+        const w = word.replace(/[^\p{L}\p{N}&'’-]/gu, "");
+        if (w.length >= 4 && /^[A-Z]/.test(w) && !JOB_WORDS.test(w) && !MONTH_WORDS.test(w) && !LABEL_WORDS.test(w) && !skills.has(w.toLowerCase())) out.add(w);
+      }
     }
   }
   return [...out];
 }
+// A destination match that no "not / rather than / instead of" before it in its sentence turns away.
+function affirmedDestination(t: string, re: RegExp): boolean {
+  const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
+  for (const m of t.matchAll(g)) {
+    if (!NEGATED_BEFORE_RE.test(t.slice(0, m.index ?? 0))) return true;
+  }
+  return false;
+}
 function movesIntoPaidWork(suggestion: string, employers: readonly string[]): boolean {
   if (!MOVE_VERB_RE.test(suggestion)) return false;
   const t = PURPOSE_RES.reduce((s, re) => s.replace(re, " "), suggestion);
-  if (ROLE_DEST_RE.test(t)) return true;
-  return employers.some((e) => new RegExp(String.raw`\b(?:into|under|to|in)\s+(?:your\s+|the\s+)?(?:[\w&.'’-]+\s+){0,3}?${e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\b`).test(t));
+  if (affirmedDestination(t, ROLE_DEST_RE)) return true;
+  return employers.some((e) => affirmedDestination(t, new RegExp(String.raw`\b(?:into|under|to|in)\s+(?:your\s+|the\s+)?(?:[\w&.'’-]+\s+){0,3}?${e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\b`)));
 }
 
 const words = (s: string) => s.split(/\s+/).filter(Boolean).length;
@@ -145,7 +168,9 @@ export function proposedLines(suggestion: string): string[] {
       // rewrite verb's "to" / "as", a capital first ("Rewrite it as Led …"). A line
       // after a colon may be lower case: "to: built and owned the Kafka pipeline …".
       // Nor a line about the posting ("the posting asks for event-driven design twice").
-      if ((line.match(/\p{L}{2,}/gu) ?? []).length < 4 || /\byou(?:r|rs)?\b/i.test(line) || INSTRUCTION_START_RE.test(line) || /\b(?:posting|job\s+description|JD|advert|job\s+ad|the\s+role)\b/i.test(line)) return;
+      // A line is about the posting only when the posting is its subject ("the posting asks for
+      // …"): "the role-based access layer" and "a JD parser" are CV lines.
+      if ((line.match(/\p{L}{2,}/gu) ?? []).length < 4 || /\byou(?:r|rs)?\b/i.test(line) || INSTRUCTION_START_RE.test(line) || /^\s*(?:the|this)\s+(?:posting|job\s+description|jd|advert|job\s+ad|ad|role|job)\b(?![-'’])/i.test(line)) return;
       if (i === 2 && !/^[A-Z0-9]/.test(line)) return;
       out.push(line);
     });
@@ -154,11 +179,14 @@ export function proposedLines(suggestion: string): string[] {
 }
 
 // An instruction to the user, not a CV line.
-const INSTRUCTION_START_RE = /^(?:tighten|shorten|trim|expand|split|merge|quantify|cite|move|put|lead|keep|list|add|use|mention|name|place|swap|replace|drop|remove|cut|reorder|start|open|consider|try|make|bring|highlight|emphasi[sz]e|surface|show|include|mirror|match|reword|rewrite|change|update|edit|mention|lean|frame|position)\b/i;
+// Never a word that is also a past-tense CV verb ("Split the FastAPI service …", "Cut deploy time …").
+const INSTRUCTION_START_RE = /^(?:tighten|shorten|trim|expand|merge|quantify|cite|move|put|lead|keep|list|add|use|mention|name|place|swap|replace|drop|remove|reorder|start|open|consider|try|make|bring|highlight|emphasi[sz]e|surface|show|include|mirror|match|reword|rewrite|change|update|edit|lean|frame|position)\b/i;
 // "… add it / them / both …": the suggestion tells the user to add what it quoted.
-// The add verb's object is the quoted term itself: "add it", "list both" — never "put your
-// Docker work first instead", never "mention that your …".
-const ADD_IT_RE = /\b(?:add|list|include|insert|write)\s+(?:it|them|both|each|the\s+term|this\s+term|these\s+terms)\b(?![^.;]*\binstead\b)/i;
+// The verb's object is the quoted term itself — "add it", "put it in your tools", "mention
+// this", "name it", "use it" — never "put your Docker work first", never "mention that your
+// …" (a clause). Holding an honest suggestion only moves it to "Needs your evidence";
+// keeping an invented one is a claim, so this leans to holding.
+const ADD_IT_RE = /\b(?:add|list|include|insert|write|put|mention|name|use|cite|state)\s+(?:it|them|both|each|this|those|these|that(?!\s+(?:your|you|the|it|they|i|we|he|she|there|this)\b)|the\s+term|this\s+term|these\s+terms)\b/i;
 
 // The suggestion with the posting's quoted words taken out: a term quoted from the
 // posting is what the role asks for, not something the suggestion claims — unless

@@ -108,6 +108,8 @@ const APPLIED_FOR_END_RE = new RegExp(
 );
 const APPLIED_FOR_WHOLE_RE = new RegExp(String.raw`^\s*${CLAUSE}`);
 const WORDS_RE = /[A-Za-z0-9]+/g;
+// A remainder that is only a job noun, with at most two words before it ("Software developer").
+const JOB_NOUN_ONLY_RE = new RegExp(String.raw`^\s*(?:[A-Za-z-]+\s+){0,2}${JOB_NOUN}\s*$`);
 // A sentence ends before a capital: "J.P. Morgan" and "Acme Inc. in London" stay one.
 // A sentence ends before a capital, never after an abbreviation or an initial ("e.g. React",
 // "Dr. Patel", "J. Sainsbury", "J.P. Morgan", "Acme Ltd. in London").
@@ -128,8 +130,30 @@ export function stripAppliedFor(summary: string): { text: string; removed: strin
         continue;
       }
       const rest = sentence.slice(0, m.index).replace(/[\s,;:—–-]+$/, "");
+      // What is left must be whole. The opener "Software developer applying for the X role."
+      // goes with its clause; any other short remainder ("Uses R.") means the sentence's start
+      // can't be told apart from its end, so the sentence stays exactly as written. A job noun
+      // left after an initial ("… built test rigs in C. Software engineer") is that opener.
+      const short = (s: string) => (s.match(WORDS_RE) ?? []).length < 3;
+      const dropTail = (tail: string) => {
+        removed.push(sentence.trim());
+        const head = rest.slice(0, rest.length - tail.length).trimEnd();
+        if (head) kept.push(/[.!?]$/.test(head) ? head : `${head}.`);
+      };
+      // A job-noun opener after any full stop, an initial's included ("in C. Software engineer").
+      const plainTail = rest.split(/(?<=[.!?])\s+(?=[A-Z])/).pop() ?? rest;
+      if (plainTail !== rest && short(plainTail) && JOB_NOUN_ONLY_RE.test(plainTail)) {
+        dropTail(plainTail);
+        continue;
+      }
+      // Otherwise the last real sentence, initials and abbreviations kept whole ("J. Sainsbury", "e.g. React").
+      const tail = rest.split(SUMMARY_SPLIT).pop() ?? rest;
+      if (short(tail)) {
+        if (JOB_NOUN_ONLY_RE.test(tail)) dropTail(tail);
+        else kept.push(sentence);
+        continue;
+      }
       removed.push(sentence.trim());
-      if ((rest.match(WORDS_RE) ?? []).length < 3) continue;
       // "… at Example Lab Ltd." keeps its own full stop.
       kept.push(/[.!?]$/.test(rest) ? rest : `${rest}.`);
     }
