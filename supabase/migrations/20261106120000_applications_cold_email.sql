@@ -8,8 +8,9 @@
 --   - applications.contact_email (nullable text, at most 254 characters, the
 --     longest valid address): who the email went to;
 --   - the source CHECK gains 'cold-email' beside 'tailored' and 'manual';
---   - an index on (user_id, lower(company_name), lower(contact_email)), the
---     key the endpoint dedupes on.
+--   - a UNIQUE index on (user_id, lower(btrim(company_name)), lower(btrim(contact_email)))
+--     for rows with an address: two posts of one payload at once (a sweep retrying a
+--     timed-out request) cannot both insert; the endpoint re-plans on the refusal.
 -- No data changes: every existing row reads as "no contact email" and keeps its
 -- source. RLS on applications already covers the new column (the four policies
 -- are row-level).
@@ -35,13 +36,14 @@ alter table public.applications
   add constraint applications_source_check
   check (source in ('tailored', 'manual', 'cold-email'));
 
-create index if not exists applications_user_company_contact_idx
-  on public.applications (user_id, lower(company_name), lower(contact_email));
+create unique index if not exists applications_user_company_contact_key
+  on public.applications (user_id, lower(btrim(company_name)), lower(btrim(contact_email)))
+  where contact_email is not null;
 
 -- Down (run by hand to reverse; the cold-email rows go back to 'manual' first,
 -- or the old CHECK would refuse them):
 --
---   drop index if exists public.applications_user_company_contact_idx;
+--   drop index if exists public.applications_user_company_contact_key;
 --   alter table public.applications disable trigger applications_set_updated_at;
 --   update public.applications set source = 'manual' where source = 'cold-email';
 --   alter table public.applications enable trigger applications_set_updated_at;

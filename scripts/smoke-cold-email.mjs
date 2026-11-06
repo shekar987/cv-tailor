@@ -47,9 +47,23 @@ try {
 
     const second = await call("POST", "/api/applications/bulk-upsert", payload);
     check("the same payload again inserts nothing", second.status === 200 && second.body.inserted?.length === 0 && second.body.existing?.length === 2, JSON.stringify(second.body));
+    check("…and answers the API's status spelling, as GET does", second.body.existing?.every((e) => e.status === "Applied"), JSON.stringify(second.body.existing?.map((e) => e.status)));
+
+    // Two posts of a new pair at once (a sweep retrying a timed-out request): one row.
+    const racePair = [{ company_name: "Race Co", role: "Cold email", contact_email: "pat@race.example", date_sent: "2026-10-31", followup_date: null, notes: null }];
+    const [r1, r2] = await Promise.all([call("POST", "/api/applications/bulk-upsert", racePair), call("POST", "/api/applications/bulk-upsert", racePair)]);
+    const raceRows = (await (await fetch(`${SB}/rest/v1/applications?company_name=eq.Race%20Co&select=id`, { headers: asUser })).json()).length;
+    check("two posts at once insert one row", raceRows === 1 && [r1.status, r2.status].every((s) => s === 200 || s === 409), `${raceRows} rows; ${r1.status} ${r2.status}`);
+
+    // Renamed in place on the tracker: still the same email.
+    const acmeRow = (await (await fetch(`${SB}/rest/v1/applications?contact_email=eq.jane@acme.example&select=id`, { headers: asUser })).json())[0];
+    await call("PUT", "/api/applications", { id: acmeRow.id, company_name: "Acme Robotics Ltd" });
+    const afterRename = await call("POST", "/api/applications/bulk-upsert", payload);
+    check("a row renamed in place is not logged again", afterRename.body.inserted?.length === 0, JSON.stringify(afterRename.body.inserted));
 
     const list = await call("GET", "/api/applications");
-    const cold = (list.body.applications ?? []).filter((r) => r.source === "cold-email");
+    // The first payload's two rows (Race Co is the concurrency check's own row).
+    const cold = (list.body.applications ?? []).filter((r) => r.source === "cold-email" && r.company_name !== "Race Co");
     check("the tracker holds exactly two cold-email rows", cold.length === 2, String(cold.length));
     check("each Applied, with its contact email, dated the day sent", cold.every((r) => r.status === "Applied" && r.contact_email && r.date_applied === "2026-10-30"), JSON.stringify(cold.map((r) => [r.status, r.contact_email, r.date_applied])));
     check("Bravo has no follow-up date: the tracker's filter has one row", cold.filter((r) => !r.followup_date).length === 1);
