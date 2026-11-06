@@ -24,6 +24,7 @@
 // Relative .ts imports only, so it runs under node:test.
 import { evidenceLines, isNamedTechnology, type EvidenceMap, type Importance, type RequirementKind, type SourceLine } from "./evidenceMap.ts";
 import { namesLanguage } from "./triage/jdTriage.ts";
+import { matchAtsKeywords } from "./atsMatch.ts";
 import { distinctiveTokens } from "./claims.ts";
 
 export type GapClass = "rename" | "core";
@@ -79,11 +80,26 @@ export const RENAME_RULES: { term: RegExp; shown: RegExp }[] = [
 // Lookarounds, not \b: "C#", "C++" and ".NET" end or start on a symbol, where \b never matches.
 const PRODUCT_RE =
   /(?<![\w.+#])(?:kubernetes|k8s|helm|terraform|docker|ansible|jenkins|nginx|aws|azure|gcp|google\s+cloud|salesforce|workday|intune|jamf|mdm|okta|saml|sso|ldap|active\s+directory|snowflake|dbt|databricks|spark|hadoop|kafka|airflow|splunk|datadog|grafana|prometheus|elasticsearch|redis|postgres(?:ql)?|mysql|mongodb|graphql|python|pandas|numpy|django|flask|fastapi|typescript|javascript|node(?:\.?js)?|react|angular|vue|svelte|java|kotlin|scala|rust|golang|ruby|rails|php|c\+\+|c#|\.net|swift|bash|powershell|selenium|cypress|playwright|jest|pytest|excel|jira|confluence|figma|sql\s+server|oracle|sap|tableau|power\s+bi|looker|linux|windows|macos|ios|android|dns|tcp\/?ip|bgp|vpns?|firewalls?|networking|xero|quickbooks|netsuite|accounting|bookkeeping)(?![\w+#])/i;
-function isNamed(term: string): boolean {
-  // isNamedTechnology reads a capital as a product, and postings capitalise plain
-  // words ("Routing"), so it sees the lowercased term; the product list and the
-  // triage's language list read any case.
-  return distinctiveTokens(term).length > 0 || PRODUCT_RE.test(term) || /^\s*go\s*$/i.test(term) || namesLanguage(term) || isNamedTechnology(term.toLowerCase());
+const PRODUCT_ALL_RE = new RegExp(PRODUCT_RE.source, "gi");
+// The products a term names: the product list, the triage's languages, distinctive tokens.
+function productsIn(term: string): string[] {
+  const found = [...term.matchAll(PRODUCT_ALL_RE)].map((m) => m[0]);
+  for (const w of term.split(/[\s/,&]+/)) if (w && (namesLanguage(w) || /^go$/i.test(w))) found.push(w);
+  found.push(...distinctiveTokens(term));
+  return [...new Set(found.map((p) => p.trim()).filter(Boolean))];
+}
+// A named technology is never sent to the model: a term that IS a product, or a
+// practice around a product the master CV never shows ("Kubernetes clusters" —
+// asking could only invite a graft). A practice around a product the CV does show
+// ("Python test automation") is a question of wording, so the model is asked.
+// With no product word, isNamedTechnology reads the LOWERCASED term: it reads a
+// capital as a product, and postings capitalise plain words ("Routing").
+function isNamed(term: string, sources: string): boolean {
+  const products = productsIn(term);
+  if (products.length === 0) return isNamedTechnology(term.toLowerCase());
+  const rest = products.reduce((s, p) => s.split(p).join(" "), term).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  if (!rest || /^(?:and|or)$/i.test(rest)) return true;
+  return products.some((p) => matchAtsKeywords(sources, [p]).matched === 0);
 }
 
 function clip(s: string): string {
@@ -135,7 +151,7 @@ export function classifyByRules(map: EvidenceMap | null | undefined, cv: string,
       items.push({ ...base, class: "rename", line: clip(hit.text), where: hit.where, via: "rule" });
       continue;
     }
-    if (rule || isNamed(i.term) || i.kind === "soft") {
+    if (rule || isNamed(i.term, pool ? `${cv}\n${pool}` : cv) || i.kind === "soft") {
       items.push(base);
       continue;
     }
@@ -202,7 +218,7 @@ export function coreGapBanner(check: GapCheck | null | undefined): { terms: stri
 }
 
 /** The class of a term the tailored CV still misses, from the pre-check, if it was read. */
-export function gapFor(check: GapCheck | null | undefined, term: string): GapItem | null {
+export function gapFor(check: GapCheck | null | undefined, term: string, masterCv?: string): GapItem | null {
   const key = (s: string) => s.replace(/\s+—.*$/, "").toLowerCase().replace(/[^a-z0-9+#./]+/g, " ").trim();
   const t = key(term);
   if (!t) return null;
@@ -210,10 +226,16 @@ export function gapFor(check: GapCheck | null | undefined, term: string): GapIte
   const exact = items.find((i) => key(i.term) === t);
   if (exact) return exact;
   // The evidence map splits "X and Y" and trims leads: a missed keyword may carry a gap's
-  // whole words ("Kubernetes clusters" → Kubernetes). Never the other way: a shorter miss
-  // ("AWS", which the master CV shows) is not the longer gap ("AWS Lambda").
+  // whole words ("Kubernetes clusters — not present" → Kubernetes). The other way — a
+  // shorter miss inside a longer gap (the keyword "Kubernetes" folded into the required
+  // "Kubernetes clusters") — only when the master CV doesn't show the miss: "AWS", which
+  // it shows, is never the core gap "AWS Lambda".
   const within = (a: string, b: string) => b.length >= 3 && ` ${a} `.includes(` ${b} `);
-  return items.find((i) => within(t, key(i.term))) ?? null;
+  const forward = items.find((i) => within(t, key(i.term)));
+  if (forward) return forward;
+  const bare = term.replace(/\s+—.*$/, "").trim();
+  if (!masterCv || matchAtsKeywords(masterCv, [bare]).matched > 0) return null;
+  return items.find((i) => within(key(i.term), t)) ?? null;
 }
 
 /** A check from the response or a stored workspace, re-bounded. */

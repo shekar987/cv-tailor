@@ -3797,7 +3797,7 @@ export default function Home() {
                       <div className="atsGroupLabel misses">Missing ({result.atsScore.misses.length})</div>
                       <ul className="atsList">
                         {result.atsScore.misses.map((m, i) => {
-                          const gap = gapFor(normalizeGapCheck(result.gapCheck), m);
+                          const gap = gapFor(normalizeGapCheck(result.gapCheck), m, masterCvText);
                           return (
                             <li key={i} data-miss-class={gap?.class}>
                               <Badge variant="dot" tone="miss">✕</Badge>

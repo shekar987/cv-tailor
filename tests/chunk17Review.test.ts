@@ -54,7 +54,8 @@ test("a role whose end date is still ahead is current, and an end this year with
   const thisYear = "EXPERIENCE\nIndustrial Placement | Example Lab | 2025 – 2026";
   assert.equal(guard("I completed an industrial placement at Example Lab.", thisYear).removed.length, 0);
   assert.equal(guard(s, thisYear).removed.length, 0);
-  assert.equal(guard("I completed an industrial placement at Example Lab.", "EDUCATION\nBSc Computing with a placement year (expected 2027)").removed.length, 1, "expected counts as running");
+  assert.equal(guard("I completed an industrial placement at Example Lab.", "EXPERIENCE\nIndustrial Placement | Example Lab | Sep 2026 – Aug 2027 (expected)").removed.length, 1, "expected counts as running");
+  assert.equal(guard("I completed an industrial placement at Example Lab.", "EDUCATION\nBSc Computing with a placement year (expected 2027)").removed.length, 0, "a degree's dates are not the placement's");
 });
 
 test("the applied-for strip keeps the candidate's own facts", () => {
@@ -121,7 +122,8 @@ Strong interns may be offered a place on our two-year graduate programme.
 You must have the right to work in the UK for the full duration of the internship, without requiring visa sponsorship.`;
   const t = triageJd(job, { rightToWork: "time_limited", permissionEnds: "2028-01" });
   assert.equal(t.hits.some((h) => h.rule === "rtw_programme"), false);
-  assert.deepEqual(programmeEnd(job, "internship"), { month: "2027-07", latest: "2027-07", start: "2027-06", months: 2 });
+  // Ten weeks from June: certainly two months (the Skip), at most into September (the Review).
+  assert.deepEqual(programmeEnd(job, "internship"), { month: "2027-07", latest: "2027-09", start: "2027-06", months: 2 });
   assert.equal(programmeEnd(job, "programme")?.months, 24);
 });
 

@@ -416,14 +416,15 @@ const COUNT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4,
 // programme"), so the rule reads only the length of the thing its right-to-work
 // sentence names: an internship's sponsorship line never takes a programme's length.
 const PROGRAMME_LENGTH =
-  /\b(\d{1,2}|one|two|three|four|five|six|ten|twelve|eighteen|twenty[-\s]four)[-\s](year|month|week)s?(?:[-\s]long)?\s+(?:(?:graduate|rotational|training|early[-\s]careers?|development|apprenticeship|placement|technology|engineering|summer|industrial|software|paid)\s+)*(programme|program|scheme|apprenticeship|internship|placement|residency)\b|\b(programme|program|scheme|internship|placement|apprenticeship|residency)\s+(?:lasts|runs\s+for|is|of|spans)\s+(\d{1,2}|one|two|three|four|five|six|ten|twelve|eighteen|twenty[-\s]four)\s+(year|month|week)s?\b/gi;
+  /\b(\d{1,2}|one|two|three|four|five|six|ten|twelve|eighteen|twenty[-\s]four)[-\s](year|month|week)s?(?:[-\s]long)?\s+((?:(?:graduate|rotational|training|early[-\s]careers?|development|apprenticeship|placement|internship|technology|engineering|summer|industrial|software|paid)\s+)*)(programme|program|scheme|apprenticeship|internship|placement|residency)\b|\b(programme|program|scheme|internship|placement|apprenticeship|residency)\s+(?:lasts|runs\s+for|is|of|spans)\s+(\d{1,2}|one|two|three|four|five|six|ten|twelve|eighteen|twenty[-\s]four)\s+(year|month|week)s?\b/gi;
 // programme / program / scheme are one thing; the others are their own.
 function nounFamily(noun: string): string {
   const n = noun.toLowerCase();
   return /^(?:programme|program|scheme)$/.test(n) ? "programme" : n;
 }
 // The noun a right-to-work sentence is about: "the full duration of the internship".
-const DURATION_NOUN = /\b(?:duration|length|entirety|whole|end)\s+of\s+(?:the|your|this|our)?\s*(?:[\w-]+\s+){0,2}?(programme|program|scheme|placement|apprenticeship|internship|residency)\b/i;
+// Greedy, so the head noun wins: "the placement programme" is the programme.
+const DURATION_NOUN = /\b(?:duration|length|entirety|whole|end)\s+of\s+(?:the|your|this|our)?\s*(?:[\w-]+\s+){0,2}(programme|program|scheme|placement|apprenticeship|internship|residency)\b/i;
 // The right-to-work sentence must be about the programme itself, not "your employment".
 const PROGRAMME_WORD = /\b(?:programme|program|scheme|placement|apprenticeship|internship|residency|rotation)\b/i;
 const SPONSOR_NONE = /\bwithout\s+(?:requiring\s+|needing\s+|the\s+need\s+for\s+)?(?:visa\s+|work\s+)?sponsorship\b|\b(?:unable|not\s+able|cannot|can['’]t|do\s+not|don['’]t|will\s+not|won['’]t)\s+(?:to\s+)?(?:offer\s+|provide\s+)?sponsor/i;
@@ -447,22 +448,30 @@ export function programmeEnd(text: string, noun?: string): ProgrammeEnd | null {
     .filter((s) => s.m0 >= 0)
     .map((s) => s.year * 12 + s.m0);
   const family = noun ? nounFamily(noun) : null;
+  // A length counts for the noun it names, or for a noun its modifiers name:
+  // "a 24-month apprenticeship programme" is the apprenticeship's length too.
+  const forFamily = (l: RegExpMatchArray) =>
+    !family || nounFamily(l[4] ?? l[5]) === family || (l[3] ?? "").toLowerCase().split(/\s+/).some((w) => w !== "" && nounFamily(w) === family);
+  // In months, two ways: `lo` the months it certainly fills (the Skip reads that, so
+  // a misread only ever makes a Skip less likely) and `hi` the most it can reach (the
+  // Review drops only when that is covered). Weeks: lo rounded down, hi rounded up
+  // plus a month for a start day the posting doesn't state.
   const lengths = [...(text || "").matchAll(PROGRAMME_LENGTH)]
-    .filter((l) => !family || nounFamily(l[3] ?? l[4]) === family)
+    .filter(forFamily)
     .map((l) => {
-      const n = count(l[1] ?? l[5]);
-      const unit = (l[2] ?? l[6]).toLowerCase();
-      // Weeks count as the whole months they certainly fill (rounded down): an earlier
-      // end only ever makes a Skip less likely.
-      return unit.startsWith("year") ? n * 12 : unit.startsWith("week") ? Math.max(1, Math.floor((n * 7) / 30.44)) : n;
+      const n = count(l[1] ?? l[6]);
+      const unit = (l[2] ?? l[7]).toLowerCase();
+      if (unit.startsWith("year")) return { lo: n * 12, hi: n * 12 };
+      if (unit.startsWith("week")) return { lo: Math.max(1, Math.floor((n * 7) / 30.44)), hi: Math.ceil((n * 7) / 30.44) + 1 };
+      return { lo: n, hi: n };
     })
-    .filter((n) => n > 0 && n <= 72);
+    .filter((n) => n.lo > 0 && n.hi <= 73);
   if (starts.length === 0 || lengths.length === 0) return null;
   const start = Math.min(...starts);
-  const months = Math.min(...lengths);
+  const months = Math.min(...lengths.map((l) => l.lo));
   const ym = (v: number) => `${Math.floor(v / 12)}-${String((v % 12) + 1).padStart(2, "0")}`;
   // The latest end the posting allows: only that being covered drops the Review.
-  const latest = ym(Math.max(...starts) + Math.max(...lengths) - 1);
+  const latest = ym(Math.max(...starts) + Math.max(...lengths.map((l) => l.hi)) - 1);
   return { month: ym(start + months - 1), latest, start: ym(start), months };
 }
 

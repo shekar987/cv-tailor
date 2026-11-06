@@ -210,7 +210,7 @@ export function keepOutOfLead(skills: string, shape: SkillsShape = FLAT_SKILLS):
 // noun must keep its capital letter ("at Example Lab", never "and two years'").
 const anyCase = (s: string) => s.replace(/\\.|[a-z]/g, (c) => (c.length === 2 ? c : `[${c}${c.toUpperCase()}]`));
 const ROLE_KINDS: { noun: string; inMaster: RegExp }[] = [
-  { noun: anyCase(String.raw`(?:placements?|year\s+in\s+industry|sandwich\s+year)`), inMaster: /\bplacements?\b|\byear\s+in\s+industry\b|\bsandwich\s+year\b/i },
+  { noun: anyCase(String.raw`(?:placements?(?:\s+years?)?|year\s+in\s+industry|sandwich\s+year)`), inMaster: /\bplacements?\b|\byear\s+in\s+industry\b|\bsandwich\s+year\b/i },
   { noun: anyCase(String.raw`internships?`), inMaster: /\bintern(?:ship|ed|ing)?s?\b/i },
   { noun: anyCase(String.raw`apprenticeships?`), inMaster: /\bapprentice(?:ship)?s?\b/i },
   { noun: anyCase(String.raw`secondments?`), inMaster: /\bsecond(?:ment|ed)\b/i },
@@ -218,11 +218,15 @@ const ROLE_KINDS: { noun: string; inMaster: RegExp }[] = [
 const ROLE_ADJ = anyCase(String.raw`(?:(?:an?|my|the|his|her|their)\s+)?(?:(?:industrial|professional|research|industry|technical|engineering|software|data|work|summer|paid|graduate|year[-\s]long|\d{1,2}[-\s]month|one[-\s]year|12[-\s]month)\s+){0,3}`);
 // The rest of the claim: an organisation ("at Example Lab") and a year, nothing more.
 const ORG_WORD = String.raw`(?!I\b)[A-Z](?:[\w&'’+-]|\.(?=\w))*`;
-const ROLE_TAIL = String.raw`(?:\s+${anyCase("(?:at|with)")}\s+${ORG_WORD}(?:\s+(?:${ORG_WORD}|&|of))*)?(?:\s+${anyCase("in")}\s+(?:19|20)\d{2})?`;
+const ROLE_TAIL = String.raw`(?:\s+${anyCase("(?:at|with)")}\s+(?:${anyCase("the")}\s+)?${ORG_WORD}(?:\s+(?:${ORG_WORD}|&|of))*)?(?:\s+${anyCase("in")}\s+(?:19|20)\d{2})?`;
 const ONGOING_RE = /\b(?:present|current|now|ongoing|to\s+date|expected|anticipated)\b/i;
 const DATED_RE = /\b(?:19|20)\d{2}\b/;
 // Intent inside the claim's own clause: the future or the job applied for, never a claim.
-const INTENT_RE = /\b(?:apply|applying|keen|hope|hoping|would|will|looking\s+(?:for|to)|seeking|eager|want|wish|aim|aiming|excited|joining|join)\b/i;
+// Phrases, not words, where the word alone has a past sense ("sprint planning").
+const INTENT_RE = /\b(?:apply|applying|keen|hope|hoping|would|will|looking\s+(?:for|to)|seeking|eager|want|wish|aim|aiming|excited|joining|join|intend|intending|interested\s+in|opportunit(?:y|ies)\s+(?:to|for)|plan(?:s|ning)?\s+(?:to|on))\b/i;
+// A degree line ("BSc Computing with Industrial Placement | 2022 – 2027") names a
+// placement but its dates are the degree's, never the placement's.
+const DEGREE_LINE_RE = /\b(?:B\.?Sc|B\.?Eng|M\.?Eng|M\.?Sc|MBA|Ph\.?D|BA|MA|degree|university|college|hons|honours|bachelor['’]?s?|master['’]s|masters|school)\b/i;
 // Sentence ends that are not abbreviations ("Ltd. ", "e.g. ").
 const SENTENCE_SPLIT = /(?<!\b(?:Ltd|Inc|Co|Corp|e\.g|i\.e|etc|vs|Dr|Mr|Mrs|Ms|St|No)\.)(?<=[.!?])\s+/;
 // Words that can sit between a coordinator and the claim ("…, and I am currently on …").
@@ -254,7 +258,7 @@ function lineState(line: string, now: Date): "ongoing" | "ended" | "unsure" {
 type RoleState = { absent: boolean; ongoing: boolean; ended: boolean };
 function roleState(master: string, inMaster: RegExp, now: Date): RoleState {
   const lines = master.split(/\r?\n/).filter((l) => inMaster.test(l));
-  const states = lines.filter((l) => DATED_RE.test(l)).map((l) => lineState(l, now));
+  const states = lines.filter((l) => DATED_RE.test(l) && !DEGREE_LINE_RE.test(l)).map((l) => lineState(l, now));
   const unsure = states.includes("unsure");
   return { absent: lines.length === 0, ongoing: unsure || states.includes("ongoing"), ended: unsure || states.includes("ended") };
 }
@@ -290,14 +294,18 @@ function cutClause(sentence: string, at: number, end: number): { text: string; s
   const claimText = sentence.slice(at, end);
   const tidy = (s: string) => s.replace(/\s+([,;:.!?])/g, "$1").replace(/\s{2,}/g, " ").trim();
   // An opening adverbial before the main clause: "During my placement at X, I built Y."
-  if (!before.trim() && /^(?:during|throughout|in)\b/i.test(claimText) && /^\s*,?\s*[\p{L}]/u.test(after)) {
+  // Only before a comma or the candidate as subject: anything else is still the claim
+  // ("… and later at Acme, I built"), or a word the organisation swallowed.
+  if (!before.trim() && /^(?:during|throughout|in)\b/i.test(claimText) && /^(?:\s*,\s*[\p{L}]|\s+(?:I|we|my|our)\b)/u.test(after)) {
     return { text: lead + tidy(after.replace(/^\s*,?\s*/, "")), span: claimText };
   }
   // "Having completed my placement at X, I am …"
   if (/^\s*(?:having|after|following)\s*$/i.test(before) && /^\s*,/.test(after)) {
     return { text: lead + tidy(after.replace(/^\s*,\s*/, "")), span: `${before.trim()} ${claimText}` };
   }
-  const restOk = /^\s*(?:[,.;:!?]|$)/.test(after);
+  // What follows the cut must still fit the noun before it: a relative clause
+  // ("…, where I build …") would hang off the wrong word.
+  const restOk = /^\s*(?:[.;:!?]|$)/.test(after) || (/^\s*,/.test(after) && !/^\s*,\s*(?:where|which|who|whose|whom|when|whereby|that|during|through|in\s+which|from\s+which)\b/i.test(after));
   const gerund = /^\s+\p{L}+ing\b/u.test(after);
   // A modifier after a noun: "Software engineer currently on a placement at X, building Y."
   if (/^(?:currently|now)\b/i.test(claimText) && before.trim() && !DANGLING_WORDS.has(lastWord(before)) && (restOk || gerund)) {
@@ -326,7 +334,8 @@ export function guardRoleStatus(text: string, master: string, opts: { keep?: (se
     completed: new RegExp(String.raw`\b${anyCase(String.raw`(?:completed|finished|concluded|wrapped\s+up)`)}\s+${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`),
     current: new RegExp(String.raw`\b${anyCase(String.raw`(?:currently|now)\s+(?:on|in|doing|completing|undertaking)`)}\s+${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`),
     own: new RegExp(
-      String.raw`\b${anyCase(String.raw`(?:during|throughout|in)\s+my\s+`)}(?:\w+\s+){0,2}${k.noun}\b${ROLE_TAIL}|\b${anyCase(String.raw`my\s+`)}(?:\w+\s+){0,2}${k.noun}\b${ROLE_TAIL}|\b${anyCase(String.raw`on\s+`)}${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}|\b${anyCase(String.raw`(?:completed|finished|concluded|undertook|undertaken|undertaking|spent\s+\w+\s+\w+\s+on)\s+`)}${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`
+      // "on placement" only with the candidate as its subject: "I mentored two students on placement" is about them.
+      String.raw`\b${anyCase(String.raw`(?:during|throughout|in)\s+my\s+`)}(?:\w+\s+){0,2}${k.noun}\b${ROLE_TAIL}|\b${anyCase(String.raw`my\s+`)}(?:\w+\s+){0,2}${k.noun}\b${ROLE_TAIL}|\b${anyCase(String.raw`(?:i\s+(?:am|was)|i['’]m|while|whilst|when\s+i\s+was)\s+(?:currently\s+)?on\s+`)}${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}|\b${anyCase(String.raw`(?:completed|finished|concluded|undertook|undertaken|undertaking|spent\s+\w+\s+\w+\s+on)\s+`)}${ROLE_ADJ}${k.noun}\b${ROLE_TAIL}`
     ),
   }));
   // The clause that makes the sentence false, or null.

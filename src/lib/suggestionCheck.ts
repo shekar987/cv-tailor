@@ -7,26 +7,44 @@
 // A suggestion stays a suggestion only when it is traceable:
 //   - every absent term it names is in the master CV or pool, a line about a
 //     skill being learnt never counting;
-//   - every line it proposes — quoted, or after "to:" / "as:" / "→" — takes
-//     EVERY content word from ONE master line (an absent term the master CV
-//     names elsewhere aside), so a real line with "with zero downtime and full
-//     ownership" added does not pass, and neither do words recombined from
-//     several lines;
-//   - a line it moves into a role ("into your Northgate Systems role") comes
-//     from paid work, not a project (rule 10);
+//   - every line it proposes — quoted, after a colon, or after "to" / "as"
+//     before a capital ("Rewrite it as Led the …"), or after "→" — takes EVERY
+//     word from ONE master line, short words too ("Led", "own", "ran"), only
+//     grammatical words aside and an absent term the master CV names
+//     elsewhere; words are folded the matcher's way (lib/atsMatch foldWord:
+//     "optimised" = "optimized", plurals) so the British-English pipeline's
+//     own spelling never fails it. A real line with "with zero downtime and
+//     full ownership" added does not pass, and neither do words recombined
+//     from several lines;
+//   - a line it moves into a role ("Move "…" into your Northgate Systems
+//     role") comes from paid work, not a project (rule 10);
 //   - the whole suggestion passes the CV's own claims check.
 // A quote of the posting ("The posting asks for "…"") is the posting's words,
-// not a proposed line. Anything else becomes "needs your evidence": the term,
-// never the line.
+// not a proposed line — only when the posting is the subject and the cue
+// directly precedes the quote ("The JD asks for Kafka; add: "…"" is a line).
+// Anything else becomes "needs your evidence": the term, never the line.
 //
 // Relative .ts imports only, so it runs under node:test.
-import { matchAtsKeywords } from "./atsMatch.ts";
+import { foldWord, matchAtsKeywords } from "./atsMatch.ts";
 import { checkClaims, type ClaimsRegistry, type GraftRule } from "./claims.ts";
 import { evidenceLines } from "./evidenceMap.ts";
-import { contentOverlap } from "./supportCheck.ts";
 import { renameLine } from "./gapCheck.ts";
 
-// Every content word of a proposed line, from one master line.
+// Grammatical words only: "strong", "expert", "led" and "own" are claims and are traced.
+const GRAMMAR = new Set(["a", "an", "the", "and", "or", "of", "for", "in", "on", "at", "to", "by", "with", "from", "as", "is", "are", "was", "were", "be", "been", "it", "its", "this", "that", "these", "those", "my", "our", "your", "their", "i", "we", "me", "into", "via", "per", "using"]);
+function traceWords(text: string): Set<string> {
+  const words = text.toLowerCase().replace(/\*\*/g, "").replace(/(\d),(?=\d{3}\b)/g, "$1").match(/[a-z0-9+#]+(?:\.[a-z0-9]+)*/g) ?? [];
+  return new Set(words.filter((w) => !GRAMMAR.has(w)).map(foldWord));
+}
+// The share of a proposed line's words one master line carries: 1 = every word.
+function traceOverlap(line: string, source: string): number {
+  const want = traceWords(line);
+  if (want.size === 0) return 1;
+  const have = traceWords(source);
+  return [...want].filter((w) => have.has(w)).length / want.size;
+}
+
+// Every word of a proposed line, from one master line.
 export const TRACE_OVERLAP = 1;
 const MAX_NEEDS_EVIDENCE = 6;
 
@@ -41,12 +59,26 @@ const QUOTE_RES = [
   /“([^”\n]{1,400})”/g,
   /(?<![\p{L}\p{N}])['‘]((?:[^'’\n]|['’](?=\p{L})){1,400}?)['’](?![\p{L}\p{N}])/gu,
 ];
-// The posting's own words, quoted to say what it asks for.
-const POSTING_QUOTE_RE = /\b(?:posting|job\s+description|JD|advert|ad|asks?\s+for|requires?|wants?|mentions?|says|calls?\s+for|lists?|looking\s+for)\b[^.!?"“‘]{0,30}$/i;
-// An unquoted proposed line: "Change the bullet to: Optimised …", "… → Built …".
-const UNQUOTED_RE = /(?:\b(?:to|as|with|read|say|reads?)\s*:|→|->)\s*([^"“”]+?)\s*\.?\s*$/i;
-// A move into paid work: "Move "…" into your Northgate Systems role".
-const MOVE_RE = /\b(?:move|add|put|place|bring|copy)\b[^.]*?\b(?:into|under|to|in)\s+(?:your\s+|the\s+)?(?:[\w&.'’-]+\s+){0,5}?(?:role|job|position|employment|(?:work\s+)?experience(?:\s+section)?)\b/i;
+// The posting's own words, quoted to say what it asks for: the posting is the
+// subject, and the cue stands right before the quote.
+const POSTING_QUOTE_RE = /\b(?:the\s+)?(?:posting|job\s+description|JD|advert|job\s+ad|role|employer|they)\s+(?:also\s+|specifically\s+|explicitly\s+)?(?:asks?\s+for|requires?|wants?|mentions?|says|calls?\s+for|lists?|is\s+looking\s+for|looks?\s+for)\s*:?\s*$/i;
+// An unquoted proposed line: after a writing cue and a colon ("Change the bullet
+// to: Optimised …", "Add: Led …"), after a rewrite verb's "to" / "as" before a
+// capital ("Rewrite the booking bullet as Led …"), or an arrow. Never any colon or
+// any capital: "Move Python to the front: it is the first term" and "Add Python to
+// Technical Tools line first" propose no line.
+const UNQUOTED_RES = [
+  /\b(?:add|write|use|say|reads?|to|as|with|bullet|line|sentence|summary)\s*:\s*([^"“”:]+?)\s*\.?\s*$/i,
+  /\b(?:[Rr]ewrite|[Rr]ephrase|[Rr]eword|[Cc]hange|[Rr]eplace|[Uu]pdate|[Ee]dit|[Tt]urn)\b[^.:"“”]*?\b(?:to|as|with)\s+([A-Z][^"“”]+?)\s*\.?\s*$/,
+  /(?:→|->)\s*([^"“”]+?)\s*\.?\s*$/,
+];
+// A move into paid work: the destination right after the moved line, with no
+// other verb between ("… to show React experience" is a purpose, not a place).
+const QUOTED = String.raw`(?:"[^"\n]+"|“[^”\n]+”|‘[^’\n]+’)`;
+const MOVE_RE = new RegExp(
+  String.raw`\b(?:move|add|put|place|bring|copy)\s+(?:${QUOTED}|(?:the|this|that|your)\s+(?:[\w&.'’-]+\s+){0,4}?(?:bullet|line|point))\s+(?:into|under|to|in)\s+(?:your\s+|the\s+)?(?:(?!(?:to|show|surface|evidence|highlight|demonstrate|prove|top|front|summary|projects?)\b)[\w&.'’-]+\s+){0,5}?(?:role|job|position|employment|(?:work\s+)?experience(?:\s+section)?)\b`,
+  "i"
+);
 
 const words = (s: string) => s.split(/\s+/).filter(Boolean).length;
 
@@ -61,8 +93,14 @@ export function proposedLines(suggestion: string): string[] {
     }
   }
   if (out.length === 0) {
-    const m = UNQUOTED_RE.exec(suggestion);
-    if (m && words(m[1]) >= 4) out.push(m[1].trim());
+    for (const re of UNQUOTED_RES) {
+      const m = re.exec(suggestion);
+      // Four letter-words or more: "to Technical Tools" names a place, not a line.
+      if (m && (m[1].match(/\p{L}{2,}/gu) ?? []).length >= 4) {
+        out.push(m[1].trim());
+        break;
+      }
+    }
   }
   return out;
 }
@@ -115,7 +153,7 @@ export function checkSuggestions(
     // A term the master CV names elsewhere may join a line; nothing else may.
     const backed = named.filter((t) => inSources(t));
     const bare = (line: string) => backed.reduce((s, t) => s.replace(new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " "), line);
-    const tracedIn = (line: string, pool: string[]) => pool.some((l) => contentOverlap(bare(line), [l]) >= TRACE_OVERLAP);
+    const tracedIn = (line: string, pool: string[]) => pool.some((l) => traceOverlap(bare(line), l) >= TRACE_OVERLAP);
     const proposed = proposedLines(suggestion);
     const untraced = proposed.filter((line) => !tracedIn(line, lines));
     // Project work moved into a paid role is the setting changed, not a rename.

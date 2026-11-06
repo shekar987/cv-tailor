@@ -173,6 +173,11 @@ function fold(token: string): string {
   return w;
 }
 
+/** One word folded the matcher's way (British/American spelling, plural, -ing/-ed): for lib/suggestionCheck's line trace. */
+export function foldWord(token: string): string {
+  return fold(token.toLowerCase());
+}
+
 const STOP_SET = new Set(STOP_WORDS.map(fold));
 const GENERIC_SET = new Set(GENERIC_TERMS.map(fold));
 const QUALIFIER_SET = new Set(QUALIFIER_TERMS.map(fold));

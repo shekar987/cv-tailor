@@ -68,23 +68,39 @@ export function titleAsIdentity(title: unknown, heldTitles: string[]): boolean {
 // that way. Removed server-side, last, so no later pass brings it back: the
 // clause goes, and a sentence that was nothing else goes with it. Any title,
 // not only this run's, since a fact-check fix can word it differently.
+//
+// The clause, and nothing of the candidate's: it starts the sentence, follows a
+// comma or dash, or follows a singular job noun with an article ("Software
+// developer applying for the X role"; never "a CV tool that helps engineers
+// apply for graduate roles at 120 UK companies"); its title stops at a comma
+// (so "applying to Monzo, with a 12-month industrial placement at X" is never
+// read as one title); it names a role, position, programme, scheme, placement,
+// internship or apprenticeship, with a trailing year ("Programme 2027"); and it
+// takes with it only a tail that ends the clause: "at the BBC", "with Acme
+// Bank", "in the payments team". A tail that runs on ("… role in London with
+// two years' Python") is not taken, and then the sentence is left as it is:
+// cutting it would hand the place to the candidate. "with two years' …" is the
+// candidate's own fact and stays.
 // A title may carry dots ("Node.js Developer", ".NET Engineer"): a dot followed by a letter is part of it.
-const TITLE_CHARS = String.raw`(?:[^.!?\n]|\.(?=\w))`;
-// The clause is the candidate's applied-for form only where it starts: the sentence's
-// start, a comma or dash, or straight after a singular job noun ("Software developer
-// applying for the X role"), and then only with an article — "a CV tool that helps
-// engineers apply for graduate roles at 120 UK companies" is a fact, never the clause.
-// No "i" flag: the employer test needs its capital letter, so every other word is
-// spelled case-free here instead.
-const anyCase = (s: string) => s.replace(/[a-z]/g, (c) => `[${c}${c.toUpperCase()}]`);
-const JOB_NOUN = anyCase(String.raw`(?:developer|engineer|graduate|analyst|scientist|consultant|specialist|designer|architect|programmer|technologist|researcher|student)`);
-// An employer after it is capitalised words, never "with two years' …" (the candidate's own facts).
-const EMPLOYER_WORD = String.raw`(?!I\b)[A-Z](?:[\w&'’-]|\.(?=\w))*`;
-const W = (s: string) => anyCase(s);
+const TITLE_CHARS = String.raw`(?:[^.!?\n,;]|\.(?=\w))`;
+// No "i" flag: the employer after "with" needs its capital letter, so every other
+// word is spelled case-free here instead (escapes such as \s are left alone).
+const anyCase = (s: string) => s.replace(/\\.|[a-z]/g, (c) => (c.length === 2 ? c : `[${c}${c.toUpperCase()}]`));
+const W = anyCase;
+const JOB_NOUN = W(String.raw`(?:developer|engineer|graduate|analyst|scientist|consultant|specialist|designer|architect|programmer|technologist|researcher|student)`);
+const ROLE_NOUNS = W(String.raw`(?:roles?|positions?|opportunit(?:y|ies)|jobs?|post|vacanc(?:y|ies)|programmes?|programs?|schemes?|placements?|internships?|apprenticeships?)`);
+// A word of a place or employer: never a linking word, so "in London with two years'
+// Python" is not one tail (and then the sentence is left as it is).
+const TAIL_WORD = String.raw`(?!(?:with|and|or|for|to|in|at|as|using|by|from|where|while|which|who)\b)(?:[^\s,.;!?]|\.(?=\w))+`;
+const CAP_WORD = String.raw`(?!I\b)[A-Z](?:[\w&'’-]|\.(?=\w))*`;
+const CLAUSE_END = String.raw`(?=\s*(?:[,;.!?]|$))`;
+const AT_TAIL = String.raw`\s+(?:at|in|within|on|across)\s+(?:the\s+)?${TAIL_WORD}(?:\s+${TAIL_WORD}){0,5}${CLAUSE_END}`;
+const WITH_TAIL = String.raw`\s+with\s+(?:the\s+)?${CAP_WORD}(?:\s+(?:${CAP_WORD}|&|of))*${CLAUSE_END}`;
 const APPLIED_FOR_RE = new RegExp(
-  String.raw`(?:^|[,;:]\s*|\s+[—–-]\s+|(?<=\b${JOB_NOUN})\s+(?=(?:(?:currently|now)\s+)?applying\s+for\s+(?:the|this|a|an)\s))(?:(?:and|now|currently|while)\s+)*${W("(?:applying|apply)")}\s+(?:for|to)\s+(?:(?:the|this|a|an|your)\s+)?(?:${W("(?:role|position)")}\s+of\s+(?:[^.!?\n,;]|\.(?=\w)){1,90}|${TITLE_CHARS}{1,90}?\b${W("(?:roles?|positions?|opportunit(?:y|ies)|jobs?|post|vacanc(?:y|ies)|programmes?|programs?|schemes?|placements?|internships?|apprenticeships?)")})(?=[\s,;:.!?]|$)(?:\s+at\s+${EMPLOYER_WORD}(?:\s+(?:${EMPLOYER_WORD}|&|of))*)?`,
-  "g"
+  String.raw`(?:^|[,;:]\s*|\s+[—–-]\s+|(?<=\b${JOB_NOUN})\s+(?=(?:(?:currently|now)\s+)?applying\s+for\s+(?:the|this|a|an)\s))(?:(?:and|now|currently|while)\s+)*${W("(?:applying|apply)")}\s+(?:for|to)\s+(?:(?:the|this|a|an|your)\s+)?(?:${W("(?:role|position)")}\s+of\s+(?:[^.!?\n,;]|\.(?=\w)){1,90}?${CLAUSE_END}|${TITLE_CHARS}{1,90}?\b${ROLE_NOUNS}(?:\s+(?:19|20)\d{2})?(?=[\s,;:.!?]|$))(?:${AT_TAIL}|${WITH_TAIL})?`
 );
+// After the clause, a place or employer that was not taken would be left on the candidate.
+const RUN_ON_RE = /^\s+(?:(?:in|within|on|at|for|to|across|from)\b|with\s+(?:the\s+)?[A-Z])/;
 const WORDS_RE = /[A-Za-z0-9]+/g;
 
 export function stripAppliedFor(summary: string): { text: string; removed: string[] } {
@@ -93,13 +109,16 @@ export function stripAppliedFor(summary: string): { text: string; removed: strin
     const sentences = line.split(/(?<=[.!?])\s+/);
     const kept: string[] = [];
     for (const sentence of sentences) {
-      APPLIED_FOR_RE.lastIndex = 0;
-      if (!APPLIED_FOR_RE.test(sentence)) {
+      const m = APPLIED_FOR_RE.exec(sentence);
+      if (!m || m.index === undefined || RUN_ON_RE.test(sentence.slice(m.index + m[0].length))) {
         kept.push(sentence);
         continue;
       }
-      APPLIED_FOR_RE.lastIndex = 0;
-      let rest = sentence.replace(APPLIED_FOR_RE, "").replace(/^[\s,;:—–-]+/, "").replace(/[\s,;:—–-]+([.!?])?\s*$/, "$1");
+      let rest = (sentence.slice(0, m.index) + sentence.slice(m.index + m[0].length))
+        .replace(/^[\s,;:—–-]+/, "")
+        .replace(/[\s,;:—–-]+([.!?])?\s*$/, "$1")
+        .replace(/\s+([,;.!?])/g, "$1")
+        .replace(/,\s*,/g, ",");
       removed.push(sentence.trim());
       if ((rest.match(WORDS_RE) ?? []).length < 3) continue;
       if (!/[.!?]$/.test(rest)) rest += ".";
