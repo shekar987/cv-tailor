@@ -59,7 +59,12 @@ export type TriageRule =
   | "fixed_term"
   | "rtw_permanent"
   | "tech_required"
-  | "tech_desirable";
+  | "tech_desirable"
+  // lib/companyRules (Chunk 21): what the company said before, and what the user did.
+  | "company_cooldown"
+  | "company_closed"
+  | "same_role"
+  | "same_role_before";
 export type TriageHit = { level: "skip" | "review"; rule: TriageRule; phrase: string; sentence: string };
 export type JdTriage = { verdict: TriageVerdict; reasons: string[]; hits: TriageHit[] };
 export type TriageProfile = {
@@ -96,6 +101,10 @@ export const TRIAGE_RULE_LABELS: Record<TriageRule, string> = {
   rtw_permanent: "Right to work",
   tech_required: "Required language or framework",
   tech_desirable: "Desirable language or framework",
+  company_cooldown: "Reapply wait",
+  company_closed: "No new applications",
+  same_role: "Same role blocked",
+  same_role_before: "Applied for this role before",
 };
 
 type Section = "req" | "nice" | "other" | null;

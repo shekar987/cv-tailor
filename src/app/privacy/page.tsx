@@ -38,7 +38,14 @@ export default function PrivacyPage() {
           <strong>Your application tracker.</strong> For each row: company, role, dates, status, salary, your notes, the job description
           you pasted, the tailored CV and cover letter you saved with it, the CV file you uploaded as the one you sent, the
           interview prep pack, when and why you closed it with any lesson you noted, an outcome detected from your inbox while it waits for you to confirm it, and the transcript and feedback of each mock interview. The mock interview stores text only:
-          your voice is turned into text in your browser and <strong>no audio is sent or stored</strong>.
+          your voice is turned into text in your browser and <strong>no audio is sent or stored</strong>. Also, if you give them, the email
+          address you applied from and the next deadline with a note of what is due. Every earlier version of a row&apos;s notes is kept, so
+          you can restore one; it goes when the row or your account is deleted.
+        </li>
+        <li>
+          <strong>Reapply rules</strong> you save, or that your notes give when a company says when you can apply again (for example
+          &ldquo;wait at least one year&rdquo;): the company, the rule and the words it came from. They are used only to warn you before you
+          tailor for that company again.
         </li>
         <li>
           <strong>Your plan.</strong> The interviews, assessments and deadlines you add (dates, times, meeting links, contact names and

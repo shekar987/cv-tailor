@@ -31,7 +31,9 @@ const b = await newUser("b");
 try {
   const add = async (status, company = "Northwind") => (await (await a.call("/api/applications", { method: "POST", body: json({ company_name: company, role: "Engineer", status, date_applied: "2026-10-20" }) })).json()).id;
   const read = async (id) => (await (await a.call("/api/applications")).json()).applications.find((r) => r.id === id);
-  const put = (id, body) => a.call("/api/applications", { method: "PUT", body: json({ id, ...body }) });
+  // A notes replace carries the version it read (lib/notesWrite, Chunk 21), like the page.
+  const versionOf = async (id) => (await (await a.call(`/api/applications?id=${id}`)).json()).application?.updated_at;
+  const put = async (id, body) => a.call("/api/applications", { method: "PUT", body: json({ id, ...body, ...("notes" in body && !("if_updated_at" in body) ? { if_updated_at: await versionOf(id) } : {}) }) });
   const pendingUrl = (id) => `/api/applications/${id}/pending-outcome`;
   const patchOutcome = async (id, body) => (await a.call(pendingUrl(id), { method: "PATCH", body: json(body) })).json();
   const stored = async (id, columns) => (await (await fetch(`${SB}/rest/v1/applications?id=eq.${id}&select=${columns}`, { headers: admin })).json())[0];

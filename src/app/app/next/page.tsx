@@ -182,7 +182,8 @@ export default function NextPage() {
     const res = await fetch("/api/applications", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) }).catch(() => null);
     const body = res ? await res.json().catch(() => ({})) : {};
     if (!res || !res.ok) {
-      setActionError(body.error || "Could not save that change. Try again.");
+      // A notes write on a version the row has moved on from (lib/notesWrite): nothing landed.
+      setActionError(body.error === "stale_notes" ? "This row's notes changed since, so nothing was saved. Open it on Applications to change it there." : body.error || "Could not save that change. Try again.");
       return null;
     }
     // Closed on the server, whatever this page last read: nothing moved, and the tracker asks.
@@ -227,16 +228,19 @@ export default function NextPage() {
     const previous = normalizeStatus(application.status) ?? "screening";
     const followup = application.followup_date ?? null;
     // Closing a row clears its follow-up and notes that in the row's notes; undo takes both back.
-    const answer: { cleared?: { notes: string | null } } = {};
+    // The notes come back on the version that write left, so a line added since is never lost.
+    const answer: { cleared?: { notes: string | null }; version?: string } = {};
     leaveThen(reasonEvents.map((i) => i.event.id), async () => {
       const body = await putApplication(application.id, { status });
       if (body?.followupCleared) answer.cleared = body.followupCleared as { notes: string | null };
+      if (typeof body?.updated_at === "string") answer.version = body.updated_at;
       return !!body;
     }, () => {
       showToast({
         message,
         undo: async () => {
-          const restore = followup ? { followup_date: followup, ...(answer.cleared ? { notes: removeFollowupClearedNote(answer.cleared.notes, followup) } : {}) } : {};
+          const notesBack = answer.cleared && answer.version ? { notes: removeFollowupClearedNote(answer.cleared.notes, followup ?? "") || null, if_updated_at: answer.version } : {};
+          const restore = followup ? { followup_date: followup, ...notesBack } : {};
           if (await putApplication(application.id, { status: previous, confirmed_reopen: true, confirmed_move_back: true, ...restore })) await refresh();
         },
       });

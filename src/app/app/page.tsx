@@ -31,6 +31,9 @@ import { qualityReport, type QualityReport } from "@/lib/quality";
 import { REPAIR_SECTION_LABEL, type RepairChange } from "@/lib/claimRepair";
 import { buildEvidenceMap, graftRules, type EvidenceMap, type EvidenceItem } from "@/lib/evidenceMap";
 import { coreGapBanner, gapFor, normalizeGapCheck, type GapCheck } from "@/lib/gapCheck";
+import { checkCompanyRules, mergeCompanyHits, normalizeRule, type CompanyRule } from "@/lib/companyRules";
+import type { TriageHit } from "@/lib/triage/jdTriage";
+import { DEFAULT_TIMEZONE, dayKey } from "@/lib/planTime";
 import type { SupportReport } from "@/lib/supportCheck";
 import type { RightToWorkReport } from "@/lib/rightToWorkText";
 import type { HeaderLock, ChronologyReport } from "@/lib/bulletIds";
@@ -267,6 +270,9 @@ type GateExtras = {
   // Tracker rows at the same company (by normalized name), newest first —
   // a recruiter sees every application to their company in one screen.
   sameCompany: { company: string; count: number; last: { role: string; date_applied: string; status: string } } | null;
+  // What this company said about applying again, and the same role before
+  // (lib/companyRules), read for the JD in the box when the pre-check ran.
+  companyHits: { jd: string; hits: TriageHit[] } | null;
   // Which level the posting is written for, against the user's years
   // (lib/seniority). fits === false is a blocking warning: the continue
   // button demotes to "Tailor anyway" exactly as a skip read does.
@@ -929,6 +935,11 @@ export default function Home() {
         .then((r) => (r.ok ? r.json() : null))
         .then((j) => (Array.isArray(j?.applications) ? (j.applications as Record<string, unknown>[]) : []))
         .catch(() => []);
+      // The company's own rules about applying again (free; none until the migration).
+      const rulesPromise: Promise<CompanyRule[]> = fetch("/api/company-rules")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => (Array.isArray(j?.rules) ? (j.rules as unknown[]).map(normalizeRule).filter((r): r is CompanyRule => r !== null) : []))
+        .catch(() => []);
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -970,6 +981,17 @@ export default function Home() {
         const company = realValue(typeof data.result?.company_name === "string" ? data.result.company_name : "");
         const rows = company ? await rowsPromise : [];
         const same = rows.filter((r) => typeof r.company_name === "string" && companyNamesMatch(company, r.company_name));
+        // Before any credit: a wait in force, a closed intake, the same role again.
+        const companyHits = company
+          ? checkCompanyRules({
+              company,
+              role: realValue(typeof data.result?.role_title === "string" ? data.result.role_title : ""),
+              jdText: jobDescription,
+              rules: await rulesPromise,
+              rows,
+              today: dayKey(Date.now(), DEFAULT_TIMEZONE),
+            })
+          : [];
         setGateAnalysis(data.result ?? null);
         setPreCheck(data.atsPreCheck ?? null);
         setGateExtras({
@@ -977,6 +999,7 @@ export default function Home() {
           knockouts: data.knockouts ?? null,
           fallback: data.fallback ?? null,
           duplicateOf: Array.isArray(data.duplicateOf) && data.duplicateOf.length > 0 ? data.duplicateOf : null,
+          companyHits: { jd: jobDescription, hits: companyHits },
           sameCompany: same.length
             ? {
                 company,
@@ -1024,6 +1047,12 @@ export default function Home() {
   // before a credit is spent, and the button asks "Tailor anyway" as for a skip read.
   const coreGaps = coreGapBanner(gateExtras?.gapCheck);
   const gapBlocks = !!coreGaps?.blocks;
+  // The company's own rules (lib/companyRules) join the JD triage once the pre-check has
+  // read which company this is, for the JD still in the box: the badge, the gate and the
+  // "Tailor anyway?" question all say "Skip: reapply after 5 Jul 2027, from …".
+  const companyHits = gateExtras?.companyHits && gateExtras.companyHits.jd === jobDescription ? gateExtras.companyHits.hits : [];
+  const companyBlocks = companyHits.some((h) => h.level === "skip");
+  const shownTriage = mergeCompanyHits(jdTriage, companyHits);
   const gateVerdicts = useMemo(
     () => [...(gateExtras?.knockouts?.verdicts ?? [])].sort((a, b) => VERDICT_RANK[a.verdict] - VERDICT_RANK[b.verdict]),
     [gateExtras]
@@ -1267,10 +1296,10 @@ export default function Home() {
   // triage reads as Skip asks first, with the phrases it was read from.
   async function runFullTailor() {
     if (
-      jdTriage?.verdict === "skip" &&
+      shownTriage?.verdict === "skip" &&
       !(await confirm({
         title: "Tailor anyway?",
-        message: `This JD looks out of criteria: ${jdTriage.reasons.join("; ")}. Tailor anyway?`,
+        message: `This JD looks out of criteria: ${shownTriage.reasons.join("; ")}. Tailor anyway?`,
         confirmLabel: "Tailor anyway",
         cancelLabel: "Don't tailor",
       }))
@@ -2112,7 +2141,7 @@ export default function Home() {
                 {jobDescription.length.toLocaleString()} / {MAX_JD_CHARS.toLocaleString()}
               </p>
             </FormField>
-            <TriageBadge triage={jdTriage} />
+            <TriageBadge triage={shownTriage} />
             {usage && !usage.unlimited && (
               <p className="usageRow">
                 <span>
@@ -2364,6 +2393,12 @@ export default function Home() {
                     </ul>
                   </div>
                 )}
+                {companyHits.length > 0 && (
+                  <div className={companyBlocks ? "limitNotice" : "gateNote"} role="status" style={{ marginBottom: 'var(--space-4)' }} data-gate-company-rules={companyBlocks ? "skip" : "review"}>
+                    {companyBlocks ? "Skip" : "Review"}: {companyHits.map((h) => h.phrase).join("; ")}.
+                    {companyBlocks ? " Tailoring anyway spends a credit on an application they said they won't take." : ""}
+                  </div>
+                )}
                 {coreGaps && (
                   <div className={coreGaps.blocks ? "limitNotice" : "gateNote"} role="status" style={{ marginBottom: 'var(--space-4)' }} data-gate-core-gaps={coreGaps.terms.length}>
                     {coreGaps.text}
@@ -2371,8 +2406,8 @@ export default function Home() {
                   </div>
                 )}
                 <div className="gateActions">
-                  <Button variant={gateRead === "skip" || seniorityBlocks || gapBlocks ? "secondary" : "primary"} onClick={runFullTailor} disabled={loading}>
-                    {loading ? "Tailoring…" : gateRead === "skip" || seniorityBlocks || gapBlocks ? "Tailor anyway (uses a credit) →" : "Continue to full tailoring →"}
+                  <Button variant={gateRead === "skip" || seniorityBlocks || gapBlocks || companyBlocks ? "secondary" : "primary"} onClick={runFullTailor} disabled={loading}>
+                    {loading ? "Tailoring…" : gateRead === "skip" || seniorityBlocks || gapBlocks || companyBlocks ? "Tailor anyway (uses a credit) →" : "Continue to full tailoring →"}
                   </Button>
                   {variants && variants.variants.length > 0 && (
                     <span className="providerPick" data-variant-pick={variantPick.variant?.id ?? "none"}>

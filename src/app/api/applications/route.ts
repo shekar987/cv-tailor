@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { autoCloseMessage, closesOnConfirmation, confirmationAdded, confirmationIn } from "@/lib/autoClose";
 import { ACTION_MIGRATION_HINT } from "@/lib/planSchema";
-import { DEFAULT_TIMEZONE } from "@/lib/planTime";
+import { DEFAULT_TIMEZONE, dayKey } from "@/lib/planTime";
+import { addedLines, cleanNoteLine, decideNotesWrite, sameVersion, stampNoteLine, staleRefusal } from "@/lib/notesWrite";
+import { companyKey, normalizeRule, readCooldowns, ruleExists, type CompanyRule } from "@/lib/companyRules";
+import { MAX_DEADLINE_NOTE, deadlineFromFields, dueWithin, parseDueParam, type DueRow } from "@/lib/deadlines";
+import { isValidEmail } from "@/lib/contactCheck";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { MAX_JD_CHARS, MAX_NOTES_CHARS, MAX_COVER_LETTER_CHARS, JD_TOO_LONG } from "@/lib/limits";
 import { packFromRow } from "@/lib/prepPack";
@@ -18,8 +22,7 @@ import { normalizeStyleCheck } from "@/lib/styleCheck";
 import { validateReferralFields, REFERRAL_MIGRATION_HINT, type ReferralFields } from "@/lib/referrals";
 import { triageJd, buildTriageProfile, type JdTriage } from "@/lib/triage/jdTriage";
 import { MAX_APPLICATIONS, afterCursor, encodeCursor, readApplicationPages, readListMode, storedValuesFor, toListRow, toPageRow, type OrderableQuery } from "@/lib/applicationRows";
-import { MAX_LESSON_CHARS, MOVE_BACK_RECORDED, REOPEN_RECORDED, REPORT_DISMISSED, REPORT_HELD, UNDO_EXPIRED, decideClosingWrite, isCloseReason, isEnding, mergePendingOutcome, normalizePendingOutcome, normalizeUndoSnapshot, reportTaken, undoIsLive, undoWrite, type ClosingCurrent, type CloseReason, type PendingOutcome, type UndoSnapshot } from "@/lib/closing";
-import { formatDate } from "@/lib/formatDate";
+import { MAX_LESSON_CHARS, MOVE_BACK_RECORDED, REOPEN_RECORDED, REPORT_DISMISSED, REPORT_HELD, UNDO_EXPIRED, decideClosingWrite, isCloseReason, isEnding, mergePendingOutcome, normalizePendingOutcome, normalizeUndoSnapshot, reportTaken, reportedNote, undoIsLive, undoWrite, type ClosingCurrent, type CloseReason, type PendingOutcome, type UndoSnapshot } from "@/lib/closing";
 
 const REFERRAL_KEYS = ["referral", "referrer_name", "req_id", "referral_status"] as const;
 
@@ -32,8 +35,8 @@ const MAX_COMPANY = 200;
 const MAX_ROLE = 200;
 const MAX_SALARY = 100;
 const MAX_NOTES = MAX_NOTES_CHARS;
-const MAX_APPENDED_NOTE = 500;
 const MAX_CV_REF = 200;
+const MAX_EMAIL = 254;
 const MAX_SESSION_ID = 64;
 
 // A non-UUID id can only be a typo or a probe; Postgres would answer with a
@@ -84,6 +87,20 @@ const LIST_COLUMNS_STAGES = `${LIST_COLUMNS_REFERRAL}, stages_reached, outcome_r
 const LIST_COLUMNS_CLOSED = `${LIST_COLUMNS_STAGES}, closed_at, close_reason, lesson, pending_outcome`;
 // Who a cold email went to (migration 20261106120000; lib/coldEmails), the newest rung.
 const LIST_COLUMNS_COLD = `${LIST_COLUMNS_CLOSED}, contact_email`;
+// The address an application was made from and the next thing due (migration
+// 20261110120000, Chunk 21; lib/deadlines): the newest rung.
+const DEADLINE_KEYS = ["applied_from_email", "next_deadline", "deadline_note"] as const;
+const LIST_COLUMNS_DEADLINE = `${LIST_COLUMNS_COLD}, ${DEADLINE_KEYS.join(", ")}`;
+const DEADLINE_MIGRATION_HINT =
+  "Saving the applied-from address or a deadline needs migration 20261110120000_safe_notes_cooldowns_deadlines.sql. Run it in the Supabase SQL editor, then try again.";
+const DEADLINE_SAVED_WITHOUT =
+  "Saved without the applied-from address and deadline: run migration 20261110120000_safe_notes_cooldowns_deadlines.sql in the Supabase SQL editor.";
+// What GET ?due= reads: just enough for lib/deadlines, newest columns first.
+const DUE_LADDER = [
+  `id, company_name, role, status, followup_date, closed_at, ${DEADLINE_KEYS.join(", ")}`,
+  "id, company_name, role, status, followup_date, closed_at",
+  "id, company_name, role, status, followup_date",
+];
 const CLOSED_MIGRATION_HINT = "Closing a row needs migration 20261104130000_applications_closed.sql. Run it in the Supabase SQL editor, then try again.";
 const CLOSED_SAVED_WITHOUT = "The status is saved, but the date, reason and lesson are not: run migration 20261104130000_applications_closed.sql in the Supabase SQL editor.";
 const CLOSING_LADDER = ["status, stages_reached, pending_outcome, lesson, closed_at, close_reason, followup_date, notes", "status, stages_reached", "status"];
@@ -292,6 +309,9 @@ type Editable = {
   lesson?: string | null;
   pending_outcome?: PendingOutcome | null;
   undo_snapshot?: UndoSnapshot | null;
+  applied_from_email?: string | null;
+  next_deadline?: string | null;
+  deadline_note?: string | null;
 } & ReferralFields;
 
 type Validation = { fields: Editable } | { error: string };
@@ -415,6 +435,28 @@ function validateEditable(body: Record<string, unknown>, partial: boolean): Vali
     fields.outcome_reason = reason || null;
   }
 
+  // Which inbox the application used and what is due next (lib/deadlines), on create
+  // and on update. A date with no time is due at the end of that day in London.
+  if ("applied_from_email" in body) {
+    if (body.applied_from_email != null && typeof body.applied_from_email !== "string") return { error: "applied_from_email must be text." };
+    const email = typeof body.applied_from_email === "string" ? body.applied_from_email.trim() : "";
+    if (email && (email.length > MAX_EMAIL || !isValidEmail(email))) return { error: "Enter the address you applied from as an email address." };
+    fields.applied_from_email = email || null;
+  }
+  if ("next_deadline" in body) {
+    const raw = typeof body.next_deadline === "string" ? body.next_deadline.trim() : body.next_deadline;
+    if (raw == null || raw === "") fields.next_deadline = null;
+    else if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw) && isIsoDate(raw)) fields.next_deadline = deadlineFromFields(raw, "23:59");
+    else if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}T/.test(raw) && Number.isFinite(Date.parse(raw))) fields.next_deadline = new Date(Date.parse(raw)).toISOString();
+    else return { error: "Enter the deadline as an ISO date and time (2026-11-12T09:00:00Z) or a date (2026-11-12)." };
+  }
+  if ("deadline_note" in body) {
+    if (body.deadline_note != null && typeof body.deadline_note !== "string") return { error: "deadline_note must be text." };
+    const note = typeof body.deadline_note === "string" ? body.deadline_note.replace(/\s+/g, " ").trim() : "";
+    if (note.length > MAX_DEADLINE_NOTE) return { error: `Keep what is due under ${MAX_DEADLINE_NOTE} characters.` };
+    fields.deadline_note = note || null;
+  }
+
   // Referral, referrer, req id and the ask's status (lib/referrals). Update only.
   if (partial) {
     const r = validateReferralFields(body);
@@ -438,8 +480,33 @@ export async function GET(req: NextRequest) {
     if (!caller) return unauthorized();
     const { supabase, userId } = caller;
 
+    // ?due=48h: what is due in the next 48 hours (lib/deadlines), the same list as the red
+    // strip on /applications, so a sweep can push it at 07:00. The plain list is unchanged.
+    const params = new URL(req.url).searchParams;
+    const dueHours = parseDueParam(params.get("due"));
+    if (dueHours === "invalid") return NextResponse.json({ error: 'Use due=<hours>h, up to 168h (for example due=48h).' }, { status: 400 });
+    if (dueHours !== null) {
+      let dueRows: Record<string, unknown>[] = [];
+      let dueError: { code?: string; message: string } | null = null;
+      let withDeadlines = true;
+      for (let rung = 0; rung < DUE_LADDER.length; rung++) {
+        const read = await readApplicationPages(() => supabase.from("applications").select(DUE_LADDER[rung]) as unknown as OrderableQuery);
+        dueRows = read.rows ?? [];
+        dueError = read.error;
+        withDeadlines = rung === 0;
+        if (!(dueError && isMissingColumn(dueError) && rung < DUE_LADDER.length - 1)) break;
+      }
+      if (dueError) {
+        console.error("applications due read error:", dueError.message);
+        return NextResponse.json({ error: "Could not load your applications" }, { status: 500 });
+      }
+      const now = Date.now();
+      const due = dueWithin(dueRows as unknown as DueRow[], now, dueHours).map((item) => ({ ...item, status: apiStatus(item.status) }));
+      return NextResponse.json({ due, hours: dueHours, now: new Date(now).toISOString(), ...(withDeadlines ? {} : { warning: DEADLINE_MIGRATION_HINT.replace("Saving the applied-from address or a deadline needs", "Deadlines and applied-from addresses need") }) });
+    }
+
     // One full record, snapshot included.
-    const id = new URL(req.url).searchParams.get("id");
+    const id = params.get("id");
     if (id !== null) {
       if (!isUuid(id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
       // Optional columns, applied by hand in order: try them all, then without
@@ -487,7 +554,7 @@ export async function GET(req: NextRequest) {
     // and the upload route name the migration when it matters.
     let rows: Record<string, unknown>[] | null = null;
     let readError: { code?: string; message: string } | null = null;
-    const listLadder = [LIST_COLUMNS_COLD, LIST_COLUMNS_CLOSED, LIST_COLUMNS_STAGES, LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
+    const listLadder = [LIST_COLUMNS_DEADLINE, LIST_COLUMNS_COLD, LIST_COLUMNS_CLOSED, LIST_COLUMNS_STAGES, LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
 
     // ?stage=&limit=&cursor= is one page (lib/applicationRows readListMode): the same
     // columns and order, no notes preview. No parameters, or ?all=1, is the full
@@ -629,6 +696,16 @@ export async function POST(req: NextRequest) {
     // rather than blocking the tracker, and tell the client why the CV is
     // missing.
     let warning: string | undefined;
+    // No deadline columns yet (migration 20261110120000): the row saves without them.
+    if (insertError && isMissingColumn(insertError) && DEADLINE_KEYS.some((k) => k in record)) {
+      for (const k of DEADLINE_KEYS) delete (record as Record<string, unknown>)[k];
+      ({ data: inserted, error: insertError } = await supabase
+        .from("applications")
+        .insert({ ...record, user_id: userId })
+        .select("id")
+        .single());
+      if (!insertError) warning = DEADLINE_SAVED_WITHOUT;
+    }
     if (insertError && isMissingColumn(insertError)) {
       const { tailored_cv: _dropped, ...withoutSnapshot } = record;
       void _dropped;
@@ -710,6 +787,82 @@ async function closeOnConfirmation(supabase: Awaited<ReturnType<typeof signedIn>
   return closed.length + stillOpen.length > 0 ? { closed, stillOpen, message: autoCloseMessage(closed, stillOpen) } : null;
 }
 
+type RouteSupabase = NonNullable<Awaited<ReturnType<typeof signedIn>>>["supabase"];
+type SavedRule = Pick<CompanyRule, "company_name" | "rule_type" | "value">;
+
+function isMissingTable(err: { code?: string } | null): boolean {
+  return err?.code === "PGRST205" || err?.code === "42P01";
+}
+
+// Text added to a row's notes that dates a wait ("please wait at least one year before
+// applying again", "re-apply after 90 days") or blocks the same role becomes a company rule
+// (lib/companyRules), so the next posting from that company is a Skip before any credit.
+// Only what the text dates is saved: "this intake year" waits for the user's click on the
+// row, with a date they choose. A failure, or no table yet, never fails the note.
+async function rulesFromNote(supabase: RouteSupabase, userId: string, applicationId: string, text: string): Promise<SavedRule[]> {
+  const drafts = readCooldowns(text, dayKey(Date.now(), DEFAULT_TIMEZONE)).filter((d) => d.value !== null || d.needs === "role");
+  if (drafts.length === 0) return [];
+  const { data: row, error: rowError } = await supabase.from("applications").select("company_name, role").eq("id", applicationId).eq("user_id", userId).maybeSingle();
+  const company = typeof row?.company_name === "string" ? row.company_name.trim().slice(0, 200) : "";
+  if (rowError || !company || !companyKey(company)) return [];
+  const { data: stored, error: readError } = await supabase.from("company_rules").select("company_name, rule_type, value, dismissed_at").eq("user_id", userId).limit(1000);
+  if (readError) {
+    if (!isMissingTable(readError)) console.error("company rules read error:", readError.code ?? "unknown");
+    return [];
+  }
+  const known = (stored ?? []).map(normalizeRule).filter((r): r is CompanyRule => r !== null);
+  const created: SavedRule[] = [];
+  for (const d of drafts) {
+    const value = d.value ?? (typeof row?.role === "string" ? row.role.trim().slice(0, 200) : "");
+    if (!value) continue;
+    const rule: SavedRule = { company_name: company, rule_type: d.rule_type, value };
+    if (ruleExists([...known, ...created], rule)) continue;
+    const { error } = await supabase.from("company_rules").insert({
+      user_id: userId,
+      company_key: companyKey(company),
+      ...rule,
+      anchor_date: d.anchor_date,
+      source_text: d.source_text.slice(0, 500),
+      source: "notes",
+      application_id: applicationId,
+    });
+    if (error) {
+      console.error("company rule insert error:", error.code ?? "unknown");
+      break;
+    }
+    created.push(rule);
+  }
+  return created;
+}
+
+// Adds one stamped line on top of the notes in one UPDATE (the RPC of migration
+// 20261104120000): the caller never sends the old text, so it can never send a short
+// copy. Refuses rather than cut past the cap. Answers the notes and their version.
+async function appendNote(supabase: RouteSupabase, userId: string, id: string, line: string): Promise<NextResponse | { notes: string; updated_at: string | null }> {
+  const stamped = stampNoteLine(line, Date.now());
+  const { data, error } = await supabase.rpc("append_application_note", { p_id: id, p_line: stamped, p_max: MAX_NOTES });
+  if (error?.code === "PGRST202") return NextResponse.json({ error: ACTION_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+  if (error) {
+    console.error("applications append error:", error.code ?? "unknown");
+    return NextResponse.json({ error: "Could not add that note" }, { status: 500 });
+  }
+  if (typeof data !== "string") {
+    // Not the caller's row, or no room: tell the two apart without touching anything.
+    const { data: row, error: rowError } = await supabase.from("applications").select("id").eq("id", id).eq("user_id", userId).maybeSingle();
+    if (rowError) {
+      console.error("applications append lookup error:", rowError.code ?? "unknown");
+      return NextResponse.json({ error: "Could not add that note" }, { status: 500 });
+    }
+    if (!row) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+    return NextResponse.json({ error: `These notes are full (max ${MAX_NOTES} characters). Nothing was changed.`, errorType: "notes_full" }, { status: 400 });
+  }
+  // The version that goes with these notes, for a page that edits them next: only when the
+  // read still shows exactly them (another write in between would make the pair a lie).
+  const { data: after } = await supabase.from("applications").select("notes, updated_at").eq("id", id).eq("user_id", userId).maybeSingle();
+  const pairOk = typeof after?.notes === "string" && after.notes === data;
+  return { notes: data, updated_at: pairOk && typeof after?.updated_at === "string" ? after.updated_at : null };
+}
+
 // PATCH { id, append_note }: one dated line on top of the notes, in one UPDATE
 // (migration 20261104120000), so it can never replace them or lose another writer's
 // text. Past the tracker's cap it refuses rather than cut anything.
@@ -724,29 +877,15 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "No application specified" }, { status: 400 });
     }
     if (!isUuid(body.id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
-    const line = typeof body.append_note === "string" ? body.append_note.replace(/\s+/g, " ").trim() : "";
-    if (!line) return NextResponse.json({ error: "append_note must be some text." }, { status: 400 });
-    if (line.length > MAX_APPENDED_NOTE) return NextResponse.json({ error: `The note is too long (max ${MAX_APPENDED_NOTE} characters).` }, { status: 400 });
-    const dated = `${formatDate(new Date(), { timeZone: DEFAULT_TIMEZONE })}: ${line}`;
+    const cleaned = cleanNoteLine(body.append_note);
+    if ("error" in cleaned) return NextResponse.json({ error: cleaned.error }, { status: 400 });
+    const { line } = cleaned;
 
-    const { data, error } = await supabase.rpc("append_application_note", { p_id: body.id, p_line: dated, p_max: MAX_NOTES });
-    if (error?.code === "PGRST202") return NextResponse.json({ error: ACTION_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
-    if (error) {
-      console.error("applications append error:", error.code ?? "unknown");
-      return NextResponse.json({ error: "Could not add that note" }, { status: 500 });
-    }
-    if (typeof data !== "string") {
-      // Not the caller's row, or no room: tell the two apart without touching anything.
-      const { data: row, error: rowError } = await supabase.from("applications").select("id").eq("id", body.id).eq("user_id", userId).maybeSingle();
-      if (rowError) {
-        console.error("applications append lookup error:", rowError.code ?? "unknown");
-        return NextResponse.json({ error: "Could not add that note" }, { status: 500 });
-      }
-      if (!row) return NextResponse.json({ error: "Application not found" }, { status: 404 });
-      return NextResponse.json({ error: `These notes are full (max ${MAX_NOTES} characters). Nothing was changed.`, errorType: "notes_full" }, { status: 400 });
-    }
+    const appended = await appendNote(supabase, userId, body.id, line);
+    if (appended instanceof NextResponse) return appended;
     const autoClose = confirmationAdded(null, line) ? await closeOnConfirmation(supabase, userId, body.id) : null;
-    return NextResponse.json({ ok: true, notes: data, ...(autoClose ? { autoClose } : {}) });
+    const companyRules = await rulesFromNote(supabase, userId, body.id, line);
+    return NextResponse.json({ ok: true, notes: appended.notes, updated_at: appended.updated_at, ...(autoClose ? { autoClose } : {}), ...(companyRules.length ? { companyRules } : {}) });
   } catch (err) {
     console.error("applications PATCH error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not add that note" }, { status: 500 });
@@ -818,11 +957,59 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ ok: true, restored: { ...answer, status: apiStatus(answer.status) } });
     }
 
+    // The notes (lib/notesWrite): append_note needs no read and can't lose text; a whole
+    // replacement needs the version the caller read (if_updated_at), or nothing in this
+    // write lands. Decided before anything is read or written.
+    const notesWrite = decideNotesWrite(body);
+    if ("refuse" in notesWrite) return NextResponse.json(notesWrite.refuse.body, { status: notesWrite.refuse.status });
+
     const validated = validateEditable(body, true);
     if ("error" in validated) {
       return NextResponse.json({ error: validated.error }, { status: 400 });
     }
     const { fields } = validated;
+    const otherChanges = Object.keys(fields).length > 0 || "formatStyle" in body;
+
+    // A replace: the version the caller read must still be the row's. The write below is
+    // conditional on it too, so a writer that slips in between is caught there.
+    let guardVersion: string | null = null;
+    let notesBeforeReplace: string | null = null;
+    if (notesWrite.mode === "replace") {
+      const { data: stored, error: storedError } = await supabase.from("applications").select("notes, updated_at").eq("id", id).eq("user_id", userId).maybeSingle();
+      if (storedError) {
+        console.error("applications version read error:", storedError.code ?? "unknown");
+        return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
+      }
+      if (!stored) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+      if (!sameVersion(stored.updated_at, notesWrite.ifUpdatedAt)) {
+        const refusal = staleRefusal();
+        return NextResponse.json(refusal.body, { status: refusal.status });
+      }
+      guardVersion = stored.updated_at as string;
+      notesBeforeReplace = (stored.notes as string | null) ?? null;
+    }
+
+    // An append alone is one UPDATE in the database: nothing else to read or check.
+    if (notesWrite.mode === "append" && !otherChanges) {
+      const appended = await appendNote(supabase, userId, id, notesWrite.line);
+      if (appended instanceof NextResponse) return appended;
+      const autoClose = confirmationAdded(null, notesWrite.line) ? await closeOnConfirmation(supabase, userId, id) : null;
+      const companyRules = await rulesFromNote(supabase, userId, id, notesWrite.line);
+      return NextResponse.json({ ok: true, notes: appended.notes, updated_at: appended.updated_at, ...(autoClose ? { autoClose } : {}), ...(companyRules.length ? { companyRules } : {}) });
+    }
+    // An append beside other changes: room first, so the change never lands without its note.
+    if (notesWrite.mode === "append") {
+      const { data: stored, error: storedError } = await supabase.from("applications").select("notes").eq("id", id).eq("user_id", userId).maybeSingle();
+      if (storedError) {
+        console.error("applications notes read error:", storedError.code ?? "unknown");
+        return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
+      }
+      if (!stored) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+      const room = MAX_NOTES - (typeof stored.notes === "string" && stored.notes ? stored.notes.length + 1 : 0);
+      if (stampNoteLine(notesWrite.line, Date.now()).length > room) {
+        return NextResponse.json({ error: `These notes are full (max ${MAX_NOTES} characters). Nothing was changed.`, errorType: "notes_full" }, { status: 400 });
+      }
+    }
     // The rule (lib/closing): a row that reached screening ends only on the user's own word,
     // and only the Move to Closed dialog says so. A sweep uses the pending-outcome route.
     const confirmed = body.confirmed_by_user === true;
@@ -852,7 +1039,10 @@ export async function PUT(req: NextRequest) {
       // this row may not even be the right one, so nothing in this write lands. The banner asks,
       // quoting what it reported, and the row takes those words only if the user says yes.
       if ("ask" in decision) {
-        const merged = mergePendingOutcome(current?.pending_outcome, decision.ask);
+        // A sweep that appends its line is quoted the way one that replaced the notes was.
+        const appendedNote = notesWrite.mode === "append" && !decision.ask.note ? reportedNote(current?.notes, notesWrite.line) : undefined;
+        const ask: PendingOutcome = appendedNote ? { ...decision.ask, note: appendedNote } : decision.ask;
+        const merged = mergePendingOutcome(current?.pending_outcome, ask);
         if (!merged.ignored) {
           const { error: askError } = await supabase.from("applications").update({ pending_outcome: merged.value }).eq("id", id).eq("user_id", userId);
           if (askError) {
@@ -861,7 +1051,7 @@ export async function PUT(req: NextRequest) {
             return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
           }
         }
-        const message = merged.ignored ? (merged.value.dismissed || merged.value.outcome === decision.ask.outcome ? REPORT_DISMISSED : REPORT_HELD) : decision.ask.outcome === "reopen" ? REOPEN_RECORDED : MOVE_BACK_RECORDED;
+        const message = merged.ignored ? (merged.value.dismissed || merged.value.outcome === ask.outcome ? REPORT_DISMISSED : REPORT_HELD) : ask.outcome === "reopen" ? REOPEN_RECORDED : MOVE_BACK_RECORDED;
         return NextResponse.json({ ok: true, applied: false, message, status: apiStatus(current?.status), pending_outcome: merged.value, ...(merged.ignored ? { ignored: message === REPORT_HELD ? "pending" : "dismissed" } : {}) }, { status: 202 });
       }
       // Object.assign can't take a key away: a null the rule refused to honour must not reach the write.
@@ -986,12 +1176,12 @@ export async function PUT(req: NextRequest) {
     // another user's row rather than erroring, so an empty result means
     // "not yours or not there".
     const update: Record<string, unknown> = { ...fields, ...(snapshotPatch !== undefined ? { tailored_cv: snapshotPatch } : {}) };
-    let { data: updated, error: updateError } = await supabase
-      .from("applications")
-      .update(update)
-      .eq("id", id)
-      .eq("user_id", userId)
-      .select("id");
+    // Every attempt carries the replace's version: a row that moved on matches nothing.
+    const write = (patch: Record<string, unknown>) => {
+      const query = supabase.from("applications").update(patch).eq("id", id).eq("user_id", userId);
+      return (guardVersion ? query.eq("updated_at", guardVersion) : query).select("id, updated_at");
+    };
+    let { data: updated, error: updateError } = await write(update);
 
     // No closing columns yet (migration 20261104130000): clearing a column that is not there
     // is nothing, and the user's own close still moves the status, saying what it could not keep.
@@ -999,7 +1189,7 @@ export async function PUT(req: NextRequest) {
     if (updateError && isMissingColumn(updateError) && "undo_snapshot" in update) {
       delete update.undo_snapshot;
       closeWarning = UNDO_MIGRATION_HINT;
-      ({ data: updated, error: updateError } = await supabase.from("applications").update(update).eq("id", id).eq("user_id", userId).select("id"));
+      ({ data: updated, error: updateError } = await write(update));
     }
     if (updateError && isMissingColumn(updateError) && CLOSE_KEYS.some((k) => k in update)) {
       const onlyClearing = CLOSE_KEYS.every((k) => update[k] == null);
@@ -1007,22 +1197,17 @@ export async function PUT(req: NextRequest) {
         for (const k of CLOSE_KEYS) delete update[k];
         if (!onlyClearing) closeWarning = CLOSED_SAVED_WITHOUT;
         if (Object.keys(update).length === 0) {
-          updated = [{ id }];
+          updated = [{ id, updated_at: null }];
           updateError = null;
         } else {
-          ({ data: updated, error: updateError } = await supabase.from("applications").update(update).eq("id", id).eq("user_id", userId).select("id"));
+          ({ data: updated, error: updateError } = await write(update));
         }
       }
     }
 
     const oldUpdateLabel = isStatusCheckViolation(updateError) && fields.status ? oldStatusLabel(fields.status) : null;
     if (oldUpdateLabel) {
-      ({ data: updated, error: updateError } = await supabase
-        .from("applications")
-        .update({ ...update, status: oldUpdateLabel })
-        .eq("id", id)
-        .eq("user_id", userId)
-        .select("id"));
+      ({ data: updated, error: updateError } = await write({ ...update, status: oldUpdateLabel }));
     }
 
     if (updateError) {
@@ -1041,17 +1226,57 @@ export async function PUT(req: NextRequest) {
       if (isMissingColumn(updateError) && REFERRAL_KEYS.some((k) => k in fields)) {
         return NextResponse.json({ error: REFERRAL_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
       }
+      if (isMissingColumn(updateError) && DEADLINE_KEYS.some((k) => k in fields)) {
+        return NextResponse.json({ error: DEADLINE_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+      }
       console.error("applications update error:", updateError.message);
       return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
     }
     if (!updated || updated.length === 0) {
+      // Matched nothing: gone, or (for a replace) changed since its version was checked.
+      if (guardVersion) {
+        const { data: still } = await supabase.from("applications").select("id").eq("id", id).eq("user_id", userId).maybeSingle();
+        if (still) {
+          const refusal = staleRefusal();
+          return NextResponse.json(refusal.body, { status: refusal.status });
+        }
+      }
       return NextResponse.json({ error: "Application not found" }, { status: 404 });
+    }
+    let updatedAt = typeof updated[0]?.updated_at === "string" ? updated[0].updated_at : null;
+    // The append, now the rest has landed (its room was checked before).
+    let appendedNotes: string | undefined;
+    let noteWarning: string | undefined;
+    if (notesWrite.mode === "append") {
+      const appended = await appendNote(supabase, userId, id, notesWrite.line);
+      if (appended instanceof NextResponse) noteWarning = "Saved, but the note could not be added. Add it again.";
+      else {
+        appendedNotes = appended.notes;
+        updatedAt = appended.updated_at;
+      }
     }
     // A JD edit answers with the row's gates as stored, so the sheet can show
     // the new triage without a reload.
     const gates = jdChanged && snapshotPatch !== undefined ? (snapshotPatch?.gates ?? null) : undefined;
-    const autoClose = notesBefore !== undefined && confirmationAdded(notesBefore, fields.notes as string | null) ? await closeOnConfirmation(supabase, userId, id) : null;
-    return NextResponse.json({ ok: true, ...(reportNotes !== undefined ? { reportNotes } : {}), ...(closeWarning ? { warning: closeWarning } : {}), ...(followupCleared ? { followupCleared } : {}), ...(gates !== undefined ? { gates } : {}), ...(autoClose ? { autoClose } : {}) });
+    const autoClose =
+      (notesBefore !== undefined && confirmationAdded(notesBefore, fields.notes as string | null)) || (appendedNotes !== undefined && confirmationAdded(null, notesWrite.mode === "append" ? notesWrite.line : ""))
+        ? await closeOnConfirmation(supabase, userId, id)
+        : null;
+    // What the company said about applying again, in the text this write added.
+    const addedText = appendedNotes !== undefined && notesWrite.mode === "append" ? notesWrite.line : notesWrite.mode === "replace" ? addedLines(notesBeforeReplace, fields.notes) : "";
+    const companyRules = addedText ? await rulesFromNote(supabase, userId, id, addedText) : [];
+    const warning = [closeWarning, noteWarning].filter(Boolean).join(" ");
+    return NextResponse.json({
+      ok: true,
+      ...(updatedAt ? { updated_at: updatedAt } : {}),
+      ...(appendedNotes !== undefined ? { notes: appendedNotes } : {}),
+      ...(reportNotes !== undefined ? { reportNotes } : {}),
+      ...(warning ? { warning } : {}),
+      ...(followupCleared ? { followupCleared } : {}),
+      ...(gates !== undefined ? { gates } : {}),
+      ...(autoClose ? { autoClose } : {}),
+      ...(companyRules.length ? { companyRules } : {}),
+    });
   } catch (err) {
     console.error("applications PUT error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
