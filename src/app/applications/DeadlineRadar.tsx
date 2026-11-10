@@ -40,7 +40,7 @@ export function DeadlineRadar({
                 <button type="button" className="appsActionBtn" onClick={() => onOpen(item)} data-due-open>
                   Open
                 </button>
-                {item.kind === "deadline" && (
+                {(item.kind === "deadline" || item.kind === "event") && (
                   <button type="button" className="appsActionBtn" onClick={() => onDone(item)} disabled={busyKey === key} data-due-done>
                     {busyKey === key ? "Saving…" : "Done"}
                   </button>

@@ -494,13 +494,20 @@ export function closedRows<R extends ClosedFields>(rows: readonly R[], tab: Stag
 }
 
 /** Live order: the next event due first, then a pending outcome, then the last update. */
-export function liveOrder<R extends { pending_outcome?: unknown; updated_at?: string | null }>(a: R, b: R, nextEventMs: (row: R) => number): number {
+export function liveOrder<R extends { pending_outcome?: unknown; updated_at?: string | null; updated_minute?: number | null }>(a: R, b: R, nextEventMs: (row: R) => number): number {
   const an = nextEventMs(a);
   const bn = nextEventMs(b);
   if (an !== bn) return an - bn;
   const ap = activePending(a.pending_outcome) ? 0 : 1;
   const bp = activePending(b.pending_outcome) ? 0 : 1;
-  return ap - bp || (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
+  return ap - bp || lastUpdate(b) - lastUpdate(a);
+}
+
+// The list gives whole minutes (lib/applicationRows); a full row its updated_at.
+function lastUpdate(row: { updated_at?: string | null; updated_minute?: number | null }): number {
+  if (typeof row.updated_minute === "number") return row.updated_minute;
+  const ms = row.updated_at ? Date.parse(row.updated_at) : NaN;
+  return Number.isFinite(ms) ? Math.floor(ms / 60_000) : 0;
 }
 
 // ── Wins ────────────────────────────────────────────────────────────────────

@@ -69,13 +69,16 @@ try {
     check("notes history says which migration it needs", history.body.errorType === "needs_migration" && /20261110120000/.test(history.body.error));
     skipped("notes history and restore");
   } else {
-    const versions = history.body.history ?? [];
-    check("every change kept the text before it, newest first", history.status === 200 && versions.length === 4 && versions.at(-1).old_notes === "Applied on 5 Jul.", versions.map((v) => v.old_notes.split("\n")[0]).join(" | "));
+    // Appends, and a replace that only added a line, took nothing away: none is listed first.
+    check("the history opens on changes that took text away: none so far", history.status === 200 && (history.body.history ?? []).length === 0 && history.body.total === 4, JSON.stringify(history.body).slice(0, 160));
+    const every = await a.call(`/api/applications/${id}/notes-history?all=1`);
+    const versions = every.body.history ?? [];
+    check("every change kept the text before it, newest first", every.status === 200 && versions.length === 4 && versions.at(-1).old_notes === "Applied on 5 Jul." && versions.every((v) => v.lost_text === false), versions.map((v) => v.old_notes.split("\n")[0]).join(" | "));
     const current = await detail(id);
     const restored = await a.call("/api/applications", "PUT", { id, notes: versions.at(-1).old_notes, if_updated_at: current.updated_at });
     check("restoring the first version brings it back", restored.status === 200 && (await detail(id)).notes === "Applied on 5 Jul.");
     const after = (await a.call(`/api/applications/${id}/notes-history`)).body.history ?? [];
-    check("and the notes it replaced are kept in turn", after.length === 5 && after[0].old_notes === current.notes);
+    check("and the notes it replaced are kept in turn, listed first as text taken away", after.length === 1 && after[0].old_notes === current.notes && after[0].lost_text === true);
     check("another user reads none of it", ((await b.call(`/api/applications/${id}/notes-history`)).body.history ?? []).length === 0);
   }
 
@@ -103,6 +106,10 @@ try {
     check("a rejection that dates a wait becomes a rule", noted.status === 200 && noted.body.companyRules?.[0]?.value === "365", JSON.stringify(noted.body.companyRules));
     const read = (await a.call("/api/company-rules")).body.rules.find((r) => r.company_name === "Smoke Cooldown Ltd");
     check("anchored on the day it was written, from what they said", read?.anchor_date === londonDay(Date.now()) && /wait at least one year/.test(read?.source_text ?? "") && read?.source === "notes");
+    const replaced = await add({ company_name: "Smoke Replace Ltd", status: "Applied", notes: "First note." });
+    const version = (await detail(replaced)).updated_at;
+    const byHand = await a.call("/api/applications", "PUT", { id: replaced, notes: "First note.\nPlease wait at least one year before applying again.", if_updated_at: version });
+    check("a whole-notes replace never makes a rule on its own (the row offers it)", byHand.status === 200 && !byHand.body.companyRules);
     const intake = await add({ company_name: "Smoke Intake Ltd", status: "Applied" });
     const noDate = await a.call("/api/applications", "PUT", { id: intake, append_note: "We won't be able to accept any new applications from you this intake year." });
     check("an intake year with no date waits for the user's click", noDate.status === 200 && !noDate.body.companyRules);
@@ -117,7 +124,12 @@ try {
   const due = Date.now() + 30 * 3_600_000;
   const assessment = await add({ company_name: "Smoke Greenbeam", status: "Applied" });
   const set = await a.call("/api/applications", "PUT", { id: assessment, next_deadline: new Date(due).toISOString(), applied_from_email: "second.inbox@example.com", deadline_note: "Complete the Smoke Greenbeam assessment" });
+  // An assessment added in the plan (the Action Centre's way) is on the list too.
+  const planned = await add({ company_name: "Smoke Planned Ltd", status: "Applied" });
+  const planEvent = await a.call("/api/events", "POST", { application_id: planned, kind: "assessment", title: "Complete the online assessment", due_at: new Date(Date.now() + 20 * 3_600_000).toISOString() });
   const radar = await a.call("/api/applications?due=48h");
+  if (planEvent.status === 200 || planEvent.status === 201) check("an assessment in the plan is on the 48-hour list", radar.body.due.some((d) => d.id === planned && d.kind === "event" && d.action === "Complete the online assessment"), JSON.stringify(radar.body.due.map((d) => d.kind)));
+  else skipped(`the plan's events (POST /api/events answered ${planEvent.status})`);
   check("?due=48h answers the list", radar.status === 200 && Array.isArray(radar.body.due) && radar.body.hours === 48);
   check("a follow-up due tomorrow on an Interview row is on it", radar.body.due.some((d) => d.id === followup && d.kind === "followup" && d.status === "Interview" && d.action === "Follow up with Smoke Follow Ltd (Interview)"), JSON.stringify(radar.body.due).slice(0, 240));
   if (set.status === 503) {
@@ -133,6 +145,9 @@ try {
     const listed = (await a.call("/api/applications")).body.applications.find((r) => r.id === assessment);
     check("the list row carries it for the strip", Date.parse(listed?.next_deadline ?? "") === Math.floor(due / 1000) * 1000 || Date.parse(listed?.next_deadline ?? "") === due, listed?.next_deadline);
     check("another user's list has none of it", ((await b.call("/api/applications?due=48h")).body.due ?? []).length === 0);
+    const local = await a.call("/api/applications", "PUT", { id: followup, next_deadline: "2027-07-12T09:00" });
+    const localRow = (await a.call("/api/applications")).body.applications.find((r) => r.id === followup);
+    check("a time with no zone is London's: 09:00 BST is 08:00Z", local.status === 200 && Date.parse(localRow?.next_deadline ?? "") === Date.parse("2027-07-12T08:00:00Z"), localRow?.next_deadline);
     const done = await a.call("/api/applications", "PUT", { id: assessment, next_deadline: null, append_note: "Done: the assessment" });
     check("Done clears it and notes it", done.status === 200 && !(await a.call("/api/applications?due=48h")).body.due.some((d) => d.id === assessment) && /Done: the assessment/.test(done.body.notes));
     const posted = await a.call("/api/applications", "POST", { company_name: "Smoke Posted", role: "Engineer", date_applied: "2026-11-10", next_deadline: "2026-11-12", applied_from_email: "second.inbox@example.com" });

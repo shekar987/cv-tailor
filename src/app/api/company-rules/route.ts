@@ -10,10 +10,11 @@
 // Until migration 20261110120000 is applied the list is empty and a write answers 503.
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
-import { normalizeRule, readRuleInput, ruleExists, type CompanyRule } from "@/lib/companyRules";
+import { MAX_ACTIVE_RULES, normalizeRule, readRuleInput, ruleExists, type CompanyRule } from "@/lib/companyRules";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_RULES = 500;
+// Switched-off rules are kept (nothing is deleted) and read too; the cap counts the rules in use.
+const MAX_READ = 2000;
 const COLUMNS = "id, company_name, rule_type, value, anchor_date, source_text, source, application_id, created_at, dismissed_at";
 const MIGRATION_HINT =
   "Company rules need migration 20261110120000_safe_notes_cooldowns_deadlines.sql. Run it in the Supabase SQL editor, then try again.";
@@ -24,7 +25,7 @@ export async function GET() {
     const caller = await signedIn();
     if (!caller) return unauthorized();
     const { supabase, userId } = caller;
-    const { data, error } = await supabase.from("company_rules").select(COLUMNS).eq("user_id", userId).order("created_at", { ascending: false }).limit(MAX_RULES);
+    const { data, error } = await supabase.from("company_rules").select(COLUMNS).eq("user_id", userId).order("created_at", { ascending: false }).limit(MAX_READ);
     if (error) {
       // Triage then reads no rules: the same as having none.
       if (isMissingTable(error)) return NextResponse.json({ rules: [], needsMigration: true });
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
     if ("error" in read) return NextResponse.json({ error: read.error }, { status: 400 });
     const { rule } = read;
 
-    const { data: existing, error: readError } = await supabase.from("company_rules").select(COLUMNS).eq("user_id", userId).limit(MAX_RULES);
+    const { data: existing, error: readError } = await supabase.from("company_rules").select(COLUMNS).eq("user_id", userId).limit(MAX_READ);
     if (readError) {
       if (isMissingTable(readError)) return NextResponse.json({ error: MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
       console.error("company rules read error:", readError.code ?? "unknown");
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
       const same = rules.find((r) => !r.dismissed_at && ruleExists([r], rule));
       return NextResponse.json({ ok: true, rule: same, alreadySaved: true });
     }
-    if (rules.length >= MAX_RULES) return NextResponse.json({ error: `You can keep up to ${MAX_RULES} company rules.` }, { status: 400 });
+    if (rules.filter((r) => !r.dismissed_at).length >= MAX_ACTIVE_RULES) return NextResponse.json({ error: `You can keep up to ${MAX_ACTIVE_RULES} company rules in use. Switch some off to add more.` }, { status: 400 });
     // An application named must be the caller's own (RLS hides anyone else's).
     if (rule.application_id) {
       const { data: row } = await supabase.from("applications").select("id").eq("id", rule.application_id).eq("user_id", userId).maybeSingle();

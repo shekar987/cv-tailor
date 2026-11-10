@@ -1,5 +1,5 @@
 // Company cooldown rules (10 Nov 2026, Chunk 21; imports ./companyMatch.ts, ./tracker.ts,
-// ./planTime.ts and jdTriage's types; tests/companyRules).
+// ./planTime.ts and jdTriage's types; tests/safeNotes).
 //
 // What a company said about applying again — "wait at least one year", "no new
 // applications this intake year", "90 days", not the same role again — kept as a rule
@@ -7,13 +7,22 @@
 // user's own rows for that company, before any credit is spent. On 10 Nov the sweep
 // tailored four roles it could never apply to; the tracker already knew.
 //
-// readCooldowns() reads the phrases off a rejection in the notes (or a posting) and
-// never guesses: a duration becomes days, "this year" becomes 1 January, but "this
-// intake year" has no date in it, so it comes back needing one (the user picks it, with
-// the next 1 September offered). checkCompanyRules() answers TriageHits, so the badge
-// /app already shows says "Skip: reapply after 5 Jul 2027, from "wait at least one year"".
-import { companyNamesMatch, normalizeCompanyName } from "./companyMatch.ts";
-import { STATUS_LABELS, normalizeRole, normalizeStatus, type Status } from "./tracker.ts";
+// A wrong rule is a false "Skip" on a real job, so the reading leans safe (the review of
+// 10 Nov found ordinary rejection wording turning into permanent blocks):
+// - readCooldowns() marks a draft `sure` only for a wait tied to applying again in the same
+//   clause ("wait at least one year before applying again", "re-apply after 90 days"). Only
+//   a sure draft is ever saved without the user's click, and only from text appended to the
+//   notes. An intake year, "this year", the same role, or a posting's own rule are offered
+//   on the row for one click, never saved on their own.
+// - A date is never guessed: "this intake year" comes back needing one (the next 1 September
+//   is offered for the user to change).
+// - Rules match a company by its whole name (sameCompany: "Wise" is not "Wise Owl
+//   Consulting") and a role by its whole title (sameRole: "Software Engineer" is not
+//   "Software Engineer in Test"), a trailing place aside ("… - London", "(Remote)").
+// checkCompanyRules() answers TriageHits, so the badge /app already shows says
+// "Skip: reapply after 5 Jul 2027, from "wait at least one year"".
+import { normalizeCompanyName } from "./companyMatch.ts";
+import { STATUS_LABELS, normalizeStatus, type Status } from "./tracker.ts";
 import { addDays, dayMonthYear } from "./planTime.ts";
 import type { JdTriage, TriageHit } from "./triage/jdTriage.ts";
 
@@ -25,6 +34,7 @@ export const RULE_TYPE_LABELS: Record<RuleType, string> = {
   same_role_block: "Not the same role again",
 };
 export const MAX_RULE_DAYS = 3650;
+export const MAX_ACTIVE_RULES = 500;
 const MAX_SOURCE_CHARS = 500;
 const MAX_NAME_CHARS = 200;
 const REASON_SOURCE_CHARS = 80;
@@ -51,6 +61,10 @@ export type RuleDraft = {
   value: string | null;
   anchor_date: string | null;
   source_text: string;
+  // Safe to save without asking: a wait tied to applying again in the same clause.
+  sure: boolean;
+  // A posting's "if you applied for this position in the last 6 months": the role, not the company.
+  scope?: "company" | "role";
   needs?: "date" | "role";
   // For needs "date": the next 1 September, offered for the user to change.
   suggested?: string;
@@ -58,6 +72,40 @@ export type RuleDraft = {
 
 export function companyKey(name: string | null | undefined): string {
   return normalizeCompanyName(name);
+}
+
+// Words a company's name carries or drops depending on who writes it.
+const CORPORATE_WORDS = new Set(["s", "p", "a", "spa", "ag", "sa", "se", "bv", "nv", "llp", "lp", "uk", "group", "holdings", "plc", "ltd", "limited", "inc", "gmbh", "co", "corp", "corporation", "the", "llc"]);
+
+/** The same company, by its whole name: "Bending Spoons S.p.A." is "Bending Spoons", "Eleven Labs" is "ElevenLabs", "Wise" is not "Wise Owl Consulting". */
+export function sameCompany(a: string | null | undefined, b: string | null | undefined): boolean {
+  const key = (s: string | null | undefined) =>
+    normalizeCompanyName(s)
+      .split(" ")
+      .filter((t) => t && !CORPORATE_WORDS.has(t))
+      .join("");
+  const x = key(a);
+  return x.length > 0 && x === key(b);
+}
+
+// A trailing part of a title that only says where: "- London", "(Remote)", ", UK".
+const PLACE_WORDS = new Set([
+  "london", "remote", "hybrid", "uk", "united", "kingdom", "england", "scotland", "wales", "ireland", "manchester", "edinburgh",
+  "bristol", "cambridge", "oxford", "leeds", "birmingham", "glasgow", "belfast", "cardiff", "reading", "sheffield", "newcastle",
+  "nottingham", "liverpool", "brighton", "onsite", "on", "site", "office", "based", "emea", "europe", "eu", "flexible", "or", "and",
+]);
+
+function roleKey(role: unknown): string {
+  const text = typeof role === "string" ? role.toLowerCase().replace(/&/g, " and ") : "";
+  const parts = text.split(/\s[-–—|]\s|[,()[\]/:]/).map((p) => p.replace(/[^a-z0-9]+/g, " ").trim()).filter(Boolean);
+  while (parts.length > 1 && parts[parts.length - 1].split(" ").every((w) => PLACE_WORDS.has(w))) parts.pop();
+  return parts.join(" ");
+}
+
+/** The same job, by its whole title, a trailing place aside: "Junior Data Platform Engineer - London" is "Junior Data Platform Engineer"; "Software Engineer in Test" is not "Software Engineer". */
+export function sameRole(a: unknown, b: unknown): boolean {
+  const x = roleKey(a);
+  return x.length > 0 && x === roleKey(b);
 }
 
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -80,24 +128,31 @@ const NUMBER_WORDS: Record<string, number> = {
   a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
   eleven: 11, twelve: 12, eighteen: 18, "twenty-four": 24,
 };
-const DURATION_RE = /\b(\d{1,3}|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|eighteen|twenty-four)(?:\s+|-)(?:full\s+|calendar\s+)?(days?|weeks?|months?|years?)\b/i;
-// "applied … in the last 6 months": the wait counts from the last application, not today.
-const BACKWARD_RE = /\bapplied\b[^.!?\n]{0,60}?\b(?:in|within|during|over)\s+the\s+(?:last|past|previous)\s+/i;
+const NUM = String.raw`(\d{1,3}|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|eighteen|twenty-four)`;
+const UNIT = String.raw`(days?|weeks?|months?|years?)`;
+const DURATION = String.raw`(?:at\s+least\s+|a\s+minimum\s+of\s+|minimum\s+of\s+|a\s+full\s+)?${NUM}(?:\s+|-)(?:full\s+|calendar\s+)?${UNIT}`;
 // Applying again, said outright.
-const REAPPLY_RE = /\b(?:re-?appl(?:y|ying|ied|ication|ications)|appl(?:y|ying)\s+(?:to\s+us\s+|with\s+us\s+)?again|submit(?:ting)?\s+(?:a\s+)?(?:new|another|further)\s+application)\b/i;
-// "new / further applications" is about applying again only when the company refuses them or
-// they are the candidate's: "we had many new applications over the past 3 months" is not.
-const MORE_APPLICATIONS_RE = /\b(?:new|another|further|future|subsequent)\s+applications?\b/i;
-const WAIT_RE = /\bwait\b/i;
-// "wait 2 weeks to hear back", "wait 6 weeks while we review" are about the reply, not about applying again.
-const NOT_A_COOLDOWN_RE = /\b(?:hear|response|respond|reply|outcome|feedback|decision|update|review|reviewing|process|processing|assess|assessing|shortlist|shortlisting|screen|screening)\b/i;
-const REFUSE_RE = /\b(?:not|unable|cannot|no\s+longer|ineligible|won['’]t|can['’]t|don['’]t|isn['’]t|aren['’]t)\b/i;
-function aboutReapplying(sentence: string): boolean {
-  return REAPPLY_RE.test(sentence) || (MORE_APPLICATIONS_RE.test(sentence) && (REFUSE_RE.test(sentence) || /\bfrom\s+you\b/i.test(sentence)));
-}
-const APPLICATIONS_RE = /\b(?:applications?|re-?apply|apply\s+again|candidacy)\b/i;
+const AGAIN = String.raw`(?:re-?appl(?:y|ying|ication)|appl(?:y|ying)\s+(?:to\s+us\s+|with\s+us\s+)?again|submit(?:ting)?\s+(?:a\s+)?(?:new|another|further)\s+application|be\s+considered\s+(?:again|for\s+(?:a\s+)?(?:new|another|further)\s+application))`;
+// One clause: no comma, semicolon or colon, and no "and / but / however" starting another.
+const CLAUSE = String.raw`(?:(?![,;:]|\b(?:and|but|however|while|whereas|although)\b)[^.!?\n])`;
+// "wait at least one year before applying again", "for 12 months before you can reapply".
+const WAIT_THEN_AGAIN_RE = new RegExp(String.raw`\b(?:wait|after|for|in|within|until)\s+(?:the\s+next\s+)?${DURATION}\b${CLAUSE}{0,40}?\b${AGAIN}\b`, "i");
+// "re-apply after 90 days", "apply again in 6 months", "do not reapply within the next 12 months".
+const AGAIN_THEN_WAIT_RE = new RegExp(String.raw`\b${AGAIN}\b${CLAUSE}{0,30}?\b(?:after|in|once|within|until|for)\s+(?:the\s+next\s+|a\s+period\s+of\s+)?${DURATION}\b`, "i");
+// "we won't accept new applications from you for 12 months": a refusal of the candidate's next
+// application, with how long, in one clause. "We are not accepting further applications for
+// our 12-month programme" is about the programme, and never matches.
+const REFUSED_FOR_RE = new RegExp(String.raw`\b(?:won['’]t|will\s+not|cannot|can['’]t|unable\s+to|do\s+not|don['’]t)\s+(?:be\s+able\s+to\s+)?(?:accept|consider|review)\s+(?:any\s+)?(?:new|further|another|future)\s+applications?\b(?:\s+from\s+you)?${CLAUSE}{0,20}?\b(?:for|within|in)\s+(?:the\s+next\s+)?${DURATION}\b`, "i");
+// A posting's "if you (have) applied (for this position) in the last 6 months, please do not reapply".
+const BACKWARD_RE = new RegExp(String.raw`\b(?:you|candidates|applicants|anyone|those|people)\s+(?:who\s+)?(?:have\s+|has\s+|had\s+)?(?:previously\s+|already\s+|recently\s+)?applied\b(${CLAUSE}{0,60}?)\b(?:in|within|during|over)\s+the\s+(?:last|past|previous)\s+(?:${DURATION}|(day|week|month|year))\b`, "i");
+const REFUSE_RE = /\b(?:do\s+not|don['’]t|will\s+not|won['’]t|cannot|can['’]t|unable\s+to|not\s+(?:be\s+)?(?:able|eligible|considered)|ineligible)\b/i;
+const THIS_ROLE_RE = /\b(?:this|the\s+same)\s+(?:role|position|vacancy|job|opening)\b/i;
+// "we won't be able to accept any new applications from you this intake year".
+const MORE_APPLICATIONS_RE = /\b(?:accept|consider|take|progress)\b[^.!?\n]{0,30}?\b(?:any\s+)?(?:new|further|another|more)\s+applications?\b|\bapplications?\s+from\s+you\b/i;
 const INTAKE_RE = /\b(?:this|the\s+current)\s+(?:(intake|recruitment|hiring|application|graduate|academic|calendar)\s+)?(year|cycle|season|round|intake|campaign|period)\b/i;
-const SAME_ROLE_RE = /\b(?:same|this|that)\s+(?:role|position|vacancy|job|opening|opportunity)\b/i;
+// "we can't consider further applications from you for this role" — never beside an invitation.
+const SAME_ROLE_RE = new RegExp(String.raw`\b(?:do\s+not|don['’]t|cannot|can['’]t|won['’]t\s+be\s+able\s+to|will\s+not\s+be\s+able\s+to|unable\s+to|not\s+be\s+able\s+to)\s+(?:${AGAIN}|consider|accept)\b${CLAUSE}{0,50}?\b(?:for|to)\s+(?:this|the\s+same)\s+(?:role|position|vacancy|job)\b`, "i");
+const INVITATION_RE = /\b(?:however|encourage|welcome|other\s+(?:roles|positions|opportunities|vacancies))\b/i;
 const MONTH_INDEX: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 // A line's own date: "10 Nov 2026 16:22 …" (stampNoteLine), "10 Nov 2026: …", "2026-11-10 …".
 const STAMP_RE = /^\s*(?:(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{4})|(\d{4}-\d{2}-\d{2}))\b(?:\s+\d{1,2}:\d{2})?\s*:?\s*/i;
@@ -111,7 +166,7 @@ function unitDays(n: number, unit: string): number {
 }
 
 function durationIn(text: string): number | null {
-  const m = DURATION_RE.exec(text);
+  const m = new RegExp(DURATION, "i").exec(text);
   if (!m) return null;
   const n = /^\d+$/.test(m[1]) ? Number(m[1]) : NUMBER_WORDS[m[1].toLowerCase()];
   if (!n) return null;
@@ -136,23 +191,25 @@ function clipWords(text: string, max: number): string {
 function draftFrom(sentence: string, date: string | null): RuleDraft | null {
   const source_text = clipWords(sentence, 300);
   const backward = BACKWARD_RE.exec(sentence);
-  if (backward && (REFUSE_RE.test(sentence) || aboutReapplying(sentence))) {
-    const after = sentence.slice(backward.index + backward[0].length);
-    const days = durationIn(after.slice(0, 40)) ?? (/^(day|week|month|year)\b/i.exec(after) ? unitDays(1, /^(\w+)/.exec(after)![1]) : null);
-    if (days) return { rule_type: "reapply_after_days", value: String(days), anchor_date: null, source_text };
+  if (backward && REFUSE_RE.test(sentence)) {
+    // Groups: 2 and 3 a number and its unit ("6 months"), or 4 a unit alone ("the past year").
+    const n = backward[2] ? (/^\d+$/.test(backward[2]) ? Number(backward[2]) : NUMBER_WORDS[backward[2].toLowerCase()]) : 1;
+    const days = n ? unitDays(n, backward[3] ?? backward[4] ?? "year") : null;
+    if (days && days <= MAX_RULE_DAYS) return { rule_type: "reapply_after_days", value: String(days), anchor_date: null, source_text, sure: false, scope: THIS_ROLE_RE.test(backward[1] ?? "") ? "role" : "company" };
   }
-  const days = durationIn(sentence);
-  if (days && (aboutReapplying(sentence) || (WAIT_RE.test(sentence) && days >= 30 && !NOT_A_COOLDOWN_RE.test(sentence)))) {
-    return { rule_type: "reapply_after_days", value: String(days), anchor_date: date, source_text };
+  const forward = WAIT_THEN_AGAIN_RE.exec(sentence) ?? AGAIN_THEN_WAIT_RE.exec(sentence) ?? REFUSED_FOR_RE.exec(sentence);
+  if (forward) {
+    const days = durationIn(forward[0]);
+    if (days) return { rule_type: "reapply_after_days", value: String(days), anchor_date: date, source_text, sure: true, scope: "company" };
   }
   const intake = INTAKE_RE.exec(sentence);
-  if (intake && REFUSE_RE.test(sentence) && APPLICATIONS_RE.test(sentence)) {
+  if (intake && REFUSE_RE.test(sentence) && MORE_APPLICATIONS_RE.test(sentence)) {
     const plainYear = intake[2].toLowerCase() === "year" && (!intake[1] || intake[1].toLowerCase() === "calendar");
-    if (plainYear && date) return { rule_type: "no_reapply_until", value: `${Number(date.slice(0, 4)) + 1}-01-01`, anchor_date: null, source_text };
-    return { rule_type: "no_reapply_until", value: null, anchor_date: null, source_text, needs: "date", ...(date ? { suggested: nextSeptember(date) } : {}) };
+    if (plainYear && date) return { rule_type: "no_reapply_until", value: `${Number(date.slice(0, 4)) + 1}-01-01`, anchor_date: null, source_text, sure: false };
+    return { rule_type: "no_reapply_until", value: null, anchor_date: null, source_text, sure: false, needs: "date", ...(date ? { suggested: nextSeptember(date) } : {}) };
   }
-  if (SAME_ROLE_RE.test(sentence) && REFUSE_RE.test(sentence) && aboutReapplying(sentence)) {
-    return { rule_type: "same_role_block", value: null, anchor_date: null, source_text, needs: "role" };
+  if (SAME_ROLE_RE.test(sentence) && !INVITATION_RE.test(sentence)) {
+    return { rule_type: "same_role_block", value: null, anchor_date: null, source_text, sure: false, needs: "role" };
   }
   return null;
 }
@@ -171,7 +228,7 @@ export function readCooldowns(text: string | null | undefined, fallbackDate: str
       if (!sentence.trim()) continue;
       const draft = draftFrom(sentence, date ?? fallbackDate);
       if (!draft) continue;
-      const key = `${draft.rule_type}|${draft.value}|${draft.anchor_date}`;
+      const key = `${draft.rule_type}|${draft.value}|${draft.anchor_date}|${draft.scope ?? ""}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(draft);
@@ -184,30 +241,17 @@ export function readCooldowns(text: string | null | undefined, fallbackDate: str
 
 export type CooldownRow = { id?: string; company_name?: unknown; role?: unknown; status?: unknown; date_applied?: unknown };
 
-const SENIORITY_WORDS = new Set(["junior", "senior", "lead", "principal", "staff", "graduate", "intern", "internship", "head", "mid", "associate", "i", "ii", "iii", "iv"]);
-
-/** The same job: equal titles, or one with a tail ("- London") when neither has a seniority word the other lacks. */
-export function sameRole(a: unknown, b: unknown): boolean {
-  const x = normalizeRole(typeof a === "string" ? a : "");
-  const y = normalizeRole(typeof b === "string" ? b : "");
-  if (!x || !y) return false;
-  if (x === y) return true;
-  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
-  if (!` ${long} `.includes(` ${short} `)) return false;
-  const shortWords = new Set(short.split(" "));
-  return !long.split(" ").some((w) => SENIORITY_WORDS.has(w) && !shortWords.has(w));
-}
-
 function submitted(status: unknown): Status | null {
   const s = normalizeStatus(status);
   return s && s !== "saved" ? s : null;
 }
 
-/** The newest date applied among the user's submitted rows for the company. */
-export function lastAppliedAt(company: string, rows: readonly CooldownRow[]): string | null {
+/** The newest date applied among the user's submitted rows for the company (for one role, when given). */
+export function lastAppliedAt(company: string, rows: readonly CooldownRow[], role?: string | null): string | null {
   let latest: string | null = null;
   for (const r of rows) {
-    if (typeof r.company_name !== "string" || !companyNamesMatch(company, r.company_name) || !submitted(r.status)) continue;
+    if (typeof r.company_name !== "string" || !sameCompany(company, r.company_name) || !submitted(r.status)) continue;
+    if (role !== undefined && !(role && sameRole(role, r.role))) continue;
     if (isDateKey(r.date_applied) && (!latest || r.date_applied > latest)) latest = r.date_applied;
   }
   return latest;
@@ -258,7 +302,7 @@ export function checkCompanyRules({ company, role, jdText, rules, rows, today }:
     if (!hits.some((h) => h.phrase === phrase)) hits.push({ level, rule, phrase, sentence });
   };
   for (const r of rules) {
-    if (r.dismissed_at || !companyNamesMatch(company, r.company_name)) continue;
+    if (r.dismissed_at || !sameCompany(company, r.company_name)) continue;
     const said = (r.source_text ?? "").trim() || `A rule you saved for ${r.company_name}.`;
     if (r.rule_type === "reapply_after_days") {
       const until = reapplyDate(r, rows);
@@ -272,11 +316,13 @@ export function checkCompanyRules({ company, role, jdText, rules, rows, today }:
       hit("review", "same_role", `same-role block on ${r.value}; check this is a different role${fromSource(r.source_text)}`, said);
     }
   }
-  // The posting's own rule: a wait counted from the last application to this company.
-  const last = lastAppliedAt(company, rows);
-  if (last && jdText) {
+  // The posting's own rule: a wait counted from the last application to this company, or to
+  // this role when it says "for this position".
+  if (jdText) {
     for (const d of readCooldowns(jdText, null)) {
       if (d.rule_type !== "reapply_after_days" || !d.value) continue;
+      const last = d.scope === "role" ? lastAppliedAt(company, rows, role ?? null) : lastAppliedAt(company, rows);
+      if (!last) continue;
       const until = addDays(last, Number(d.value));
       if (today < until) hit("skip", "company_cooldown", `reapply after ${dayMonthYear(until)} (you applied ${dayMonthYear(last)})${fromSource(d.source_text)}`, d.source_text);
     }
@@ -284,7 +330,7 @@ export function checkCompanyRules({ company, role, jdText, rules, rows, today }:
   // What the user did before: the same role at the same company.
   if (role && !hits.some((h) => h.rule === "same_role" && h.level === "skip")) {
     const before = rows
-      .filter((r) => typeof r.company_name === "string" && companyNamesMatch(company, r.company_name) && submitted(r.status) && sameRole(role, r.role))
+      .filter((r) => typeof r.company_name === "string" && sameCompany(company, r.company_name) && submitted(r.status) && sameRole(role, r.role))
       .sort((a, b) => String(b.date_applied ?? "").localeCompare(String(a.date_applied ?? "")))[0];
     if (before) {
       const status = submitted(before.status)!;
@@ -380,13 +426,25 @@ export function normalizeRule(value: unknown): CompanyRule | null {
   };
 }
 
-/** Is an active rule with the same meaning already saved? */
-export function ruleExists(rules: readonly CompanyRule[], draft: Pick<CompanyRule, "company_name" | "rule_type" | "value">): boolean {
-  return rules.some(
-    (r) =>
-      !r.dismissed_at &&
-      r.rule_type === draft.rule_type &&
-      companyNamesMatch(r.company_name, draft.company_name) &&
-      (r.rule_type === "same_role_block" ? sameRole(r.value, draft.value) : r.value === draft.value)
-  );
+type Draftish = Pick<CompanyRule, "company_name" | "rule_type" | "value"> & { anchor_date?: string | null; source_text?: string | null };
+const sameWords = (a: string | null | undefined, b: string | null | undefined) => (a ?? "").replace(/\s+/g, " ").trim().toLowerCase() === (b ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+
+/** Does a saved rule already say at least what the draft says? An equal or later end for a wait. */
+function covers(r: CompanyRule, d: Draftish, rows: readonly CooldownRow[] | undefined): boolean {
+  if (r.rule_type !== d.rule_type || !sameCompany(r.company_name, d.company_name)) return false;
+  if (r.rule_type === "same_role_block") return sameRole(r.value, d.value);
+  if (r.rule_type === "no_reapply_until") return r.value >= d.value;
+  if (r.value === d.value && (r.anchor_date ?? null) === (d.anchor_date ?? null)) return true;
+  if (!rows) return false;
+  const ends = reapplyDate(r, rows);
+  const draftEnds = reapplyDate({ ...d, anchor_date: d.anchor_date ?? null }, rows);
+  return !!ends && !!draftEnds && ends >= draftEnds;
+}
+
+/**
+ * Is the draft already saved? A rule in use that covers it, or (for a rule read off text,
+ * `auto`) one the user switched off that came from the same words, which stays off.
+ */
+export function ruleExists(rules: readonly CompanyRule[], draft: Draftish, opts: { rows?: readonly CooldownRow[]; auto?: boolean } = {}): boolean {
+  return rules.some((r) => (r.dismissed_at ? !!opts.auto && sameWords(r.source_text, draft.source_text) && r.rule_type === draft.rule_type && sameCompany(r.company_name, draft.company_name) : covers(r, draft, opts.rows)));
 }

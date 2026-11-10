@@ -87,10 +87,10 @@ try {
     check("a non-string is refused", (await a.json("/api/applications", "PATCH", { id: live, append_note: 5 })).status === 400);
     check("over 500 characters is refused", (await a.json("/api/applications", "PATCH", { id: live, append_note: "x".repeat(501) })).status === 400);
     check("a bad id is a 404", (await a.json("/api/applications", "PATCH", { id: "nope", append_note: "x" })).status === 404);
-    const full = await row(a, "Full Ltd", "Applied", "y".repeat(1990));
+    const full = await row(a, "Full Ltd", "Applied", "y".repeat(9990));
     const refused = await a.json("/api/applications", "PATCH", { id: full, append_note: "This will not fit in the notes" });
     check("full notes refuse and say so", refused.status === 400 && refused.body.errorType === "notes_full");
-    check("and nothing was cut", (await a.json(`/api/applications?id=${full}`)).body.application?.notes === "y".repeat(1990));
+    check("and nothing was cut", (await a.json(`/api/applications?id=${full}`)).body.application?.notes === "y".repeat(9990));
 
     // ── Auto-close ─────────────────────────────────────────────────────────
     const etleap = await row(a, "Etleap Style Ltd", "Applied", "Filling the form.");

@@ -19,7 +19,7 @@ import {
   type AvailabilityWindow, type Funnel, type PlanApplication, type PlanEvent, type PlanItem, type SuggestedSlot,
 } from "@/lib/plan";
 import { addDays, dayKey, formatWhen, mondayOf, monthName, shortDay, weekdayOf } from "@/lib/planTime";
-import { normalizeStatus, removeFollowupClearedNote, type Status } from "@/lib/tracker";
+import { normalizeStatus, type Status } from "@/lib/tracker";
 import EventCard, { type CardActions } from "./EventCard";
 import MoveToClosedDialog, { closeBody, type CloseChoice } from "@/components/MoveToClosedDialog";
 import { UNDO_WINDOW_MS, needsConfirmation, reasonForStatus, type CloseReason } from "@/lib/closing";
@@ -228,19 +228,17 @@ export default function NextPage() {
     const previous = normalizeStatus(application.status) ?? "screening";
     const followup = application.followup_date ?? null;
     // Closing a row clears its follow-up and notes that in the row's notes; undo takes both back.
-    // The notes come back on the version that write left, so a line added since is never lost.
-    const answer: { cleared?: { notes: string | null }; version?: string } = {};
+    // Undo puts the status and the follow-up back. The notes are left as they are: their
+    // "Follow-up … cleared" line stays as a record, and a notes write here could be refused
+    // (lib/notesWrite) for a line added since and take the whole undo down with it.
     leaveThen(reasonEvents.map((i) => i.event.id), async () => {
       const body = await putApplication(application.id, { status });
-      if (body?.followupCleared) answer.cleared = body.followupCleared as { notes: string | null };
-      if (typeof body?.updated_at === "string") answer.version = body.updated_at;
       return !!body;
     }, () => {
       showToast({
         message,
         undo: async () => {
-          const notesBack = answer.cleared && answer.version ? { notes: removeFollowupClearedNote(answer.cleared.notes, followup ?? "") || null, if_updated_at: answer.version } : {};
-          const restore = followup ? { followup_date: followup, ...notesBack } : {};
+          const restore = followup ? { followup_date: followup } : {};
           if (await putApplication(application.id, { status: previous, confirmed_reopen: true, confirmed_move_back: true, ...restore })) await refresh();
         },
       });

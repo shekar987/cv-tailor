@@ -5,7 +5,6 @@
 // saved for this company (each can be switched off, never deleted), and a short form to
 // add one by hand. JD triage on /app reads them before any credit is spent.
 import { useState } from "react";
-import { companyNamesMatch } from "../../lib/companyMatch";
 import {
   RULE_TYPES,
   RULE_TYPE_LABELS,
@@ -13,6 +12,7 @@ import {
   nextSeptember,
   readCooldowns,
   ruleExists,
+  sameCompany,
   type CompanyRule,
   type CooldownRow,
   type RuleDraft,
@@ -57,10 +57,10 @@ export default function CompanyRulesBlock({ applicationId, company, role, notes,
     return <p className="cvHelp" data-company-rules="needs-migration">Reapply rules need migration 20261110120000_safe_notes_cooldowns_deadlines.sql in the Supabase SQL editor.</p>;
   }
   if (!rules) return null;
-  const saved = rules.filter((r) => companyNamesMatch(company, r.company_name));
+  const saved = rules.filter((r) => sameCompany(company, r.company_name));
   const suggestions = readCooldowns(notes, null).filter((d) => {
     const value = valueOf(d, role, "");
-    return !(value && ruleExists(saved, { company_name: company, rule_type: d.rule_type, value }));
+    return !(value && ruleExists(saved, { company_name: company, rule_type: d.rule_type, value, anchor_date: d.anchor_date, source_text: d.source_text }, { rows }));
   });
 
   async function save(key: string, body: Record<string, unknown>) {

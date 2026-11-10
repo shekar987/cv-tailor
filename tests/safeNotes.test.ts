@@ -194,7 +194,8 @@ test("rules are read from a body the way the table checks them", () => {
     { company_name: "X", rule_type: "same_role_block", value: " " },
     { company_name: "X", rule_type: "no_reapply_until", value: "2027-09-01", anchor_date: "2026-01-01" },
   ]) assert.ok("error" in readRuleInput(bad), JSON.stringify(bad));
-  assert.equal(ruleExists(rules, { company_name: "Northwind Apps Ltd", rule_type: "reapply_after_days", value: "365" }), true);
+  // An undated wait counts from the last application there (5 Jul 2026): the same end, so already saved.
+  assert.equal(ruleExists(rules, { company_name: "Northwind Apps Ltd", rule_type: "reapply_after_days", value: "365" }, { rows }), true);
   assert.equal(ruleExists(rules, { company_name: "Northwind Apps", rule_type: "reapply_after_days", value: "90" }), false);
 });
 

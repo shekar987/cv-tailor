@@ -222,7 +222,7 @@ try {
   await menu("Made Up Loop").locator('[data-menu-item="edit-row"]').click();
   await page.locator("[data-edit-panel]").waitFor();
   check("Edit row holds salary and dates", /salary/i.test(await page.locator("[data-edit-panel]").innerText()) && /applied on/i.test(await page.locator("[data-edit-panel]").innerText()));
-  await page.locator("[data-edit-panel] .appsActionBtn").click();
+  await page.locator("[data-edit-panel] .appsPanelHead .appsActionBtn").click();
   await menu("Made Up Loop").locator("[data-row-menu]").click();
   await menu("Made Up Loop").locator('[data-menu-item="done"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-stage-row="Made Up Loop"] [data-row-primary="test"]'), null, { timeout: 8000 });

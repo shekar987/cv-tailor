@@ -58,7 +58,7 @@ import { postingAgeDays } from "@/lib/postingAge";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { bandFor, parseCoverage, combineWithFit, reconcileAtsScore, type VisibilityBand, type CombinedVerdict } from "@/lib/visibilityVerdict";
-import { MAX_JD_CHARS, JD_TOO_LONG, MAX_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
+import { MAX_JD_CHARS, JD_TOO_LONG, MAX_APPLIED_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
 import { SOURCE_LABELS, type JobSource } from "@/lib/importJob/parse";
 import { getUsage, type Usage } from "@/lib/usage";
 import AppHeader from "@/components/ui/AppHeader";
@@ -1758,7 +1758,7 @@ export default function Home() {
           notes: [buildAppliedNotes(result.atsScore), talkingPoints && `— Interview talking points —\n${talkingPoints}`]
             .filter(Boolean)
             .join("\n\n")
-            .slice(0, MAX_NOTES_CHARS),
+            .slice(0, MAX_APPLIED_NOTES_CHARS),
           job_description: jdForRow.slice(0, 15_000),
           // The CV as generated, with the profile and section order it was
           // rendered with, so the tracker shows this exact document later.

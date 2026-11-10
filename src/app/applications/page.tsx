@@ -142,6 +142,9 @@ type Application = {
   lesson?: string | null;
   pending_outcome?: PendingOutcome | null;
   updated_at?: string | null;
+  // The last update in whole minutes, for the Live order (lib/applicationRows): never a
+  // version a notes save could send.
+  updated_minute?: number | null;
   // Which inbox the application used and what is due next (migration 20261110120000;
   // lib/deadlines): the red "Due in the next 48 hours" strip. Absent before it.
   applied_from_email?: string | null;
@@ -988,7 +991,7 @@ export default function ApplicationsPage() {
   const referral = useMemo(() => referralCard(rows), [rows]);
   const referralIds = useMemo(() => new Set(referralAsks(rows).map((r) => r.id)), [rows]);
   // Due in the next 48 hours (lib/deadlines): the red strip, the same list as GET ?due=48h.
-  const radar = useMemo(() => dueWithin(rows as unknown as DueRow[], clock, DUE_WINDOW_HOURS, tz), [rows, clock, tz]);
+  const radar = useMemo(() => dueWithin(rows as unknown as DueRow[], clock, DUE_WINDOW_HOURS, tz, events), [rows, clock, tz, events]);
   const radarIds = useMemo(() => new Set(radar.map((d) => d.id)), [radar]);
   const tabNow: TabChoice = tab ?? defaultTab(counts);
   useEffect(() => {
@@ -1654,9 +1657,10 @@ export default function ApplicationsPage() {
   async function restoreNotes(row: Application, text: string, label: string) {
     const current = rowText[row.id];
     if (current?.notes_version === undefined) return;
+    const unsaved = notesDraft?.id === row.id && notesDraft.text.trim() !== notesDraft.base.trim();
     const yes = await confirm({
       title: `Restore the notes from before ${label}?`,
-      message: "The notes as they are now are kept under Restore previous notes, so this can be undone the same way.",
+      message: `${unsaved ? "Your unsaved changes in the box will be replaced too. " : ""}The notes as they are now are kept under Restore previous notes, so this can be undone the same way.`,
       confirmLabel: "Restore",
     });
     if (!yes) return;
@@ -1679,19 +1683,30 @@ export default function ApplicationsPage() {
     if (!(panel?.id === row.id && panel.kind === kind)) togglePanel(row, kind);
   }
 
-  // The radar's Done: the deadline is cleared and a line in the notes says it was done.
+  // The radar's Done: a deadline is cleared and a line in the notes says it was done; an event
+  // of the plan is marked done, as on its own menu. Full notes never stop the clearing.
   async function doneDue(item: DueItem) {
     const key = `${item.id}:${item.kind}`;
+    if (item.kind === "event") {
+      const event = events.find((e) => e.id === item.event_id);
+      if (event) await markStepDone(event);
+      return;
+    }
     setRadarBusy(key);
     const line = `Done: ${item.action} (was due ${item.when.split(" · ")[0]})`.slice(0, 480);
-    const message = await patchRow(item.id, { next_deadline: null }, { next_deadline: null, append_note: line });
+    let message = await patchRow(item.id, { next_deadline: null }, { next_deadline: null, append_note: line });
+    let noted = true;
+    if (message && /notes are full/i.test(message)) {
+      message = await patchRow(item.id, { next_deadline: null }, { next_deadline: null });
+      noted = false;
+    }
     setRadarBusy(null);
     if (message) {
       setActionError(message);
       return;
     }
     setActionError("");
-    showFlash(`Done: ${item.company_name}. The deadline is cleared and the notes say so.`);
+    showFlash(noted ? `Done: ${item.company_name}. The deadline is cleared and the notes say so.` : `Done: ${item.company_name}. The deadline is cleared; the notes are full, so no line was added.`);
   }
 
   // "They wrote" / "I replied": who spoke last, now (lib/tracker isReplyOwed).
@@ -1909,7 +1924,16 @@ export default function ApplicationsPage() {
             </div>
           )}
           <div><span className="label">Eligibility read</span><span className="cvHelp" data-gate={gate.label}>{gate.detail || gate.label}</span></div>
-          <DeadlineEditor key={row.id} row={row} onSave={(patch) => patchRow(row.id, patch, patch)} />
+          {/* Keyed by the deadline too, so a Done elsewhere is never saved back from stale fields. */}
+          <DeadlineEditor
+            key={`${row.id}:${row.next_deadline ?? ""}`}
+            row={row}
+            onSave={async (patch) => {
+              const message = await patchRow(row.id, patch, patch);
+              if (!message) showFlash(patch.next_deadline ? `Deadline saved for ${row.company_name}.` : `Saved for ${row.company_name}.`);
+              return message;
+            }}
+          />
           {row.status === "rejected" && (
             <div className="rowEditWide">
               <label className="label" htmlFor={`reason-${row.id}`}>Rejection reason</label>

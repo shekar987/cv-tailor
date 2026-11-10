@@ -27,10 +27,15 @@ create table if not exists public.notes_history (
   application_id uuid not null references public.applications(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   old_notes text not null,
+  -- The change took text away: the new notes do not hold these whole. An append keeps them
+  -- (false); a replace that cut them (the 10 Nov wipe) is true, and "Restore previous notes"
+  -- lists those first, however many appends came after.
+  lost_text boolean not null default true,
   changed_at timestamptz not null default now()
 );
 
 create index if not exists notes_history_application_idx on public.notes_history (application_id, changed_at desc);
+create index if not exists notes_history_user_idx on public.notes_history (user_id, changed_at);
 
 alter table public.notes_history enable row level security;
 drop policy if exists notes_history_select_own on public.notes_history;
@@ -48,8 +53,8 @@ as $func$
 begin
   -- Empty notes have nothing to give back.
   if coalesce(old.notes, '') <> '' then
-    insert into public.notes_history (application_id, user_id, old_notes)
-    values (old.id, old.user_id, old.notes);
+    insert into public.notes_history (application_id, user_id, old_notes, lost_text)
+    values (old.id, old.user_id, old.notes, position(old.notes in coalesce(new.notes, '')) = 0);
   end if;
   return null;
 end;
@@ -89,6 +94,7 @@ create table if not exists public.company_rules (
 );
 
 create index if not exists company_rules_user_company_idx on public.company_rules (user_id, company_key);
+create index if not exists company_rules_application_idx on public.company_rules (application_id);
 
 alter table public.company_rules enable row level security;
 drop policy if exists company_rules_select_own on public.company_rules;

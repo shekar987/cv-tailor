@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { autoCloseMessage, closesOnConfirmation, confirmationAdded, confirmationIn } from "@/lib/autoClose";
 import { ACTION_MIGRATION_HINT } from "@/lib/planSchema";
 import { DEFAULT_TIMEZONE, dayKey } from "@/lib/planTime";
-import { addedLines, cleanNoteLine, decideNotesWrite, sameVersion, stampNoteLine, staleRefusal } from "@/lib/notesWrite";
-import { companyKey, normalizeRule, readCooldowns, ruleExists, type CompanyRule } from "@/lib/companyRules";
-import { MAX_DEADLINE_NOTE, deadlineFromFields, dueWithin, parseDueParam, type DueRow } from "@/lib/deadlines";
+import { cleanNoteLine, decideNotesWrite, sameVersion, stampNoteLine, staleRefusal } from "@/lib/notesWrite";
+import { MAX_ACTIVE_RULES, companyKey, normalizeRule, readCooldowns, ruleExists, type CompanyRule } from "@/lib/companyRules";
+import { MAX_DEADLINE_NOTE, deadlineFromFields, dueWithin, parseDueParam, type DueEvent, type DueRow } from "@/lib/deadlines";
 import { isValidEmail } from "@/lib/contactCheck";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
 import { MAX_JD_CHARS, MAX_NOTES_CHARS, MAX_COVER_LETTER_CHARS, JD_TOO_LONG } from "@/lib/limits";
@@ -103,7 +103,8 @@ const DUE_LADDER = [
 ];
 const CLOSED_MIGRATION_HINT = "Closing a row needs migration 20261104130000_applications_closed.sql. Run it in the Supabase SQL editor, then try again.";
 const CLOSED_SAVED_WITHOUT = "The status is saved, but the date, reason and lesson are not: run migration 20261104130000_applications_closed.sql in the Supabase SQL editor.";
-const CLOSING_LADDER = ["status, stages_reached, pending_outcome, lesson, closed_at, close_reason, followup_date, notes", "status, stages_reached", "status"];
+// updated_at: a Reopen's report note is composed from these notes, so its write is guarded by it.
+const CLOSING_LADDER = ["status, stages_reached, pending_outcome, lesson, closed_at, close_reason, followup_date, notes, updated_at", "status, stages_reached", "status"];
 const UNDO_MIGRATION_HINT = "Undo needs migration 20261105120000_stages_append_only.sql. Run it in the Supabase SQL editor.";
 const UNDO_READ = "status, notes, followup_date, undo_snapshot";
 const UNDO_ANSWER = "status, stages_reached, closed_at, close_reason, lesson, pending_outcome, followup_date, notes";
@@ -447,8 +448,14 @@ function validateEditable(body: Record<string, unknown>, partial: boolean): Vali
     const raw = typeof body.next_deadline === "string" ? body.next_deadline.trim() : body.next_deadline;
     if (raw == null || raw === "") fields.next_deadline = null;
     else if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw) && isIsoDate(raw)) fields.next_deadline = deadlineFromFields(raw, "23:59");
-    else if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}T/.test(raw) && Number.isFinite(Date.parse(raw))) fields.next_deadline = new Date(Date.parse(raw)).toISOString();
-    else return { error: "Enter the deadline as an ISO date and time (2026-11-12T09:00:00Z) or a date (2026-11-12)." };
+    else if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}T/.test(raw) && Number.isFinite(Date.parse(raw))) {
+      // A time with no zone is London's, like the form's "Time (UK)": Date.parse would read it
+      // as the server's own zone (UTC on Vercel), an hour late all summer.
+      const local = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(raw);
+      const at = local ? deadlineFromFields(local[1], local[2]) : new Date(Date.parse(raw)).toISOString();
+      if (!at) return { error: "Enter the deadline as an ISO date and time (2026-11-12T09:00:00Z) or a date (2026-11-12)." };
+      fields.next_deadline = at;
+    } else return { error: "Enter the deadline as an ISO date and time (2026-11-12T09:00:00Z) or a date (2026-11-12)." };
   }
   if ("deadline_note" in body) {
     if (body.deadline_note != null && typeof body.deadline_note !== "string") return { error: "deadline_note must be text." };
@@ -500,8 +507,17 @@ export async function GET(req: NextRequest) {
         console.error("applications due read error:", dueError.message);
         return NextResponse.json({ error: "Could not load your applications" }, { status: 500 });
       }
+      // The plan's open events too (an assessment added in the Action Centre); none until its
+      // migration, and a failed read only leaves them out.
+      const { data: eventRows, error: eventsError } = await supabase
+        .from("application_events")
+        .select("id, application_id, title, status, due_at, starts_at, date_only")
+        .eq("user_id", userId)
+        .eq("status", "scheduled")
+        .limit(2000);
+      if (eventsError && eventsError.code !== "PGRST205" && eventsError.code !== "42P01") console.error("applications due events read error:", eventsError.code ?? "unknown");
       const now = Date.now();
-      const due = dueWithin(dueRows as unknown as DueRow[], now, dueHours).map((item) => ({ ...item, status: apiStatus(item.status) }));
+      const due = dueWithin(dueRows as unknown as DueRow[], now, dueHours, DEFAULT_TIMEZONE, eventsError ? [] : ((eventRows ?? []) as DueEvent[])).map((item) => ({ ...item, status: apiStatus(item.status) }));
       return NextResponse.json({ due, hours: dueHours, now: new Date(now).toISOString(), ...(withDeadlines ? {} : { warning: DEADLINE_MIGRATION_HINT.replace("Saving the applied-from address or a deadline needs", "Deadlines and applied-from addresses need") }) });
     }
 
@@ -794,29 +810,32 @@ function isMissingTable(err: { code?: string } | null): boolean {
   return err?.code === "PGRST205" || err?.code === "42P01";
 }
 
-// Text added to a row's notes that dates a wait ("please wait at least one year before
-// applying again", "re-apply after 90 days") or blocks the same role becomes a company rule
+// A line appended to a row's notes that ties a wait to applying again ("please wait at least
+// one year before applying again", "re-apply after 90 days") becomes a company rule
 // (lib/companyRules), so the next posting from that company is a Skip before any credit.
-// Only what the text dates is saved: "this intake year" waits for the user's click on the
-// row, with a date they choose. A failure, or no table yet, never fails the note.
+// Only a `sure` reading is saved on its own, and only from appended text, never from a whole
+// replacement (a restore would re-date old lines): an intake year, the same role or "this
+// year" waits for the user's click on the row. A rule the user switched off is not made again
+// from the same words. A failure, or no table yet, never fails the note.
 async function rulesFromNote(supabase: RouteSupabase, userId: string, applicationId: string, text: string): Promise<SavedRule[]> {
-  const drafts = readCooldowns(text, dayKey(Date.now(), DEFAULT_TIMEZONE)).filter((d) => d.value !== null || d.needs === "role");
+  const today = dayKey(Date.now(), DEFAULT_TIMEZONE);
+  const drafts = readCooldowns(text, today).filter((d) => d.sure && d.value !== null);
   if (drafts.length === 0) return [];
-  const { data: row, error: rowError } = await supabase.from("applications").select("company_name, role").eq("id", applicationId).eq("user_id", userId).maybeSingle();
+  const { data: row, error: rowError } = await supabase.from("applications").select("company_name").eq("id", applicationId).eq("user_id", userId).maybeSingle();
   const company = typeof row?.company_name === "string" ? row.company_name.trim().slice(0, 200) : "";
   if (rowError || !company || !companyKey(company)) return [];
-  const { data: stored, error: readError } = await supabase.from("company_rules").select("company_name, rule_type, value, dismissed_at").eq("user_id", userId).limit(1000);
+  const { data: stored, error: readError } = await supabase.from("company_rules").select("company_name, rule_type, value, anchor_date, source_text, dismissed_at").eq("user_id", userId).limit(2000);
   if (readError) {
     if (!isMissingTable(readError)) console.error("company rules read error:", readError.code ?? "unknown");
     return [];
   }
   const known = (stored ?? []).map(normalizeRule).filter((r): r is CompanyRule => r !== null);
+  if (known.filter((r) => !r.dismissed_at).length >= MAX_ACTIVE_RULES) return [];
   const created: SavedRule[] = [];
   for (const d of drafts) {
-    const value = d.value ?? (typeof row?.role === "string" ? row.role.trim().slice(0, 200) : "");
-    if (!value) continue;
+    const value = d.value as string;
     const rule: SavedRule = { company_name: company, rule_type: d.rule_type, value };
-    if (ruleExists([...known, ...created], rule)) continue;
+    if (ruleExists([...known, ...created], { ...rule, anchor_date: d.anchor_date, source_text: d.source_text }, { rows: [], auto: true })) continue;
     const { error } = await supabase.from("company_rules").insert({
       user_id: userId,
       company_key: companyKey(company),
@@ -830,9 +849,9 @@ async function rulesFromNote(supabase: RouteSupabase, userId: string, applicatio
       console.error("company rule insert error:", error.code ?? "unknown");
       break;
     }
-    created.push(rule);
+    created.push({ ...rule, anchor_date: d.anchor_date, source_text: d.source_text } as SavedRule);
   }
-  return created;
+  return created.map(({ company_name, rule_type, value }) => ({ company_name, rule_type, value }));
 }
 
 // Adds one stamped line on top of the notes in one UPDATE (the RPC of migration
@@ -973,9 +992,8 @@ export async function PUT(req: NextRequest) {
     // A replace: the version the caller read must still be the row's. The write below is
     // conditional on it too, so a writer that slips in between is caught there.
     let guardVersion: string | null = null;
-    let notesBeforeReplace: string | null = null;
     if (notesWrite.mode === "replace") {
-      const { data: stored, error: storedError } = await supabase.from("applications").select("notes, updated_at").eq("id", id).eq("user_id", userId).maybeSingle();
+      const { data: stored, error: storedError } = await supabase.from("applications").select("updated_at").eq("id", id).eq("user_id", userId).maybeSingle();
       if (storedError) {
         console.error("applications version read error:", storedError.code ?? "unknown");
         return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
@@ -986,7 +1004,6 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json(refusal.body, { status: refusal.status });
       }
       guardVersion = stored.updated_at as string;
-      notesBeforeReplace = (stored.notes as string | null) ?? null;
     }
 
     // An append alone is one UPDATE in the database: nothing else to read or check.
@@ -997,19 +1014,9 @@ export async function PUT(req: NextRequest) {
       const companyRules = await rulesFromNote(supabase, userId, id, notesWrite.line);
       return NextResponse.json({ ok: true, notes: appended.notes, updated_at: appended.updated_at, ...(autoClose ? { autoClose } : {}), ...(companyRules.length ? { companyRules } : {}) });
     }
-    // An append beside other changes: room first, so the change never lands without its note.
-    if (notesWrite.mode === "append") {
-      const { data: stored, error: storedError } = await supabase.from("applications").select("notes").eq("id", id).eq("user_id", userId).maybeSingle();
-      if (storedError) {
-        console.error("applications notes read error:", storedError.code ?? "unknown");
-        return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
-      }
-      if (!stored) return NextResponse.json({ error: "Application not found" }, { status: 404 });
-      const room = MAX_NOTES - (typeof stored.notes === "string" && stored.notes ? stored.notes.length + 1 : 0);
-      if (stampNoteLine(notesWrite.line, Date.now()).length > room) {
-        return NextResponse.json({ error: `These notes are full (max ${MAX_NOTES} characters). Nothing was changed.`, errorType: "notes_full" }, { status: 400 });
-      }
-    }
+    // The version of the notes the server composes from, when it writes them itself (a
+    // follow-up cleared, a Reopen's report): its write is conditional on it, like a replace.
+    let composedFrom: string | null = null;
     // The rule (lib/closing): a row that reached screening ends only on the user's own word,
     // and only the Move to Closed dialog says so. A sweep uses the pending-outcome route.
     const confirmed = body.confirmed_by_user === true;
@@ -1058,7 +1065,10 @@ export async function PUT(req: NextRequest) {
       if (!("pending_outcome" in decision.fields)) delete fields.pending_outcome;
       if (!("notes" in fields)) {
         const asked = normalizePendingOutcome(current?.pending_outcome);
-        if (decision.fields.notes !== undefined) reportNotes = decision.fields.notes;
+        if (decision.fields.notes !== undefined) {
+          reportNotes = decision.fields.notes;
+          composedFrom ??= (current as { updated_at?: string | null } | null)?.updated_at ?? null;
+        }
         else if (asked && !isEnding(fields.status) && reportTaken(asked, fields.status) && asked.note && !asked.dismissed && decision.fields.pending_outcome !== undefined) reportLeftOut = `Your notes are full, so this was not added to them: "${asked.note}"`;
       }
       Object.assign(fields, decision.fields);
@@ -1133,7 +1143,7 @@ export async function PUT(req: NextRequest) {
     if (dateApplied === undefined || followup === undefined || closing) {
       const { data: existing, error: existingError } = await supabase
         .from("applications")
-        .select("date_applied, followup_date, notes")
+        .select("date_applied, followup_date, notes, updated_at")
         .eq("id", id)
         .eq("user_id", userId)
         .maybeSingle();
@@ -1153,6 +1163,7 @@ export async function PUT(req: NextRequest) {
           "notes" in fields ? fields.notes : (existing.notes as string | null),
           followupClearedNote(stored, fields.status as string, today)
         );
+        if (!("notes" in fields)) composedFrom ??= (existing.updated_at as string | null) ?? null;
         fields.followup_date = null;
         fields.notes = notes.slice(0, MAX_NOTES) || null;
         followup = null;
@@ -1170,6 +1181,38 @@ export async function PUT(req: NextRequest) {
       const { data: prior, error: priorError } = await supabase.from("applications").select("notes").eq("id", id).eq("user_id", userId).maybeSingle();
       if (priorError) console.error("applications notes read error:", priorError.code ?? "unknown");
       else notesBefore = (prior?.notes as string | null | undefined) ?? null;
+    }
+
+    // Notes the server composed from a read are written on that read's version, so an append
+    // landing in between is never overwritten: the write matches nothing and says so.
+    const serverGuard = !guardVersion && composedFrom !== null && "notes" in fields;
+    if (serverGuard) guardVersion = composedFrom;
+
+    // The caller's line goes on top of everything this write puts in the notes. When the server
+    // wrote them (above), it joins that one guarded write; otherwise the database prepends it
+    // after the write. Either way the room is checked now, after the server's own lines, and a
+    // write with no room for its line lands nothing.
+    let appendInWrite = false;
+    if (notesWrite.mode === "append") {
+      const stamped = stampNoteLine(notesWrite.line, Date.now());
+      const full = () => NextResponse.json({ error: `These notes are full (max ${MAX_NOTES.toLocaleString("en-GB")} characters). Nothing was changed.`, errorType: "notes_full" }, { status: 400 });
+      if ("notes" in fields) {
+        const merged = fields.notes ? `${stamped}\n${fields.notes}` : stamped;
+        if (merged.length > MAX_NOTES) return full();
+        fields.notes = merged;
+        appendInWrite = true;
+        if (followupCleared) followupCleared = { ...followupCleared, notes: merged };
+        if (reportNotes !== undefined) reportNotes = merged;
+      } else {
+        const { data: stored, error: storedError } = await supabase.from("applications").select("notes").eq("id", id).eq("user_id", userId).maybeSingle();
+        if (storedError) {
+          console.error("applications notes read error:", storedError.code ?? "unknown");
+          return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
+        }
+        if (!stored) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+        const room = MAX_NOTES - (typeof stored.notes === "string" && stored.notes ? stored.notes.length + 1 : 0);
+        if (stamped.length > room) return full();
+      }
     }
 
     // Scoped by id as well as RLS: belt and braces on a write. RLS hides
@@ -1238,7 +1281,8 @@ export async function PUT(req: NextRequest) {
         const { data: still } = await supabase.from("applications").select("id").eq("id", id).eq("user_id", userId).maybeSingle();
         if (still) {
           const refusal = staleRefusal();
-          return NextResponse.json(refusal.body, { status: refusal.status });
+          const message = serverGuard ? "This row's notes changed while it was being saved, so nothing was saved. Send it again." : refusal.body.message;
+          return NextResponse.json({ ...refusal.body, message }, { status: refusal.status });
         }
       }
       return NextResponse.json({ error: "Application not found" }, { status: 404 });
@@ -1247,9 +1291,10 @@ export async function PUT(req: NextRequest) {
     // The append, now the rest has landed (its room was checked before).
     let appendedNotes: string | undefined;
     let noteWarning: string | undefined;
-    if (notesWrite.mode === "append") {
+    if (notesWrite.mode === "append" && appendInWrite) appendedNotes = fields.notes as string;
+    else if (notesWrite.mode === "append") {
       const appended = await appendNote(supabase, userId, id, notesWrite.line);
-      if (appended instanceof NextResponse) noteWarning = "Saved, but the note could not be added. Add it again.";
+      if (appended instanceof NextResponse) noteWarning = "Saved, but the note could not be added: another note filled the notes first. Add it again.";
       else {
         appendedNotes = appended.notes;
         updatedAt = appended.updated_at;
@@ -1262,9 +1307,8 @@ export async function PUT(req: NextRequest) {
       (notesBefore !== undefined && confirmationAdded(notesBefore, fields.notes as string | null)) || (appendedNotes !== undefined && confirmationAdded(null, notesWrite.mode === "append" ? notesWrite.line : ""))
         ? await closeOnConfirmation(supabase, userId, id)
         : null;
-    // What the company said about applying again, in the text this write added.
-    const addedText = appendedNotes !== undefined && notesWrite.mode === "append" ? notesWrite.line : notesWrite.mode === "replace" ? addedLines(notesBeforeReplace, fields.notes) : "";
-    const companyRules = addedText ? await rulesFromNote(supabase, userId, id, addedText) : [];
+    // What the company said about applying again, in the line this write appended.
+    const companyRules = appendedNotes !== undefined && notesWrite.mode === "append" ? await rulesFromNote(supabase, userId, id, notesWrite.line) : [];
     const warning = [closeWarning, noteWarning].filter(Boolean).join(" ");
     return NextResponse.json({
       ok: true,

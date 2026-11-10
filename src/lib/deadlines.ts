@@ -9,8 +9,10 @@
 // 20261110120000), and every item says what to do and where the email went.
 //
 // Due: a row's next_deadline inside the window, on any row that has not ended (an
-// application still marked Applied can be sent a test), or a follow-up date inside it on
-// a row at Screening, Assessment or Interview. Up to OVERDUE_DAYS late it still shows, as
+// application still marked Applied can be sent a test), an open event of the row's
+// (application_events: an assessment added in the Action Centre is where a Grayce-style
+// test most often lives) due or starting inside it, or a follow-up date inside it on a row
+// at Screening, Assessment or Interview. Up to OVERDUE_DAYS late it still shows, as
 // overdue; older is stale data, not a deadline.
 import { STATUS_LABELS, normalizeStatus, type Status } from "./tracker.ts";
 import { DAY_MS, DEFAULT_TIMEZONE, HOUR_MS, clockTime, countdown, dayKey, formatWhen, zonedTimeToMs } from "./planTime.ts";
@@ -35,12 +37,25 @@ export type DueRow = {
   deadline_note?: string | null;
 };
 
+// An open event of the plan (lib/plan PlanEvent), as much of it as the radar reads.
+export type DueEvent = {
+  id: string;
+  application_id: string | null;
+  title: string;
+  status: string;
+  due_at?: string | null;
+  starts_at?: string | null;
+  date_only?: boolean | null;
+};
+
 export type DueItem = {
   id: string;
   company_name: string;
   role: string;
   status: Status;
-  kind: "deadline" | "followup";
+  kind: "deadline" | "followup" | "event";
+  // For an event: the event, which Done marks done.
+  event_id?: string;
   // An instant for a deadline; a YYYY-MM-DD for a follow-up, which has no time.
   due_at: string;
   date_only: boolean;
@@ -92,6 +107,13 @@ export function deadlineAction(row: Pick<DueRow, "company_name" | "status" | "de
   return status === "saved" ? `${base}, apply from ${email}` : `${base}, invite went to ${email}`;
 }
 
+/** "HackerRank test, invite went to second@example.com": an event says what it is itself. */
+export function eventAction(event: Pick<DueEvent, "title">, row: Pick<DueRow, "company_name" | "applied_from_email">): string {
+  const title = text(event.title) || `The ${row.company_name} deadline`;
+  const email = text(row.applied_from_email);
+  return email ? `${title}, invite went to ${email}` : title;
+}
+
 /** "Follow up with Acme (Interview), you applied from second@example.com". */
 export function followupAction(row: Pick<DueRow, "company_name" | "status" | "applied_from_email">): string {
   const status = normalizeStatus(row.status) ?? "applied";
@@ -103,13 +125,18 @@ export function followupAction(row: Pick<DueRow, "company_name" | "status" | "ap
  * Everything due within `hours` of now, overdue first, soonest next. A row can give two
  * items: its deadline and its follow-up.
  */
-export function dueWithin(rows: readonly DueRow[], now: number, hours: number = DUE_WINDOW_HOURS, tz: string = DEFAULT_TIMEZONE): DueItem[] {
+export function dueWithin(rows: readonly DueRow[], now: number, hours: number = DUE_WINDOW_HOURS, tz: string = DEFAULT_TIMEZONE, events: readonly DueEvent[] = []): DueItem[] {
   const horizon = now + hours * HOUR_MS;
   const earliest = now - OVERDUE_DAYS * DAY_MS;
   const today = dayKey(now, tz);
   const lastDay = dayKey(horizon, tz);
   const firstDay = dayKey(earliest, tz);
   const items: (DueItem & { sort: number })[] = [];
+  const byApplication = new Map<string, DueEvent[]>();
+  for (const e of events) {
+    if (e.status !== "scheduled" || !e.application_id) continue;
+    byApplication.set(e.application_id, [...(byApplication.get(e.application_id) ?? []), e]);
+  }
   for (const row of rows) {
     const status = normalizeStatus(row.status);
     if (!status || ENDED.has(status) || row.closed_at) continue;
@@ -132,6 +159,24 @@ export function dueWithin(rows: readonly DueRow[], now: number, hours: number = 
         action: deadlineAction(row),
         when: `${formatWhen(at, tz)} · ${dueIn(at, now, tz)}`,
         sort: at,
+      });
+    }
+    for (const e of byApplication.get(row.id) ?? []) {
+      const ms = Date.parse(e.due_at ?? e.starts_at ?? "");
+      if (!Number.isFinite(ms) || ms > horizon || ms < earliest) continue;
+      // The same deadline written on the row as well as in the plan is one item.
+      if (Number.isFinite(at) && Math.abs(ms - at) < 60_000) continue;
+      const dateOnly = !!e.date_only;
+      items.push({
+        ...base,
+        kind: "event",
+        event_id: e.id,
+        due_at: new Date(ms).toISOString(),
+        date_only: dateOnly,
+        overdue: ms < now,
+        action: eventAction(e, row),
+        when: `${formatWhen(ms, tz, dateOnly)} · ${dateOnly ? countdown(ms, now, { due: true, dateOnly: true, tz }) : dueIn(ms, now, tz)}`,
+        sort: ms,
       });
     }
     const followup = text(row.followup_date);

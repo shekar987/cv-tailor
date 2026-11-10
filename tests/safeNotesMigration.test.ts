@@ -101,6 +101,11 @@ test("an append through the RPC is recorded too, and needs no read of the old te
   assert.deepEqual(await history(ROW_A), ["Applied on 5 Jul.", "Rebuilt by hand."]);
 });
 
+test("each version says whether the change took text away: a replace that cut it did, an append didn't", async () => {
+  const lost = (await db.query<{ old_notes: string; lost_text: boolean }>("select old_notes, lost_text from public.notes_history where application_id = $1 order by changed_at, id", [ROW_A])).rows;
+  assert.deepEqual(lost.map((r) => [r.old_notes, r.lost_text]), [["Applied on 5 Jul.", true], ["Rebuilt by hand.", false]]);
+});
+
 test("nothing is recorded when the notes did not change or were empty", async () => {
   const before = (await history(ROW_A)).length;
   await asUser(A, "update public.applications set status = 'screening' where id = $1", [ROW_A]);
