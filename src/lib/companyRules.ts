@@ -435,10 +435,12 @@ function covers(r: CompanyRule, d: Draftish, rows: readonly CooldownRow[] | unde
   if (r.rule_type === "same_role_block") return sameRole(r.value, d.value);
   if (r.rule_type === "no_reapply_until") return r.value >= d.value;
   if (r.value === d.value && (r.anchor_date ?? null) === (d.anchor_date ?? null)) return true;
-  if (!rows) return false;
-  const ends = reapplyDate(r, rows);
-  const draftEnds = reapplyDate({ ...d, anchor_date: d.anchor_date ?? null }, rows);
-  return !!ends && !!draftEnds && ends >= draftEnds;
+  // Nothing on record dates the draft (no rows given, or no application there yet): the same
+  // wait is the same rule, or adding "365 days" again would save a second copy.
+  const draftEnds = reapplyDate({ ...d, anchor_date: d.anchor_date ?? null }, rows ?? []);
+  if (!draftEnds) return r.value === d.value;
+  const ends = reapplyDate(r, rows ?? []);
+  return !!ends && ends >= draftEnds;
 }
 
 /**

@@ -10,7 +10,7 @@
 // Until migration 20261110120000 is applied the list is empty and a write answers 503.
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
-import { MAX_ACTIVE_RULES, normalizeRule, readRuleInput, ruleExists, type CompanyRule } from "@/lib/companyRules";
+import { MAX_ACTIVE_RULES, normalizeRule, readRuleInput, ruleExists, type CompanyRule, type CooldownRow } from "@/lib/companyRules";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Switched-off rules are kept (nothing is deleted) and read too; the cap counts the rules in use.
@@ -57,8 +57,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Could not save that rule" }, { status: 500 });
     }
     const rules = (existing ?? []).map(normalizeRule).filter((r): r is CompanyRule => r !== null);
-    if (ruleExists(rules, rule)) {
-      const same = rules.find((r) => !r.dismissed_at && ruleExists([r], rule));
+    // That company's applications date an undated wait ("365 days" counts from the last one), so
+    // a saved rule covers the new one only when it ends as late. The longest word of the name is
+    // the prefilter (letters and digits only); lib/companyRules sameCompany decides.
+    const token = rule.company_key.split(" ").sort((a, b) => b.length - a.length)[0] ?? "";
+    const { data: appRows } = token
+      ? await supabase.from("applications").select("company_name, role, status, date_applied").eq("user_id", userId).ilike("company_name", `%${token}%`).limit(1000)
+      : { data: [] };
+    const rows = (appRows ?? []) as CooldownRow[];
+    if (ruleExists(rules, rule, { rows })) {
+      const same = rules.find((r) => !r.dismissed_at && ruleExists([r], rule, { rows }));
       return NextResponse.json({ ok: true, rule: same, alreadySaved: true });
     }
     if (rules.filter((r) => !r.dismissed_at).length >= MAX_ACTIVE_RULES) return NextResponse.json({ error: `You can keep up to ${MAX_ACTIVE_RULES} company rules in use. Switch some off to add more.` }, { status: 400 });

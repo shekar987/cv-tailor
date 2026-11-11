@@ -121,3 +121,15 @@ test("15: an assessment in the plan is on the radar, with the inbox it went to",
   assert.deepEqual(due.map((d) => [d.kind, d.event_id, d.action]), [["event", "e1", "Complete the online assessment, invite went to second.inbox@example.com"]]);
   assert.match(due[0].when, /· due in 40h$/);
 });
+
+test("7b: the same wait added again without a date is the same rule, unless a later application dates it later", () => {
+  const saved: CompanyRule = { company_name: "Northwind Apps", rule_type: "reapply_after_days", value: "365", anchor_date: "2026-07-05", source_text: "wait at least one year" };
+  const undated = { company_name: "Northwind Apps Ltd", rule_type: "reapply_after_days" as const, value: "365" };
+  assert.equal(ruleExists([saved], undated), true, "no rows: nothing dates it");
+  assert.equal(ruleExists([saved], undated, { rows: [] }), true, "no application on record");
+  const later = [{ company_name: "Northwind Apps", status: "rejected", date_applied: "2026-10-01" }];
+  assert.equal(ruleExists([saved], undated, { rows: later }), false, "it ends on 1 Oct 2027, after the saved 5 Jul 2027");
+  // A dated fresh wait after an old one ended is still new, rows or none.
+  const old: CompanyRule = { ...saved, anchor_date: "2026-01-10" };
+  assert.equal(ruleExists([old], { ...undated, anchor_date: "2027-02-01" }), false);
+});
