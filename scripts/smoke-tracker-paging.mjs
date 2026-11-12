@@ -67,6 +67,40 @@ try {
   const ins = await (await get("/api/applications/insights")).json();
   check("insights count 1,013", ins.insights?.counted === 1013, String(ins.insights?.counted));
 
+  // One page of the list (Chunk 19): ?stage=Applied&limit=50 is ≤ 50 rows with no notes
+  // preview; the cursor walks every row once; no parameters is still the full list.
+  const londonToday = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
+  const ids3 = (await (await fetch(`${SB}/rest/v1/applications?user_id=eq.${uid}&select=id&order=id&limit=3`, { headers: admin })).json()).map((r) => r.id);
+  for (const id of ids3) await fetch(`${SB}/rest/v1/applications?id=eq.${id}`, { method: "PATCH", headers: admin, body: JSON.stringify({ followup_date: londonToday }) });
+  let t = Date.now();
+  const pageRes = await get("/api/applications?stage=Applied&limit=50");
+  const pageMs = Date.now() - t;
+  const pageText = await pageRes.text();
+  const page = JSON.parse(pageText);
+  check("?stage=Applied&limit=50 answers 50 rows or fewer", pageRes.status === 200 && page.applications.length <= 50 && page.applications.length === 50, `${pageRes.status}, ${page.applications?.length} rows`);
+  check("…with no notes_preview, and notes_more on every row with notes (its Notes box stays locked until the full text loads)", page.applications.every((r) => !("notes_preview" in r) && r.notes_more === true));
+  check("…and under 80 KB", Buffer.byteLength(pageText) < 80 * 1024, `${(Buffer.byteLength(pageText) / 1024).toFixed(1)} KB in ${pageMs} ms`);
+  const seen = new Set(page.applications.map((r) => r.id));
+  let cursor = page.nextCursor, pages = 1;
+  while (cursor && pages < 60) {
+    const next = await (await get(`/api/applications?stage=Applied&limit=200&cursor=${encodeURIComponent(cursor)}`)).json();
+    for (const r of next.applications ?? []) seen.add(r.id);
+    cursor = next.nextCursor;
+    pages++;
+  }
+  check("the cursor walks every Applied row exactly once", seen.size === 1013 && !cursor, `${seen.size} rows in ${pages} pages`);
+  check("a cursor it never gave out is a 400", (await get("/api/applications?cursor=not-a-cursor")).status === 400);
+  t = Date.now();
+  const fullRes = await get("/api/applications");
+  const fullMs = Date.now() - t;
+  const fullText0 = await fullRes.text();
+  const full0 = JSON.parse(fullText0).applications ?? [];
+  check("no parameters is still the full list, previews included (the sweeps' contract)", full0.length === 1013 && full0.every((r) => typeof r.notes_preview === "string"), `${full0.length} rows, ${(Buffer.byteLength(fullText0) / 1024).toFixed(0)} KB in ${fullMs} ms`);
+  const all1 = JSON.parse(await (await get("/api/applications?all=1")).text()).applications ?? [];
+  check("?all=1 is the same list", all1.length === full0.length && all1.every((r, i) => r.id === full0[i].id && r.notes_preview === full0[i].notes_preview));
+  const counts = await (await get(`/api/applications/counts?today=${londonToday}`)).json();
+  check("counts: every row, every tab, the follow-ups due this week", counts.total === 1013 && counts.counts?.applied === 1013 && counts.followups_due_this_week === 3, JSON.stringify({ total: counts.total, applied: counts.counts?.applied, week: counts.followups_due_this_week }));
+
   await seed(uid, 2000);
   const listRes = await get("/api/applications");
   const listText = await listRes.text();

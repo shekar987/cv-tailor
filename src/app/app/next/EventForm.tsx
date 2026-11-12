@@ -14,6 +14,7 @@ import {
   type AvailabilityWindow, type Conflict, type EventKind, type PlanApplication, type PlanEvent,
 } from "@/lib/plan";
 import { DEFAULT_TIMEZONE, MINUTE_MS, clockTime, dayKey, formatWhen, zonedTimeToMs } from "@/lib/planTime";
+import { trackedFetch } from "@/lib/writeTracker";
 import { STATUS_LABELS, isActiveStatus, normalizeStatus, statusLabel, type Status } from "@/lib/tracker";
 
 export type EventFormMode =
@@ -197,7 +198,7 @@ export default function EventForm({
     setSaving(true);
     let eventWritten = false;
     try {
-      const res = await fetch("/api/events", {
+      const res = await trackedFetch("/api/events", {
         method: savedId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(savedId ? { id: savedId, ...body } : { ...body, application_id: application?.id ?? null, ...(seed?.source ? { source: seed.source } : {}) }),
@@ -208,7 +209,7 @@ export default function EventForm({
       setSavedId(data.event?.id ?? savedId);
       let reportNotes: string | undefined;
       if (movesTo && application) {
-        const moved = await fetch("/api/applications", {
+        const moved = await trackedFetch("/api/applications", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           // The user ticked this move, so a closed row reopens, or a row steps back, on their word.

@@ -17,8 +17,9 @@ import { isFormatStyleId, type FormatStyleId } from "@/lib/formatStyles/ids";
 import { normalizeStyleCheck } from "@/lib/styleCheck";
 import { validateReferralFields, REFERRAL_MIGRATION_HINT, type ReferralFields } from "@/lib/referrals";
 import { triageJd, buildTriageProfile, type JdTriage } from "@/lib/triage/jdTriage";
-import { MAX_APPLICATIONS, readApplicationPages, toListRow, type OrderableQuery } from "@/lib/applicationRows";
+import { MAX_APPLICATIONS, afterCursor, encodeCursor, readApplicationPages, readListMode, storedValuesFor, toListRow, toPageRow, type OrderableQuery } from "@/lib/applicationRows";
 import { MAX_LESSON_CHARS, MOVE_BACK_RECORDED, REOPEN_RECORDED, REPORT_DISMISSED, REPORT_HELD, UNDO_EXPIRED, decideClosingWrite, isCloseReason, isEnding, mergePendingOutcome, normalizePendingOutcome, normalizeUndoSnapshot, reportTaken, undoIsLive, undoWrite, type ClosingCurrent, type CloseReason, type PendingOutcome, type UndoSnapshot } from "@/lib/closing";
+import { formatDate } from "@/lib/formatDate";
 
 const REFERRAL_KEYS = ["referral", "referrer_name", "req_id", "referral_status"] as const;
 
@@ -487,6 +488,33 @@ export async function GET(req: NextRequest) {
     let rows: Record<string, unknown>[] | null = null;
     let readError: { code?: string; message: string } | null = null;
     const listLadder = [LIST_COLUMNS_COLD, LIST_COLUMNS_CLOSED, LIST_COLUMNS_STAGES, LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
+
+    // ?stage=&limit=&cursor= is one page (lib/applicationRows readListMode): the same
+    // columns and order, no notes preview. No parameters, or ?all=1, is the full
+    // list below, unchanged: the owner's sweeps read it.
+    const mode = readListMode(new URL(req.url).searchParams);
+    if (mode.mode === "error") return NextResponse.json({ error: mode.error }, { status: 400 });
+    if (mode.mode === "page") {
+      for (let rung = 0; rung < listLadder.length; rung++) {
+        let query = supabase.from("applications").select(listLadder[rung]);
+        if (mode.statuses) query = query.in("status", storedValuesFor(mode.statuses));
+        if (mode.cursor) query = query.or(afterCursor(mode.cursor));
+        const res = await query
+          .order("date_applied", { ascending: false })
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true })
+          .limit(mode.limit + 1);
+        if (res.error && isMissingColumn(res.error) && rung < listLadder.length - 1) continue;
+        if (res.error) {
+          console.error("applications page read error:", res.error.message);
+          return NextResponse.json({ error: "Could not load your applications" }, { status: 500 });
+        }
+        const data = (res.data ?? []) as unknown as Record<string, unknown>[];
+        const page = data.slice(0, mode.limit);
+        const nextCursor = data.length > mode.limit ? encodeCursor(page[page.length - 1]) : null;
+        return NextResponse.json({ applications: page.map(toPageRow), nextCursor });
+      }
+    }
     for (let rung = 0; rung < listLadder.length; rung++) {
       const read = await readApplicationPages(
         () => supabase.from("applications").select(listLadder[rung]) as unknown as OrderableQuery
@@ -699,7 +727,7 @@ export async function PATCH(req: NextRequest) {
     const line = typeof body.append_note === "string" ? body.append_note.replace(/\s+/g, " ").trim() : "";
     if (!line) return NextResponse.json({ error: "append_note must be some text." }, { status: 400 });
     if (line.length > MAX_APPENDED_NOTE) return NextResponse.json({ error: `The note is too long (max ${MAX_APPENDED_NOTE} characters).` }, { status: 400 });
-    const dated = `${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: DEFAULT_TIMEZONE }).format(new Date())}: ${line}`;
+    const dated = `${formatDate(new Date(), { timeZone: DEFAULT_TIMEZONE })}: ${line}`;
 
     const { data, error } = await supabase.rpc("append_application_note", { p_id: body.id, p_line: dated, p_max: MAX_NOTES });
     if (error?.code === "PGRST202") return NextResponse.json({ error: ACTION_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });

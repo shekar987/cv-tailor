@@ -5,20 +5,28 @@
 // and urgency is an icon and words as well as a colour.
 import Icon from "@/components/ui/Icon";
 import type { AttentionCounts, ReferralCard } from "@/lib/applicationStage";
+import { formatDate } from "@/lib/formatDate";
 
 export type AttentionFilter = "due" | "followups" | "fix" | "referrals" | "cold";
 
 function formatDay(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  return formatDate(iso, { year: false }) || iso;
+}
+
+// While the full list is on its way (`loading`), the two cards that need every row show a
+// placeholder instead of a number counted from one page; the follow-ups card's number
+// comes from the server's counts and is already right.
+function Pending() {
+  return <span className="attnPending" aria-label="Counting">…</span>;
 }
 
 export default function AttentionStrip({
-  counts, coldNoFollowup = 0, dueLabel, referral, active, onFilter, onOpenReferral,
+  counts, coldNoFollowup = 0, loading = false, dueLabel, referral, active, onFilter, onOpenReferral,
 }: {
   counts: AttentionCounts;
   // Cold emails logged from Gmail with no follow-up date (lib/coldEmails), shown only when there are some.
   coldNoFollowup?: number;
+  loading?: boolean;
   dueLabel: string;
   referral: ReferralCard | null;
   active: AttentionFilter | null;
@@ -26,18 +34,20 @@ export default function AttentionStrip({
   onOpenReferral: (id: string) => void;
 }) {
   return (
-    <section className="attnStrip" aria-label="Needs attention" data-cards={3 + (referral ? 1 : 0) + (coldNoFollowup > 0 ? 1 : 0)} data-attention>
+    <section className="attnStrip" aria-label="Needs attention" data-cards={3 + (referral ? 1 : 0) + (!loading && coldNoFollowup > 0 ? 1 : 0)} data-attention>
       <button
         type="button"
         className="attnCard"
-        data-tone={counts.dueSoon > 0 ? "red" : undefined}
+        data-tone={!loading && counts.dueSoon > 0 ? "red" : undefined}
         aria-pressed={active === "due"}
         onClick={() => onFilter("due")}
         data-attn="due"
       >
         <span className="attnNumber">
-          {counts.dueSoon > 0 && <Icon name="alert" />}
-          {counts.dueSoon}
+          {loading ? <Pending /> : <>
+            {counts.dueSoon > 0 && <Icon name="alert" />}
+            {counts.dueSoon}
+          </>}
         </span>
         <span className="attnLabel">{dueLabel}</span>
       </button>
@@ -50,20 +60,21 @@ export default function AttentionStrip({
         data-attn="followups"
       >
         <span className="attnNumber">{counts.followups}</span>
-        <span className="attnLabel">Follow-ups due</span>
+        <span className="attnLabel">Follow-ups due this week</span>
       </button>
       <button
         type="button"
         className="attnCard"
-        data-tone={counts.dataToFix > 0 ? "amber" : undefined}
+        data-tone={!loading && counts.dataToFix > 0 ? "amber" : undefined}
         aria-pressed={active === "fix"}
         onClick={() => onFilter("fix")}
         data-attn="fix"
       >
-        <span className="attnNumber">{counts.dataToFix}</span>
-        <span className="attnLabel">Data to fix · {counts.statusToFix} status, {counts.attachmentsToFix} JD/CV</span>
+        <span className="attnNumber">{loading ? <Pending /> : counts.dataToFix}</span>
+        <span className="attnLabel">{loading ? "Data to fix" : `Data to fix · ${counts.statusToFix} status, ${counts.attachmentsToFix} JD/CV`}</span>
       </button>
-      {coldNoFollowup > 0 && (
+      {/* The cold-email count needs every row too: no card until the full list is here. */}
+      {!loading && coldNoFollowup > 0 && (
         <button
           type="button"
           className="attnCard"

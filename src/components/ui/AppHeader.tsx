@@ -31,7 +31,7 @@ const NAV = [
   { href: "/app", label: "Tailor" },
   { href: "/applications", label: "Applications" },
   { href: "/interviews", label: "Interview" },
-  { href: "/customize", label: "Customize" },
+  { href: "/customize", label: "Customise" },
 ];
 
 export default function AppHeader({

@@ -26,6 +26,7 @@ import { UNDO_WINDOW_MS, needsConfirmation, reasonForStatus, type CloseReason } 
 import EventForm, { describeConflict, type EventFormMode } from "./EventForm";
 import { CompanyInitial, StageChip, browserTimeZone, copyText } from "./planUi";
 import WeekView from "./WeekView";
+import { formatDate } from "@/lib/formatDate";
 
 const PipelineChart = dynamic(() => import("./PipelineChart"), {
   ssr: false,
@@ -380,7 +381,7 @@ export default function NextPage() {
             : basis === "contact"
               ? (days === 0 ? "In touch today" : days === 1 ? "1 day since contact" : `${days} days since contact`)
               : (days === null ? "No contact recorded" : days === 0 ? "Applied today; no contact recorded" : days === 1 ? "Applied yesterday; no contact recorded" : `Applied ${days} days ago; no contact recorded`)}
-          {application.followup_date ? ` · follow-up ${shortDay(application.followup_date)}` : ""}
+          {application.followup_date ? ` · follow-up ${formatDate(application.followup_date)}` : ""}
         </span>
         {nudge && (
           <span className="planNudge" data-nudge={nudge} data-nudge-basis={basis}>
