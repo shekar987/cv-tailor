@@ -534,7 +534,7 @@ type SourceFields = { source?: string | null; referral?: boolean | null; company
 export function sourceOf(row: SourceFields): string {
   if (row.referral) return "Referral";
   if (/aiapply/i.test(`${row.company_name ?? ""} ${row.role ?? ""}`)) return "AIApply";
-  return row.source === "tailored" ? "Tailored here" : "Added by hand";
+  return row.source === "tailored" ? "Tailored here" : row.source === "cold-email" ? "Cold email" : "Added by hand";
 }
 
 export type Conversion = { label: string; submitted: number; reached: number; rate: number | null };
