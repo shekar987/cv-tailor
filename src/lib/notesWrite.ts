@@ -26,6 +26,27 @@ export function stampNoteLine(line: string, now: number, tz: string = DEFAULT_TI
   return `${dayMonthYear(dayKey(now, tz))} ${clockTime(now, tz)} ${line}`;
 }
 
+// The same line appended again within this many minutes is a repeat, not news (12 Nov
+// 2026, Chunk 22): on 11 Nov a sweep's script timed out after its follow-up update had
+// landed, ran again, and "T+7 follow-up sent" sat on the row twice.
+export const DUPLICATE_NOTE_MINUTES = 10;
+export const DUPLICATE_NOTE = "duplicate_note";
+
+/**
+ * Was exactly this line appended to these notes in the last DUPLICATE_NOTE_MINUTES?
+ * A stamped line carries its minute, so the candidates are the line stamped at each minute
+ * of the window (one ahead too, for a server whose clock runs fast), and any line of the
+ * notes may be the match: another note can have landed on top of it since.
+ */
+export function isRecentDuplicate(notes: string | null | undefined, line: string, now: number, tz: string = DEFAULT_TIMEZONE): boolean {
+  if (!notes) return false;
+  const lines = new Set(notes.split("\n").map((l) => l.trim()));
+  for (let k = -1; k <= DUPLICATE_NOTE_MINUTES; k++) {
+    if (lines.has(stampNoteLine(line, now - k * 60_000, tz))) return true;
+  }
+  return false;
+}
+
 /** One line of text, whitespace folded, within the cap. */
 export function cleanNoteLine(raw: unknown): { line: string } | { error: string } {
   const line = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";

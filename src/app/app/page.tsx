@@ -1747,6 +1747,7 @@ export default function Home() {
           tailor_session_id: sid,
           status: "applied",
           source: "tailored",
+          logged_by: "you",
           // The JD's literal figure with its unit ("£480 per day"),
           // "Voluntary (unpaid)", or an explicit "Not Specified".
           salary: salaryFromJd(jdForRow),
@@ -2255,7 +2256,7 @@ export default function Home() {
                     {gateExtras.duplicateOf.map((d, i) => (
                       <span key={d.id}>
                         {i > 0 ? "; " : ""}
-                        <strong>{d.company_name} — {d.role}</strong>, applied {formatDay(d.date_applied)}
+                        <strong>{d.company_name} — {d.role}</strong>, {d.date_applied ? `applied ${formatDay(d.date_applied)}` : "not sent yet"}
                       </span>
                     ))}
                     . Continue only if this is a genuinely new application.
@@ -2265,7 +2266,7 @@ export default function Home() {
                   <div className="limitNotice" role="status" style={{ marginBottom: 'var(--space-4)' }} data-gate-same-company>
                     You have already applied to <strong>{gateExtras.sameCompany.company}</strong>{" "}
                     {gateExtras.sameCompany.count === 1 ? "once" : `${gateExtras.sameCompany.count} times`}
-                    {" "}(last: {gateExtras.sameCompany.last.role}, {formatDay(gateExtras.sameCompany.last.date_applied)}
+                    {" "}(last: {gateExtras.sameCompany.last.role}{gateExtras.sameCompany.last.date_applied ? `, ${formatDay(gateExtras.sameCompany.last.date_applied)}` : ""}
                     {gateExtras.sameCompany.last.status ? `, ${statusLabel(gateExtras.sameCompany.last.status)}` : ""}). Recruiters see every application to
                     their company in one screen; apply again only for a genuinely different role.
                   </div>

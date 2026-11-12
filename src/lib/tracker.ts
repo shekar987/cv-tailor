@@ -225,7 +225,7 @@ export function normalizeRole(role: string | null | undefined): string {
     .replace(/\s+/g, " ");
 }
 
-export type DuplicateCandidate = { id?: string; company_name: string; role: string; date_applied?: string; status?: string };
+export type DuplicateCandidate = { id?: string; company_name: string; role: string; date_applied?: string | null; status?: string };
 
 // The row this company + role already has, if any — the same company by
 // lib/companyMatch's rule and the same role by normalizeRole. The newest

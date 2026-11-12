@@ -2,27 +2,30 @@ import { NextRequest, NextResponse } from "next/server";
 import { autoCloseMessage, closesOnConfirmation, confirmationAdded, confirmationIn } from "@/lib/autoClose";
 import { ACTION_MIGRATION_HINT } from "@/lib/planSchema";
 import { DEFAULT_TIMEZONE, dayKey } from "@/lib/planTime";
-import { cleanNoteLine, decideNotesWrite, sameVersion, stampNoteLine, staleRefusal } from "@/lib/notesWrite";
+import { DUPLICATE_NOTE, cleanNoteLine, decideNotesWrite, isRecentDuplicate, sameVersion, stampNoteLine, staleRefusal } from "@/lib/notesWrite";
 import { MAX_ACTIVE_RULES, companyKey, normalizeRule, readCooldowns, ruleExists, type CompanyRule } from "@/lib/companyRules";
-import { MAX_DEADLINE_NOTE, deadlineFromFields, dueWithin, parseDueParam, type DueEvent, type DueRow } from "@/lib/deadlines";
-import { isValidEmail } from "@/lib/contactCheck";
+import { dueWithin, parseDueParam, type DueEvent, type DueRow } from "@/lib/deadlines";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
-import { MAX_JD_CHARS, MAX_NOTES_CHARS, MAX_COVER_LETTER_CHARS, JD_TOO_LONG } from "@/lib/limits";
+import { MAX_JD_CHARS, MAX_COVER_LETTER_CHARS, JD_TOO_LONG } from "@/lib/limits";
 import { packFromRow } from "@/lib/prepPack";
 import { matchAtsKeywords, tailoredSectionsText } from "@/lib/atsMatch";
 import { seniorityOf } from "@/lib/insights";
 import { GATE_CATEGORIES } from "@/lib/knockouts";
 import { SENT_CV_BUCKET, normalizeSentCv, publicSentCv, ownsPath } from "@/lib/sentCv";
-import {
-  apiStatus, normalizeStatus, oldStatusLabel, clearsFollowup, followupClearedNote, appendNoteLine, isLastContactFrom, parseContactAt,
-  type Status, type LastContactFrom,
-} from "@/lib/tracker";
+import { apiStatus, oldStatusLabel, clearsFollowup, followupClearedNote, appendNoteLine } from "@/lib/tracker";
 import { isFormatStyleId, type FormatStyleId } from "@/lib/formatStyles/ids";
 import { normalizeStyleCheck } from "@/lib/styleCheck";
-import { validateReferralFields, REFERRAL_MIGRATION_HINT, type ReferralFields } from "@/lib/referrals";
-import { triageJd, buildTriageProfile, type JdTriage } from "@/lib/triage/jdTriage";
-import { MAX_APPLICATIONS, afterCursor, encodeCursor, readApplicationPages, readListMode, storedValuesFor, toListRow, toPageRow, type OrderableQuery } from "@/lib/applicationRows";
-import { MAX_LESSON_CHARS, MOVE_BACK_RECORDED, REOPEN_RECORDED, REPORT_DISMISSED, REPORT_HELD, UNDO_EXPIRED, decideClosingWrite, isCloseReason, isEnding, mergePendingOutcome, normalizePendingOutcome, normalizeUndoSnapshot, reportTaken, reportedNote, undoIsLive, undoWrite, type ClosingCurrent, type CloseReason, type PendingOutcome, type UndoSnapshot } from "@/lib/closing";
+import { REFERRAL_MIGRATION_HINT } from "@/lib/referrals";
+import { triageForUser, withTriage } from "@/lib/applicationTriage";
+import {
+  LITE_COLUMNS, LITE_DUE_EXCLUDED, MAX_APPLICATIONS, afterCursor, encodeCursor, liteSearchFilter, readApplicationPages, readListMode, readLiteQuery,
+  storedInList, storedValuesFor, toListRow, toLiteRow, toPageRow, type OrderableQuery,
+} from "@/lib/applicationRows";
+import {
+  FOLLOWUP_ERROR, MAX_NOTES, clampOptional, followupTooEarly, readLoggedBy, resolveSentDate, validateEditable,
+} from "@/lib/applicationFields";
+import { idempotent, jsonBodyOf } from "@/lib/idempotentRoute";
+import { MOVE_BACK_RECORDED, REOPEN_RECORDED, REPORT_DISMISSED, REPORT_HELD, UNDO_EXPIRED, decideClosingWrite, isEnding, mergePendingOutcome, normalizePendingOutcome, normalizeUndoSnapshot, reportTaken, reportedNote, undoIsLive, undoWrite, type ClosingCurrent, type PendingOutcome } from "@/lib/closing";
 
 const REFERRAL_KEYS = ["referral", "referrer_name", "req_id", "referral_status"] as const;
 
@@ -30,14 +33,24 @@ const REFERRAL_KEYS = ["referral", "referrer_name", "req_id", "referral_status"]
 // boundary; every write is additionally scoped by user id.
 //
 // No LLM call, so no burst limiter — these are ordinary DB reads/writes.
+//
+// Since 12 Nov 2026 (Chunk 22) every write (POST, PUT, PATCH) honours an
+// Idempotency-Key header (lib/idempotency): the same key runs once.
 
-const MAX_COMPANY = 200;
-const MAX_ROLE = 200;
-const MAX_SALARY = 100;
-const MAX_NOTES = MAX_NOTES_CHARS;
+// No model call and no file: a minute is ample, and the idempotency claim's
+// staleness (2 minutes) depends on a request never outliving it.
+export const maxDuration = 60;
+
 const MAX_CV_REF = 200;
-const MAX_EMAIL = 254;
 const MAX_SESSION_ID = 64;
+const PATH = "/api/applications";
+// A dateless row on a database that still requires a date (before migration 20261112120000).
+const DATE_MIGRATION_HINT =
+  "Saving a Ready to submit row without a date applied needs migration 20261112120000_fast_tracker_api.sql. Run it in the Supabase SQL editor, or send the date.";
+function isNotNullViolation(error: { code?: string } | null): boolean {
+  return !!error && error.code === "23502";
+}
+const londonToday = () => dayKey(Date.now(), DEFAULT_TIMEZONE);
 
 // A non-UUID id can only be a typo or a probe; Postgres would answer with a
 // cast error (22P02) that the handlers would otherwise report as a 500.
@@ -54,7 +67,6 @@ function isUuid(value: unknown): value is string {
 const STATUS_MIGRATION_HINT =
   "That status needs the database migration supabase/migrations/20261103120000_application_events.sql. Run it in the Supabase SQL editor, then try again.";
 const OUTCOME_MIGRATION_HINT = STATUS_MIGRATION_HINT.replace("That status needs", "Saving a rejection reason needs");
-const MAX_OUTCOME_REASON = 500;
 function isStatusCheckViolation(error: { code?: string; message?: string } | null): boolean {
   return !!error && error.code === "23514";
 }
@@ -72,7 +84,9 @@ const SELECT_COLUMNS =
 // gates.triage is the JD triage (lib/triage/jdTriage), computed here.
 // format_style: the format style the CV was made with, or the one picked by
 // hand for a manual row (lib/formatStyles; absent = not recorded).
-const LIST_COLUMNS = `${SELECT_COLUMNS}, prep_generated_at:prep_pack->>generatedAt, gates:tailored_cv->gates, format_style:tailored_cv->>formatStyle`;
+// logged_by: who logged the row ("you", or an automation's name; lib/applicationFields
+// readLoggedBy), for the "Logged by" badge (Chunk 22).
+const LIST_COLUMNS = `${SELECT_COLUMNS}, prep_generated_at:prep_pack->>generatedAt, gates:tailored_cv->gates, format_style:tailored_cv->>formatStyle, logged_by:tailored_cv->>loggedBy`;
 // sent_cv_name: the file name of the CV the user uploaded for the row
 // (lib/sentCv, migration 20260927120000), so the sheet can mark it.
 const LIST_COLUMNS_SENT = `${LIST_COLUMNS}, sent_cv_name:sent_cv->>fileName`;
@@ -114,6 +128,8 @@ const CONTACT_MIGRATION_HINT =
 const DETAIL_COLUMNS_NO_PREP = `${SELECT_COLUMNS}, tailored_cv`;
 const DETAIL_COLUMNS = `${DETAIL_COLUMNS_NO_PREP}, prep_pack`;
 const DETAIL_COLUMNS_SENT = `${DETAIL_COLUMNS}, sent_cv`;
+// The cover letter file sent with it (migration 20261112120000, Chunk 22): the newest rung.
+const DETAIL_COLUMNS_LETTER = `${DETAIL_COLUMNS_SENT}, sent_cover_letter`;
 
 const MAX_TAILORED_CV_JSON = 200_000;
 
@@ -209,32 +225,6 @@ function cleanGates(value: unknown): Record<string, unknown> | null {
   return { read: g.read, hard: count(g.hard), soft: count(g.soft), unknown: count(g.unknown), items };
 }
 
-// The JD triage (lib/triage/jdTriage, Chunk 8) is computed HERE from the
-// stored job description — never taken from the client — and kept at
-// tailored_cv.gates.triage beside the pre-check's read. Its inputs are read here
-// too, under RLS: the user's Eligibility answers and master CV, so a row saved
-// from anywhere is judged by the same answers. No JD → no triage; a snapshot
-// left empty is null.
-async function triageForUser(supabase: NonNullable<Awaited<ReturnType<typeof signedIn>>>["supabase"], userId: string, jd: string): Promise<JdTriage> {
-  // Missing table or row: the answers are unknown and the rules say so.
-  const [settings, cv] = await Promise.all([
-    supabase.from("user_settings").select("eligibility").eq("user_id", userId).maybeSingle(),
-    supabase.from("master_cvs").select("text").eq("user_id", userId).maybeSingle(),
-  ]);
-  return triageJd(jd, buildTriageProfile(settings.data?.eligibility, cv.data?.text));
-}
-
-function withTriage(snapshot: Record<string, unknown> | null, triage: JdTriage | null): Record<string, unknown> | null {
-  const next: Record<string, unknown> = { ...(snapshot ?? {}) };
-  const gates: Record<string, unknown> =
-    next.gates && typeof next.gates === "object" && !Array.isArray(next.gates) ? { ...(next.gates as Record<string, unknown>) } : {};
-  if (triage) gates.triage = triage;
-  else delete gates.triage;
-  if (Object.keys(gates).length > 0) next.gates = gates;
-  else delete next.gates;
-  return Object.keys(next).length > 0 ? next : null;
-}
-
 // The CV snapshot comes from our own client, so this only pins the shape and
 // size: a plain object, known keys only, bounded JSON. Two keys ride along
 // with the sections — the cover letter as sent (text, capped, rejected rather
@@ -278,208 +268,6 @@ function cleanTailoredCv(value: unknown, role: string): { snapshot: Record<strin
   }
   return { snapshot };
 }
-
-// Strict YYYY-MM-DD that also exists on the calendar (rejects 2026-02-30).
-function isIsoDate(value: unknown): value is string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-
-// Machine-supplied optional text (session id, cv reference): clamp silently.
-function clampOptional(value: unknown, max: number): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed.slice(0, max) : null;
-}
-
-type Editable = {
-  outcome_reason?: string | null;
-  company_name?: string;
-  role?: string;
-  status?: Status;
-  salary?: string | null;
-  date_applied?: string;
-  followup_date?: string | null;
-  notes?: string | null;
-  job_description?: string | null;
-  last_contact_from?: LastContactFrom | null;
-  last_contact_at?: string | null;
-  closed_at?: string | null;
-  close_reason?: CloseReason | null;
-  lesson?: string | null;
-  pending_outcome?: PendingOutcome | null;
-  undo_snapshot?: UndoSnapshot | null;
-  applied_from_email?: string | null;
-  next_deadline?: string | null;
-  deadline_note?: string | null;
-} & ReferralFields;
-
-type Validation = { fields: Editable } | { error: string };
-
-// The fields a user can edit inline. On create (partial = false) every
-// required field must be present; on update (partial = true) absent keys are
-// left untouched and present keys are validated. Over-cap text is rejected
-// rather than truncated so nothing the user typed is silently lost.
-function validateEditable(body: Record<string, unknown>, partial: boolean): Validation {
-  const fields: Editable = {};
-
-  // A present-but-wrong-typed value is a client bug, not "empty": rejecting it
-  // keeps a numeric salary from silently wiping the stored text.
-  const typeProblem = (["company_name", "role", "salary", "notes", "job_description"] as const).find(
-    (key) => key in body && body[key] != null && typeof body[key] !== "string"
-  );
-  if (typeProblem) return { error: `${typeProblem.replace("_", " ")} must be text.` };
-
-  if (partial && "lesson" in body) {
-    if (body.lesson != null && typeof body.lesson !== "string") return { error: "lesson must be text." };
-    const lesson = typeof body.lesson === "string" ? body.lesson.trim() : "";
-    if (lesson.length > MAX_LESSON_CHARS) return { error: `The lesson is too long (max ${MAX_LESSON_CHARS} characters).` };
-    fields.lesson = lesson || null;
-  }
-  if (partial && "close_reason" in body) {
-    if (body.close_reason != null && !isCloseReason(body.close_reason)) return { error: "Pick a valid reason." };
-    fields.close_reason = (body.close_reason ?? null) as CloseReason | null;
-  }
-  if (partial && "closed_at" in body) {
-    if (body.closed_at != null && (typeof body.closed_at !== "string" || !Number.isFinite(Date.parse(body.closed_at)))) return { error: "Enter a valid date." };
-    fields.closed_at = (body.closed_at ?? null) as string | null;
-  }
-  if (partial && "pending_outcome" in body) {
-    const pending = body.pending_outcome == null ? null : normalizePendingOutcome(body.pending_outcome);
-    if (body.pending_outcome != null && !pending) return { error: "That isn't a valid outcome." };
-    fields.pending_outcome = pending;
-  }
-
-  if (!partial || "company_name" in body) {
-    const company = typeof body.company_name === "string" ? body.company_name.trim() : "";
-    if (!company) return { error: "Company name is required." };
-    if (company.length > MAX_COMPANY) {
-      return { error: `Company name is too long (max ${MAX_COMPANY} characters).` };
-    }
-    fields.company_name = company;
-  }
-
-  if (!partial || "role" in body) {
-    const role = typeof body.role === "string" ? body.role.trim() : "";
-    if (!role) return { error: "Role is required." };
-    if (role.length > MAX_ROLE) return { error: `Role is too long (max ${MAX_ROLE} characters).` };
-    fields.role = role;
-  }
-
-  if (!partial || "status" in body) {
-    if (!partial && body.status === undefined) {
-      fields.status = "applied";
-    } else {
-      const status = normalizeStatus(body.status);
-      if (!status) return { error: "Pick a valid status." };
-      fields.status = status;
-    }
-  }
-
-  if (!partial || "date_applied" in body) {
-    if (!isIsoDate(body.date_applied)) return { error: "Enter a valid date applied (YYYY-MM-DD)." };
-    fields.date_applied = body.date_applied;
-  }
-
-  if (!partial || "followup_date" in body) {
-    if (body.followup_date == null || body.followup_date === "") {
-      fields.followup_date = null;
-    } else if (!isIsoDate(body.followup_date)) {
-      return { error: "Enter a valid follow-up date (YYYY-MM-DD)." };
-    } else {
-      fields.followup_date = body.followup_date;
-    }
-  }
-
-  if (!partial || "salary" in body) {
-    const salary = typeof body.salary === "string" ? body.salary.trim() : "";
-    if (salary.length > MAX_SALARY) return { error: `Salary is too long (max ${MAX_SALARY} characters).` };
-    fields.salary = salary || null;
-  }
-
-  if (!partial || "notes" in body) {
-    const notes = typeof body.notes === "string" ? body.notes.trim() : "";
-    if (notes.length > MAX_NOTES) return { error: `Notes are too long (max ${MAX_NOTES} characters).` };
-    fields.notes = notes || null;
-  }
-
-  // Editable after the fact so a manually added row can get its posting
-  // pasted in later. On create the JD is handled with the snapshot fields.
-  if (partial && "job_description" in body) {
-    const jd = typeof body.job_description === "string" ? body.job_description.trim() : "";
-    if (jd.length > MAX_JD_CHARS) return { error: JD_TOO_LONG };
-    fields.job_description = jd || null;
-  }
-
-  // Who spoke last and when ("Reply owed", lib/tracker). Update only. "from"
-  // without a time means now; clearing "from" clears the time too.
-  if (partial && "last_contact_from" in body) {
-    if (body.last_contact_from == null || body.last_contact_from === "") fields.last_contact_from = null;
-    else if (isLastContactFrom(body.last_contact_from)) fields.last_contact_from = body.last_contact_from;
-    else return { error: 'Last contact must be "me" or "them".' };
-  }
-  if (partial && "last_contact_at" in body) {
-    const at = parseContactAt(body.last_contact_at);
-    if (at === undefined) return { error: "Enter a valid last-contact date (YYYY-MM-DD or an ISO time), not in the future." };
-    fields.last_contact_at = at;
-  }
-  if ("last_contact_from" in fields && !("last_contact_at" in fields)) {
-    fields.last_contact_at = fields.last_contact_from ? new Date().toISOString() : null;
-  }
-
-  // Why the application ended, in the user's own words. Update only.
-  if (partial && "outcome_reason" in body) {
-    const reason = typeof body.outcome_reason === "string" ? body.outcome_reason.trim() : "";
-    if (body.outcome_reason !== null && typeof body.outcome_reason !== "string") return { error: "Enter the reason as text." };
-    if (reason.length > MAX_OUTCOME_REASON) return { error: `Keep the reason under ${MAX_OUTCOME_REASON} characters.` };
-    fields.outcome_reason = reason || null;
-  }
-
-  // Which inbox the application used and what is due next (lib/deadlines), on create
-  // and on update. A date with no time is due at the end of that day in London.
-  if ("applied_from_email" in body) {
-    if (body.applied_from_email != null && typeof body.applied_from_email !== "string") return { error: "applied_from_email must be text." };
-    const email = typeof body.applied_from_email === "string" ? body.applied_from_email.trim() : "";
-    if (email && (email.length > MAX_EMAIL || !isValidEmail(email))) return { error: "Enter the address you applied from as an email address." };
-    fields.applied_from_email = email || null;
-  }
-  if ("next_deadline" in body) {
-    const raw = typeof body.next_deadline === "string" ? body.next_deadline.trim() : body.next_deadline;
-    if (raw == null || raw === "") fields.next_deadline = null;
-    else if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw) && isIsoDate(raw)) fields.next_deadline = deadlineFromFields(raw, "23:59");
-    else if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}T/.test(raw) && Number.isFinite(Date.parse(raw))) {
-      // A time with no zone is London's, like the form's "Time (UK)": Date.parse would read it
-      // as the server's own zone (UTC on Vercel), an hour late all summer.
-      const local = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(raw);
-      const at = local ? deadlineFromFields(local[1], local[2]) : new Date(Date.parse(raw)).toISOString();
-      if (!at) return { error: "Enter the deadline as an ISO date and time (2026-11-12T09:00:00Z) or a date (2026-11-12)." };
-      fields.next_deadline = at;
-    } else return { error: "Enter the deadline as an ISO date and time (2026-11-12T09:00:00Z) or a date (2026-11-12)." };
-  }
-  if ("deadline_note" in body) {
-    if (body.deadline_note != null && typeof body.deadline_note !== "string") return { error: "deadline_note must be text." };
-    const note = typeof body.deadline_note === "string" ? body.deadline_note.replace(/\s+/g, " ").trim() : "";
-    if (note.length > MAX_DEADLINE_NOTE) return { error: `Keep what is due under ${MAX_DEADLINE_NOTE} characters.` };
-    fields.deadline_note = note || null;
-  }
-
-  // Referral, referrer, req id and the ask's status (lib/referrals). Update only.
-  if (partial) {
-    const r = validateReferralFields(body);
-    if ("error" in r) return { error: r.error };
-    Object.assign(fields, r.fields);
-  }
-
-  return { fields };
-}
-
-// ISO dates compare correctly as strings.
-function followupTooEarly(dateApplied: string, followup: string | null): boolean {
-  return followup !== null && followup < dateApplied;
-}
-
-const FOLLOWUP_ERROR = "Follow-up date can't be earlier than the date applied.";
 
 export async function GET(req: NextRequest) {
   try {
@@ -531,6 +319,7 @@ export async function GET(req: NextRequest) {
       // later rung naming the migration it lacks. The rest of the record is
       // readable at every rung.
       const ladder: { columns: string; warning?: string }[] = [
+        { columns: DETAIL_COLUMNS_LETTER },
         { columns: DETAIL_COLUMNS_SENT },
         { columns: DETAIL_COLUMNS },
         { columns: DETAIL_COLUMNS_NO_PREP, warning: PREP_WARNING },
@@ -559,10 +348,42 @@ export async function GET(req: NextRequest) {
       const prepPack = packFromRow(row.prep_pack);
       // The uploaded CV's record without its storage path (lib/sentCv).
       const sentCv = publicSentCv(normalizeSentCv(row.sent_cv));
+      const sentLetter = publicSentCv(normalizeSentCv(row.sent_cover_letter));
       return NextResponse.json({
-        application: { ...row, status: apiStatus(row.status), tailored_cv: snapshot, prep_pack: prepPack, sent_cv: sentCv },
+        application: { ...row, status: apiStatus(row.status), tailored_cv: snapshot, prep_pack: prepPack, sent_cv: sentCv, sent_cover_letter: sentLetter },
         ...(warning ? { warning } : {}),
       });
+    }
+
+    // ?lite=1: the light list for automations (lib/applicationRows readLiteQuery): seven
+    // small fields, filtered in the database, one select per 1,000 rows. Columns every
+    // database has, so no ladder.
+    if (params.get("lite") === "1") {
+      const lite = readLiteQuery(params);
+      if ("error" in lite) return NextResponse.json({ error: lite.error }, { status: 400 });
+      const { q, since, statuses, dueBy, limit } = lite.query;
+      const build = () => {
+        let query = supabase.from("applications").select(LITE_COLUMNS).eq("user_id", userId);
+        if (q) query = query.or(liteSearchFilter(q));
+        if (since) query = query.gte("date_applied", since);
+        if (statuses) query = query.in("status", storedValuesFor(statuses));
+        if (dueBy) query = query.lte("followup_date", dueBy).not("status", "in", storedInList(LITE_DUE_EXCLUDED));
+        return query.order("date_applied", { ascending: false }).order("created_at", { ascending: false }).order("id", { ascending: true });
+      };
+      // One row past the limit says whether there is more.
+      const rows: Record<string, unknown>[] = [];
+      for (let from = 0; from <= limit; from += 1000) {
+        const to = Math.min(from + 999, limit);
+        const res = await build().range(from, to);
+        if (res.error) {
+          console.error("applications lite read error:", res.error.code ?? "unknown");
+          return NextResponse.json({ error: "Could not load your applications" }, { status: 500 });
+        }
+        const page = (res.data ?? []) as unknown as Record<string, unknown>[];
+        rows.push(...page);
+        if (page.length < to - from + 1) break;
+      }
+      return NextResponse.json({ applications: rows.slice(0, limit).map(toLiteRow), more: rows.length > limit });
     }
 
     // A missing optional column drops one rung (sent_cv, then prep_pack /
@@ -619,6 +440,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  return idempotent(req, PATH, jsonBodyOf(req), () => createApplication(req));
+}
+
+async function createApplication(req: NextRequest) {
   try {
     const caller = await signedIn();
     if (!caller) return unauthorized();
@@ -632,9 +457,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validated.error }, { status: 400 });
     }
     const { fields } = validated;
-    if (followupTooEarly(fields.date_applied!, fields.followup_date ?? null)) {
+    if (followupTooEarly(fields.date_applied, fields.followup_date ?? null)) {
       return NextResponse.json({ error: FOLLOWUP_ERROR }, { status: 400 });
     }
+    const logged = readLoggedBy(body.logged_by);
+    if ("error" in logged) return NextResponse.json({ error: logged.error }, { status: 400 });
 
     const jobDescription = typeof body.job_description === "string" ? body.job_description.trim() : "";
     if (jobDescription.length > MAX_JD_CHARS) {
@@ -655,6 +482,8 @@ export async function POST(req: NextRequest) {
     if ("error" in cv) {
       return NextResponse.json({ error: cv.error }, { status: 400 });
     }
+    // Who logged it rides in the snapshot like the style tag (a key, never a CV).
+    const snapshot = logged.loggedBy ? { ...(cv.snapshot ?? {}), loggedBy: logged.loggedBy } : cv.snapshot;
 
     const record = {
       ...fields,
@@ -662,7 +491,7 @@ export async function POST(req: NextRequest) {
       tailor_session_id: sessionId,
       cv_reference: cvReference,
       job_description: jobDescription || null,
-      tailored_cv: withTriage(cv.snapshot, jobDescription ? await triageForUser(supabase, userId, jobDescription) : null),
+      tailored_cv: withTriage(snapshot, jobDescription ? await triageForUser(supabase, userId, jobDescription) : null),
     };
 
     // Duplicate rule: one row per tailoring session. Check-then-insert rather
@@ -758,6 +587,9 @@ export async function POST(req: NextRequest) {
       }
       if (isStatusCheckViolation(insertError) && fields.status) {
         return NextResponse.json({ error: STATUS_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+      }
+      if (isNotNullViolation(insertError) && fields.date_applied === null) {
+        return NextResponse.json({ error: DATE_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
       }
       console.error("applications insert error:", insertError.message);
       if (isMissingColumn(insertError)) {
@@ -857,8 +689,22 @@ async function rulesFromNote(supabase: RouteSupabase, userId: string, applicatio
 // Adds one stamped line on top of the notes in one UPDATE (the RPC of migration
 // 20261104120000): the caller never sends the old text, so it can never send a short
 // copy. Refuses rather than cut past the cap. Answers the notes and their version.
-async function appendNote(supabase: RouteSupabase, userId: string, id: string, line: string): Promise<NextResponse | { notes: string; updated_at: string | null }> {
-  const stamped = stampNoteLine(line, Date.now());
+// The same line again within ten minutes (lib/notesWrite isRecentDuplicate) is a retry's
+// repeat: nothing is written and the answer says `skipped: "duplicate_note"`, with the notes
+// and version of that one read. Two identical appends in the same instant can both pass this
+// read; an Idempotency-Key is what makes a retry exactly-once.
+async function appendNote(supabase: RouteSupabase, userId: string, id: string, line: string): Promise<NextResponse | { notes: string; updated_at: string | null; skipped?: typeof DUPLICATE_NOTE }> {
+  const now = Date.now();
+  const { data: current, error: currentError } = await supabase.from("applications").select("notes, updated_at").eq("id", id).eq("user_id", userId).maybeSingle();
+  if (currentError) {
+    console.error("applications append read error:", currentError.code ?? "unknown");
+    return NextResponse.json({ error: "Could not add that note" }, { status: 500 });
+  }
+  if (!current) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+  if (isRecentDuplicate(current.notes as string | null, line, now)) {
+    return { notes: (current.notes as string | null) ?? "", updated_at: typeof current.updated_at === "string" ? current.updated_at : null, skipped: DUPLICATE_NOTE };
+  }
+  const stamped = stampNoteLine(line, now);
   const { data, error } = await supabase.rpc("append_application_note", { p_id: id, p_line: stamped, p_max: MAX_NOTES });
   if (error?.code === "PGRST202") return NextResponse.json({ error: ACTION_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
   if (error) {
@@ -886,6 +732,10 @@ async function appendNote(supabase: RouteSupabase, userId: string, id: string, l
 // (migration 20261104120000), so it can never replace them or lose another writer's
 // text. Past the tracker's cap it refuses rather than cut anything.
 export async function PATCH(req: NextRequest) {
+  return idempotent(req, PATH, jsonBodyOf(req), () => appendToApplication(req));
+}
+
+async function appendToApplication(req: NextRequest) {
   try {
     const caller = await signedIn();
     if (!caller) return unauthorized();
@@ -902,6 +752,7 @@ export async function PATCH(req: NextRequest) {
 
     const appended = await appendNote(supabase, userId, body.id, line);
     if (appended instanceof NextResponse) return appended;
+    if (appended.skipped) return NextResponse.json({ ok: true, skipped: appended.skipped, notes: appended.notes, updated_at: appended.updated_at });
     const autoClose = confirmationAdded(null, line) ? await closeOnConfirmation(supabase, userId, body.id) : null;
     const companyRules = await rulesFromNote(supabase, userId, body.id, line);
     return NextResponse.json({ ok: true, notes: appended.notes, updated_at: appended.updated_at, ...(autoClose ? { autoClose } : {}), ...(companyRules.length ? { companyRules } : {}) });
@@ -912,6 +763,10 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  return idempotent(req, PATH, jsonBodyOf(req), () => updateApplication(req));
+}
+
+async function updateApplication(req: NextRequest) {
   try {
     const caller = await signedIn();
     if (!caller) return unauthorized();
@@ -1010,6 +865,7 @@ export async function PUT(req: NextRequest) {
     if (notesWrite.mode === "append" && !otherChanges) {
       const appended = await appendNote(supabase, userId, id, notesWrite.line);
       if (appended instanceof NextResponse) return appended;
+      if (appended.skipped) return NextResponse.json({ ok: true, skipped: appended.skipped, notes: appended.notes, updated_at: appended.updated_at });
       const autoClose = confirmationAdded(null, notesWrite.line) ? await closeOnConfirmation(supabase, userId, id) : null;
       const companyRules = await rulesFromNote(supabase, userId, id, notesWrite.line);
       return NextResponse.json({ ok: true, notes: appended.notes, updated_at: appended.updated_at, ...(autoClose ? { autoClose } : {}), ...(companyRules.length ? { companyRules } : {}) });
@@ -1140,10 +996,14 @@ export async function PUT(req: NextRequest) {
     let dateApplied = fields.date_applied;
     let followup = "followup_date" in fields ? (fields.followup_date ?? null) : undefined;
     let followupCleared: { followup_date: null; notes: string | null } | undefined;
-    if (dateApplied === undefined || followup === undefined || closing) {
+    // The date rule (lib/applicationFields resolveSentDate) reads the row whenever the status
+    // or the date changes: only a Ready to submit row may have no date applied.
+    const datesMatter = "status" in fields || "date_applied" in fields;
+    let dateDefaulted: string | undefined;
+    if (dateApplied === undefined || followup === undefined || closing || datesMatter) {
       const { data: existing, error: existingError } = await supabase
         .from("applications")
-        .select("date_applied, followup_date, notes, updated_at")
+        .select("status, date_applied, followup_date, notes, updated_at")
         .eq("id", id)
         .eq("user_id", userId)
         .maybeSingle();
@@ -1154,7 +1014,22 @@ export async function PUT(req: NextRequest) {
       if (!existing) {
         return NextResponse.json({ error: "Application not found" }, { status: 404 });
       }
-      dateApplied ??= existing.date_applied as string;
+      if (datesMatter) {
+        const sent = resolveSentDate({
+          status: fields.status ?? existing.status,
+          stored: (existing.date_applied as string | null) ?? null,
+          patch: "date_applied" in fields ? fields.date_applied : undefined,
+          today: londonToday(),
+        });
+        if ("error" in sent) return NextResponse.json({ error: sent.error }, { status: 400 });
+        if (sent.set) {
+          fields.date_applied = sent.set;
+          dateApplied = sent.set;
+          dateDefaulted = sent.set;
+        }
+      }
+      // undefined, not null: a date the body cleared stays cleared.
+      if (dateApplied === undefined) dateApplied = (existing.date_applied as string | null) ?? null;
       if (followup === undefined) followup = (existing.followup_date as string | null) ?? null;
       const stored = (existing.followup_date as string | null) ?? null;
       if (closing && stored && !("followup_date" in fields)) {
@@ -1193,10 +1068,16 @@ export async function PUT(req: NextRequest) {
     // after the write. Either way the room is checked now, after the server's own lines, and a
     // write with no room for its line lands nothing.
     let appendInWrite = false;
+    // The same line within ten minutes is a retry's repeat (lib/notesWrite): the rest of the
+    // write lands, the line does not, and the answer says so.
+    let noteSkipped = false;
     if (notesWrite.mode === "append") {
-      const stamped = stampNoteLine(notesWrite.line, Date.now());
+      const now = Date.now();
+      const stamped = stampNoteLine(notesWrite.line, now);
       const full = () => NextResponse.json({ error: `These notes are full (max ${MAX_NOTES.toLocaleString("en-GB")} characters). Nothing was changed.`, errorType: "notes_full" }, { status: 400 });
-      if ("notes" in fields) {
+      if ("notes" in fields && isRecentDuplicate(fields.notes as string | null, notesWrite.line, now)) {
+        noteSkipped = true;
+      } else if ("notes" in fields) {
         const merged = fields.notes ? `${stamped}\n${fields.notes}` : stamped;
         if (merged.length > MAX_NOTES) return full();
         fields.notes = merged;
@@ -1210,8 +1091,11 @@ export async function PUT(req: NextRequest) {
           return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
         }
         if (!stored) return NextResponse.json({ error: "Application not found" }, { status: 404 });
-        const room = MAX_NOTES - (typeof stored.notes === "string" && stored.notes ? stored.notes.length + 1 : 0);
-        if (stamped.length > room) return full();
+        if (isRecentDuplicate(stored.notes as string | null, notesWrite.line, now)) noteSkipped = true;
+        else {
+          const room = MAX_NOTES - (typeof stored.notes === "string" && stored.notes ? stored.notes.length + 1 : 0);
+          if (stamped.length > room) return full();
+        }
       }
     }
 
@@ -1272,6 +1156,9 @@ export async function PUT(req: NextRequest) {
       if (isMissingColumn(updateError) && DEADLINE_KEYS.some((k) => k in fields)) {
         return NextResponse.json({ error: DEADLINE_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
       }
+      if (isNotNullViolation(updateError) && fields.date_applied === null) {
+        return NextResponse.json({ error: DATE_MIGRATION_HINT, errorType: "needs_migration" }, { status: 503 });
+      }
       console.error("applications update error:", updateError.message);
       return NextResponse.json({ error: "Could not save that application" }, { status: 500 });
     }
@@ -1292,9 +1179,10 @@ export async function PUT(req: NextRequest) {
     let appendedNotes: string | undefined;
     let noteWarning: string | undefined;
     if (notesWrite.mode === "append" && appendInWrite) appendedNotes = fields.notes as string;
-    else if (notesWrite.mode === "append") {
+    else if (notesWrite.mode === "append" && !noteSkipped) {
       const appended = await appendNote(supabase, userId, id, notesWrite.line);
       if (appended instanceof NextResponse) noteWarning = "Saved, but the note could not be added: another note filled the notes first. Add it again.";
+      else if (appended.skipped) noteSkipped = true;
       else {
         appendedNotes = appended.notes;
         updatedAt = appended.updated_at;
@@ -1314,6 +1202,8 @@ export async function PUT(req: NextRequest) {
       ok: true,
       ...(updatedAt ? { updated_at: updatedAt } : {}),
       ...(appendedNotes !== undefined ? { notes: appendedNotes } : {}),
+      ...(noteSkipped ? { skipped: DUPLICATE_NOTE } : {}),
+      ...(dateDefaulted ? { date_applied: dateDefaulted } : {}),
       ...(reportNotes !== undefined ? { reportNotes } : {}),
       ...(warning ? { warning } : {}),
       ...(followupCleared ? { followupCleared } : {}),
@@ -1337,15 +1227,16 @@ export async function DELETE(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "No application specified" }, { status: 400 });
     if (!isUuid(id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
 
-    // The CV file uploaded for this application (lib/sentCv), read before the
-    // row goes so it can be removed after. A missing column means no file.
-    const { data: before } = await supabase
-      .from("applications")
-      .select("sent_cv")
-      .eq("id", id)
-      .eq("user_id", userId)
-      .maybeSingle();
-    const sent = normalizeSentCv((before as { sent_cv?: unknown } | null)?.sent_cv);
+    // The CV and cover letter files uploaded for this application (lib/sentCv), read
+    // before the row goes so they can be removed after. A missing column means no file.
+    let before: Record<string, unknown> | null = null;
+    for (const columns of ["sent_cv, sent_cover_letter", "sent_cv"]) {
+      const read = await supabase.from("applications").select(columns).eq("id", id).eq("user_id", userId).maybeSingle();
+      if (read.error && isMissingColumn(read.error)) continue;
+      before = (read.data as Record<string, unknown> | null) ?? null;
+      break;
+    }
+    const files = [normalizeSentCv(before?.sent_cv), normalizeSentCv(before?.sent_cover_letter)].filter((f) => f && ownsPath(f.path, userId, id));
 
     const { error: deleteError } = await supabase
       .from("applications")
@@ -1358,9 +1249,9 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Could not delete that application" }, { status: 500 });
     }
     // Best effort: a leftover would sit in the user's own private folder.
-    if (sent && ownsPath(sent.path, userId, id)) {
-      const { error: removeError } = await supabase.storage.from(SENT_CV_BUCKET).remove([sent.path]);
-      if (removeError) console.warn("applications delete: sent CV not removed:", removeError.message);
+    if (files.length) {
+      const { error: removeError } = await supabase.storage.from(SENT_CV_BUCKET).remove(files.map((f) => f!.path));
+      if (removeError) console.warn("applications delete: sent files not removed:", removeError.message);
     }
     return NextResponse.json({ ok: true });
   } catch (err) {

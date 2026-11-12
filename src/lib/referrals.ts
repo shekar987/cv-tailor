@@ -82,7 +82,8 @@ export type ReferralRow = {
   id: string;
   company_name: string;
   role: string;
-  date_applied: string;
+  // Absent or null on a Ready to submit row that has not been sent (Chunk 22).
+  date_applied?: string | null;
   created_at?: string;
   status?: string;
   referral?: boolean | null;
@@ -96,11 +97,16 @@ const CLOSED: ReadonlySet<string> = new Set(["rejected", "withdrawn", "ghosted",
 
 const statusOf = (r: ReferralRow): ReferralStatus => (isReferralStatus(r.referral_status) ? r.referral_status : "offered");
 
+/** When the ask began: the date applied, else (a row not sent yet) the day it was added. */
+export function referralSince(r: Pick<ReferralRow, "date_applied" | "created_at">): string {
+  return r.date_applied || (r.created_at ?? "").slice(0, 10);
+}
+
 /** The open referrals, oldest first (the one that has waited longest). */
 export function referralAsks<T extends ReferralRow>(rows: readonly T[]): T[] {
   const open = rows.filter((r) => r.referral === true && OPEN_REFERRAL_STATUSES.includes(statusOf(r)) && !CLOSED.has((r.status ?? "").trim().toLowerCase()));
   return [...open].sort(
-    (a, b) => a.date_applied.localeCompare(b.date_applied) || (a.created_at ?? "").localeCompare(b.created_at ?? "") || a.company_name.localeCompare(b.company_name)
+    (a, b) => referralSince(a).localeCompare(referralSince(b)) || (a.created_at ?? "").localeCompare(b.created_at ?? "") || a.company_name.localeCompare(b.company_name)
   );
 }
 

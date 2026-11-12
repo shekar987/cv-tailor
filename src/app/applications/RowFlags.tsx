@@ -1,12 +1,16 @@
 // A row's flags under its company name (3 Nov 2026): "Missing JD" / "Missing
 // CV" on a row in Screening or Interview, "Not checked" with the action that
 // checks it on a row made outside /app, and the triage's verdict once there is
-// one. Nothing here blocks. Renders nothing when a row has nothing to say.
+// one. Since 12 Nov 2026 (Chunk 22) also "Logged by Claude sweep" on a row an
+// automation logged for the user (lib/applicationFields loggedByBadge; the user's
+// own rows carry none). Nothing here blocks. Renders nothing when a row has
+// nothing to say.
 //
 // No next/* or @/ imports: tests/rowFlags renders it under node:test
 // (tests/support/tsxLoader.mjs).
 import { missingAttachments, rowCheck, type RowFlagFields } from "../../lib/tracker.ts";
 import { TRIAGE_LABELS } from "../../lib/triage/jdTriage.ts";
+import { loggedByBadge } from "../../lib/applicationFields.ts";
 
 export default function RowFlags({
   row,
@@ -16,7 +20,7 @@ export default function RowFlags({
   quiet = false,
   showMissing = true,
 }: {
-  row: RowFlagFields & { company_name: string };
+  row: RowFlagFields & { company_name: string; logged_by?: string | null };
   checking: boolean;
   onRunCheck: () => void;
   onAddJd: () => void;
@@ -27,9 +31,15 @@ export default function RowFlags({
   const missing = showMissing ? missingAttachments(row) : [];
   const read = rowCheck(row);
   const check = quiet && (read?.kind !== "checked" || read.verdict === "apply") ? null : read;
-  if (!missing.length && !check) return null;
+  const loggedBy = loggedByBadge(row.logged_by);
+  if (!missing.length && !check && !loggedBy) return null;
   return (
     <span className="rowFlags" data-row-flags="true">
+      {loggedBy && (
+        <span className="rowFlag" data-logged-by={row.logged_by ?? ""} title={`${loggedBy} through the API, not by you on this page`}>
+          {loggedBy}
+        </span>
+      )}
       {missing.map((m) => (
         <span key={m} className="rowFlag rowFlag--missing" data-missing={m}>{m}</span>
       ))}

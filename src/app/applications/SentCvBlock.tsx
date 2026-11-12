@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import StatusText from "@/components/ui/StatusText";
 import Icon from "@/components/ui/Icon";
 import { saveBlob } from "@/lib/saveBlob";
-import { formatFileSize, type SentCvInfo } from "@/lib/sentCv";
+import { formatFileSize, type SentCvInfo, type SentDoc } from "@/lib/sentCv";
 import { MAX_UPLOAD_BYTES, UPLOAD_TOO_LARGE } from "@/lib/limits";
 import { formatDate } from "@/lib/formatDate";
 import { trackedFetch } from "@/lib/writeTracker";
@@ -14,6 +14,11 @@ import { trackedFetch } from "@/lib/writeTracker";
 // document. Pick or drop a file; it goes to /api/applications/cv, which reads
 // its text and stores it privately. Then it is listed with Download, Replace
 // and Remove, and the text read from it can be opened below.
+//
+// Since 12 Nov 2026 (Chunk 22) the same block holds the cover letter sent with it
+// (`doc="cover_letter"`, applications.sent_cover_letter): one line until a letter is
+// stored, never a drop zone, and its own data-sent-letter-* hooks so the CV's stay
+// unique on the page.
 
 const ACCEPT = ".pdf,.docx,.txt";
 const ACCEPT_RE = /\.(pdf|docx|txt)$/i;
@@ -30,7 +35,9 @@ export default function SentCvBlock({
   label,
   onChange,
   onSessionExpired,
+  doc = "cv",
 }: {
+  doc?: SentDoc;
   applicationId: string;
   company: string;
   sentCv: SentCvInfo | null;
@@ -51,6 +58,10 @@ export default function SentCvBlock({
   const [busy, setBusy] = useState<"" | "upload" | "download" | "remove">("");
   const [error, setError] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const isCv = doc === "cv";
+  // data-sent-cv-* for the CV (the harnesses' hooks), data-sent-letter-* for the letter.
+  const hook = (name: string) => ({ [`data-sent-${isCv ? "cv" : "letter"}-${name}`]: true });
+  const docQuery = isCv ? "" : "&doc=cover_letter";
 
   async function upload(file: File) {
     setError("");
@@ -68,6 +79,7 @@ export default function SentCvBlock({
     try {
       const body = new FormData();
       body.append("id", applicationId);
+      if (!isCv) body.append("doc", "cover_letter");
       body.append("file", file);
       const res = await trackedFetch("/api/applications/cv", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
@@ -97,7 +109,7 @@ export default function SentCvBlock({
     setError("");
     setBusy("download");
     try {
-      const res = await fetch(`/api/applications/cv?id=${encodeURIComponent(applicationId)}`);
+      const res = await fetch(`/api/applications/cv?id=${encodeURIComponent(applicationId)}${docQuery}`);
       if (res.status === 401) return onSessionExpired();
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -116,7 +128,7 @@ export default function SentCvBlock({
     setError("");
     setBusy("remove");
     try {
-      const res = await trackedFetch(`/api/applications/cv?id=${encodeURIComponent(applicationId)}`, { method: "DELETE" });
+      const res = await trackedFetch(`/api/applications/cv?id=${encodeURIComponent(applicationId)}${docQuery}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) return onSessionExpired();
       if (!res.ok) {
@@ -147,13 +159,13 @@ export default function SentCvBlock({
         const file = e.target.files?.[0];
         if (file) void upload(file);
       }}
-      data-sent-cv-input
+      {...hook("input")}
     />
   );
 
   return (
-    <div className="sentCv" data-sent-cv={sentCv ? "stored" : "none"}>
-      {label && <div className="atsGroupLabel recs">CV you sent</div>}
+    <div className="sentCv" {...{ [isCv ? "data-sent-cv" : "data-sent-letter"]: sentCv ? "stored" : "none" }}>
+      {label && <div className="atsGroupLabel recs">{isCv ? "CV you sent" : "Cover letter you sent"}</div>}
       {sentCv ? (
         <>
           <div className="sentCvFile">
@@ -161,7 +173,7 @@ export default function SentCvBlock({
               <Icon name="document" />
             </span>
             <div className="sentCvMeta">
-              <span className="sentCvName" data-sent-cv-name>{sentCv.fileName}</span>
+              <span className="sentCvName" {...hook("name")}>{sentCv.fileName}</span>
               <span className="sentCvInfo">
                 {[KIND_LABEL[sentCv.kind], formatFileSize(sentCv.size), sentCv.uploadedAt && `uploaded ${uploadedOn(sentCv.uploadedAt)}`]
                   .filter(Boolean)
@@ -172,7 +184,7 @@ export default function SentCvBlock({
               {confirmRemove ? (
                 <>
                   <span className="appsConfirm">Remove this file?</span>
-                  <button type="button" className="appsActionBtn danger" onClick={() => void remove()} disabled={busy !== ""} data-sent-cv-confirm>
+                  <button type="button" className="appsActionBtn danger" onClick={() => void remove()} disabled={busy !== ""} {...hook("confirm")}>
                     {busy === "remove" ? "Removing…" : "Remove"}
                   </button>
                   <button type="button" className="appsActionBtn" onClick={() => setConfirmRemove(false)} disabled={busy !== ""}>
@@ -181,13 +193,13 @@ export default function SentCvBlock({
                 </>
               ) : (
                 <>
-                  <button type="button" className="appsActionBtn primary" onClick={() => void download()} disabled={busy !== ""} data-sent-cv-download>
+                  <button type="button" className="appsActionBtn primary" onClick={() => void download()} disabled={busy !== ""} {...hook("download")}>
                     {busy === "download" ? "Downloading…" : "Download"}
                   </button>
-                  <button type="button" className="appsActionBtn" onClick={pick} disabled={busy !== ""} data-sent-cv-replace>
+                  <button type="button" className="appsActionBtn" onClick={pick} disabled={busy !== ""} {...hook("replace")}>
                     {busy === "upload" ? "Uploading…" : "Replace"}
                   </button>
-                  <button type="button" className="appsActionBtn danger" onClick={() => setConfirmRemove(true)} disabled={busy !== ""} data-sent-cv-remove>
+                  <button type="button" className="appsActionBtn danger" onClick={() => setConfirmRemove(true)} disabled={busy !== ""} {...hook("remove")}>
                     Remove
                   </button>
                 </>
@@ -196,18 +208,27 @@ export default function SentCvBlock({
             {fileInput(false)}
           </div>
           {sentCv.textNote ? (
-            <p className="fitEvidence" data-warn="" data-sent-cv-note>{sentCv.textNote}</p>
+            <p className="fitEvidence" data-warn="" {...hook("note")}>{sentCv.textNote}</p>
           ) : sentCv.text ? (
             <details className="sentCvText">
               <summary>Text read from the file</summary>
-              <pre data-sent-cv-text>{sentCv.text}</pre>
+              <pre {...hook("text")}>{sentCv.text}</pre>
             </details>
           ) : null}
         </>
+      ) : !isCv ? (
+        <p className="fitEvidence">
+          Sent a cover letter?{" "}
+          <button type="button" className="inlineLink" onClick={pick} disabled={busy !== ""} {...hook("upload")}>
+            {busy === "upload" ? "Uploading…" : "Upload the letter you sent"}
+          </button>{" "}
+          to keep it with this application.
+          {fileInput(false)}
+        </p>
       ) : compact ? (
         <p className="fitEvidence">
           Sent a different version?{" "}
-          <button type="button" className="inlineLink" onClick={pick} disabled={busy !== ""} data-sent-cv-upload>
+          <button type="button" className="inlineLink" onClick={pick} disabled={busy !== ""} {...hook("upload")}>
             {busy === "upload" ? "Uploading…" : "Upload the file you sent"}
           </button>{" "}
           to keep it with this application.
@@ -246,7 +267,7 @@ export default function SentCvBlock({
             ) : (
               <>
                 <span className="dropTitle">
-                  <button type="button" className="dropBrowse" onClick={pick} data-sent-cv-upload>
+                  <button type="button" className="dropBrowse" onClick={pick} {...hook("upload")}>
                     Upload the CV you sent
                   </button>
                   <span className="dropOr"> or drag it here</span>

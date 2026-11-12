@@ -30,6 +30,22 @@ export type SentCv = {
 };
 export type SentCvInfo = Omit<SentCv, "version" | "path">;
 
+// Which file of an application (12 Nov 2026, Chunk 22): the CV (applications.sent_cv) or
+// the cover letter (applications.sent_cover_letter, migration 20261112120000). Same
+// record, same bucket, same <user>/<application>/ folder — so the bucket's own-folder
+// policies and account deletion cover both — and the letter's object name starts
+// "letter-", so the two never share a key.
+export type SentDoc = "cv" | "cover_letter";
+export const SENT_DOC_COLUMN: Record<SentDoc, "sent_cv" | "sent_cover_letter"> = { cv: "sent_cv", cover_letter: "sent_cover_letter" };
+const DOC_FALLBACK_NAME: Record<SentDoc, string> = { cv: "CV", cover_letter: "Cover letter" };
+
+/** The `doc` a request names: nothing (or "cv") is the CV; null when it is neither. */
+export function readSentDoc(value: unknown): SentDoc | null {
+  if (value === undefined || value === null || value === "" || value === "cv") return "cv";
+  if (value === "cover_letter" || value === "cover-letter" || value === "letter") return "cover_letter";
+  return null;
+}
+
 const CONTENT_TYPES: Record<SentCvKind, string> = {
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -48,7 +64,7 @@ function isKind(v: unknown): v is SentCvKind {
 // The name shown in the tracker and given back on download: the user's own
 // file name, without control characters or path separators, bounded, ending
 // in the extension its content really has.
-export function displayFileName(name: unknown, kind: SentCvKind): string {
+export function displayFileName(name: unknown, kind: SentCvKind, doc: SentDoc = "cv"): string {
   const base = (typeof name === "string" ? name : "")
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .replace(/[\\/]/g, "-")
@@ -56,13 +72,13 @@ export function displayFileName(name: unknown, kind: SentCvKind): string {
     .replace(/\.(pdf|docx?|txt)$/i, "")
     .trim()
     .slice(0, 120);
-  return (base || "CV") + EXTENSIONS[kind];
+  return (base || DOC_FALLBACK_NAME[doc]) + EXTENSIONS[kind];
 }
 
 // The object's name in storage: letters, digits, dot, dash and underscore
 // only — a storage key is not the place for spaces or accents.
-export function storageFileName(name: unknown, kind: SentCvKind): string {
-  const shown = displayFileName(name, kind);
+export function storageFileName(name: unknown, kind: SentCvKind, doc: SentDoc = "cv"): string {
+  const shown = displayFileName(name, kind, doc);
   const base = shown
     .slice(0, shown.length - EXTENSIONS[kind].length)
     .normalize("NFKD")
@@ -71,11 +87,11 @@ export function storageFileName(name: unknown, kind: SentCvKind): string {
     .replace(/-{2,}/g, "-")
     .replace(/^[-.]+|[-.]+$/g, "")
     .slice(0, 60);
-  return (base || "cv") + EXTENSIONS[kind];
+  return (base || (doc === "cv" ? "cv" : "cover-letter")) + EXTENSIONS[kind];
 }
 
-export function sentCvPath(userId: string, applicationId: string, name: unknown, kind: SentCvKind, now: number): string {
-  return `${userId}/${applicationId}/${now}-${storageFileName(name, kind)}`;
+export function sentCvPath(userId: string, applicationId: string, name: unknown, kind: SentCvKind, now: number, doc: SentDoc = "cv"): string {
+  return `${userId}/${applicationId}/${doc === "cv" ? "" : "letter-"}${now}-${storageFileName(name, kind, doc)}`;
 }
 
 // A stored path this user may touch for this application: inside their own

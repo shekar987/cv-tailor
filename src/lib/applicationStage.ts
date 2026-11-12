@@ -9,7 +9,7 @@
 // stage, whatever is still open on it, so every row counts once and the tabs add up.
 import { EVENT_KIND_LABELS, describeTiming, displayZone, eventMs, type EventKind, type PlanEvent } from "./plan.ts";
 import { DEFAULT_TIMEZONE, HOUR_MS, addDays, dayKey, formatWhen, zonedTimeToMs } from "./planTime.ts";
-import { referralAsks, type ReferralRow } from "./referrals.ts";
+import { referralAsks, referralSince, type ReferralRow } from "./referrals.ts";
 import { STATUS_LABELS, isFollowupDueThisWeek, missingAttachments, normalizeStatus, type RowFlagFields, type Status } from "./tracker.ts";
 
 export type StageKey = Status | "take_home" | "video" | "work_trial";
@@ -322,5 +322,5 @@ export function referralCard(rows: readonly ReferralRow[]): ReferralCard | null 
   if (asks.length === 0) return null;
   const oldest = asks[0];
   const req = reqIdOf(oldest);
-  return { id: oldest.id, title: `${oldest.company_name} · ${shortRole(oldest.role)}${req ? ` (${req})` : ""}`, since: oldest.date_applied, more: asks.length - 1 };
+  return { id: oldest.id, title: `${oldest.company_name} · ${shortRole(oldest.role)}${req ? ` (${req})` : ""}`, since: referralSince(oldest), more: asks.length - 1 };
 }

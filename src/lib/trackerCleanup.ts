@@ -50,7 +50,8 @@ export type CleanupRow = {
   company_name: string | null;
   role: string | null;
   status: string;
-  date_applied: string;
+  // Null on a Ready to submit row that was never sent (Chunk 22).
+  date_applied: string | null;
   followup_date: string | null;
   notes: string | null;
   created_at: string;
@@ -76,7 +77,7 @@ export type RuleBDuplicate = {
   company_name: string;
   role: string;
   status: string;
-  date_applied: string;
+  date_applied: string | null;
   // null when it can be merged; otherwise why it must be done by hand.
   blocked: string | null;
   newKeepStatus: string | null;
@@ -85,11 +86,11 @@ export type RuleBDuplicate = {
 };
 export type RuleBGroup = {
   key: string;
-  keep: { id: string; company_name: string; role: string; status: string; date_applied: string; why: string };
+  keep: { id: string; company_name: string; role: string; status: string; date_applied: string | null; why: string };
   duplicates: RuleBDuplicate[];
   blocked: string | null;
 };
-export type RuleCItem = { id: string; company_name: string; role: string; status: string; date_applied: string; days?: number };
+export type RuleCItem = { id: string; company_name: string; role: string; status: string; date_applied: string | null; days?: number };
 export type CleanupPlan = {
   today: string;
   ruleA: RuleAItem[];
@@ -102,6 +103,10 @@ function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(`${to.slice(0, 10)}T00:00:00Z`) - Date.parse(`${from.slice(0, 10)}T00:00:00Z`)) / DAY_MS);
 }
 const text = (s: string | null | undefined) => (s ?? "").trim();
+// The day a row counts from: its date applied, else (never sent) the day it was added.
+const dayOf = (r: Pick<CleanupRow, "date_applied" | "created_at">) => r.date_applied ?? r.created_at.slice(0, 10);
+// The earlier of two applied dates, when `candidate` is one: an undated row takes any date.
+const earlierDate = (candidate: string | null, current: string | null) => (candidate && (!current || candidate < current) ? candidate : null);
 
 /** Rule B's role key: case, punctuation and spacing folded; the words in brackets kept. */
 // "C#" and "C++" are different jobs; so are "Developer (東京)" and "Developer (大阪)".
@@ -130,7 +135,7 @@ function everScreened(row: Pick<CleanupRow, "status" | "stages_reached">): boole
 
 /** Rule A: an Applied row, its follow-up passed, applied more than 35 days ago. */
 export function closesCadence(row: CleanupRow, today: string): boolean {
-  return normalizeStatus(row.status) === "applied" && !!row.followup_date && row.followup_date < today && daysBetween(row.date_applied, today) > CADENCE_DAYS;
+  return normalizeStatus(row.status) === "applied" && !!row.followup_date && row.followup_date < today && daysBetween(dayOf(row), today) > CADENCE_DAYS;
 }
 
 export function cadenceNote(row: Pick<CleanupRow, "followup_date" | "date_applied">, today: string): string {
@@ -138,7 +143,8 @@ export function cadenceNote(row: Pick<CleanupRow, "followup_date" | "date_applie
 }
 
 export function mergeNote(dup: Pick<CleanupRow, "role" | "date_applied" | "status" | "notes">, today: string): string {
-  const head = `Merged from a duplicate row (${text(dup.role) || "no role"}, applied ${formatDate(dup.date_applied)}, ${statusLabel(dup.status)}) on ${formatDate(today)}.`;
+  const sent = dup.date_applied ? `applied ${formatDate(dup.date_applied)}` : "not sent";
+  const head = `Merged from a duplicate row (${text(dup.role) || "no role"}, ${sent}, ${statusLabel(dup.status)}) on ${formatDate(today)}.`;
   return text(dup.notes) ? `${head}\n${text(dup.notes)}` : head;
 }
 
@@ -158,14 +164,14 @@ function holds(row: CleanupRow, att: Attachments | undefined): string | null {
   return null;
 }
 
-const byAge = (a: CleanupRow, b: CleanupRow) => a.date_applied.localeCompare(b.date_applied) || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
+const byAge = (a: CleanupRow, b: CleanupRow) => dayOf(a).localeCompare(dayOf(b)) || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
 
 /** The plan. Pure: it reads only what it is given. */
 export function planCleanup(rows: readonly CleanupRow[], attachments: ReadonlyMap<string, Attachments>, today: string): CleanupPlan {
   const ruleA: RuleAItem[] = rows
     .filter((r) => closesCadence(r, today))
     .sort(byAge)
-    .map((r) => ({ id: r.id, company_name: text(r.company_name), role: text(r.role), date_applied: r.date_applied, followup_date: r.followup_date!, days_since_applied: daysBetween(r.date_applied, today), note: cadenceNote(r, today) }));
+    .map((r) => ({ id: r.id, company_name: text(r.company_name), role: text(r.role), date_applied: dayOf(r), followup_date: r.followup_date!, days_since_applied: daysBetween(dayOf(r), today), note: cadenceNote(r, today) }));
 
   const groups = new Map<string, CleanupRow[]>();
   for (const r of rows) {
@@ -199,7 +205,7 @@ export function planCleanup(rows: readonly CleanupRow[], attachments: ReadonlyMa
       const dStatus = normalizeStatus(d.status) ?? "applied";
       const raised = (MERGE_RANK[dStatus] ?? -1) > (MERGE_RANK[keepStatus] ?? -1) ? dStatus : keepStatus;
       const blocked = groupBlocked ?? holds(d, attachments.get(d.id));
-      const earlier = d.date_applied < keepDate ? d.date_applied : null;
+      const earlier = earlierDate(d.date_applied, keepDate);
       const out: RuleBDuplicate = {
         id: d.id, company_name: text(d.company_name), role: text(d.role), status: dStatus, date_applied: d.date_applied, blocked,
         newKeepStatus: !blocked && raised !== keepStatus ? raised : null,
@@ -218,7 +224,7 @@ export function planCleanup(rows: readonly CleanupRow[], attachments: ReadonlyMa
   const item = (r: CleanupRow, days?: number): RuleCItem => ({ id: r.id, company_name: text(r.company_name), role: text(r.role), status: normalizeStatus(r.status) ?? r.status, date_applied: r.date_applied, ...(days !== undefined ? { days } : {}) });
   const readyToSubmit = rows
     .filter((r) => normalizeStatus(r.status) === "saved")
-    .map((r) => ({ r, days: daysBetween(r.created_at.slice(0, 10) < r.date_applied ? r.created_at.slice(0, 10) : r.date_applied, today) }))
+    .map((r) => ({ r, days: daysBetween(r.date_applied && r.date_applied < r.created_at.slice(0, 10) ? r.date_applied : r.created_at.slice(0, 10), today) }))
     .filter((x) => x.days > READY_STALE_DAYS)
     .sort((a, b) => b.days - a.days)
     .map((x) => item(x.r, x.days));
@@ -239,7 +245,7 @@ export type Expect = { status: string[]; followup_date?: string | null };
 export type CleanupDb = {
   readRows(): Promise<CleanupRow[]>;
   readAttachments(ids: readonly string[]): Promise<Map<string, Attachments>>;
-  update(id: string, patch: { followup_date?: string | null; status?: string; date_applied?: string }, expect: Expect): Promise<number>;
+  update(id: string, patch: { followup_date?: string | null; status?: string; date_applied?: string | null }, expect: Expect): Promise<number>;
   appendNote(id: string, line: string): Promise<boolean>;
   remove(id: string, expect: Expect): Promise<number>;
 };
@@ -348,7 +354,7 @@ export async function runCleanup(db: CleanupDb, req: CleanupRequest, today: stri
       const keepNow = normalizeStatus(keep.status) ?? "applied";
       const dStatus = normalizeStatus(row.status) ?? "applied";
       const target = (MERGE_RANK[dStatus] ?? -1) > (MERGE_RANK[keepNow] ?? -1) ? dStatus : keepNow;
-      const earlier = row.date_applied < keep.date_applied ? row.date_applied : null;
+      const earlier = earlierDate(row.date_applied, keep.date_applied);
       const keepValues = storedStatusValues(keepNow as Status);
       // 1. The kept row is still what the plan read: a write conditional on its status (its
       //    own applied date, or the duplicate's earlier one) proves it before anything else.

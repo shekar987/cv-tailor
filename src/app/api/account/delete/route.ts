@@ -24,17 +24,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Type "${CONFIRM_PHRASE}" to confirm.` }, { status: 400 });
     }
 
-    // The CV files the user uploaded: <user>/<application>/<file>. The
-    // Storage list is one level at a time. A listing or removal failure
-    // stops here — the files must not outlive the account.
+    // The CV and cover letter files the user uploaded: <user>/<application>/<file>.
+    // The Storage list is one level at a time and 1,000 entries a call, so the
+    // application folders are read page by page (one-call logging, Chunk 22, can put
+    // a file on every row). A listing or removal failure stops here — the files must
+    // not outlive the account.
     const store = supabase.storage.from(SENT_CV_BUCKET);
-    const { data: folders, error: listError } = await store.list(userId, { limit: 1000 });
-    if (listError && !/not found/i.test(listError.message)) {
-      console.error("account delete: list error:", listError.message);
-      return NextResponse.json({ error: "Could not remove your uploaded files. Nothing was deleted." }, { status: 500 });
+    const folders: { name: string }[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data: page, error: listError } = await store.list(userId, { limit: 1000, offset });
+      if (listError && !/not found/i.test(listError.message)) {
+        console.error("account delete: list error:", listError.message);
+        return NextResponse.json({ error: "Could not remove your uploaded files. Nothing was deleted." }, { status: 500 });
+      }
+      folders.push(...(page ?? []));
+      if (!page || page.length < 1000) break;
     }
     const paths: string[] = [];
-    for (const folder of folders ?? []) {
+    for (const folder of folders) {
       const { data: files, error: innerError } = await store.list(`${userId}/${folder.name}`, { limit: 1000 });
       if (innerError) {
         console.error("account delete: list error:", innerError.message);
@@ -42,8 +49,8 @@ export async function POST(req: NextRequest) {
       }
       for (const f of files ?? []) if (f.id) paths.push(`${userId}/${folder.name}/${f.name}`);
     }
-    if (paths.length) {
-      const { error: removeError } = await store.remove(paths);
+    for (let i = 0; i < paths.length; i += 1000) {
+      const { error: removeError } = await store.remove(paths.slice(i, i + 1000));
       if (removeError) {
         console.error("account delete: remove error:", removeError.message);
         return NextResponse.json({ error: "Could not remove your uploaded files. Nothing was deleted." }, { status: 500 });
