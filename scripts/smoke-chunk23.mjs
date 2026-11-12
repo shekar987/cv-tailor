@@ -8,7 +8,8 @@
 // made-up companies; no model call. Reading the boards costs nothing.
 //
 //   npm run build && npx next start -p 3100
-//   node scripts/smoke-chunk23.mjs             (reads .env.local; SMOKE_BASE to point elsewhere)
+//   node scripts/smoke-chunk23.mjs             (reads .env.local; SMOKE_BASE to point elsewhere,
+//                                               SMOKE_EXTRA_COOKIE for a protected preview's share cookie)
 import fs from "node:fs";
 
 const BASE = process.env.SMOKE_BASE || "http://localhost:3100";
@@ -32,7 +33,8 @@ async function newUser(tag) {
   const created = await (await fetch(`${SB}/auth/v1/admin/users`, { method: "POST", headers: admin, body: json({ email, password, email_confirm: true }) })).json();
   users.push(created.id);
   const session = await (await fetch(`${SB}/auth/v1/token?grant_type=password`, { method: "POST", headers: { apikey: PUB, "Content-Type": "application/json" }, body: json({ email, password }) })).json();
-  const cookie = `sb-${REF}-auth-token=base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`;
+  // SMOKE_EXTRA_COOKIE: e.g. a protected Vercel preview's share cookie (_vercel_jwt=…).
+  const cookie = [`sb-${REF}-auth-token=base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`, process.env.SMOKE_EXTRA_COOKIE].filter(Boolean).join("; ");
   const call = async (path, method = "GET", body, headers = {}) => {
     const res = await fetch(BASE + path, { method, headers: { cookie, ...(body ? { "Content-Type": "application/json" } : {}), ...headers }, ...(body ? { body: json(body) } : {}) });
     const text = await res.text();
