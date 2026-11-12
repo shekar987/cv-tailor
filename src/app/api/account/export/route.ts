@@ -34,14 +34,15 @@ export async function GET() {
       const { data, error } = await q.limit(5000);
       return section(table, data, error);
     }
-    // Finished events stay, so this table can pass PostgREST's 1000 rows per request.
-    async function readEvents(): Promise<Section> {
+    // Finished events stay, and every notes change is kept, so these tables can pass
+    // PostgREST's 1000 rows per request: read in pages.
+    async function readPaged(table: string, order: string): Promise<Section> {
       const rows: unknown[] = [];
       for (let from = 0; ; from += 1000) {
-        const { data, error } = await supabase.from("application_events").select("*").eq("user_id", userId).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, from + 999);
-        if (error) return section("application_events", null, error);
+        const { data, error } = await supabase.from(table).select("*").eq("user_id", userId).order(order, { ascending: true }).order("id", { ascending: true }).range(from, from + 999);
+        if (error) return section(table, null, error);
         rows.push(...(data ?? []));
-        if ((data ?? []).length < 1000) return section("application_events", rows, null);
+        if ((data ?? []).length < 1000) return section(table, rows, null);
       }
     }
     // The tracker can pass PostgREST's 1000 rows per request; the other tables
@@ -53,7 +54,7 @@ export async function GET() {
       return section("applications", rows, error);
     }
 
-    const [profile, masterCv, cvProfile, settings, applications, interviews, research, keys, events, availability] = await Promise.all([
+    const [profile, masterCv, cvProfile, settings, applications, interviews, research, keys, events, availability, notesHistory, companyRules] = await Promise.all([
       read("profiles", "tailor_count, tailor_count_reset_at, claude_tailors_used, is_unlimited, section_order"),
       read("master_cvs", "text, projects_pool, updated_at"),
       read("cv_profiles", "data, updated_at"),
@@ -62,8 +63,12 @@ export async function GET() {
       read("mock_interviews", "id, application_id, type, persona, llm_path, status, plan, transcript, feedback, created_at, finished_at", "created_at"),
       read("company_profiles", "domain, data, fetched_at", "fetched_at"),
       read("user_api_keys", "provider, key_hint, updated_at"),
-      readEvents(),
+      readPaged("application_events", "created_at"),
       read("availability_windows", "*", "created_at"),
+      // Chunk 21 (migration 20261110120000): every earlier version of the notes, and the
+      // companies' reapply rules.
+      readPaged("notes_history", "changed_at"),
+      read("company_rules", "*", "created_at"),
     ]);
 
     // An unfinished interview's plan holds the questions not yet asked; the
@@ -95,6 +100,8 @@ export async function GET() {
       companyResearch: research,
       planEvents: events,
       availability,
+      notesHistory,
+      companyRules,
       providerKeys: { ...keys, note: keys.note ?? "hints only — the keys themselves are encrypted and never exported" },
     };
     const day = payload.exportedAt.slice(0, 10);

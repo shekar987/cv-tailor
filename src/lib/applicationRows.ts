@@ -114,7 +114,13 @@ export function toListRow(row: Record<string, unknown>): Record<string, unknown>
   // The API's spelling, whichever one is stored (lib/tracker API_STATUS).
   if (typeof row.status === "string") out.status = apiStatus(row.status);
   // Only a row that got shortlisted needs it, for the Live section's order: every row's would cost 40 KB.
-  if (typeof row.updated_at === "string" && reachedScreening({ status: row.status, stages_reached: row.stages_reached as string[] | null })) out.updated_at = row.updated_at;
+  // Whole minutes, never the row's updated_at: that is the version a notes replace must send
+  // (lib/notesWrite), and it must come from a read that returned the full notes. A list row
+  // carries only a preview, and a preview sent back with a valid version is the 10 Nov wipe.
+  if (typeof row.updated_at === "string" && reachedScreening({ status: row.status, stages_reached: row.stages_reached as string[] | null })) {
+    const ms = Date.parse(row.updated_at);
+    if (Number.isFinite(ms)) out.updated_minute = Math.floor(ms / 60_000);
+  }
   if (typeof row.job_description === "string" && row.job_description.trim()) out.has_job_description = true;
   for (const [key, value] of Object.entries(notesListFields(row.notes))) {
     if (value !== undefined) out[key] = value;

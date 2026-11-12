@@ -19,7 +19,7 @@ import {
   type AvailabilityWindow, type Funnel, type PlanApplication, type PlanEvent, type PlanItem, type SuggestedSlot,
 } from "@/lib/plan";
 import { addDays, dayKey, formatWhen, mondayOf, monthName, shortDay, weekdayOf } from "@/lib/planTime";
-import { normalizeStatus, removeFollowupClearedNote, type Status } from "@/lib/tracker";
+import { normalizeStatus, type Status } from "@/lib/tracker";
 import EventCard, { type CardActions } from "./EventCard";
 import MoveToClosedDialog, { closeBody, type CloseChoice } from "@/components/MoveToClosedDialog";
 import { UNDO_WINDOW_MS, needsConfirmation, reasonForStatus, type CloseReason } from "@/lib/closing";
@@ -182,7 +182,8 @@ export default function NextPage() {
     const res = await fetch("/api/applications", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) }).catch(() => null);
     const body = res ? await res.json().catch(() => ({})) : {};
     if (!res || !res.ok) {
-      setActionError(body.error || "Could not save that change. Try again.");
+      // A notes write on a version the row has moved on from (lib/notesWrite): nothing landed.
+      setActionError(body.error === "stale_notes" ? "This row's notes changed since, so nothing was saved. Open it on Applications to change it there." : body.error || "Could not save that change. Try again.");
       return null;
     }
     // Closed on the server, whatever this page last read: nothing moved, and the tracker asks.
@@ -227,16 +228,17 @@ export default function NextPage() {
     const previous = normalizeStatus(application.status) ?? "screening";
     const followup = application.followup_date ?? null;
     // Closing a row clears its follow-up and notes that in the row's notes; undo takes both back.
-    const answer: { cleared?: { notes: string | null } } = {};
+    // Undo puts the status and the follow-up back. The notes are left as they are: their
+    // "Follow-up … cleared" line stays as a record, and a notes write here could be refused
+    // (lib/notesWrite) for a line added since and take the whole undo down with it.
     leaveThen(reasonEvents.map((i) => i.event.id), async () => {
       const body = await putApplication(application.id, { status });
-      if (body?.followupCleared) answer.cleared = body.followupCleared as { notes: string | null };
       return !!body;
     }, () => {
       showToast({
         message,
         undo: async () => {
-          const restore = followup ? { followup_date: followup, ...(answer.cleared ? { notes: removeFollowupClearedNote(answer.cleared.notes, followup) } : {}) } : {};
+          const restore = followup ? { followup_date: followup } : {};
           if (await putApplication(application.id, { status: previous, confirmed_reopen: true, confirmed_move_back: true, ...restore })) await refresh();
         },
       });

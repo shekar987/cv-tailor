@@ -11,7 +11,11 @@ export const MAX_CV_CHARS = 20_000;
 export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 export const UPLOAD_TOO_LARGE = "That file is larger than 4MB. Upload a smaller file.";
 export const MAX_COVER_LETTER_CHARS = 10_000;
-export const MAX_NOTES_CHARS = 2_000;
+// Raised from 2,000 on 10 Nov 2026 (Chunk 21): notes are append-only for the sweeps now, and a
+// tailored row started at exactly 2,000 (the Applied notes), so no line could ever be added.
+export const MAX_NOTES_CHARS = 10_000;
+// What /app's Applied button writes into a new row's notes, leaving room for the sweeps' lines.
+export const MAX_APPLIED_NOTES_CHARS = 2_000;
 export const MAX_FEEDBACK_CHARS = 2_000;
 
 // The four document routes take the whole preview in one JSON body. A real

@@ -31,7 +31,9 @@ const b = await newUser("b");
 try {
   const add = async (status, company = "Northwind") => (await (await a.call("/api/applications", { method: "POST", body: json({ company_name: company, role: "Engineer", status, date_applied: "2026-10-20" }) })).json()).id;
   const read = async (id) => (await (await a.call("/api/applications")).json()).applications.find((r) => r.id === id);
-  const put = (id, body) => a.call("/api/applications", { method: "PUT", body: json({ id, ...body }) });
+  // A notes replace carries the version it read (lib/notesWrite, Chunk 21), like the page.
+  const versionOf = async (id) => (await (await a.call(`/api/applications?id=${id}`)).json()).application?.updated_at;
+  const put = async (id, body) => a.call("/api/applications", { method: "PUT", body: json({ id, ...body, ...("notes" in body && !("if_updated_at" in body) ? { if_updated_at: await versionOf(id) } : {}) }) });
   const pendingUrl = (id) => `/api/applications/${id}/pending-outcome`;
   const patchOutcome = async (id, body) => (await a.call(pendingUrl(id), { method: "PATCH", body: json(body) })).json();
   const stored = async (id, columns) => (await (await fetch(`${SB}/rest/v1/applications?id=eq.${id}&select=${columns}`, { headers: admin })).json())[0];
@@ -213,12 +215,12 @@ try {
 
   // Notes too full to take the report's words: nothing is cut, and the user is told.
   const full = await add("Screening", "Full");
-  await put(full, { notes: "x".repeat(1995) });
+  await put(full, { notes: "x".repeat(9995) });
   await put(full, { status: "Rejected", confirmed_by_user: true });
   await patchOutcome(full, { outcome: "reopen", date: "2026-11-05", source: "gmail", status: "interview", note: "Invite for 12 Nov" });
   const fullBody = await (await put(full, { status: "interview", closed_at: null, close_reason: null, confirmed_reopen: true })).json();
   check("full notes: the Reopen saves and says what it left out", /notes are full.*Invite for 12 Nov/.test(fullBody.warning ?? "") && (await read(full)).status === "Interview", json(fullBody).slice(0, 200));
-  check("and never cuts them", (await stored(full, "notes")).notes.length === 1995);
+  check("and never cuts them", (await stored(full, "notes")).notes.length === 9995);
 
   // ── A sweep stepping a live row back asks too ────────────────────────────
   const live = await add("Interview", "Step back");
@@ -297,7 +299,7 @@ try {
     const direct = await fetch(`${SB}/rest/v1/applications?id=eq.${hist}`, { method: "PATCH", headers: { apikey: PUB, Authorization: `Bearer ${a.token}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: json({ stages_reached: [] }) });
     check("a direct write still can't shrink a list", direct.ok && (await read(hist)).stages_reached.includes("interview"), (await read(hist)).stages_reached.join());
     const fullNotes = await add("Interview", "Full notes");
-    await put(fullNotes, { status: "Screening", confirmed_move_back: true, notes: "x".repeat(1990) });
+    await put(fullNotes, { status: "Screening", confirmed_move_back: true, notes: "x".repeat(9990) });
     const tooFull = await remove(fullNotes, { stage: "interview", confirmed_by_user: true });
     check("notes too full for the line: the stage stays", tooFull.status === 409 && (await tooFull.json()).errorType === "notes_full" && (await read(fullNotes)).stages_reached.includes("interview"));
     const snapshotRow = await add("Screening", "Snapshot");

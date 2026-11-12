@@ -36,6 +36,13 @@ import EventForm, { type EventFormMode } from "../app/next/EventForm";
 import { browserTimeZone, copyText, safeHttpUrl } from "../app/next/planUi";
 import { useConfirm } from "@/components/ConfirmDialog";
 import Icon from "@/components/ui/Icon";
+import { DeadlineRadar, DeadlineEditor } from "./DeadlineRadar";
+import NotesHistory from "./NotesHistory";
+import CompanyRulesBlock from "./CompanyRulesBlock";
+import { DUE_WINDOW_HOURS, dueWithin, type DueItem, type DueRow } from "@/lib/deadlines";
+import { STALE_NOTES, draftKeepsNewLines } from "@/lib/notesWrite";
+import { normalizeRule, type CompanyRule } from "@/lib/companyRules";
+import { dayKey } from "@/lib/planTime";
 import { eventMs, feedbackRequest, type AvailabilityWindow, type PlanEvent } from "@/lib/plan";
 import { snoozeUntil } from "@/lib/actionCentre";
 import {
@@ -135,6 +142,14 @@ type Application = {
   lesson?: string | null;
   pending_outcome?: PendingOutcome | null;
   updated_at?: string | null;
+  // The last update in whole minutes, for the Live order (lib/applicationRows): never a
+  // version a notes save could send.
+  updated_minute?: number | null;
+  // Which inbox the application used and what is due next (migration 20261110120000;
+  // lib/deadlines): the red "Due in the next 48 hours" strip. Absent before it.
+  applied_from_email?: string | null;
+  next_deadline?: string | null;
+  deadline_note?: string | null;
 };
 
 // What the Applied button stored: the generated sections plus the profile and
@@ -591,7 +606,9 @@ const EMPTY_LIST_FIELDS = { cv_reference: null, salary: null, followup_date: nul
 // A row's full text from the detail read. undefined = not known yet, which is
 // different from null = none: notes that are not known yet can never be saved
 // back, or the preview would overwrite them.
-type RowText = { job_description?: string | null; notes?: string | null; gates?: unknown };
+// notes_version: the row's updated_at read with those notes. A notes save sends it as
+// if_updated_at (lib/notesWrite), so text this page never saw can't be saved over.
+type RowText = { job_description?: string | null; notes?: string | null; notes_version?: string | null; gates?: unknown };
 
 // The full list (?all=1, the list exactly as it always was); `query` asks for one page instead.
 async function fetchApplications(query = "?all=1"): Promise<{ rows: Application[] } | { error: string; expired?: boolean }> {
@@ -654,7 +671,7 @@ export default function ApplicationsPage() {
   const [tab, setTab] = useState<TabChoice | null>(null);
   // An attention card filtering across the tabs.
   // "reopen" is the notice's filter (any row a sweep's question is waiting on), not one of the strip's cards.
-  const [attention, setAttention] = useState<AttentionFilter | "reopen" | null>(null);
+  const [attention, setAttention] = useState<AttentionFilter | "reopen" | "radar" | null>(null);
   // The open events behind the stages and the Next step column (/api/actions).
   const [events, setEvents] = useState<PlanEvent[]>([]);
   const [windows, setWindows] = useState<AvailabilityWindow[]>([]);
@@ -725,7 +742,16 @@ export default function ApplicationsPage() {
   const [jdEditing, setJdEditing] = useState(false);
   // Set only once the user types, so the box otherwise shows the full notes the
   // moment they arrive, whichever row is open by then.
-  const [notesDraft, setNotesDraft] = useState<{ id: string; text: string } | null>(null);
+  // base and version: the notes and their version the draft began from (lib/notesWrite).
+  const [notesDraft, setNotesDraft] = useState<{ id: string; text: string; base: string; version: string | null } | null>(null);
+  // A save refused because the notes changed elsewhere: what they say now, and its version.
+  const [notesConflict, setNotesConflict] = useState<{ id: string; latest: string; version: string | null } | null>(null);
+  // The company rules (lib/companyRules), read when a Notes panel first opens.
+  const [companyRules, setCompanyRules] = useState<CompanyRule[] | null>(null);
+  const [rulesNeedMigration, setRulesNeedMigration] = useState(false);
+  const rulesLoading = useRef(false);
+  const ruleNote = useRef<string | null>(null);
+  const [radarBusy, setRadarBusy] = useState<string | null>(null);
   const [rowText, setRowText] = useState<Record<string, RowText>>({});
   const [textLoading, setTextLoading] = useState<Record<string, boolean>>({});
   const textLoadingRef = useRef<Record<string, boolean>>({});
@@ -964,6 +990,9 @@ export default function ApplicationsPage() {
   }, [tab, fullLoaded, serverCounts, loaded, byApp]);
   const referral = useMemo(() => referralCard(rows), [rows]);
   const referralIds = useMemo(() => new Set(referralAsks(rows).map((r) => r.id)), [rows]);
+  // Due in the next 48 hours (lib/deadlines): the red strip, the same list as GET ?due=48h.
+  const radar = useMemo(() => dueWithin(rows as unknown as DueRow[], clock, DUE_WINDOW_HOURS, tz, events), [rows, clock, tz, events]);
+  const radarIds = useMemo(() => new Set(radar.map((d) => d.id)), [radar]);
   const tabNow: TabChoice = tab ?? defaultTab(counts);
   useEffect(() => {
     // Pins the default once, when the rows and events are known.
@@ -980,6 +1009,7 @@ export default function ApplicationsPage() {
       if (attention === "referrals") return referralIds.has(r.id);
       if (attention === "cold") return coldEmailNeedsFollowup(r);
       if (attention === "reopen") return isAsking(r);
+      if (attention === "radar") return radarIds.has(r.id);
       if (searchTerm) return true;
       if (tabNow === "all") return true;
       if (tabOfStage(deriveStage(r.status, byApp.get(r.id))) === tabNow) return true;
@@ -1037,7 +1067,7 @@ export default function ApplicationsPage() {
     });
     // A reply owed outranks any sort: those rows come first, in sort order.
     return replyOwedFirst(sorted, now);
-  }, [rows, tabNow, attention, listSort, byApp, referralIds, clock, tz, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, searchTerm, now, includePast, sheetMode]);
+  }, [rows, tabNow, attention, listSort, byApp, referralIds, radarIds, clock, tz, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, searchTerm, now, includePast, sheetMode]);
 
   // Only PAGE_SIZE rows are painted at a time; search, filters, counts and the
   // export cover the whole set. A different filter/sort state starts at page 1.
@@ -1148,12 +1178,15 @@ export default function ApplicationsPage() {
       const notes = data.reportNotes;
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...notesListFields(notes) } : r)));
       rememberText(id, { notes });
-      setNotesDraft((d) => (d?.id === id ? { id, text: `${d.text}\n${notes.split("\n").at(-1)}` } : d));
+      setNotesDraft((d) => (d?.id === id ? { ...d, text: `${d.text}\n${notes.split("\n").at(-1)}` } : d));
     }
+    // The version that goes with notes the server just wrote (lib/notesWrite).
+    const version = typeof data.updated_at === "string" ? { notes_version: data.updated_at } : {};
+    if (typeof data.reportNotes === "string") rememberText(id, version);
     const cleared = data.followupCleared as { followup_date: null; notes: string | null } | undefined;
     if (cleared) {
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, followup_date: null, ...notesListFields(cleared.notes) } : r)));
-      rememberText(id, { notes: cleared.notes });
+      rememberText(id, { notes: cleared.notes, ...version });
       showFlash("Follow-up cleared — the date is kept in the notes.");
     }
     // A JD edit re-triaged the row on the server (gates.triage); mirror it. With
@@ -1161,9 +1194,53 @@ export default function ApplicationsPage() {
     // describes this JD, and the panel reads the new text live instead.
     if ("gates" in data) setRows((rs) => rs.map((r) => (r.id === id ? { ...r, gates: data.gates, ...listTriageFields(data.gates) } : r)));
     if ("job_description" in body) rememberText(id, { job_description: body.job_description as string | null, gates: data.gates });
-    if ("notes" in body) rememberText(id, { notes: body.notes as string | null });
+    if ("notes" in body) rememberText(id, { notes: body.notes as string | null, ...version });
+    // An append_note: the notes as the database now holds them, on top of any open draft.
+    if (typeof data.notes === "string") {
+      const notes = data.notes;
+      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...notesListFields(notes) } : r)));
+      rememberText(id, { notes, notes_version: typeof data.updated_at === "string" ? data.updated_at : undefined });
+      setNotesDraft((d) => (d?.id === id ? { ...d, text: `${notes.split("\n")[0]}\n${d.text}` } : d));
+      if (typeof data.updated_at !== "string" && panel?.id === id && panel.kind === "notes") void loadRowText(id);
+    }
+    // Text this write added said when to apply again: it is a company rule now.
+    if (Array.isArray(data.companyRules) && data.companyRules.length > 0) {
+      ruleNote.current = `Reapply rule saved for ${previous.company_name}. JD triage now checks it before any credit.`;
+      void loadCompanyRules(true);
+    }
     flashRow(id);
     return null;
+  }
+
+  async function loadCompanyRules(force = false) {
+    if (rulesLoading.current || (!force && companyRules !== null)) return;
+    rulesLoading.current = true;
+    try {
+      const res = await fetch("/api/company-rules");
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setRulesNeedMigration(data.needsMigration === true);
+        setCompanyRules(Array.isArray(data.rules) ? (data.rules as unknown[]).map(normalizeRule).filter((r): r is CompanyRule => r !== null) : []);
+      }
+    } catch {
+      // The block stays hidden; triage on /app reads the rules itself.
+    } finally {
+      rulesLoading.current = false;
+    }
+  }
+
+  // The notes and their version, read fresh (after a 409).
+  async function readNotes(id: string): Promise<{ notes: string; version: string | null } | null> {
+    const { ok, status, data } = await api("GET", undefined, `?id=${encodeURIComponent(id)}`);
+    if (!ok) {
+      if (status === 401) setSessionExpired(true);
+      return null;
+    }
+    const app = data.application as { notes?: string | null; updated_at?: string | null } | undefined;
+    const fresh = { notes: app?.notes ?? "", version: app?.updated_at ?? null };
+    rememberText(id, { notes: app?.notes ?? null, notes_version: fresh.version });
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...notesListFields(app?.notes ?? null) } : r)));
+    return fresh;
   }
 
   // Moves every row the "not submitted" review listed to Ready to submit,
@@ -1349,7 +1426,7 @@ export default function ApplicationsPage() {
     const notes = typeof data.notes === "string" ? data.notes : null;
     setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, stages_reached: data.stages_reached, ...notesListFields(notes) } : r)));
     rememberText(row.id, { notes });
-    setNotesDraft((d) => (d?.id === row.id ? { id: row.id, text: `${notes?.split("\n")[0] ?? note}\n${d.text}` } : d));
+    setNotesDraft((d) => (d?.id === row.id ? { ...d, text: `${notes?.split("\n")[0] ?? note}\n${d.text}` } : d));
     setActionError("");
     showFlash(`${STATUS_LABELS[stage]} removed from ${row.company_name}. Its notes say so.`);
     setStageRefresh((n) => n + 1);
@@ -1420,7 +1497,10 @@ export default function ApplicationsPage() {
     }
     if (kind === "notes") {
       setNotesDraft(null);
-      if (row.notes_more && rowText[row.id]?.notes === undefined) void loadRowText(row.id);
+      setNotesConflict(null);
+      // Every row's notes are read with their version before they can be edited.
+      if (rowText[row.id]?.notes_version === undefined) void loadRowText(row.id);
+      void loadCompanyRules();
     }
     if (kind === "cv" && !(row.id in cvCache) && !cvLoadingRef.current[row.id]) void loadCv(row.id);
   }
@@ -1447,16 +1527,10 @@ export default function ApplicationsPage() {
       setTextErrors((e) => ({ ...e, [id]: status === 401 ? SESSION_EXPIRED : data.error || "Could not load this application." }));
       return;
     }
-    const app = data.application as { job_description?: string | null; notes?: string | null; tailored_cv?: { gates?: unknown } | null } | undefined;
-    rememberText(id, { job_description: app?.job_description ?? null, notes: app?.notes ?? null, gates: app?.tailored_cv?.gates });
+    const app = data.application as { job_description?: string | null; notes?: string | null; updated_at?: string | null; tailored_cv?: { gates?: unknown } | null } | undefined;
+    rememberText(id, { job_description: app?.job_description ?? null, notes: app?.notes ?? null, notes_version: app?.updated_at ?? null, gates: app?.tailored_cv?.gates });
   }
 
-  // The notes as saved, or null while they are not known: only a preview is
-  // on hand, and saving that would cut them short.
-  function fullNotes(row: Application): string | null {
-    if (!row.notes_more) return row.notes_preview ?? "";
-    return rowText[row.id]?.notes ?? null;
-  }
 
   async function loadCv(id: string) {
     cvLoadingRef.current = { ...cvLoadingRef.current, [id]: true };
@@ -1522,28 +1596,117 @@ export default function ApplicationsPage() {
     showFlash("Saved.");
   }
 
-  async function saveNotes(row: Application) {
-    const saved = fullNotes(row);
-    // Nothing typed and the full text not loaded: there is nothing safe to send.
-    if (saved === null) return;
-    const notes = (notesDraft?.id === row.id ? notesDraft.text : saved).trim();
+  // Saves a draft of the notes on the version it began from (lib/notesWrite). Refused with a
+  // 409 when the row changed since: read again, and save once more on its own only when the
+  // draft already holds every line the row gained (a status change, a line this page added).
+  // Anything else, a sweep's line the user never saw, is shown beside the draft to decide.
+  async function saveNotesDraft(row: Application, draft: { text: string; base: string; version: string | null }, opts: { over?: string | null } = {}) {
+    const notes = draft.text.trim();
     if (notes.length > MAX_NOTES) {
       setPanelError(`Notes are too long (max ${MAX_NOTES} characters).`);
-      return;
+      return false;
     }
     setPanelBusy(true);
     setPanelError("");
-    const message = await patchRow(row.id, notesListFields(notes), { notes: notes || null });
+    const put = (version: string | null) => patchRow(row.id, notesListFields(notes), { notes: notes || null, if_updated_at: version });
+    let message = await put(opts.over !== undefined ? opts.over : draft.version);
+    if (message === STALE_NOTES) {
+      const latest = await readNotes(row.id);
+      if (latest && opts.over === undefined && draftKeepsNewLines(draft.base, latest.notes, notes)) message = await put(latest.version);
+      else {
+        setPanelBusy(false);
+        if (!latest) setPanelError("These notes changed since you opened them, and they could not be read again. Nothing was saved; try again.");
+        else setNotesConflict({ id: row.id, latest: latest.notes, version: latest.version });
+        return false;
+      }
+    }
     setPanelBusy(false);
     if (message) {
-      setPanelError(message);
-      return;
+      setPanelError(message === STALE_NOTES ? "These notes changed again while saving. Nothing was saved; try again." : message);
+      return false;
     }
-    setPanel(null);
+    setNotesConflict(null);
+    setNotesDraft(null);
     setStageRefresh((n) => n + 1);
     // A confirmation in the notes closes the row's open submission items (lib/autoClose).
-    showFlash(autoCloseNote.current ?? "Saved.");
+    showFlash(autoCloseNote.current ?? ruleNote.current ?? "Saved.");
     autoCloseNote.current = null;
+    ruleNote.current = null;
+    return true;
+  }
+
+  async function saveNotes(row: Application) {
+    const draft = notesDraft?.id === row.id ? notesDraft : null;
+    // Nothing typed: nothing to save.
+    if (!draft) {
+      setPanel(null);
+      return;
+    }
+    if (await saveNotesDraft(row, draft)) setPanel(null);
+  }
+
+  // "Save mine over them": the user has seen the notes as saved now and keeps their draft.
+  // What it replaces is kept under Restore previous notes.
+  async function saveNotesOver(row: Application) {
+    const draft = notesDraft?.id === row.id ? notesDraft : null;
+    if (!draft || notesConflict?.id !== row.id) return;
+    if (await saveNotesDraft(row, { ...draft, base: notesConflict.latest }, { over: notesConflict.version })) setPanel(null);
+  }
+
+  // "Restore previous notes": an earlier version, saved on the current one.
+  async function restoreNotes(row: Application, text: string, label: string) {
+    const current = rowText[row.id];
+    if (current?.notes_version === undefined) return;
+    const unsaved = notesDraft?.id === row.id && notesDraft.text.trim() !== notesDraft.base.trim();
+    const yes = await confirm({
+      title: `Restore the notes from before ${label}?`,
+      message: `${unsaved ? "Your unsaved changes in the box will be replaced too. " : ""}The notes as they are now are kept under Restore previous notes, so this can be undone the same way.`,
+      confirmLabel: "Restore",
+    });
+    if (!yes) return;
+    const draft = { text, base: current.notes ?? "", version: current.notes_version };
+    setNotesDraft({ id: row.id, ...draft });
+    if (await saveNotesDraft(row, draft)) showFlash(`Notes restored from before ${label}.`);
+  }
+
+  // The radar's Open: the row, in a view that holds it, with the panel that sets its date.
+  function openDue(item: DueItem) {
+    const row = rowsRef.current.find((r) => r.id === item.id);
+    if (!row) return;
+    setWins(false);
+    setSpreadsheet(false);
+    setQuery("");
+    setPeriodFilter("all");
+    setStyleFilter("all");
+    setAttention("radar");
+    const kind: PanelKind = item.kind === "deadline" ? "edit" : "notes";
+    if (!(panel?.id === row.id && panel.kind === kind)) togglePanel(row, kind);
+  }
+
+  // The radar's Done: a deadline is cleared and a line in the notes says it was done; an event
+  // of the plan is marked done, as on its own menu. Full notes never stop the clearing.
+  async function doneDue(item: DueItem) {
+    const key = `${item.id}:${item.kind}`;
+    if (item.kind === "event") {
+      const event = events.find((e) => e.id === item.event_id);
+      if (event) await markStepDone(event);
+      return;
+    }
+    setRadarBusy(key);
+    const line = `Done: ${item.action} (was due ${item.when.split(" · ")[0]})`.slice(0, 480);
+    let message = await patchRow(item.id, { next_deadline: null }, { next_deadline: null, append_note: line });
+    let noted = true;
+    if (message && /notes are full/i.test(message)) {
+      message = await patchRow(item.id, { next_deadline: null }, { next_deadline: null });
+      noted = false;
+    }
+    setRadarBusy(null);
+    if (message) {
+      setActionError(message);
+      return;
+    }
+    setActionError("");
+    showFlash(noted ? `Done: ${item.company_name}. The deadline is cleared and the notes say so.` : `Done: ${item.company_name}. The deadline is cleared; the notes are full, so no line was added.`);
   }
 
   // "They wrote" / "I replied": who spoke last, now (lib/tracker isReplyOwed).
@@ -1761,6 +1924,16 @@ export default function ApplicationsPage() {
             </div>
           )}
           <div><span className="label">Eligibility read</span><span className="cvHelp" data-gate={gate.label}>{gate.detail || gate.label}</span></div>
+          {/* Keyed by the deadline too, so a Done elsewhere is never saved back from stale fields. */}
+          <DeadlineEditor
+            key={`${row.id}:${row.next_deadline ?? ""}`}
+            row={row}
+            onSave={async (patch) => {
+              const message = await patchRow(row.id, patch, patch);
+              if (!message) showFlash(patch.next_deadline ? `Deadline saved for ${row.company_name}.` : `Saved for ${row.company_name}.`);
+              return message;
+            }}
+          />
           {row.status === "rejected" && (
             <div className="rowEditWide">
               <label className="label" htmlFor={`reason-${row.id}`}>Rejection reason</label>
@@ -2217,8 +2390,12 @@ export default function ApplicationsPage() {
       );
     }
 
-    const savedNotes = fullNotes(row);
+    // The notes with the version they were read at: locked until both are here, so a save
+    // always says which version it replaces and a preview is never saved back.
+    const known = rowText[row.id];
+    const savedNotes = known?.notes_version !== undefined && known.notes !== undefined ? (known.notes ?? "") : null;
     const notesValue = notesDraft?.id === row.id ? notesDraft.text : (savedNotes ?? "");
+    const conflict = notesConflict?.id === row.id ? notesConflict : null;
     return (
       <div className="appsPanel">
         <div className="appsPanelHead">
@@ -2228,7 +2405,11 @@ export default function ApplicationsPage() {
         {/* Locked until the full notes are here: the row only holds a preview. */}
         <Textarea
           value={notesValue}
-          onChange={(e) => setNotesDraft({ id: row.id, text: e.target.value })}
+          onChange={(e) => {
+            if (savedNotes === null) return;
+            const text = e.target.value;
+            setNotesDraft((d) => (d?.id === row.id ? { ...d, text } : { id: row.id, text, base: savedNotes, version: known?.notes_version ?? null }));
+          }}
           placeholder={savedNotes !== null ? "Recruiter name, referral, what you emphasised, next steps…" : textErrors[row.id] ? "" : "Loading your notes…"}
           rows={4}
           disabled={panelBusy || savedNotes === null}
@@ -2244,13 +2425,37 @@ export default function ApplicationsPage() {
             <Button variant="secondary" onClick={() => void loadRowText(row.id)}>Try again</Button>
           </div>
         )}
+        {conflict && (
+          <div className="limitNotice notesConflict" role="alert" data-notes-conflict>
+            <p>These notes changed since you opened them, so nothing was saved. Your text is still in the box. The notes as saved now:</p>
+            <pre className="notesHistory__text">{conflict.latest || "(empty)"}</pre>
+            <div className="actions">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setNotesDraft({ id: row.id, text: conflict.latest, base: conflict.latest, version: conflict.version });
+                  setNotesConflict(null);
+                }}
+                disabled={panelBusy}
+                data-notes-use-latest
+              >
+                Use the saved notes
+              </Button>
+              <Button variant="ghost" onClick={() => void saveNotesOver(row)} disabled={panelBusy} data-notes-save-over>
+                Save mine over them
+              </Button>
+            </div>
+            <p className="cvHelp">Saving yours over them keeps the notes as saved now under Restore previous notes.</p>
+          </div>
+        )}
         <div className="actions">
-          <Button variant="secondary" onClick={() => saveNotes(row)} disabled={panelBusy || savedNotes === null}>
+          <Button variant="secondary" onClick={() => saveNotes(row)} disabled={panelBusy || savedNotes === null || !!conflict}>
             {panelBusy ? "Saving…" : "Save"}
           </Button>
           <Button variant="ghost" onClick={() => setPanel(null)} disabled={panelBusy}>Cancel</Button>
           {panelError && <StatusText as="span" role="alert">{panelError}</StatusText>}
         </div>
+        <NotesHistory applicationId={row.id} disabled={panelBusy || savedNotes === null} onRestore={(text, label) => void restoreNotes(row, text, label)} />
         {/* Who spoke last: "them" a day ago or more marks the row Reply owed. */}
         <div className="appsContact" data-last-contact={row.last_contact_from ?? "none"}>
           <span className="appsContact__state">
@@ -2266,6 +2471,20 @@ export default function ApplicationsPage() {
             I replied
           </button>
         </div>
+        <CompanyRulesBlock
+          applicationId={row.id}
+          company={row.company_name}
+          role={row.role}
+          notes={savedNotes}
+          rules={companyRules}
+          needsMigration={rulesNeedMigration}
+          rows={rows}
+          today={dayKey(clock, tz)}
+          onSaved={(rule) => {
+            setCompanyRules((all) => [rule, ...(all ?? []).filter((r) => r.id !== rule.id)]);
+            showFlash(rule.dismissed_at ? "Rule switched off." : `Reapply rule saved for ${rule.company_name}. JD triage checks it before any credit.`);
+          }}
+        />
         <ReferralEditor key={row.id} row={row} onSave={(fields) => saveReferral(row, fields)} />
       </div>
     );
@@ -2310,8 +2529,8 @@ export default function ApplicationsPage() {
   // The page's own filters reach the Closed section too; the summary above stays all time.
   const closedHere = stageTabNow ? closedRows(rows.filter((r) => (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) && (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to))), stageTabNow) : [];
   const noFilters = periodFilter === "all" && styleFilter === "all";
-  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due this week" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : attention === "cold" ? "cold emails missing a follow-up date" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
-  const viewTotal = !attention && searchTerm ? rows.length : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : attention === "cold" ? coldNoFollowup : tabNow === "all" ? rows.length : counts[tabNow];
+  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "radar" ? `due in the next ${DUE_WINDOW_HOURS} hours` : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due this week" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : attention === "cold" ? "cold emails missing a follow-up date" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
+  const viewTotal = !attention && searchTerm ? rows.length : attention === "radar" ? radarIds.size : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : attention === "cold" ? coldNoFollowup : tabNow === "all" ? rows.length : counts[tabNow];
   const elsewhere = !attention && !searchTerm && tabNow !== "all" && tabNow !== "assessment" ? countedElsewhere(rows, byApp, tabNow) : 0;
   const activeFilters = (styleFilter !== "all" ? 1 : 0) + (includePast ? 1 : 0) + (listSort !== "next" ? 1 : 0);
 
@@ -2349,6 +2568,10 @@ export default function ApplicationsPage() {
             )}
           </p>
         )}
+        {/* The strip counts what is due across every row, so like the attention cards it waits for
+            the full list: a count from the first page alone would understate it. */}
+        <DeadlineRadar items={fullLoaded ? radar : []} hours={DUE_WINDOW_HOURS} busyKey={radarBusy} onOpen={openDue} onDone={(item) => void doneDue(item)} />
+
         {notice && (
           <div className="limitNotice" role="status">
             {notice}{" "}
@@ -2372,7 +2595,7 @@ export default function ApplicationsPage() {
             loading={!fullLoaded}
             dueLabel={`Due by ${tomorrowName} night`}
             referral={referral}
-            active={attention === "reopen" ? null : attention}
+            active={attention === "reopen" || attention === "radar" ? null : attention}
             onFilter={(next) => {
               setAttention((current) => (current === next ? null : next));
               setPanel(null);

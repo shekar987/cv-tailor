@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import { cameFromPage } from "../src/lib/pageOnly.ts";
+import { MAX_NOTES_CHARS } from "../src/lib/limits.ts";
 import assert from "node:assert/strict";
 import {
   CONFIRMATION_MESSAGE,
@@ -201,7 +202,7 @@ test("the report's words reach the banner, and the row only if the user reopens 
   assert.equal(fieldsOf(decideClosingWrite(stored, { status: "interview" }, reopenWord, NOW))?.notes, "Mine\nInvite for 12 Nov", "the row takes it on the user's word");
   assert.equal(fieldsOf(decideClosingWrite({ ...closedRow, pending_outcome: { ...ask, dismissed: true } }, { status: "interview" }, reopenWord, NOW))?.notes, undefined, "not after they said it isn't about this row");
   assert.equal(fieldsOf(decideClosingWrite(stored, { status: "interview", notes: "Theirs" }, reopenWord, NOW))?.notes, "Theirs", "what the user writes wins");
-  assert.equal(fieldsOf(decideClosingWrite({ ...stored, notes: "x".repeat(1990) }, { status: "interview" }, reopenWord, NOW))?.notes, undefined, "past the cap it never truncates their notes");
+  assert.equal(fieldsOf(decideClosingWrite({ ...stored, notes: "x".repeat(MAX_NOTES_CHARS - 10) }, { status: "interview" }, reopenWord, NOW))?.notes, undefined, "past the cap it never truncates their notes");
   assert.equal(mergePendingOutcome(ask, { outcome: "reopen", date: "2026-11-06", source: "sweep", status: "interview" }).value.note, "Invite for 12 Nov", "a repeat keeps the words");
   const lower = mergePendingOutcome(ask, { outcome: "reopen", date: "2026-11-06", source: "sweep", status: "applied" }).value;
   assert.equal(lower.status, "interview", "and a later, lower report doesn't overwrite a higher question");

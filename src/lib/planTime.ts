@@ -118,6 +118,12 @@ export function shortDay(key: string): string {
   return `${WEEKDAYS_SHORT[weekdayOf(key) - 1]} ${+m[3]} ${MONTHS_SHORT[+m[2] - 1]}`;
 }
 
+/** "5 Jul 2027": a day with its year, for a date the reader may be months away from. */
+export function dayMonthYear(key: string): string {
+  const m = DATE_RE.exec(key);
+  return m ? `${+m[3]} ${MONTHS_SHORT[+m[2] - 1]} ${m[1]}` : key;
+}
+
 /** "Wednesday 4 November". */
 export function longDay(key: string): string {
   const m = DATE_RE.exec(key);

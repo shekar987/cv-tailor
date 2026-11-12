@@ -1,8 +1,13 @@
 // The tracker API as the owner's sweeps use it, on the real database, whichever
 // spelling a row is stored in: GET /api/applications, POST /api/applications, partial
-// PUT with { id, status, notes, job_description }, and POST /api/applications/cv with
+// PUT with { id, status, append_note, job_description }, and POST /api/applications/cv with
 // { id, file }. They read and write these exact strings, and migration 20261103130000
 // must not change what they see. One throwaway user, removed at the end; no model call.
+//
+// Since 10 Nov 2026 (Chunk 21, lib/notesWrite) a sweep adds to the notes with append_note
+// and never sends them whole: a plain `notes` replace without if_updated_at (the row's
+// updated_at from a fresh GET ?id=) is a 409 { error: "stale_notes" } and nothing in that
+// write lands, the status included.
 //
 //   npm run build && npx next start -p 3100
 //   node scripts/smoke-sweep-contract.mjs      (reads .env.local; SMOKE_BASE to override)
@@ -49,7 +54,7 @@ try {
   // One fresh row each: an ended row no longer moves on a sweep's word (below).
   for (const status of SWEEP_STATUSES) {
     const id = (await (await call("/api/applications", { method: "POST", body: json({ company_name: `Sweep move ${status}`, role: "Engineer", date_applied: "2026-10-20" }) })).json()).id;
-    const res = await call("/api/applications", { method: "PUT", body: json({ id, status, notes: `Moved to ${status}`, job_description: `JD while ${status}` }) });
+    const res = await call("/api/applications", { method: "PUT", body: json({ id, status, append_note: `Moved to ${status}`, job_description: `JD while ${status}` }) });
     const row = await detail(id);
     check(`PUT to "${status}" reads back exactly`, res.status === 200 && row.status === status && row.job_description === `JD while ${status}` && (row.notes ?? "").includes(`Moved to ${status}`), `${res.status} ${row.status}`);
     const listed = (await list()).find((r) => r.id === id);
@@ -58,8 +63,18 @@ try {
   const id = ids.Applied;
   const statusOnly = await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening" }) });
   check("a PUT of status alone works", statusOnly.status === 200 && (await detail(id)).status === "Screening");
-  const notesOnly = await call("/api/applications", { method: "PUT", body: json({ id, notes: "Only notes" }) });
-  check("a PUT of notes alone leaves the status", notesOnly.status === 200 && (await detail(id)).status === "Screening");
+  const notesOnly = await call("/api/applications", { method: "PUT", body: json({ id, append_note: "Only notes" }) });
+  check("a PUT of append_note alone leaves the status", notesOnly.status === 200 && (await detail(id)).status === "Screening");
+  // The old way, the whole notes with no version, is refused, and takes the status down with it.
+  const blind = await call("/api/applications", { method: "PUT", body: json({ id, status: "Interview", notes: "New line\nOld notes from a preview" }) });
+  const blindBody = await blind.json();
+  check("a notes replace without if_updated_at is a 409 stale_notes", blind.status === 409 && blindBody.error === "stale_notes", `${blind.status} ${json(blindBody).slice(0, 120)}`);
+  const afterBlind = await detail(id);
+  check("and nothing in it landed", afterBlind.status === "Screening" && (afterBlind.notes ?? "").includes("Only notes"), afterBlind.status);
+  const versioned = await call("/api/applications", { method: "PUT", body: json({ id, notes: `${afterBlind.notes}\nEdited by hand`, if_updated_at: afterBlind.updated_at }) });
+  check("a replace with the version just read lands", versioned.status === 200 && (await detail(id)).notes.endsWith("Edited by hand"), String(versioned.status));
+  const stale = await call("/api/applications", { method: "PUT", body: json({ id, notes: "Stale copy", if_updated_at: afterBlind.updated_at }) });
+  check("the same version again is stale", stale.status === 409 && (await detail(id)).notes.endsWith("Edited by hand"), String(stale.status));
   check("an unknown status is still refused", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Pending" }) })).status === 400);
 
   // A row that reached screening ends only on the user's word (lib/closing).
@@ -69,8 +84,8 @@ try {
     check(`a screened row refuses "${status}" without the user`, refused.status === 409 && body.error === "Needs the user's confirmation; set pending_outcome instead.", `${refused.status} ${json(body).slice(0, 120)}`);
     check("and stays where it was", (await detail(id)).status === "Screening");
   }
-  const refusedWithNotes = await call("/api/applications", { method: "PUT", body: json({ id, status: "Rejected", notes: "Rejection email", job_description: "Should not land" }) });
-  check("a refused write changes nothing else either", refusedWithNotes.status === 409 && (await detail(id)).notes !== "Rejection email");
+  const refusedWithNotes = await call("/api/applications", { method: "PUT", body: json({ id, status: "Rejected", append_note: "Rejection email", job_description: "Should not land" }) });
+  check("a refused write changes nothing else either", refusedWithNotes.status === 409 && !(await detail(id)).notes.includes("Rejection email"));
   // Moving it below screening needs the user too; the history keeps the proof regardless.
   for (const status of ["Applied", "Ready to submit"]) {
     const back = await call("/api/applications", { method: "PUT", body: json({ id, status }) });
@@ -79,12 +94,14 @@ try {
   const stillThere = (await list()).find((r) => r.id === id);
   check("its stage history is untouched", stillThere.status === "Screening" && stillThere.stages_reached.includes("screening"), JSON.stringify(stillThere.stages_reached));
   check("so ending it still needs the user", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Rejected" }) })).status === 409);
-  check("a notes write that doesn't move it still lands", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening", notes: "Sweep note" }) })).status === 200 && (await detail(id)).notes === "Sweep note");
+  check("a notes write that doesn't move it still lands", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening", append_note: "Sweep note" }) })).status === 200 && /^\d{1,2} \w{3} \d{4} \d{2}:\d{2} Sweep note\n/.test((await detail(id)).notes));
+  const notesBeforeStep = (await detail(id)).notes;
   check("a move forward still needs nothing", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Interview" }) })).status === 200);
-  const stepBack = await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening", notes: "Sweep wrote this" }) });
+  const stepBack = await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening", append_note: "Sweep wrote this" }) });
+  const stepBackBody = await stepBack.json();
   const stepBackRow = await detail(id);
-  check("a step back on a live row answers 202 and asks", stepBack.status === 202 && (await stepBack.json()).pending_outcome?.outcome === "move_back", String(stepBack.status));
-  check("and moves nothing, notes included", stepBackRow.status === "Interview" && stepBackRow.notes === "Sweep note", `${stepBackRow.status} / ${stepBackRow.notes}`);
+  check("a step back on a live row answers 202 and asks, quoting the line", stepBack.status === 202 && stepBackBody.pending_outcome?.outcome === "move_back" && stepBackBody.pending_outcome?.note === "Sweep wrote this", `${stepBack.status} ${json(stepBackBody.pending_outcome)}`);
+  check("and moves nothing, notes included", stepBackRow.status === "Interview" && stepBackRow.notes === notesBeforeStep, `${stepBackRow.status} / ${stepBackRow.notes}`);
   check("the user's word moves it", (await call("/api/applications", { method: "PUT", body: json({ id, status: "Screening", confirmed_move_back: true }) })).status === 200 && (await detail(id)).status === "Screening");
 
   // Closing a row that never reached screening words its note as before.
@@ -95,7 +112,7 @@ try {
 
   // An open status on an ended row asks instead: the sweep's match may be the wrong row.
   const notesBefore = (await detail(plainId)).notes;
-  const asked = await call("/api/applications", { method: "PUT", body: json({ id: plainId, status: "Screening", notes: "Sweep wrote this" }) });
+  const asked = await call("/api/applications", { method: "PUT", body: json({ id: plainId, status: "Screening", append_note: "Sweep wrote this" }) });
   const askedRow = await detail(plainId);
   check("an open status on an ended row answers 202", asked.status === 202 && (await asked.json()).pending_outcome?.outcome === "reopen", String(asked.status));
   check("and moves nothing", askedRow.status === "Rejected" && askedRow.notes === notesBefore, askedRow.status);

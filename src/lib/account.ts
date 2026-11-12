@@ -7,13 +7,16 @@ export const DELETE_CONFIRM_PHRASE = "delete my account";
  * route can stream it: with every tailored CV snapshot it passes Vercel's 4.5 MB
  * limit on a buffered response (4.35 MB for the tracker alone on 1,016 rows).
  */
+const STREAMED_KEYS = new Set(["applications", "notesHistory"]);
+
 export function* accountExportChunks(payload: Record<string, unknown>): Generator<string> {
   yield "{\n";
   const keys = Object.keys(payload);
   for (const [i, key] of keys.entries()) {
     const value = payload[key] as { rows?: unknown } | undefined;
     const tail = i < keys.length - 1 ? ",\n" : "\n";
-    if (key === "applications" && Array.isArray(value?.rows)) {
+    // The tables that grow with use go out a row at a time (the tracker, every notes version).
+    if (STREAMED_KEYS.has(key) && Array.isArray(value?.rows)) {
       const { rows, ...rest } = value as { rows: unknown[] };
       yield `${JSON.stringify(key)}: {`;
       for (const [k, v] of Object.entries(rest)) yield `${JSON.stringify(k)}: ${JSON.stringify(v)}, `;

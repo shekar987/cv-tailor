@@ -9,6 +9,8 @@
 import { TRIAGE_LABELS, TRIAGE_RULE_LABELS, type JdTriage } from "../lib/triage/jdTriage.ts";
 
 const APPLY_NOTE = "Nothing in the posting is out of your criteria (years, clearance, right to work, contract, languages).";
+// A company's own rule or the user's tracker (lib/companyRules) is not the posting speaking.
+const COMPANY_RULES = new Set(["company_cooldown", "company_closed", "same_role", "same_role_before"]);
 
 export default function TriageBadge({ triage }: { triage: JdTriage | null }) {
   if (!triage) return null;
@@ -22,7 +24,7 @@ export default function TriageBadge({ triage }: { triage: JdTriage | null }) {
       </p>
       {hits.length > 0 && (
         <details className="triage__where" open>
-          <summary>Where the posting says so</summary>
+          <summary>{hits.some((h) => COMPANY_RULES.has(h.rule)) ? "Where each reason comes from" : "Where the posting says so"}</summary>
           <ul>
             {hits.map((h, i) => (
               <li key={i} data-triage-rule={h.rule} data-triage-level={h.level}>

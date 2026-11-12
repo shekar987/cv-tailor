@@ -77,27 +77,33 @@ try {
     for (const name of ["the note append", "auto-close", "snooze", "the new kinds"]) skipped(name);
   } else {
     // ── The note append ────────────────────────────────────────────────────
-    const stamp = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" }).format(new Date());
-    check("the note is dated", probe.status === 200 && probe.body.notes === `${stamp}: First line`, JSON.stringify(probe.body));
+    // lib/notesWrite stampNoteLine: "10 Nov 2026 16:22 First line", London time.
+    const STAMP = String.raw`\d{1,2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}`;
+    check("the note is dated", probe.status === 200 && new RegExp(`^${STAMP} First line$`).test(probe.body.notes), JSON.stringify(probe.body));
     const second = await a.json("/api/applications", "PATCH", { id: live, append_note: "  Second   line " });
-    check("the next goes on top and the first stays", second.body.notes === `${stamp}: Second line\n${stamp}: First line`, JSON.stringify(second.body.notes));
+    check("the next goes on top and the first stays", new RegExp(`^${STAMP} Second line\\n${STAMP} First line$`).test(second.body.notes), JSON.stringify(second.body.notes));
     check("the detail read agrees", (await a.json(`/api/applications?id=${live}`)).body.application?.notes === second.body.notes);
     check("empty is refused", (await a.json("/api/applications", "PATCH", { id: live, append_note: "   " })).status === 400);
     check("a non-string is refused", (await a.json("/api/applications", "PATCH", { id: live, append_note: 5 })).status === 400);
     check("over 500 characters is refused", (await a.json("/api/applications", "PATCH", { id: live, append_note: "x".repeat(501) })).status === 400);
     check("a bad id is a 404", (await a.json("/api/applications", "PATCH", { id: "nope", append_note: "x" })).status === 404);
-    const full = await row(a, "Full Ltd", "Applied", "y".repeat(1990));
+    const full = await row(a, "Full Ltd", "Applied", "y".repeat(9990));
     const refused = await a.json("/api/applications", "PATCH", { id: full, append_note: "This will not fit in the notes" });
     check("full notes refuse and say so", refused.status === 400 && refused.body.errorType === "notes_full");
-    check("and nothing was cut", (await a.json(`/api/applications?id=${full}`)).body.application?.notes === "y".repeat(1990));
+    check("and nothing was cut", (await a.json(`/api/applications?id=${full}`)).body.application?.notes === "y".repeat(9990));
 
     // ── Auto-close ─────────────────────────────────────────────────────────
     const etleap = await row(a, "Etleap Style Ltd", "Applied", "Filling the form.");
     const upload = await event(a, { application_id: etleap, kind: "deadline", title: "Upload CV and submit", due_at: hours(40) });
     const hacker = await event(a, { application_id: etleap, kind: "assessment", title: "HackerRank test", status: "to_book" });
-    const quiet = await a.json("/api/applications", "PUT", { id: etleap, notes: "Filling the form. Still going." });
-    check("notes with no confirmation close nothing", !quiet.body.autoClose);
-    const saved = await a.json("/api/applications", "PUT", { id: etleap, notes: 'Filling the form. "Your response has been recorded" seen 11:45.' });
+    // A notes replace sends the version it read (lib/notesWrite), as the page does.
+    const replaceNotes = async (id, notes) => {
+      const version = (await a.json(`/api/applications?id=${id}`)).body.application?.updated_at;
+      return a.json("/api/applications", "PUT", { id, notes, if_updated_at: version });
+    };
+    const quiet = await replaceNotes(etleap, "Filling the form. Still going.");
+    check("notes with no confirmation close nothing", quiet.status === 200 && !quiet.body.autoClose, String(quiet.status));
+    const saved = await replaceNotes(etleap, 'Filling the form. "Your response has been recorded" seen 11:45.');
     check("the stale item closes itself", saved.body.autoClose?.closed?.[0]?.title === "Upload CV and submit", JSON.stringify(saved.body.autoClose));
     check("a test stays open and is named", saved.body.autoClose?.stillOpen?.[0] === "HackerRank test");
     view = await a.json("/api/actions");
@@ -106,7 +112,7 @@ try {
     check("it is shown as closed by the notes", view.body.closedByNote.some((e) => e.id === upload.id));
     const reopened = await a.json("/api/events", "PUT", { id: upload.id, status: "scheduled", reopen: true });
     check("undo reopens it with no mark", reopened.body.event?.status === "scheduled" && reopened.body.event?.closed_by === null);
-    const again = await a.json("/api/applications", "PUT", { id: etleap, notes: 'Filling the form. "Your response has been recorded" seen 11:45. Later note.' });
+    const again = await replaceNotes(etleap, 'Filling the form. "Your response has been recorded" seen 11:45. Later note.');
     check("the old line never closes it again", !again.body.autoClose?.closed?.length);
     const asking = await a.json("/api/applications", "PATCH", { id: etleap, append_note: "Thanks for applying. Please complete the form" });
     check("a note asking for more closes nothing", !asking.body.autoClose?.closed?.length);
@@ -114,7 +120,7 @@ try {
     check("a dated note can close it too", viaPatch.body.autoClose?.closed?.[0]?.title === "Upload CV and submit", JSON.stringify(viaPatch.body.autoClose));
     const older = await row(a, "Old Note Ltd", "Applied", "Application submitted on 1 Nov.");
     const later = await event(a, { application_id: older, kind: "deadline", title: "A later task", due_at: hours(40) });
-    await a.json("/api/applications", "PUT", { id: older, notes: "Application submitted on 1 Nov. Then they wrote back." });
+    await replaceNotes(older, "Application submitted on 1 Nov. Then they wrote back.");
     check("an item added after the confirmation stays open", (await a.json("/api/actions")).body.events.some((e) => e.id === later.id));
 
     // ── Snooze ─────────────────────────────────────────────────────────────
