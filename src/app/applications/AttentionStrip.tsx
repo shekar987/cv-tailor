@@ -5,9 +5,10 @@
 // and urgency is an icon and words as well as a colour.
 import Icon from "@/components/ui/Icon";
 import type { AttentionCounts, ReferralCard } from "@/lib/applicationStage";
+import type { DueTodayCount } from "@/lib/followupsDue";
 import { formatDate } from "@/lib/formatDate";
 
-export type AttentionFilter = "due" | "followups" | "fix" | "referrals" | "cold";
+export type AttentionFilter = "due" | "today" | "followups" | "fix" | "referrals" | "cold";
 
 function formatDay(iso: string): string {
   return formatDate(iso, { year: false }) || iso;
@@ -21,9 +22,12 @@ function Pending() {
 }
 
 export default function AttentionStrip({
-  counts, coldNoFollowup = 0, loading = false, dueLabel, referral, active, onFilter, onOpenReferral,
+  counts, dueToday, coldNoFollowup = 0, loading = false, dueLabel, referral, active, onFilter, onOpenReferral,
 }: {
   counts: AttentionCounts;
+  // "Follow-ups due today" (lib/followupsDue, Chunk 23): today or earlier, sent, live, no
+  // ending waiting. From the server's counts until the full list is in.
+  dueToday: DueTodayCount;
   // Cold emails logged from Gmail with no follow-up date (lib/coldEmails), shown only when there are some.
   coldNoFollowup?: number;
   loading?: boolean;
@@ -34,7 +38,7 @@ export default function AttentionStrip({
   onOpenReferral: (id: string) => void;
 }) {
   return (
-    <section className="attnStrip" aria-label="Needs attention" data-cards={3 + (referral ? 1 : 0) + (!loading && coldNoFollowup > 0 ? 1 : 0)} data-attention>
+    <section className="attnStrip" aria-label="Needs attention" data-cards={4 + (referral ? 1 : 0) + (!loading && coldNoFollowup > 0 ? 1 : 0)} data-attention>
       <button
         type="button"
         className="attnCard"
@@ -50,6 +54,20 @@ export default function AttentionStrip({
           </>}
         </span>
         <span className="attnLabel">{dueLabel}</span>
+      </button>
+      <button
+        type="button"
+        className="attnCard"
+        data-tone={dueToday.total > 0 ? "amber" : undefined}
+        aria-pressed={active === "today"}
+        onClick={() => onFilter("today")}
+        data-attn="today"
+        data-due-today={dueToday.today}
+        data-due-earlier={dueToday.earlier}
+      >
+        <span className="attnNumber">{dueToday.total}</span>
+        <span className="attnLabel">Follow-ups due today</span>
+        {dueToday.earlier > 0 && <span className="attnDetail">{dueToday.today} dated today · {dueToday.earlier} overdue</span>}
       </button>
       <button
         type="button"

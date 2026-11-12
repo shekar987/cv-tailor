@@ -3970,6 +3970,7 @@ td[data-stage-deadline][data-soon] .stageDue { color: var(--danger); font-weight
 .attnStrip { display: grid; grid-template-columns: repeat(var(--attn-cards, 4), minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-5); }
 .attnStrip[data-cards="3"] { --attn-cards: 3; }
 .attnStrip[data-cards="5"] { --attn-cards: 5; }
+.attnStrip[data-cards="6"] { --attn-cards: 3; }
 .attnCard { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: var(--space-3) var(--space-4); text-align: left; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border-card); border-radius: var(--radius-lg); box-shadow: var(--surface-inset); cursor: pointer; transition: border-color var(--duration) var(--ease), transform var(--duration) var(--ease); }
 button.attnCard:hover { border-color: var(--border-strong); }
 button.attnCard:active { transform: translateY(1px); }
@@ -3980,6 +3981,7 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 .attnCard[data-tone="amber"] .attnNumber { color: var(--amber-bright); }
 .attnNumber { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-lg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .attnLabel { font-size: var(--text-sm); color: var(--text-subtle); }
+.attnDetail { font-size: var(--text-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 .attnCard--referral { cursor: default; flex-direction: row; align-items: flex-end; justify-content: space-between; gap: var(--space-2); }
 .attnReferralOpen { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; padding: 0; text-align: left; font: inherit; color: var(--text); background: none; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
 .attnReferralOpen:hover .attnReferralTitle { text-decoration: underline; text-underline-offset: 3px; }
@@ -4102,7 +4104,7 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 .appsFootNote { font-size: var(--text-xs); }
 
 @media (max-width: 900px) {
-  .attnStrip, .attnStrip[data-cards="3"], .attnStrip[data-cards="5"] { --attn-cards: 2; }
+  .attnStrip, .attnStrip[data-cards="3"], .attnStrip[data-cards="5"], .attnStrip[data-cards="6"] { --attn-cards: 2; }
   .appsTools { width: 100%; }
   .appsTools .appsSearchWrap { width: 100%; flex: 1 1 100%; }
   .stageList, .stageList tbody { display: block; }

@@ -31,12 +31,16 @@ export async function GET(req: NextRequest) {
     const { supabase } = caller;
     const today = todayFrom(new URL(req.url).searchParams.get("today"));
 
-    const [rowsRead, eventsRead] = await Promise.all([
-      readApplicationPages<{ id: string; status: string; followup_date: string | null }>(
-        () => supabase.from("applications").select("id, status, followup_date") as unknown as OrderableQuery
-      ),
+    // pending_outcome for "Follow-ups due today" (an ending waiting on a row leaves it out);
+    // a database without migration 20261104130000 is read without it.
+    type CountRow = { id: string; status: string; followup_date: string | null; pending_outcome?: unknown };
+    const readRows = (columns: string) => readApplicationPages<CountRow>(() => supabase.from("applications").select(columns) as unknown as OrderableQuery);
+    const [firstRead, eventsRead] = await Promise.all([
+      readRows("id, status, followup_date, pending_outcome"),
       supabase.from("application_events").select("application_id, status, kind, starts_at, due_at").in("status", ["scheduled", "to_book"]).limit(1000),
     ]);
+    const missing = !!firstRead.error && (firstRead.error.code === "42703" || firstRead.error.code === "PGRST204");
+    const rowsRead = missing ? await readRows("id, status, followup_date") : firstRead;
     if (rowsRead.error) {
       console.error("applications counts read error:", rowsRead.error.message);
       return NextResponse.json({ error: "Could not count your applications" }, { status: 500 });

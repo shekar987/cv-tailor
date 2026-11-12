@@ -534,12 +534,21 @@ export async function fetchPage(
     const v = res.headers.get(name);
     if (v) headers[name] = v;
   }
+  // The body is read under the same timeout as the request: a slow page that runs out of
+  // time mid-body is a typed failure (a timeout), never an untyped throw a route answers 500 to.
+  let body: string;
+  try {
+    body = await readCapped(res, maxBytes);
+  } catch (e) {
+    const d = describeFetchFailure(e);
+    throw new FetchPageError(d.kind, d.message, d.code);
+  }
   return {
     url: url.toString(),
     status: res.status,
     contentType: res.headers.get("content-type") || "",
     headers,
-    body: await readCapped(res, maxBytes),
+    body,
   };
 }
 

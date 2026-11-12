@@ -1,0 +1,14 @@
+{
+  "shortcode": "A1B2C3D4E5",
+  "title": "Graduate Software Engineer",
+  "remote": false,
+  "location": {
+    "country": "United Kingdom",
+    "countryCode": "GB",
+    "city": "Manchester",
+    "region": "England"
+  },
+  "description": "<h3>About Elwood Robotics</h3><p>Elwood Robotics builds the software that plans and checks warehouse robot fleets for grocery and parcel companies across the UK and Ireland. Our platform schedules 4,000 robots a night and our customers rely on it to ship on time.</p><h3>What you'll do</h3><ul><li>Build and run Python services that plan robot routes across a warehouse floor</li><li>Design PostgreSQL schemas for telemetry that arrives at 20,000 events a second</li><li>Write tests in pytest and review your colleagues' pull requests every day</li><li>Work with operations engineers on site to understand what a failed pick costs</li><li>Own a service from the design document to the on-call rota, with support</li></ul>",
+  "requirements": "<ul><li>A degree in computer science, engineering or a related subject, or equivalent experience</li><li>Experience building REST APIs in Python, Go or a similar language</li><li>Comfort with SQL and relational databases such as PostgreSQL or MySQL</li><li>Clear written English: we decide most things in short design documents</li><li>The right to work in the UK (we are unable to sponsor visas for this role)</li></ul>",
+  "benefits": "<ul><li>A salary of £38,000 to £45,000 depending on experience</li><li>25 days of holiday plus bank holidays</li><li>Hybrid working from our Manchester office two days a week</li></ul>"
+}

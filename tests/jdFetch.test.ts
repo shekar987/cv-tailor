@@ -158,7 +158,7 @@ test("failures say what happened: unsupported, unreachable, closed, empty", asyn
   const none = mock({});
   const unsupported = await fetchJobFromUrl("https://careers.example.com/jobs/1", none.fetcher);
   assert.equal(!unsupported.ok && unsupported.errorType, "unsupported");
-  assert.match(!unsupported.ok ? unsupported.error : "", /Workable, SmartRecruiters, BambooHR and LinkedIn/);
+  assert.match(!unsupported.ok ? unsupported.error : "", /Gem, Workable, SmartRecruiters, Teamtailor, BambooHR and LinkedIn/);
   assert.equal(none.asked.length, 0, "an unsupported link is never fetched");
   const missing = await fetchJobFromUrl("", none.fetcher);
   assert.equal(!missing.ok && missing.errorType, "missing_url");

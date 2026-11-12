@@ -12,6 +12,7 @@
 import { tabCounts, eventsByApplication, type TabKey } from "./applicationStage.ts";
 import { actionableEvents } from "./actionCentre.ts";
 import { isFollowupDueThisWeek, weekOf } from "./tracker.ts";
+import { followupsDueToday, type DueTodayCount } from "./followupsDue.ts";
 import type { PlanEvent } from "./plan.ts";
 
 export { isFollowupDueThisWeek, weekOf };
@@ -24,6 +25,8 @@ export type TrackerCounts = {
   counts: Record<TabKey, number>;
   total: number;
   followups_due_this_week: number;
+  /** "Follow-ups due today" (Chunk 23, lib/followupsDue): today or earlier, sent, live, no ending waiting. */
+  followups_due_today: DueTodayCount;
   week: { from: string; to: string };
 };
 
@@ -33,7 +36,7 @@ export type TrackerCounts = {
  * same open events the page reads (lib/actionCentre actionableEvents).
  */
 export function trackerCounts(
-  rows: readonly { id: string; status: unknown; followup_date?: string | null }[],
+  rows: readonly { id: string; status: unknown; followup_date?: string | null; pending_outcome?: unknown }[],
   openEvents: readonly Pick<PlanEvent, "application_id" | "status" | "kind" | "starts_at" | "due_at">[],
   today: string
 ): TrackerCounts {
@@ -42,6 +45,7 @@ export function trackerCounts(
     counts: tabCounts(rows, eventsByApplication(live)),
     total: rows.length,
     followups_due_this_week: followupsDueThisWeek(rows.map((r) => ({ followup_date: r.followup_date ?? null, status: r.status })), today),
+    followups_due_today: followupsDueToday(rows.map((r) => ({ followup_date: r.followup_date ?? null, status: r.status, pending_outcome: r.pending_outcome })), today),
     week: weekOf(today),
   };
 }

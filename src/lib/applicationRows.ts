@@ -13,6 +13,7 @@
 // the JD becomes a flag, notes a preview, and null keys are not sent. Full
 // text comes from the detail read (GET /api/applications?id=).
 import { reachedScreening } from "./closing.ts";
+import { FOLLOWUP_DUE_STATUSES } from "./followupsDue.ts";
 import { apiStatus, normalizeStatus, notesSayNotSubmitted, storedStatusValues, type Status } from "./tracker.ts";
 
 export const MAX_APPLICATIONS = 2000;
@@ -277,8 +278,21 @@ export const LITE_COLUMNS = "id, company_name, role, status, date_applied, follo
 export const LITE_LIMIT_DEFAULT = 200;
 export const LITE_LIMIT_MAX = MAX_APPLICATIONS;
 export const LITE_Q_MAX = 100;
-// What due_by leaves out: a closed row has no follow-up to make.
-export const LITE_DUE_EXCLUDED: readonly Status[] = ["rejected", "withdrawn", "ghosted"];
+// What due_by keeps (12 Nov 2026, Chunk 23): the rows lib/followupsDue counts, the page's
+// "Follow-ups due today" counter. Sent and live (never a Ready to submit row, which was
+// never sent; never a closed one), and no ending a sweep reported waiting on the row.
+// Until Chunk 23 it was every status but Rejected, Withdrawn and Ghosted.
+export const LITE_DUE_STATUSES: readonly Status[] = FOLLOWUP_DUE_STATUSES;
+const PENDING_ENDINGS: readonly Status[] = ["rejected", "withdrawn", "ghosted"];
+
+/**
+ * The PostgREST `or` filter that leaves out a row with an ending waiting on it
+ * (lib/followupsDue hasPendingEnding): no pending outcome, one the user dismissed, or one
+ * that is not an ending (a question). Every stored spelling of the endings.
+ */
+export function liteDuePendingFilter(): string {
+  return `pending_outcome.is.null,pending_outcome->>dismissed.eq.true,pending_outcome->>outcome.is.null,pending_outcome->>outcome.not.in.${storedInList(PENDING_ENDINGS)}`;
+}
 
 export type LiteQuery = { q: string | null; since: string | null; statuses: Status[] | null; dueBy: string | null; limit: number };
 

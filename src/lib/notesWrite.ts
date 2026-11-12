@@ -16,10 +16,17 @@ import { DEFAULT_TIMEZONE, clockTime, dayKey, dayMonthYear } from "./planTime.ts
 
 export const MAX_APPENDED_NOTE = 500;
 export const STALE_NOTES = "stale_notes";
+// The 409 names append_note FIRST (12 Nov 2026, Chunk 23): on 12 Nov a sweep sent 17
+// notes writes in one batch without if_updated_at, every one refused, because adding a line
+// still looked like read-modify-write to it. The fix for almost every caller is the append.
+const APPEND_FIRST =
+  'To add a line, send append_note instead of notes: PUT /api/applications {"id": "<id>", "append_note": "Follow-up sent"} (or PATCH with the same body). It never needs the old text, never loses a line, and is stamped with the date.';
 export const STALE_NOTES_MESSAGE =
-  "These notes changed since they were read, so nothing was saved. Read the row again (GET /api/applications?id=<id>) and send its updated_at as if_updated_at, or add a line with append_note, which never needs the old text.";
+  `${APPEND_FIRST} Nothing was saved: these notes changed since they were read. To replace the notes whole, read the row again (GET /api/applications?id=<id>) and send its updated_at as if_updated_at.`;
 export const MISSING_VERSION_MESSAGE =
-  "Replacing the notes needs if_updated_at: the row's updated_at from a fresh read (GET /api/applications?id=<id>). To add a line without reading the notes, send append_note instead.";
+  `${APPEND_FIRST} Nothing was saved: replacing the notes whole needs if_updated_at, the row's updated_at from a fresh read (GET /api/applications?id=<id>).`;
+// Beside the message, for a caller that reads fields rather than prose.
+export const STALE_NOTES_HINT = { use: "append_note", example: { id: "<id>", append_note: "Follow-up sent" } } as const;
 
 /** "10 Nov 2026 16:22 <line>", the time where the user is: the one form of an added line. */
 export function stampNoteLine(line: string, now: number, tz: string = DEFAULT_TIMEZONE): string {
@@ -62,7 +69,7 @@ export type NotesWrite =
   | { mode: "replace"; ifUpdatedAt: string }
   | { refuse: NotesRefusal };
 
-const stale = (message: string): { refuse: NotesRefusal } => ({ refuse: { status: 409, body: { error: STALE_NOTES, errorType: STALE_NOTES, message } } });
+const stale = (message: string): { refuse: NotesRefusal } => ({ refuse: { status: 409, body: { error: STALE_NOTES, errorType: STALE_NOTES, message, hint: STALE_NOTES_HINT } } });
 
 /**
  * What a PUT body asks of the notes, decided before anything is read: an append needs
