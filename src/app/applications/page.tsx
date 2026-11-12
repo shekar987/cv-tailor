@@ -2568,7 +2568,9 @@ export default function ApplicationsPage() {
             )}
           </p>
         )}
-        <DeadlineRadar items={radar} hours={DUE_WINDOW_HOURS} busyKey={radarBusy} onOpen={openDue} onDone={(item) => void doneDue(item)} />
+        {/* The strip counts what is due across every row, so like the attention cards it waits for
+            the full list: a count from the first page alone would understate it. */}
+        <DeadlineRadar items={fullLoaded ? radar : []} hours={DUE_WINDOW_HOURS} busyKey={radarBusy} onOpen={openDue} onDone={(item) => void doneDue(item)} />
 
         {notice && (
           <div className="limitNotice" role="status">

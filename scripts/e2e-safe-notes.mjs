@@ -77,7 +77,9 @@ try {
   let donePut = null;
   await page.route(/\/api\/applications(\?.*)?$/, async (route) => {
     const req = route.request();
-    if (req.method() === "GET" && !new URL(req.url()).search && deadlineOn) {
+    // Every list read: the first page (?stage=&limit=), the full list (?all=1) and the sweeps' plain GET.
+    const q = new URL(req.url()).searchParams;
+    if (req.method() === "GET" && !q.has("id") && !q.has("due") && deadlineOn) {
       const res = await route.fetch();
       const body = await res.json();
       for (const r of body.applications ?? []) {
