@@ -24,6 +24,8 @@ import { gateLine, type GatesSummary } from "@/lib/knockouts";
 import { rowStyle, isFormatStyleId, normalizeFormatStyle, ROW_STYLE_LABELS, type RowStyle } from "@/lib/formatStyles/ids";
 import { normalizeStyleCheck, summarizeStyleCheck } from "@/lib/styleCheck";
 import { getUsage } from "@/lib/usage";
+import { createClient } from "@/lib/supabase/client";
+import { readJustSaved, writeJustSaved, shouldAutoOpen, showsJustSaved, type JustSaved } from "@/lib/justSaved";
 import AttentionStrip, { type AttentionFilter } from "./AttentionStrip";
 import StageTabs, { type TabChoice } from "./StageTabs";
 import ClosedSection, { type ClosedRow } from "./ClosedSection";
@@ -123,6 +125,10 @@ type Application = {
   // The file name of the CV the user uploaded for this row (lib/sentCv; a
   // JSON-path alias in the list query), absent until that migration is applied.
   sent_cv_name?: string | null;
+  // The letter (Chunk 24): stored with a tailored snapshot, or a file sent with the row
+  // (applications.sent_cover_letter's name). Either puts a Letter button on the row.
+  has_cover_letter?: boolean;
+  sent_letter_name?: string | null;
   // Who spoke last and when (migration 20261030120000; absent before it):
   // "them" more than a day ago = "Reply owed" (lib/tracker isReplyOwed).
   last_contact_from?: "me" | "them" | null;
@@ -686,7 +692,19 @@ export default function ApplicationsPage() {
   const [tab, setTab] = useState<TabChoice | null>(null);
   // An attention card filtering across the tabs.
   // "reopen" is the notice's filter (any row a sweep's question is waiting on), not one of the strip's cards.
-  const [attention, setAttention] = useState<AttentionFilter | "reopen" | "radar" | null>(null);
+  // "saved" is the "Just saved" line's own view: only the row /app saved last (lib/justSaved).
+  const [attention, setAttention] = useState<AttentionFilter | "reopen" | "radar" | "saved" | null>(null);
+  // The application /app saved last, and who is signed in (the marker is per user).
+  const [justSaved, setJustSaved] = useState<JustSaved | null>(null);
+  const [viewerId, setViewerId] = useState<string | null>(null);
+  // A CV or Letter button asked for the panel: scroll to that part once it has drawn.
+  const docScroll = useRef<{ id: string; target: "cv" | "letter" } | null>(null);
+  const [docScrollTick, setDocScrollTick] = useState(0);
+  const savedFlashed = useRef(false);
+  // The tab opened for the saved row, until the full list says which tab it is really in.
+  const autoTab = useRef<TabChoice | null>(null);
+  // Named only by an old "Saved to tracker" link: shown for this visit, never as "Just saved".
+  const [savedFromLink, setSavedFromLink] = useState(false);
   // The open events behind the stages and the Next step column (/api/actions).
   const [events, setEvents] = useState<PlanEvent[]>([]);
   const [windows, setWindows] = useState<AvailabilityWindow[]>([]);
@@ -816,6 +834,42 @@ export default function ApplicationsPage() {
     // finished while it was read (lib/writeTracker). A stale one is read again; one still stale
     // after five reads is shown, and read once more two seconds later.
     let lateReread = false;
+    // The application /app saved last (lib/justSaved): reached through "Saved to tracker"
+    // (?saved=<id>), or opened soon after the save, the page opens on the tab that holds it.
+    const params = new URLSearchParams(window.location.search);
+    const linkedSaved = params.get("saved");
+    // Read once: a reload, or Back from a prep page, must not pin the tab again.
+    if (linkedSaved) {
+      params.delete("saved");
+      const rest = params.toString();
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${rest ? `?${rest}` : ""}${window.location.hash}`);
+    }
+    const savedOpen = createClient()
+      .auth.getSession()
+      .then(({ data: { session } }) => {
+        const uid = session?.user?.id ?? null;
+        const at = Date.now();
+        const stored = readJustSaved(uid, at);
+        // Storage blocked, another browser, or an old "Saved to tracker" link: the link alone
+        // still names the row for this visit, but is never written back as a fresh save.
+        const fromLink = !stored && !!linkedSaved && /^[0-9a-f-]{8,64}$/i.test(linkedSaved);
+        const marker: JustSaved | null = stored ?? (fromLink ? { id: linkedSaved!, company: "", role: "", status: "Applied", at } : null);
+        const auto = shouldAutoOpen(marker, at, linkedSaved) && !params.get("status") ? tabForStatus(marker?.status) : null;
+        return { uid, marker, auto, fromLink };
+      })
+      .catch(() => ({ uid: null, marker: null, auto: null, fromLink: false }));
+    void savedOpen.then(({ uid, marker, auto, fromLink }) => {
+      if (cancelled) return;
+      setViewerId(uid);
+      setSavedFromLink(fromLink);
+      if (marker && auto && !fromLink) writeJustSaved(uid, { ...marker, opened: true });
+      setJustSaved(marker && auto ? { ...marker, opened: true } : marker);
+      if (auto) {
+        autoTab.current = auto;
+        setTab(auto);
+        setTabPicked(true);
+      }
+    });
     const loadFull = async (tries = 0): Promise<void> => {
       await whenNoWrites();
       const seq = writeSeq();
@@ -848,7 +902,7 @@ export default function ApplicationsPage() {
         if (cancelled || !data?.counts) return;
         setServerCounts(data);
         if (fullLoadedRef.current) return;
-        const tabFirst = tabForStatus(new URLSearchParams(window.location.search).get("status")) ?? defaultTab(data.counts);
+        const tabFirst = tabForStatus(new URLSearchParams(window.location.search).get("status")) ?? (await savedOpen).auto ?? defaultTab(data.counts);
         const page = await fetchApplications(`?stage=${tabFirst}&limit=${FIRST_PAGE_ROWS}`);
         if (cancelled || fullLoadedRef.current || "error" in page) return;
         setRows(page.rows);
@@ -955,6 +1009,28 @@ export default function ApplicationsPage() {
     rowFlashTimer.current = setTimeout(() => setFlashRowId(null), 700);
   }
 
+  // A CV or Letter button's panel: once the part asked for has drawn, scroll to it. A letter
+  // the row turns out not to hold scrolls to the panel instead, so nothing waits forever.
+  useEffect(() => {
+    const want = docScroll.current;
+    if (!want || panel?.id !== want.id || panel.kind !== "cv") return;
+    const root = document.querySelector(`[data-panel-row="${want.id}"]`);
+    if (!root) return;
+    const part = want.target === "letter" ? root.querySelector('[data-panel-doc="letter"]') : root;
+    if (!part && cvCache[want.id] === undefined) return;
+    docScroll.current = null;
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    (part ?? root).scrollIntoView({ block: "start", behavior: still ? "auto" : "smooth" });
+  }, [panel, cvCache, letterCache, docScrollTick, rows]);
+
+  // Opened on the row /app saved last: it flashes once when it first draws.
+  useEffect(() => {
+    if (!justSaved?.opened || savedFlashed.current) return;
+    if (!rows.some((r) => r.id === justSaved.id)) return;
+    savedFlashed.current = true;
+    flashRow(justSaved.id);
+  }, [justSaved, rows]);
+
   const bounds = periodBounds(periodFilter);
 
   // The overview is always over ALL rows, so it stays stable while filters narrow the
@@ -1019,6 +1095,17 @@ export default function ApplicationsPage() {
     // Pins the default once, when the rows and events are known.
     if (tab === null && loaded && eventsSettled) setTab(defaultTab(counts));
   }, [tab, loaded, eventsSettled, counts]);
+  useEffect(() => {
+    // The saved row's tab was a guess from the status it was saved with; once the full list
+    // and its events are in, the tab that really holds it, unless the user has moved on.
+    const guessed = autoTab.current;
+    if (!guessed || !fullLoaded || !eventsSettled || !justSaved) return;
+    autoTab.current = null;
+    const row = rows.find((r) => r.id === justSaved.id);
+    if (!row || tab !== guessed) return;
+    const real = tabOfStage(deriveStage(row.status, byApp.get(row.id)));
+    if (real !== guessed) setTab(real);
+  }, [fullLoaded, eventsSettled, justSaved, rows, byApp, tab]);
   const sheetMode = spreadsheet || newRow !== null;
 
   const visible = useMemo(() => {
@@ -1032,6 +1119,7 @@ export default function ApplicationsPage() {
       if (attention === "cold") return coldEmailNeedsFollowup(r);
       if (attention === "reopen") return isAsking(r);
       if (attention === "radar") return radarIds.has(r.id);
+      if (attention === "saved") return r.id === justSaved?.id;
       if (searchTerm) return true;
       if (tabNow === "all") return true;
       if (tabOfStage(deriveStage(r.status, byApp.get(r.id))) === tabNow) return true;
@@ -1089,7 +1177,7 @@ export default function ApplicationsPage() {
     });
     // A reply owed outranks any sort: those rows come first, in sort order.
     return replyOwedFirst(sorted, now);
-  }, [rows, tabNow, attention, listSort, byApp, referralIds, radarIds, clock, tz, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, searchTerm, now, includePast, sheetMode]);
+  }, [rows, tabNow, attention, listSort, byApp, referralIds, radarIds, justSaved?.id, clock, tz, styleFilter, bounds?.from, bounds?.to, sortKey, sortDir, searchTerm, now, includePast, sheetMode]);
 
   // Only PAGE_SIZE rows are painted at a time; search, filters, counts and the
   // export cover the whole set. A different filter/sort state starts at page 1.
@@ -1590,6 +1678,7 @@ export default function ApplicationsPage() {
 
   function sentLetterChanged(row: Application, next: SentCvInfo | null) {
     setLetterCache((c) => ({ ...c, [row.id]: next }));
+    setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, sent_letter_name: next?.fileName ?? null } : r)));
     showFlash(next ? "Cover letter saved with this application." : "Cover letter file removed.");
   }
 
@@ -1714,6 +1803,49 @@ export default function ApplicationsPage() {
     setAttention("radar");
     const kind: PanelKind = item.kind === "deadline" ? "edit" : "notes";
     if (!(panel?.id === row.id && panel.kind === kind)) togglePanel(row, kind);
+  }
+
+  // A row's CV or Letter button (Chunk 24): the CV panel, which holds the CV and the letter as
+  // sent, scrolled to the part asked for. CV again on an open panel closes it, like View CV.
+  function openDoc(id: string, target: "cv" | "letter") {
+    if (target === "cv" && panel?.id === id && panel.kind === "cv") {
+      setPanel(null);
+      return;
+    }
+    docScroll.current = { id, target };
+    if (!(panel?.id === id && panel.kind === "cv")) {
+      setPanel({ id, kind: "cv" });
+      setPanelError("");
+      if (!(id in cvCache) && !cvLoadingRef.current[id]) void loadCv(id);
+    } else {
+      setDocScrollTick((n) => n + 1);
+    }
+  }
+
+  // The "Just saved" line's CV and Letter: the saved row alone, with its panel open, so it is
+  // one click from wherever the tab is.
+  function openSaved(target: "cv" | "letter") {
+    if (!justSaved) return;
+    setWins(false);
+    setSpreadsheet(false);
+    setQuery("");
+    setPeriodFilter("all");
+    setStyleFilter("all");
+    setAttention("saved");
+    if (target === "cv" && panel?.id === justSaved.id && panel.kind === "cv") {
+      docScroll.current = { id: justSaved.id, target };
+      setDocScrollTick((n) => n + 1);
+      return;
+    }
+    openDoc(justSaved.id, target);
+  }
+
+  function dismissJustSaved() {
+    if (!justSaved) return;
+    const next = { ...justSaved, dismissed: true };
+    if (!savedFromLink) writeJustSaved(viewerId, next);
+    setJustSaved(next);
+    if (attention === "saved") setAttention(null);
   }
 
   // The radar's Done: a deadline is cleared and a line in the notes says it was done; an event
@@ -2130,6 +2262,43 @@ export default function ApplicationsPage() {
     return items;
   }
 
+  // The CV and the letter a row holds (a tailored snapshot, or a file sent with it), one click
+  // away instead of behind ⋯ (Chunk 24). Both open the CV panel, which holds the two.
+  function hasCvDoc(row: Application) {
+    return row.source === "tailored" || !!row.sent_cv_name;
+  }
+  function hasLetterDoc(row: Application) {
+    return !!row.has_cover_letter || !!row.sent_letter_name;
+  }
+  function renderRowDocs(row: Application) {
+    const cv = hasCvDoc(row);
+    const letter = hasLetterDoc(row);
+    if (!cv && !letter) return null;
+    const open = panel?.id === row.id && panel.kind === "cv";
+    return (
+      <div className="rowDocs" data-row-docs>
+        {cv && (
+          <button
+            type="button"
+            className="inlineLink"
+            onClick={() => openDoc(row.id, "cv")}
+            aria-expanded={open}
+            aria-label={`CV sent to ${row.company_name}`}
+            aria-busy={cvLoading[row.id] ? true : undefined}
+            data-row-doc="cv"
+          >
+            {cvLoading[row.id] ? "Loading…" : "CV"}
+          </button>
+        )}
+        {letter && (
+          <button type="button" className="inlineLink" onClick={() => openDoc(row.id, "letter")} aria-label={`Letter sent to ${row.company_name}`} data-row-doc="letter">
+            Letter
+          </button>
+        )}
+      </div>
+    );
+  }
+
   // One row of the four-column list. The company and role still edit in place.
   function renderListRow(row: Application) {
     const open = panel?.id === row.id;
@@ -2157,6 +2326,7 @@ export default function ApplicationsPage() {
           <td className="stageListWho" data-label="Company">
             <div className="stageListCompany">{textCell(row, "company_name")}</div>
             <div className="stageListRole">{textCell(row, "role", { display: role, title: role })}</div>
+            {renderRowDocs(row)}
             {meta && <div className="stageListMeta" data-row-meta>{meta}</div>}
             <RowFlags
               row={row}
@@ -2246,7 +2416,7 @@ export default function ApplicationsPage() {
       const hasSnapshot = !!snap && !!panelCvData;
       const cvError = cvErrors[row.id] ?? "";
       return (
-        <div className="appsPanel">
+        <div className="appsPanel" data-panel-row={row.id} data-panel-cv>
           <div className="appsPanelHead">
             <span className="appsPanelTitle">
               {row.source === "tailored" ? `Tailored CV${row.cv_reference ? ` · ${row.cv_reference}` : ""}` : "CV you sent"}
@@ -2270,20 +2440,22 @@ export default function ApplicationsPage() {
           )}
           {/* The letter sent with it: offered on a row made elsewhere; a tailored row shows its own letter below, so only a stored file is listed there. */}
           {!cvError && snap !== undefined && (row.source !== "tailored" || letterCache[row.id]) && (
-            <SentCvBlock
-              key={`${row.id}-letter`}
-              doc="cover_letter"
-              applicationId={row.id}
-              company={row.company_name}
-              sentCv={letterCache[row.id] ?? null}
-              compact
-              label
-              onChange={(next) => sentLetterChanged(row, next)}
-              onSessionExpired={() => {
-                setSessionExpired(true);
-                setActionError(SESSION_EXPIRED);
-              }}
-            />
+            <div data-panel-doc={letterCache[row.id] ? "letter" : undefined}>
+              <SentCvBlock
+                key={`${row.id}-letter`}
+                doc="cover_letter"
+                applicationId={row.id}
+                company={row.company_name}
+                sentCv={letterCache[row.id] ?? null}
+                compact
+                label
+                onChange={(next) => sentLetterChanged(row, next)}
+                onSessionExpired={() => {
+                  setSessionExpired(true);
+                  setActionError(SESSION_EXPIRED);
+                }}
+              />
+            </div>
           )}
           {cvError ? (
             <StatusText role="alert">
@@ -2363,7 +2535,7 @@ export default function ApplicationsPage() {
                 </div>
               )}
               {snap.coverLetter && (
-                <div className="atsGroup">
+                <div className="atsGroup" data-panel-doc="letter">
                   <div className="atsGroupLabel recs">Cover letter · as sent</div>
                   <CoverLetterPreview
                     coverLetter={snap.coverLetter}
@@ -2585,6 +2757,8 @@ export default function ApplicationsPage() {
   ) : null;
   const tomorrowName = new Date(dueSoonCutoff(clock, tz) - 1).toLocaleDateString("en-GB", { weekday: "long", timeZone: tz });
   const reopenRows = rows.filter(isAsking);
+  // The "Just saved" line's row, once the rows hold it.
+  const savedRow = justSaved ? rows.find((r) => r.id === justSaved.id) ?? null : null;
   const tabs: (TabChoice | "wins")[] = [...visibleTabs(counts, tabNow === "all" ? null : tabNow), ...(spreadsheet ? (["all"] as const) : []), "wins"];
   const winsOpen = wins && !attention && !searchTerm;
   // The Screening and Interview tabs are pages of their own: their title, their summary, Live and Closed.
@@ -2592,8 +2766,8 @@ export default function ApplicationsPage() {
   // The page's own filters reach the Closed section too; the summary above stays all time.
   const closedHere = stageTabNow ? closedRows(rows.filter((r) => (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) && (!bounds || inPeriod(r, bounds.from, bounds.to))), stageTabNow) : [];
   const noFilters = periodFilter === "all" && styleFilter === "all";
-  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "radar" ? `due in the next ${DUE_WINDOW_HOURS} hours` : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due this week" : attention === "today" ? "follow-ups due today" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : attention === "cold" ? "cold emails missing a follow-up date" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
-  const viewTotal = !attention && searchTerm ? rows.length : attention === "radar" ? radarIds.size : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "today" ? dueTodayNumbers.total : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : attention === "cold" ? coldNoFollowup : tabNow === "all" ? rows.length : counts[tabNow];
+  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "saved" ? "just saved" : attention === "radar" ? `due in the next ${DUE_WINDOW_HOURS} hours` : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due this week" : attention === "today" ? "follow-ups due today" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : attention === "cold" ? "cold emails missing a follow-up date" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
+  const viewTotal = !attention && searchTerm ? rows.length : attention === "saved" ? (savedRow ? 1 : 0) : attention === "radar" ? radarIds.size : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "today" ? dueTodayNumbers.total : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : attention === "cold" ? coldNoFollowup : tabNow === "all" ? rows.length : counts[tabNow];
   const elsewhere = !attention && !searchTerm && tabNow !== "all" && tabNow !== "assessment" ? countedElsewhere(rows, byApp, tabNow) : 0;
   const activeFilters = (styleFilter !== "all" ? 1 : 0) + (includePast ? 1 : 0) + (listSort !== "next" ? 1 : 0);
 
@@ -2635,6 +2809,24 @@ export default function ApplicationsPage() {
             the full list: a count from the first page alone would understate it. */}
         <DeadlineRadar items={fullLoaded ? radar : []} hours={DUE_WINDOW_HOURS} busyKey={radarBusy} onOpen={openDue} onDone={(item) => void doneDue(item)} />
 
+        {/* The application /app saved last (lib/justSaved), its CV and letter one click away.
+            Gone once the full list says the row no longer exists. */}
+        {justSaved && showsJustSaved(justSaved) && (savedRow || !fullLoaded) && (
+          <div className="limitNotice justSaved" data-just-saved={justSaved.id}>
+            <span className="justSaved__what" role="status">
+              <strong>{savedFromLink ? "Saved from Tailor:" : "Just saved:"}</strong> {savedRow?.company_name || justSaved.company || "your application"}
+              {(savedRow?.role || justSaved.role) ? ` — ${savedRow?.role || justSaved.role}` : ""}
+            </span>
+            {(!savedRow || hasCvDoc(savedRow)) && (
+              <button type="button" className="inlineLink" onClick={() => openSaved("cv")} data-just-saved-doc="cv">Open its CV</button>
+            )}
+            {savedRow && hasLetterDoc(savedRow) && (
+              <button type="button" className="inlineLink" onClick={() => openSaved("letter")} data-just-saved-doc="letter">Open its letter</button>
+            )}
+            <button type="button" className="inlineLink" onClick={dismissJustSaved} data-just-saved-dismiss>Dismiss</button>
+          </div>
+        )}
+
         {notice && (
           <div className="limitNotice" role="status">
             {notice}{" "}
@@ -2659,7 +2851,7 @@ export default function ApplicationsPage() {
             loading={!fullLoaded}
             dueLabel={`Due by ${tomorrowName} night`}
             referral={referral}
-            active={attention === "reopen" || attention === "radar" ? null : attention}
+            active={attention === "reopen" || attention === "radar" || attention === "saved" ? null : attention}
             onFilter={(next) => {
               setAttention((current) => (current === next ? null : next));
               setPanel(null);
@@ -3151,13 +3343,17 @@ export default function ApplicationsPage() {
                           {(() => {
                             const line = gateLine(readStoredGates(row.gates));
                             return (
-                              <span
-                                className={"appsGateDot " + (line.label === "Knockout" ? "knockout" : line.label === "Clear" ? "matched" : line.label === "Long shot" ? "longshot" : "muted")}
-                                title={line.detail}
-                                data-gate={line.label}
-                              >
-                                <span className="srOnly">{line.label}: {line.detail}</span>
-                              </span>
+                              <>
+                                <span
+                                  className={"appsGateDot " + (line.label === "Knockout" ? "knockout" : line.label === "Clear" ? "matched" : line.label === "Long shot" ? "longshot" : "muted")}
+                                  title={line.detail}
+                                  data-gate={line.label}
+                                >
+                                  <span className="srOnly">{line.label}: {line.detail}</span>
+                                </span>
+                                {/* A phone card has no hover: the dot's words, beside it (CSS shows them under 900px). */}
+                                <span className="appsGateLabel" aria-hidden="true">{line.label}</span>
+                              </>
                             );
                           })()}
                         </td>

@@ -4331,3 +4331,76 @@ button.inlineLink { margin-block: -8px; }
   .appsTable .appsActionBtn { min-height: 44px; }
   button.inlineLink { margin-block: -12px; }
 }
+
+/* ── First run (12 Nov 2026, Chunk 24; components/FirstRunGuide, lib/firstRun) ──
+   Three numbered steps on the dossier's rule. The current step carries the one
+   action; a done step shows a tick; a later step is quieter. */
+.firstRunCard { padding: var(--space-6); }
+.firstRun__title { margin: 0 0 var(--space-5); font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.firstRun__steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-5); }
+.firstRun__step { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.firstRun__mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: var(--r-pill);
+  border: 1px solid var(--border-strong); color: var(--muted);
+  font-size: var(--fs-sm); font-weight: 600; font-variant-numeric: tabular-nums;
+  --icon-size: 16px;
+}
+.firstRun__step[data-state="current"] .firstRun__mark { border-color: var(--amber-border); color: var(--amber-bright); background: var(--amber-dim); }
+.firstRun__step[data-state="done"] .firstRun__mark { border-color: var(--success-border); color: var(--success); background: var(--success-dim); }
+.firstRun__name { margin: 4px 0 var(--space-1); font-size: var(--fs-base); font-weight: 600; color: var(--text); }
+.firstRun__step[data-state="next"] .firstRun__name { color: var(--text-subtle); }
+.firstRun__detail { margin: 0; font-size: var(--fs-sm); line-height: var(--leading-snug); color: var(--muted); max-width: 62ch; }
+.firstRun__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.firstRun__choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); margin-top: var(--space-3); }
+.firstRun__choice {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  min-height: 44px; padding: var(--space-3); text-align: left;
+  background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  color: var(--text); font: inherit; cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease), opacity var(--duration-fast) var(--ease);
+}
+.firstRun__choice:hover:not(:disabled) { border-color: var(--amber-border); }
+.firstRun__choice:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.firstRun__choice:active:not(:disabled) { transform: translateY(1px); }
+.firstRun__choice:disabled { opacity: 0.5; cursor: default; }
+.firstRun__choiceLabel { font-size: var(--fs-base); font-weight: 600; }
+.firstRun__choiceDetail { font-size: var(--fs-sm); color: var(--muted); line-height: var(--leading-snug); }
+.firstRun__footer { margin: var(--space-6) 0 0; }
+/* Under Customise's saved CV: the same steps, set off by a rule instead of a box. */
+.cvSavedRow + .firstRun { margin-top: var(--space-5); padding-top: var(--space-5); border-top: 1px solid var(--border); }
+.firstRunBanner { margin-top: var(--space-5); }
+@media (min-width: 1160px) {
+  .nextLayout.nextLayout--solo { grid-template-columns: minmax(0, 760px); }
+}
+@media (max-width: 640px) {
+  .firstRunCard { padding: var(--space-5) var(--space-4); }
+  .firstRun__choices { grid-template-columns: minmax(0, 1fr); }
+  .firstRun__step { grid-template-columns: 28px minmax(0, 1fr); gap: var(--space-3); }
+  .firstRun__mark { width: 28px; height: 28px; }
+}
+
+/* ── Saved results and their documents (Chunk 24) ─────────────────────────── */
+/* /app's score card: the master CV's figure before tailoring, beside the one after. */
+.scoreBefore { margin-top: var(--space-2); font-size: var(--fs-sm); color: var(--text-subtle); line-height: var(--leading-snug); }
+/* /applications: the application /app saved last, with its CV and letter one click away. */
+.justSaved { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-5); margin-bottom: var(--space-4); }
+.justSaved__what { margin-right: auto; min-width: 0; overflow-wrap: anywhere; }
+/* A row's CV and letter, outside its ⋯ menu: two text links under the role. */
+.rowDocs { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-top: 2px; font-size: var(--fs-sm); }
+
+/* ── The sheet's phone cards (Chunk 24, the 12 Nov walkthrough) ─────────────
+   `.appsTable td { height: 44px }` is the desktop row height. On a card it fixed
+   every field at 44px, so a Company field whose badges wrap to four lines drew
+   over the Role field below it. A card's field is as tall as what it holds. The
+   gate dot took `flex: 1 1 0` from `.appsTable td > *` and drew as a bar; it is a
+   dot with its words beside it, since a title tooltip never shows on a touch screen. */
+.appsGateLabel { display: none; }
+@media (max-width: 900px) {
+  .appsTable td { height: auto; min-height: 44px; }
+  .appsTable td > .appsGateDot { flex: 0 0 8px; margin-left: 0; }
+  .appsTable td > .appsGateLabel { display: inline; flex: 1 1 0; }
+  /* The badges get a line of their own; its bottom padding holds the tap area of "Add JD
+     to check" (button.inlineLink reaches 44px with negative margins), so it stays out of Role. */
+  .appsTable td[data-label="Company Name"] > .rowFlags { flex-basis: 100%; padding: 0 0 var(--space-3); }
+}

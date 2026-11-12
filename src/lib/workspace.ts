@@ -40,7 +40,12 @@ export type StoredWorkspace = {
   // run for. Optional — envelopes written before Stage 3 restore fine.
   research?: unknown;
   researchUrl?: string | null;
+  // The tracker row this result was saved as (Chunk 24): the result stays on /app after
+  // "Applied — save to tracker", and reloads as saved with its link. Optional, as above.
+  appliedId?: string | null;
 };
+// Also under this prefix, and so swept with the rest at sign-out: lib/justSaved's
+// "cvtailor:workspace:just-saved:<user id>" marker.
 
 type Envelope = StoredWorkspace & { v: number; savedAt: number };
 
@@ -64,6 +69,7 @@ export function loadWorkspace(userId: string): StoredWorkspace | null {
       resultSource: parsed.resultSource === "jd" || parsed.resultSource === "outreach" ? parsed.resultSource : null,
       research: parsed.research ?? null,
       researchUrl: typeof parsed.researchUrl === "string" ? parsed.researchUrl : null,
+      appliedId: typeof parsed.appliedId === "string" && /^[0-9a-f-]{8,64}$/i.test(parsed.appliedId) ? parsed.appliedId : null,
     };
   } catch {
     // Corrupt or unreadable — behave as if nothing was saved.

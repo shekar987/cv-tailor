@@ -97,7 +97,10 @@ type CvPreviewProps = {
   appliedLabel?: string;
   appliedDisabled?: boolean;
   appliedTitle?: string;
-  showTrackerLink?: boolean;
+  // Once saved (Chunk 24): the Applied button becomes a link to the tracker row, and
+  // "Start a new job" ([data-new-job], delegated like Applied) empties the workspace.
+  trackerHref?: string;
+  newJobLabel?: string;
   // The page estimate, as the toolbar's right-hand note.
   pagesNote?: string;
   pagesWarn?: boolean;
@@ -129,7 +132,7 @@ export type CvPreviewHandle = {
 };
 
 const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvPreview(
-  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "", rightToWorkUnset = false, targetPages = 2, fixClaimsAvailable = false, fixingClaims = false, appliedLabel, appliedDisabled = false, appliedTitle, showTrackerLink = false, pagesNote, pagesWarn = false, formatStyle = "ukji" },
+  { data, profile, fileBaseName = "CV", sectionOrder, downloadsDisabled = false, downloadsDisabledReason, rightToWorkForForms = "", rightToWorkUnset = false, targetPages = 2, fixClaimsAvailable = false, fixingClaims = false, appliedLabel, appliedDisabled = false, appliedTitle, trackerHref, newJobLabel, pagesNote, pagesWarn = false, formatStyle = "ukji" },
   fwdRef
 ) {
   const order = resolveSectionOrder(sectionOrder);
@@ -714,13 +717,21 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
             {fixingClaims ? "Fixing…" : "Fix it"}
           </Button>
         )}
-        {appliedLabel && (
-          <Button type="button" data-applied disabled={appliedDisabled} title={appliedTitle}>
-            {appliedLabel}
+        {trackerHref ? (
+          <Button href={trackerHref} variant="secondary" aria-label={`${(appliedLabel ?? "Saved to tracker").replace(/\s*✓$/, "")}. Open this application on Applications.`} data-applied-link>
+            {appliedLabel ?? "Saved to tracker ✓"}
           </Button>
+        ) : (
+          appliedLabel && (
+            <Button type="button" data-applied disabled={appliedDisabled} title={appliedTitle}>
+              {appliedLabel}
+            </Button>
+          )
         )}
-        {showTrackerLink && (
-          <Link href="/applications" className="customizeLink">View tracker →</Link>
+        {newJobLabel && (
+          <Button type="button" variant="secondary" data-new-job>
+            {newJobLabel}
+          </Button>
         )}
         {downloadsDisabled && downloadsDisabledReason && (
           <StatusText as="span" role="alert" data-download-blocked-reason>

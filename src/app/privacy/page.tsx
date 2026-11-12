@@ -106,8 +106,10 @@ export default function PrivacyPage() {
 
       <h2>Cookies and local storage</h2>
       <p>
-        One or more session cookies keep you signed in. Your browser&apos;s local storage holds the run you are working on, your
-        practice ratings and a game counter so a reload loses nothing; signing out or deleting your account clears them.
+        One or more session cookies keep you signed in. Your browser&apos;s local storage holds the run you are working on, the
+        company and role of the application you saved last (for a day, so the tracker can open on it), your practice ratings
+        and a game counter so a reload loses nothing; signing out or deleting your account clears them. While a tab is open,
+        its session storage notes that your CV is saved, so each page need not ask again.
       </p>
 
       <h2>How long we keep it</h2>

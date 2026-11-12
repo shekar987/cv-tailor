@@ -8,6 +8,7 @@ import { clearAllWorkspaces } from "@/lib/workspace";
 import { clearAllPrepProgress } from "@/lib/prepProgress";
 import { clearAllGameCounts } from "@/lib/games/pick";
 import Wordmark from "./Wordmark";
+import FirstRunBanner from "@/components/FirstRunBanner";
 
 // The one header for every signed-in page. Previously each page hand-wrote
 // its own bar and they drifted: Sign out existed only on /app, Applications
@@ -190,6 +191,8 @@ export default function AppHeader({
           {actions && <div className="pageHeadActions">{actions}</div>}
         </div>
       )}
+      {/* An account with no master CV: the first step, on every page that has no first-run state of its own. */}
+      <FirstRunBanner />
     </header>
   );
 }
