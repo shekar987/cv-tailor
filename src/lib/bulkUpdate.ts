@@ -68,8 +68,8 @@ export function itemBody(id: string, patch: BulkPatch): Record<string, unknown> 
 export type BulkItem = {
   id: string;
   ok: boolean;
-  /** The single PUT's own HTTP status for this row: 200, 202 (held as a question), 400, 404, 409 … */
-  status: number;
+  /** The single PUT's HTTP status for this row: 200, 202 (held as a question), 400, 404, 409 … (named `code`, never `status`, which on a row is its stage). */
+  code: number;
   updated_at: string | null;
   error?: string;
   errorType?: string;
@@ -86,13 +86,13 @@ export type BulkItem = {
  * question and changed nothing). The row's notes are never echoed: a bulk answer is kept
  * a day under an Idempotency-Key.
  */
-export function bulkItem(id: string, status: number, body: unknown): BulkItem {
+export function bulkItem(id: string, code: number, body: unknown): BulkItem {
   const b = (body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>;
   const text = (k: string) => (typeof b[k] === "string" && b[k] ? { [k]: (b[k] as string).slice(0, 600) } : {});
   return {
     id,
-    ok: status === 200 && b.ok === true && b.applied !== false,
-    status,
+    ok: code === 200 && b.ok === true && b.applied !== false,
+    code,
     updated_at: typeof b.updated_at === "string" ? b.updated_at : null,
     ...text("error"),
     ...text("errorType"),

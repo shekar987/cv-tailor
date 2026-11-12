@@ -98,11 +98,67 @@ const BLOCK_TAGS = new Set([
   "h1", "h2", "h3", "h4", "h5", "h6", "table", "tr", "pre", "figure", "dl", "dt", "dd", "hr",
 ]);
 const LIST_TAGS = new Set(["ul", "ol"]);
-const DROP_RE = /<(script|style|noscript|template|svg|head)\b[\s\S]*?<\/\1\s*>|<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<!doctype[^>]*>/gi;
+const DROPPED_TAGS = ["script", "style", "noscript", "template", "svg", "head"] as const;
+
+/**
+ * The HTML with each `tags` element removed whole (opening tag to its closing tag), and
+ * with `markup: true` comments, CDATA sections and the doctype too; each removal leaves a
+ * space. An element whose closing tag never comes is left as it is.
+ *
+ * In LINEAR time on any input (12 Nov 2026, Chunk 23): the page reader feeds it pages a
+ * user chooses, up to 3 MB, and the lazy-backreference regex this replaced
+ * (`<(script|…)\b[\s\S]*?<\/\1\s*>`) rescanned to the end of the page for every opening
+ * that never closed: 200 KB of "<nav>" took 11 s. Each tag's closing tag is searched for
+ * only forward of the last search, and a tag with no closing tag left is never searched
+ * for again.
+ */
+export function dropElements(html: string, tags: readonly string[], opts: { markup?: boolean } = {}): string {
+  const source = html || "";
+  if (!source) return "";
+  const names = tags.map((t) => t.toLowerCase());
+  const open = new RegExp(`<(${names.join("|")})(?=[\\s>/])${opts.markup ? "|<!--|<!\\[CDATA\\[|<!doctype" : ""}`, "gi");
+  // Per tag: where its next closing tag starts and ends at or after the last search, or none.
+  const closes = new Map<string, { at: number; end: number } | null>();
+  const closeAfter = (tag: string, from: number): { at: number; end: number } | null => {
+    const known = closes.get(tag);
+    if (known === null) return null;
+    if (known && known.at >= from) return known;
+    const re = new RegExp(`</${tag}\\s*>`, "gi");
+    re.lastIndex = from;
+    const m = re.exec(source);
+    const found = m ? { at: m.index, end: m.index + m[0].length } : null;
+    closes.set(tag, found);
+    return found;
+  };
+  const out: string[] = [];
+  let kept = 0;
+  let m: RegExpExecArray | null;
+  while ((m = open.exec(source)) !== null) {
+    const at = m.index;
+    const head = m[0].toLowerCase();
+    let end: number;
+    if (head === "<!--" || head === "<![cdata[") {
+      const close = source.indexOf(head === "<!--" ? "-->" : "]]>", at + head.length);
+      end = close === -1 ? source.length : close + 3;
+    } else if (head === "<!doctype") {
+      const gt = source.indexOf(">", at);
+      end = gt === -1 ? source.length : gt + 1;
+    } else {
+      const close = closeAfter(m[1].toLowerCase(), at + head.length);
+      if (!close) continue; // never closed: left as it is
+      end = close.end;
+    }
+    out.push(source.slice(kept, at), " ");
+    kept = end;
+    open.lastIndex = end;
+  }
+  out.push(source.slice(kept));
+  return out.join("");
+}
 
 /** HTML → plain text in the shape described at the top of this file. */
 export function htmlToPlainText(html: string): string {
-  const source = (html || "").replace(DROP_RE, " ");
+  const source = dropElements(html || "", DROPPED_TAGS, { markup: true });
   const lines: string[] = [];
   let current = "";
   let prefix = ""; // the bullet the current line opened with
@@ -129,7 +185,9 @@ export function htmlToPlainText(html: string): string {
   };
   let inItem = 0; // open <li> elements: Lever's lists arrive as bare <li>s
 
-  const re = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(\/?)>|([^<]+)|(<)/g;
+  // A tag runs to its ">" and never across another "<": an unclosed "<a <a <a …" is then
+  // read once, in linear time, instead of rescanned to the end at every "<" (Chunk 23).
+  const re = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b[^<>]*?(\/?)>|([^<]+)|(<)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(source)) !== null) {
     if (m[4] !== undefined || m[5] !== undefined) {

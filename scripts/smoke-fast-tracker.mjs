@@ -103,8 +103,9 @@ try {
   const st = await a.call("/api/applications?lite=1&status=Screening,interview&limit=2000");
   check("lite: status is a comma list in either spelling", st.body.applications.length === seed.filter((r) => ["screening", "interview"].includes(r.status)).length && st.body.applications.every((r) => ["Screening", "Interview"].includes(r.status)));
   const due = await a.call("/api/applications?lite=1&due_by=2026-06-30&limit=2000");
-  const dueExpected = seed.filter((r) => r.followup_date && r.followup_date <= "2026-06-30" && !["rejected", "withdrawn", "ghosted"].includes(r.status)).length;
-  check("lite: due_by leaves Rejected, Withdrawn and Ghosted out", due.body.applications.length === dueExpected && due.body.applications.every((r) => !["Rejected", "Withdrawn", "Ghosted"].includes(r.status)), `${due.body.applications.length} vs ${dueExpected}`);
+  // Since Chunk 23 due_by is "Follow-ups due today" (lib/followupsDue): sent, live rows only.
+  const dueExpected = seed.filter((r) => r.followup_date && r.followup_date <= "2026-06-30" && ["applied", "screening", "interview", "assessment"].includes(r.status)).length;
+  check("lite: due_by keeps only sent, live rows (Applied, Screening, Interview, Assessment)", due.body.applications.length === dueExpected && due.body.applications.every((r) => ["Applied", "Screening", "Interview", "Assessment"].includes(r.status)), `${due.body.applications.length} vs ${dueExpected}`);
   const all = await a.call("/api/applications?lite=1&limit=5000");
   check("lite: limit is capped at 2000 and reads past PostgREST's 1000", all.body.applications.length === SEED_ROWS && all.body.more === false, `${all.body.applications.length}`);
   check("lite: a small limit says more", (await a.call("/api/applications?lite=1&limit=5")).body.more === true);

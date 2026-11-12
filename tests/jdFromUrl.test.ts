@@ -9,7 +9,8 @@ import { MAX_JD_CHARS } from "../src/lib/limits.ts";
 import { parseJobUrl, sourceApiUrl, postingPageUrl, isImportFetchHost, SUPPORTED_SOURCES_TEXT } from "../src/lib/importJob/parse.ts";
 import { readJobFromAnyUrl, readLinkUrl, type PageFetcher } from "../src/lib/importJob/readJob.ts";
 import type { JobFetcher } from "../src/lib/importJob/fetchJob.ts";
-import { jobPostingFromJsonLd, readablePageText, innerHtmlByTag } from "../src/lib/importJob/readable.ts";
+import { jobPostingFromJsonLd, readablePageText, readablePosting, readJsonLd, innerHtmlByTag } from "../src/lib/importJob/readable.ts";
+import { dropElements } from "../src/lib/importJob/text.ts";
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/jd-from-url/${name}`, import.meta.url), "utf8");
 
@@ -245,4 +246,67 @@ test("readable text prefers <main>, and a tag that only starts like one is not i
   assert.equal(innerHtmlByTag(html, "main"), `<p>${filler}</p>`);
   assert.equal(readablePageText(html)?.body, filler.trim());
   assert.equal(readablePageText("<body><p>Too short to be a posting.</p></body>"), null);
+});
+
+// ── The 12 Nov review: linear time on hostile pages, listings, forms, cookie lines ──
+
+test("hostile pages a user can point us at are read in linear time, at the full 3 MB", () => {
+  const SIZE = 3_000_000;
+  const fill = (unit: string) => unit.repeat(Math.ceil(SIZE / unit.length)).slice(0, SIZE);
+  const hostile: Record<string, string> = {
+    "unclosed <nav>": fill("<nav>"),
+    "unclosed JSON-LD scripts": fill('<script type="application/ld+json">'),
+    'unclosed "<main "': fill("<main "),
+    'unclosed "<!--"': fill("<!--"),
+    'tags with no ">" ("<a ")': fill("<a "),
+    'unclosed "<meta "': `<head>${fill("<meta ")}</head>`,
+    "unclosed <script>": fill("<script>x"),
+    "unclosed <form> in <main>": `<main>${fill("<form>")}</main>`,
+  };
+  for (const [label, html] of Object.entries(hostile)) {
+    const t0 = performance.now();
+    readablePosting(html, "https://www.elwood.example/jobs/1");
+    const ms = performance.now() - t0;
+    // Linear: 30 ms to 1.2 s each on the dev machine (12 Nov). The quadratic version took
+    // minutes on these, so 10 s still tells the two apart on a slow CI runner.
+    assert.ok(ms < 10_000, `${label}: ${ms.toFixed(0)} ms`);
+  }
+});
+
+test("a listings page carrying several postings is several, never the first one", async () => {
+  const posting = (title: string, url: string) => ({ "@type": "JobPosting", title, url, description: `<p>${title}: plan warehouse robot routes for grocery companies across the UK.</p>` });
+  const html = `<html><head><script type="application/ld+json">${JSON.stringify({ "@type": "ItemList", itemListElement: [{ "@type": "ListItem", item: posting("Backend Engineer", "https://www.elwood.example/jobs/1") }, { "@type": "ListItem", item: posting("Data Engineer", "https://www.elwood.example/jobs/2") }] })}</script></head><body><main>${"<p>Elwood Robotics is hiring across engineering, data and operations in Manchester.</p>".repeat(8)}</main></body></html>`;
+  assert.deepEqual(readJsonLd(html, "https://www.elwood.example/careers"), { several: 2 });
+  const listing = "https://www.elwood.example/careers";
+  const { fetchers } = web({ [listing]: { body: html } });
+  const read = await readJobFromAnyUrl(listing, fetchers);
+  assert.ok(!read.ok && read.errorType === "no_description" && /lists 2 jobs/.test(read.error), JSON.stringify(read));
+  // The posting whose url is this page is this page's.
+  const one = readJsonLd(html, "https://www.elwood.example/jobs/2/?utm_source=x");
+  assert.ok(one && "posting" in one && one.posting.title === "Data Engineer");
+  // The same posting twice (a page and its embed) is one.
+  const twice = `<script type="application/ld+json">${JSON.stringify(posting("Backend Engineer", "u"))}</script><script type="application/ld+json">${JSON.stringify(posting("Backend Engineer", "u"))}</script>`;
+  assert.equal(jobPostingFromJsonLd(twice)?.title, "Backend Engineer");
+});
+
+test("a page that wraps its whole body in one <form> (ASP.NET WebForms) is still read", () => {
+  const html = `<html><head><title>Graduate Engineer</title></head><body><form id="aspnetForm" method="post"><main>${"<p>Elwood Robotics plans warehouse robot routes. You will build Python services and PostgreSQL schemas.</p>".repeat(5)}</main></form></body></html>`;
+  const read = readablePageText(html);
+  assert.ok(read && read.body.includes("You will build Python services"), "the form's text kept when stripping forms leaves nothing");
+});
+
+test("only a cookie banner's line goes: a requirement that mentions cookies stays", () => {
+  const body = "<p>Elwood Robotics builds web services for grocery and parcel companies across the UK and Ireland, and we need someone who knows the web well.</p>".repeat(3);
+  const html = `<main>${body}<ul><li>Experience with HTTP cookies and session policy</li></ul><p>We use cookies. Accept all cookies?</p></main>`;
+  const read = readablePageText(html);
+  assert.ok(read && read.body.includes("- Experience with HTTP cookies and session policy"));
+  assert.ok(read && !read.body.includes("Accept all cookies"));
+});
+
+test("dropElements: a closed element goes whole, an unclosed one stays, comments only when asked", () => {
+  assert.equal(dropElements("a<nav>x<nav>y</nav>z</nav>b", ["nav"]), "a z</nav>b", "the first closing tag ends it, as the regex did");
+  assert.equal(dropElements("a<nav>never closed b", ["nav"]), "a<nav>never closed b");
+  assert.equal(dropElements("a<!-- c -->b<!DOCTYPE html>c", [], { markup: true }), "a b c");
+  assert.equal(dropElements("a<!-- c -->b", ["nav"]), "a<!-- c -->b");
+  assert.equal(dropElements("a<navbar>x</navbar>b<NAV class=x>y</Nav >c", ["nav"]), "a<navbar>x</navbar>b c", "a tag that only starts like one is not it; case ignored");
 });

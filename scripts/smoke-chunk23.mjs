@@ -114,7 +114,7 @@ try {
   const moved = await a.call("/api/applications/bulk", "POST", body, { "Idempotency-Key": key });
   const ms = performance.now() - t0;
   check("C: bulk moves 15 rows in one request", moved.status === 200 && moved.body.updated === 15 && moved.body.failed === 0 && moved.body.ok === true, `${moved.status} ${moved.body.updated}/15 in ${ms.toFixed(0)} ms`);
-  check("C: every row answers ok with its new version", (moved.body.results ?? []).length === 15 && moved.body.results.every((r) => r.ok && r.status === 200 && typeof r.updated_at === "string" && !("notes" in r)));
+  check("C: every row answers ok with its new version", (moved.body.results ?? []).length === 15 && moved.body.results.every((r) => r.ok && r.code === 200 && typeof r.updated_at === "string" && !("notes" in r)));
   const after = await Promise.all(bulkIds.map(detail));
   check("C: each row has the new follow-up date", after.every((r) => r.followup_date === day(7)));
   check("C: each row has one stamped 'Follow-up sent' on top and every old line kept, in order", after.every((r) => { const [top, ...rest] = r.notes.split("\n"); return STAMPED.test(top) && top.endsWith(" Follow-up sent") && rest.join("\n") === OLD; }));
@@ -127,8 +127,8 @@ try {
 
   const ending = await a.call("/api/applications/bulk", "POST", { ids: [ids["Smoke Screened"], ids["Smoke Pending"], Object.values(theirs)[0], "00000000-0000-4000-8000-000000000000"], status: "Rejected" }, { "Idempotency-Key": crypto.randomUUID() });
   const byId = Object.fromEntries((ending.body.results ?? []).map((r) => [r.id, r]));
-  check("C: a screened row is never ended in bulk: 409, with where to record it instead", byId[ids["Smoke Screened"]]?.status === 409 && byId[ids["Smoke Screened"]]?.errorType === "needs_confirmation" && /pending-outcome/.test(byId[ids["Smoke Screened"]]?.pendingOutcomeUrl ?? ""));
-  check("C: another user's row and a missing one are 404, and nothing else stops", byId[Object.values(theirs)[0]]?.status === 404 && byId["00000000-0000-4000-8000-000000000000"]?.status === 404 && ending.body.updated === 0 && ending.body.ok === false);
+  check("C: a screened row is never ended in bulk: 409, with where to record it instead", byId[ids["Smoke Screened"]]?.code === 409 && byId[ids["Smoke Screened"]]?.errorType === "needs_confirmation" && /pending-outcome/.test(byId[ids["Smoke Screened"]]?.pendingOutcomeUrl ?? ""));
+  check("C: another user's row and a missing one are 404, and nothing else stops", byId[Object.values(theirs)[0]]?.code === 404 && byId["00000000-0000-4000-8000-000000000000"]?.code === 404 && ending.body.updated === 0 && ending.body.ok === false);
   check("C: the screened row is untouched", (await detail(ids["Smoke Screened"])).status === "Screening");
   const theirsAfter = await fetch(`${SB}/rest/v1/applications?id=eq.${Object.values(theirs)[0]}&select=status,notes`, { headers: admin }).then((r) => r.json());
   check("C: the other user's row is untouched", theirsAfter[0]?.status === "applied" && !theirsAfter[0]?.notes);

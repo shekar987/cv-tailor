@@ -1,7 +1,7 @@
 // POST /api/applications/bulk (12 Nov 2026, Chunk 23): one call for many rows.
 //
 //   { ids: ["…", …], followup_date?: "YYYY-MM-DD" | null, status?: "Applied" | …, append_line?: "Follow-up sent" }
-//   → { ok, updated, failed, results: [{ id, ok, status, updated_at, error?, errorType?, message?, skipped? }] }
+//   → { ok, updated, failed, results: [{ id, ok, code, updated_at, error?, errorType?, message?, skipped? }] }
 //
 // Each id is written by the tracker's own PUT (../route), one row at a time with the body
 // { id, followup_date, status, append_note: append_line }, so a bulk move obeys every rule
@@ -9,8 +9,9 @@
 // row is never ended (409, pendingOutcomeUrl), an ended row is never reopened (202, held
 // as a question, ok: false), the line is stamped and skipped as a repeat within ten
 // minutes (skipped: "duplicate_note"). One row's refusal never stops the others; the
-// answer is 200 with a result per id. Send an Idempotency-Key, as on every write: a retry
-// then gets the first answer and writes nothing.
+// answer is 200 with a result per id (`code` is that row's HTTP status). Send an
+// Idempotency-Key, as on every write: a retry then gets the first answer and writes
+// nothing, so to retry only the rows that failed, send their ids under a NEW key.
 //
 // At most 100 ids a call, 20 calls a minute. No model call.
 import { NextRequest, NextResponse } from "next/server";

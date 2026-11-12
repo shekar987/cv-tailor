@@ -153,7 +153,7 @@ try {
 
   // ── Attention strip ──────────────────────────────────────────────────────
   const card = (key) => page.locator(`[data-attn="${key}"]`);
-  check("every card is a button", (await page.locator('[data-attention] button[data-attn]').count()) === 3 && (await page.locator("[data-attn-referral-open]").count()) === 1);
+  check("every card is a button", (await page.locator('[data-attention] button[data-attn]').count()) === 4 && (await page.locator("[data-attn-referral-open]").count()) === 1);
   check("Due soon counts what is due by tomorrow night, two due together as one", /^[12]\b/.test((await card("due").innerText()).trim()), (await card("due").innerText()).replace(/\s+/g, " "));
   check("its label names the day", /Due by \w+ night/.test(await card("due").innerText()));
   check("a red card carries an icon too", (await card("due").locator("svg").count()) === 1);

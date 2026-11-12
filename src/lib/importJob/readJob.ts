@@ -55,10 +55,14 @@ export async function readJobPage(url: string, fetcher: PageFetcher): Promise<Re
   if (page.status !== 200) return fail(422, "fetch_failed", `That page answered with an error (HTTP ${page.status}).`);
   const type = (page.contentType ?? "").toLowerCase();
   if (type && !/html|xml|text\/plain/.test(type)) return fail(422, "no_description", `That link is not a web page we can read (${type.split(";")[0]}). Paste the description instead.`);
-  const posting = readablePosting(page.body);
-  if (!posting) {
+  const read = readablePosting(page.body, page.url || url);
+  if (!read) {
     return fail(422, "no_description", "That page has no job description we can read: it may build the posting with JavaScript. Paste the description instead.");
   }
+  if ("several" in read) {
+    return fail(422, "no_description", `That page lists ${read.several} jobs, so we can't tell which one you mean. Send the link to the posting itself.`);
+  }
+  const posting = read.posting;
   const title = oneLine(posting.title);
   const company = oneLine(posting.company, 120);
   const location = oneLine(posting.location, 120);

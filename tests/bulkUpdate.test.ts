@@ -58,7 +58,7 @@ test("a row's answer: ok only when its write landed", () => {
   assert.deepEqual(bulkItem(IDS[0], 200, { ok: true, updated_at: "2026-11-12T10:00:00.123+00:00", notes: "the whole notes" }), {
     id: IDS[0],
     ok: true,
-    status: 200,
+    code: 200,
     updated_at: "2026-11-12T10:00:00.123+00:00",
   });
   const repeat = bulkItem(IDS[0], 200, { ok: true, skipped: "duplicate_note", notes: "x", updated_at: "t" });
@@ -67,7 +67,7 @@ test("a row's answer: ok only when its write landed", () => {
   // A sweep's Screening on a Rejected row: held as a question, nothing written.
   const asked = bulkItem(IDS[1], 202, { ok: true, applied: false, message: "Recorded for the user.", pending_outcome: { outcome: "reopen", note: "quoted words" } });
   assert.equal(asked.ok, false);
-  assert.equal(asked.status, 202);
+  assert.equal(asked.code, 202);
   assert.equal(asked.message, "Recorded for the user.");
   assert.ok(!("pending_outcome" in asked), "the quoted words never ride along");
   // Ending a screened row: refused, with where the sweep records it instead.
