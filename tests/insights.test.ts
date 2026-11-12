@@ -1,7 +1,7 @@
 // Unit tests for the tracker insights aggregation. node:test, zero deps.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeInsights, rowFromApplication, scoreOutcome, seniorityOf, MIN_DECIDED, TOP_N, MIN_FOR_VERDICT, type InsightRow } from "../src/lib/insights.ts";
+import { computeInsights, rowFromApplication, scoreOutcome, seniorityOf, MIN_DECIDED, TOP_N, MIN_FOR_VERDICT, INSIGHTS_OPEN_AT, insightsOpenByDefault, insightsClosedLine, type InsightRow } from "../src/lib/insights.ts";
 
 const row = (status: string, over: Partial<InsightRow> = {}): InsightRow => ({ status, role: "Backend Engineer", company: "Acme", ...over });
 
@@ -158,4 +158,19 @@ test("Ready to submit rows are kept out of every figure and counted on their own
   const s = scoreOutcome(rows);
   assert.equal(s.points.length, 2, "unsent rows are never plotted");
   assert.ok(!s.points.some((p) => p.score > 0.9), "the 14/15 unsent row is absent");
+});
+
+// Chunk 25 (12 Nov 2026): the Insights section stays folded on a new account.
+test("Insights opens by itself only from 10 applications with a result, and says how many it has", () => {
+  assert.equal(INSIGHTS_OPEN_AT, 10);
+  assert.equal(insightsOpenByDefault(0), false);
+  assert.equal(insightsOpenByDefault(9), false);
+  assert.equal(insightsOpenByDefault(10), true);
+  assert.equal(insightsOpenByDefault(Number.NaN), false);
+  assert.equal(insightsClosedLine(2), "Opens when 10 of your applications have a result. You have 2.");
+  assert.equal(insightsClosedLine(-1), "Opens when 10 of your applications have a result. You have 0.");
+  assert.equal(insightsClosedLine(12), "Hidden. Press Show to open it.");
+  // "A result" is what computeInsights counts as decided: an ending without progress, or progress.
+  const rows = [row("Rejected"), row("Ghosted"), row("Screening"), row("Applied"), row("Withdrawn"), row("Ready to submit")];
+  assert.equal(computeInsights(rows).decided, 3);
 });

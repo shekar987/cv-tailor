@@ -48,8 +48,8 @@ export const MAX_CLAIMS_JSON = 12_000;
 // conditions sit at the bottom of real ads. The pre-check warns; it never
 // blocks (the number itself lives with the detector in lib/knockouts.ts).
 export const JD_PARTIAL_NOTICE =
-  "This looks like part of a posting (under 1,500 characters). Eligibility conditions usually sit at the bottom of the ad, and tailoring against a fragment gives a generic CV. Paste the whole posting before spending a tailor.";
+  "This looks like only part of a job description (under 1,500 characters). The requirements are usually at the bottom of the advert. Tailoring from part of one gives a general CV. Paste the whole job description before you use a tailored CV.";
 
 export const JD_TOO_LONG = "Job description is too long (max ~15,000 characters).";
 export const CV_TOO_LONG = "CV is too long (max ~5 pages / 20,000 characters).";
-export const POOL_TOO_LONG = "Project pool is too long (max ~15,000 characters).";
+export const POOL_TOO_LONG = "Project list is too long (max ~15,000 characters).";

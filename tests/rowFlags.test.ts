@@ -15,16 +15,16 @@ const render = (row: RowFlagFields, checking = false) =>
 
 test("Missing JD / Missing CV only in Screening or Interview", () => {
   const bare = { source: "manual" };
-  assert.deepEqual(missingAttachments({ ...bare, status: "Screening" }), ["Missing JD", "Missing CV"]);
+  assert.deepEqual(missingAttachments({ ...bare, status: "Screening" }), ["Missing job description", "Missing CV"]);
   assert.deepEqual(missingAttachments({ ...bare, status: "Interview", has_job_description: true }), ["Missing CV"]);
-  assert.deepEqual(missingAttachments({ ...bare, status: "Interview", sent_cv_name: "cv.pdf" }), ["Missing JD"]);
+  assert.deepEqual(missingAttachments({ ...bare, status: "Interview", sent_cv_name: "cv.pdf" }), ["Missing job description"]);
   assert.deepEqual(missingAttachments({ ...bare, status: "Screening", has_job_description: true, sent_cv_name: "cv.pdf" }), []);
   for (const status of ["Ready to submit", "Applied", "Offer", "Rejected", "Withdrawn"]) assert.deepEqual(missingAttachments({ ...bare, status }), [], status);
 });
 
 test("a tailored row carries its CV in the snapshot", () => {
   assert.deepEqual(missingAttachments({ status: "Interview", source: "tailored", has_job_description: true }), []);
-  assert.deepEqual(missingAttachments({ status: "Interview", source: "tailored" }), ["Missing JD"]);
+  assert.deepEqual(missingAttachments({ status: "Interview", source: "tailored" }), ["Missing job description"]);
 });
 
 test("the Missing filter's test picks exactly the flagged rows", () => {
@@ -47,14 +47,14 @@ test("rowCheck: a row made outside /app is not checked until it is; a tailored r
   assert.deepEqual(rowCheck({ status: "Applied", source: "manual", triage_verdict: "apply" }), { kind: "checked", verdict: "apply", reasons: [] });
 });
 
-test("the badge: Not checked + Run check; Not checked + Add JD to check; the verdict once checked", () => {
+test("the badge: Not checked + Run check; Not checked + Add a job description to check; the verdict once checked", () => {
   const run = render({ status: "Applied", source: "manual", has_job_description: true });
   assert.match(run, /data-not-checked="true">Not checked</);
   assert.match(run, /data-run-check="true"[^>]*>Run check</);
-  assert.doesNotMatch(run, /Add JD to check/);
+  assert.doesNotMatch(run, /Add a job description to check/);
   const add = render({ status: "Applied", source: "manual" });
   assert.match(add, /Not checked/);
-  assert.match(add, /data-add-jd-check="true"[^>]*>Add JD to check</);
+  assert.match(add, /data-add-jd-check="true"[^>]*>Add a job description to check</);
   assert.doesNotMatch(add, /Run check/);
   const busy = render({ status: "Applied", source: "manual", has_job_description: true }, true);
   assert.match(busy, /disabled=""[^>]*>Checking…</);
@@ -65,9 +65,9 @@ test("the badge: Not checked + Run check; Not checked + Add JD to check; the ver
 
 test("the badge: amber Missing JD / Missing CV beside the rest; nothing when a row has nothing to say", () => {
   const html = render({ status: "Interview", source: "manual" });
-  assert.match(html, /rowFlag--missing" data-missing="Missing JD">Missing JD</);
+  assert.match(html, /rowFlag--missing" data-missing="Missing job description">Missing job description</);
   assert.match(html, /rowFlag--missing" data-missing="Missing CV">Missing CV</);
-  assert.match(html, /Add JD to check/);
+  assert.match(html, /Add a job description to check/);
   assert.equal(render({ status: "Applied", source: "tailored", has_job_description: true }), "");
 });
 

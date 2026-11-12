@@ -18,7 +18,7 @@ import { localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { saveBlob } from "@/lib/saveBlob";
 import { matchesSearch, MAX_SEARCH_CHARS } from "@/lib/trackerSearch";
 import { MAX_JD_CHARS as JD_LIMIT, MAX_NOTES_CHARS, JD_TOO_LONG } from "@/lib/limits";
-import { MIN_DECIDED, MIN_FOR_VERDICT, seniorityOf, type Insights, type Bucket, type ScoreOutcome, type ScoreVerdict, type Seniority } from "@/lib/insights";
+import { MIN_DECIDED, MIN_FOR_VERDICT, insightsClosedLine, insightsOpenByDefault, seniorityOf, type Insights, type Bucket, type ScoreOutcome, type ScoreVerdict, type Seniority } from "@/lib/insights";
 import { bandFor, type VisibilityBand } from "@/lib/visibilityVerdict";
 import { gateLine, type GatesSummary } from "@/lib/knockouts";
 import { rowStyle, isFormatStyleId, normalizeFormatStyle, ROW_STYLE_LABELS, type RowStyle } from "@/lib/formatStyles/ids";
@@ -237,7 +237,7 @@ function letterFileName(cvReference: string | null): string {
 // sentence and a fixed verdict label. Counts, never a model's grade; the
 // panel says so when the score predicts nothing. The per-application list
 // stays behind "As a table".
-const VERDICT_LABEL: Record<ScoreVerdict, string> = { too_few: "Too few to judge", no_signal: "No signal", weak: "Weak signal", signal: "Signal" };
+const VERDICT_LABEL: Record<ScoreVerdict, string> = { too_few: "Not enough results yet", no_signal: "No link found", weak: "Weak link", signal: "Clear link" };
 const BAND_ROWS: { band: VisibilityBand; label: string; range: string }[] = [
   { band: "ready", label: "Ready", range: "75%+" },
   { band: "borderline", label: "Borderline", range: "50–74%" },
@@ -255,13 +255,13 @@ function ScoreOutcomePanel({ s }: { s: ScoreOutcome }) {
     s.points.length < s.topN
       ? null
       : s.topAllRejected
-        ? `Your ${s.topN} highest-scoring decided applications were all rejected.`
-        : `Of your ${s.topN} highest-scoring decided applications, ${topProgressed} progressed.`;
+        ? `Your ${s.topN} highest-scoring applications with a result were all rejected.`
+        : `Of your ${s.topN} highest-scoring applications with a result, ${topProgressed} progressed.`;
   const verdictLine =
     s.verdict === "too_few"
-      ? `${s.points.length} scored application${s.points.length === 1 ? " has" : "s have"} an outcome${s.auc === null ? ", all of one kind" : ""}; a read needs ${MIN_FOR_VERDICT} with both outcomes.`
+      ? `${s.points.length} scored application${s.points.length === 1 ? " has" : "s have"} a result${s.auc === null ? ", all of one kind" : ""}. We need ${MIN_FOR_VERDICT}, with both kinds of result, before we can say.`
       : s.verdict === "no_signal"
-        ? "The score does not predict the outcome so far. Treat it as a checklist of the role's terms, not a forecast."
+        ? "So far, a higher score has not meant a better result. Use the score as a checklist of the job's key words, not as a prediction."
         : s.verdict === "weak"
           ? "A weak relationship at best: higher scores progressed slightly more often."
           : "Higher scores have progressed more often.";
@@ -271,7 +271,7 @@ function ScoreOutcomePanel({ s }: { s: ScoreOutcome }) {
         {s.auc !== null && (
           <>
             Pick one progressed and one rejected application at random: the progressed one has the higher score{" "}
-            <strong>{pct(s.auc)}</strong> of the time. 50% would be a coin flip.{" "}
+            <strong>{pct(s.auc)}</strong> of the time. 50% would mean the score tells you nothing.{" "}
           </>
         )}
         {verdictLine}
@@ -308,7 +308,7 @@ function ScoreOutcomePanel({ s }: { s: ScoreOutcome }) {
         </li>
         {s.unscoredDecided > 0 && (
           <li>
-            {s.unscoredDecided} decided application{s.unscoredDecided === 1 ? " has" : "s have"} no stored score and {s.unscoredDecided === 1 ? "is" : "are"} not counted here.
+            {s.unscoredDecided} application with a result{s.unscoredDecided === 1 ? " has" : "s have"} no stored score and {s.unscoredDecided === 1 ? "is" : "are"} not counted here.
           </li>
         )}
         {s.pendingScored > 0 && <li>{s.pendingScored} scored application{s.pendingScored === 1 ? " is" : "s are"} still open.</li>}
@@ -374,9 +374,8 @@ function LaneTile({ lanes }: { lanes: Lane[] }) {
       <span className="statTile__label">{LANE_LABEL[best.level]} progress most</span>
       <span className="statTile__sub">
         {lanes
-          .map((l) => `${LANE_LABEL[l.level].replace(" titles", "")}: ${l.rate === null ? `${l.decided} of ${MIN_DECIDED} decided needed` : `${pct(l.rate)} of ${l.decided} decided`} (${l.applied} applied)`)
-          .join(" · ")}
-        . Read off each row&apos;s title.
+          .map((l) => `${LANE_LABEL[l.level].replace(" titles", "")}: ${l.rate === null ? `${l.decided} of ${MIN_DECIDED} results needed` : `${pct(l.rate)} of ${l.decided} with a result`} (${l.applied} applied)`)
+          .join(" · ")}. Read off each application&apos;s title.
       </span>
     </div>
   );
@@ -394,11 +393,11 @@ function StyleTile({ insights }: { insights: Insights }) {
     <div className="statTile" data-stat="style" data-style-best={best ? best.key : "none"}>
       <span className="statTile__value">{best ? pct(best.rate ?? 0) : "—"}</span>
       <span className="statTile__label">
-        {rated.length >= 2 ? `${best!.label} style progresses most` : best ? `${best.label} style, so far` : "Format style: too few to judge"}
+        {rated.length >= 2 ? `${best!.label} style progresses most` : best ? `${best.label} style, so far` : "Format style: not enough results yet"}
       </span>
       <span className="statTile__sub">
         {insights.byStyle
-          .map((b) => `${b.label}: ${b.rate === null ? `${b.progressed + b.rejected} of ${MIN_DECIDED} decided needed` : `${pct(b.rate)} of ${b.progressed + b.rejected} decided`} (${b.n} applied)`)
+          .map((b) => `${b.label}: ${b.rate === null ? `${b.progressed + b.rejected} of ${MIN_DECIDED} results needed` : `${pct(b.rate)} of ${b.progressed + b.rejected} with a result`} (${b.n} applied)`)
           .join(" · ")}
         {insights.styleNotRecorded > 0 ? ` · ${insights.styleNotRecorded} with no recorded style, not compared` : ""}.
       </span>
@@ -415,16 +414,16 @@ function InsightsSummary({ insights, withoutJd, withoutCv, lanes, showStyle }: {
       {showStyle && <StyleTile insights={insights} />}
       <div className="statTile" data-stat="rate">
         <span className="statTile__value">{insights.overallRate === null ? "—" : `${Math.round(insights.overallRate * 100)}%`}</span>
-        <span className="statTile__label">Progressed past the screen</span>
+        <span className="statTile__label">Reached screening or further</span>
         <span className="statTile__sub">
           {insights.overallRate === null
-            ? `${insights.decided} of the ${MIN_DECIDED} decided applications the rate needs`
-            : `${insights.progressed} of ${insights.decided} decided`}
+            ? `${insights.decided} of the ${MIN_DECIDED} results needed`
+            : `${insights.progressed} of ${insights.decided} with a result`}
         </span>
       </div>
       <div className="statTile" data-stat="open">
         <span className="statTile__value">{open}</span>
-        <span className="statTile__label">Still open</span>
+        <span className="statTile__label">Still waiting</span>
         <span className="statTile__sub">
           {insights.rejected} rejected · {insights.progressed} progressed
           {insights.readyToSubmit > 0 ? ` · ${insights.readyToSubmit} ready to submit, not counted` : ""}
@@ -438,7 +437,7 @@ function InsightsSummary({ insights, withoutJd, withoutCv, lanes, showStyle }: {
         <span className="statTile__label">With a search-visibility score</span>
         <span className="statTile__sub">
           {insights.scored === 0
-            ? "kept from the next tailored run you save"
+            ? "kept from the next tailored CV you save"
             : `${insights.gated > 0 ? `${insights.gated} with an eligibility read` : "no eligibility reads yet"}${unscored > 0 ? `; ${unscored} count in the rate only` : ""}`}
         </span>
       </div>
@@ -449,8 +448,7 @@ function InsightsSummary({ insights, withoutJd, withoutCv, lanes, showStyle }: {
           <span className="statTile__sub" data-insights-gaps>
             {withoutJd > 0 && `${withoutJd} application${withoutJd === 1 ? " has" : "s have"} no job description`}
             {withoutJd > 0 && withoutCv > 0 && "; "}
-            {withoutCv > 0 && `${withoutCv} added by hand ${withoutCv === 1 ? "has" : "have"} no CV file`}. Nothing can be read from them — add them from the
-            row&apos;s JD and CV cells.
+            {withoutCv > 0 && `${withoutCv} added by hand ${withoutCv === 1 ? "has" : "have"} no CV file`}. We cannot learn anything from them. Add the job description and the CV on each application.
           </span>
         </div>
       )}
@@ -473,7 +471,7 @@ function InsightGroup({ title, buckets }: { title: string; buckets: Bucket[] }) 
             b.rate === null
               ? decided === 0
                 ? "none decided yet"
-                : `too few decided (${decided})`
+                : `not enough results yet (${decided})`
               : `${Math.round(b.rate * 100)}% progressed (${b.progressed} of ${decided})`;
           return (
             <div key={b.key} data-insight-bucket={b.key}>
@@ -672,6 +670,9 @@ export default function ApplicationsPage() {
   // Decided applications against their stored score (lib/insights scoreOutcome).
   const [scoreOutcome, setScoreOutcome] = useState<ScoreOutcome | null>(null);
   const [showInsights, setShowInsights] = useState(false);
+  // The Insights section: folded until the account has enough results (lib/insights
+  // INSIGHTS_OPEN_AT); null = the user has not chosen, so the rule decides.
+  const [insightsOpen, setInsightsOpen] = useState<boolean | null>(null);
   const rowsRef = useRef<Application[]>([]);
   const autoCloseNote = useRef<string | null>(null);
   rowsRef.current = rows;
@@ -959,7 +960,7 @@ export default function ApplicationsPage() {
         const body = await res.json().catch(() => ({}));
         if (cancelled) return;
         if (!res.ok) {
-          setEventsError(res.status === 401 ? "" : "Couldn't load your next steps, so stages show the stored status.");
+          setEventsError(res.status === 401 ? "" : "Couldn't load your next steps, so each application shows its saved status.");
           return;
         }
         setEvents((body.events ?? []) as PlanEvent[]);
@@ -967,7 +968,7 @@ export default function ApplicationsPage() {
         setEventsError("");
       })
       .catch(() => {
-        if (!cancelled) setEventsError("Couldn't load your next steps, so stages show the stored status.");
+        if (!cancelled) setEventsError("Couldn't load your next steps, so each application shows its saved status.");
       })
       .finally(() => {
         if (!cancelled) setEventsSettled(true);
@@ -1197,6 +1198,8 @@ export default function ApplicationsPage() {
 
   // Progression by the level the title reads as, over every row.
   const lanes = useMemo(() => laneStats(rows), [rows]);
+  const insightsAvailable = !!insights && (insights.counted >= 5 || (!!scoreOutcome && scoreOutcome.points.length > 0));
+  const insightsShown = insightsOpen ?? insightsOpenByDefault(insights?.decided ?? 0);
 
   // Rows marked Applied whose notes say they were never sent (lib/tracker).
   const notSubmitted = useMemo(() => rows.filter((r) => r.status === "applied" && r.notes_not_submitted), [rows]);
@@ -1268,7 +1271,7 @@ export default function ApplicationsPage() {
     if (status === 202) {
       const stored = normalizeStatus(data.status);
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...undo, ...(stored ? { status: stored } : {}), pending_outcome: normalizePendingOutcome(data.pending_outcome) } : r)));
-      return "This application changed since this page loaded, so nothing was saved. Its row now shows where it stands.";
+      return "This application changed after this page loaded, so nothing was saved. The list now shows where it stands.";
     }
     if (!ok) {
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...undo } : r)));
@@ -1320,7 +1323,7 @@ export default function ApplicationsPage() {
     }
     // Text this write added said when to apply again: it is a company rule now.
     if (Array.isArray(data.companyRules) && data.companyRules.length > 0) {
-      ruleNote.current = `Reapply rule saved for ${previous.company_name}. JD triage now checks it before any credit.`;
+      ruleNote.current = `Reapply rule saved for ${previous.company_name}. The job check now uses it before you tailor.`;
       void loadCompanyRules(true);
     }
     flashRow(id);
@@ -1372,7 +1375,7 @@ export default function ApplicationsPage() {
     if ("rows" in result) setRows(result.rows);
     setBulkReady("dismissed");
     if (failures.length) setActionError(failures.join(" · "));
-    else showFlash(`Moved ${notSubmitted.length} row${notSubmitted.length === 1 ? "" : "s"} to Ready to submit.`);
+    else showFlash(`Moved ${notSubmitted.length} application${notSubmitted.length === 1 ? "" : "s"} to Ready to submit.`);
   }
 
   // ── Cell editing ──────────────────────────────────────────────────────────
@@ -1523,7 +1526,7 @@ export default function ApplicationsPage() {
     const note = removedStageNote(stage, new Date());
     const yes = await confirm({
       title: `Remove ${STATUS_LABELS[stage]} from ${row.company_name}?`,
-      message: `Only if it never got that far and you picked it by mistake. It comes off this row's record and any count that relied on it, and the row's notes will say: "${note}".`,
+      message: `Only if it never got that far and you picked it by mistake. It comes off this application's record and any count that used it. The application's notes will say: "${note}".`,
       confirmLabel: "Remove stage",
       danger: true,
     });
@@ -1881,7 +1884,7 @@ export default function ApplicationsPage() {
       showFlash(message);
       return;
     }
-    showFlash(from === "me" ? "Reply recorded." : "Recorded: they wrote. It shows as Reply owed after a day without your reply.");
+    showFlash(from === "me" ? "Reply recorded." : "Recorded: they wrote. It shows “You need to reply” after a day without your reply.");
   }
 
   // A referral's next step, from the row's menu (lib/referrals).
@@ -2054,7 +2057,7 @@ export default function ApplicationsPage() {
           {cellError && <span className="appsCellError" role="alert">{cellError}</span>}
           {!cellError && field === "role" && roleTooLong(cellDraft) && (
             <span className="appsCellHint" data-role-long>
-              {cellDraft.trim().length} characters — the sheet and insights work best with the job title alone; put the rest in Notes.
+              {cellDraft.trim().length} characters. Applications works best with the job title alone; put the rest in Notes.
             </span>
           )}
         </>
@@ -2101,7 +2104,7 @@ export default function ApplicationsPage() {
               )}
             </div>
           )}
-          <div><span className="label">Eligibility read</span><span className="cvHelp" data-gate={gate.label}>{gate.detail || gate.label}</span></div>
+          <div><span className="label">Free check&apos;s advice</span><span className="cvHelp" data-gate={gate.label}>{gate.detail || gate.label}</span></div>
           {/* Keyed by the deadline too, so a Done elsewhere is never saved back from stale fields. */}
           <DeadlineEditor
             key={`${row.id}:${row.next_deadline ?? ""}`}
@@ -2175,7 +2178,7 @@ export default function ApplicationsPage() {
   async function snoozeStep(event: PlanEvent) {
     if (!(await putEvent({ id: event.id, snooze: true }))) return;
     showToast({
-      message: "Snoozed on the Action Centre for a day. The deadline itself has not moved.",
+      message: "Hidden on To do for a day. The deadline itself has not moved.",
       undo: async () => {
         await putEvent({ id: event.id, snooze: false });
       },
@@ -2208,7 +2211,7 @@ export default function ApplicationsPage() {
   async function deleteRow(row: Application) {
     const yes = await confirm({
       title: `Delete ${row.company_name}?`,
-      message: "This removes the row, its events and any CV file kept with it. It can't be undone.",
+      message: "This removes the application, its events and any CV file kept with it. It can't be undone.",
       confirmLabel: "Delete",
       danger: true,
     });
@@ -2228,9 +2231,9 @@ export default function ApplicationsPage() {
     ];
     if (event) {
       items.push({ key: "done", label: "Mark done", onSelect: () => void markStepDone(event) });
-      items.push({ key: "snooze", label: "Snooze 1 day", disabled: !snoozable, hint: snoozable ? undefined : "Due within 24 hours, so it stays on your list.", onSelect: () => void snoozeStep(event) });
+      items.push({ key: "snooze", label: "Hide for 1 day", disabled: !snoozable, hint: snoozable ? undefined : "Due within 24 hours, so it stays on your list.", onSelect: () => void snoozeStep(event) });
     }
-    items.push({ key: "edit-row", label: "Edit row", onSelect: () => { if (!(panel?.id === row.id && panel.kind === "edit")) togglePanel(row, "edit"); } });
+    items.push({ key: "edit-row", label: "Edit application", onSelect: () => { if (!(panel?.id === row.id && panel.kind === "edit")) togglePanel(row, "edit"); } });
     if (reachedScreening(row) && !isEnding(row.status)) {
       const banner = pendingBanner(row);
       const pending = banner?.kind === "close" ? banner.pending : undefined;
@@ -2251,11 +2254,11 @@ export default function ApplicationsPage() {
       },
     });
     items.push({ key: "cv", label: row.source === "tailored" || row.sent_cv_name ? "View CV" : "Add CV", onSelect: () => togglePanel(row, "cv") });
-    items.push({ key: "jd", label: row.has_job_description ? "View JD" : "Add JD", onSelect: () => togglePanel(row, "jd") });
+    items.push({ key: "jd", label: row.has_job_description ? "View job description" : "Add job description", onSelect: () => togglePanel(row, "jd") });
     items.push({ key: "notes", label: row.notes_preview || row.notes_more ? "Notes" : "Add notes", onSelect: () => togglePanel(row, "notes") });
-    items.push({ key: "prep", label: row.prep_generated_at ? "Prep pack ✓" : "Prep pack", href: `/applications/${row.id}/prep` });
+    items.push({ key: "prep", label: row.prep_generated_at ? "Interview pack ✓" : "Interview pack", href: `/applications/${row.id}/prep` });
     items.push({ key: "mock", label: "Mock interview", href: `/applications/${row.id}/interview` });
-    if (check?.kind === "run") items.push({ key: "run-check", label: "Run JD check", disabled: checkingId === row.id, onSelect: () => void runCheck(row) });
+    if (check?.kind === "run") items.push({ key: "run-check", label: "Check this job", disabled: checkingId === row.id, onSelect: () => void runCheck(row) });
     if (referralNext) items.push({ key: "referral-step", label: `Mark ${REFERRAL_STATUS_LABELS[referralNext].toLowerCase()}`, disabled: referralBusy === row.id, onSelect: () => void stepReferral(row, referralNext) });
     for (const stage of removableStages(row)) items.push({ key: `remove-${stage}`, label: removeStageLabel(stage), onSelect: () => void removeStage(row, stage) });
     items.push({ key: "delete", label: "Delete", danger: true, disabled: deletingId === row.id, onSelect: () => void deleteRow(row) });
@@ -2338,7 +2341,7 @@ export default function ApplicationsPage() {
             />
             {isReplyOwed(row, now) && (
               <span className="replyOwed" data-reply-owed>
-                <span className="replyOwed__badge" title={`They wrote on ${formatDate(row.last_contact_at?.slice(0, 10) ?? null)} and no reply is recorded since.`}>Reply owed</span>
+                <span className="replyOwed__badge" title={`They wrote on ${formatDate(row.last_contact_at?.slice(0, 10) ?? null)} and no reply is recorded since.`}>You need to reply</span>
                 <button type="button" className="inlineLink" onClick={() => void recordContact(row, "me")} aria-label={`I replied to ${row.company_name}`} data-reply-done>I replied</button>
               </span>
             )}
@@ -2471,7 +2474,7 @@ export default function ApplicationsPage() {
           ) : !hasSnapshot ? (
             row.source === "tailored" ? (
               <p className="appsMuted">
-                No CV snapshot is stored for this application — it was saved before CV snapshots existed.
+                No copy of the CV is saved for this application. It was saved before Jobhuntz kept copies.
               </p>
             ) : null
           ) : (
@@ -2583,7 +2586,7 @@ export default function ApplicationsPage() {
               <Textarea
                 value={jdDraft}
                 onChange={(e) => setJdDraft(e.target.value)}
-                placeholder="Paste the job posting — you'll want it for interview prep weeks from now."
+                placeholder="Paste the job description. You will want it for interview prep weeks from now."
                 rows={10}
                 disabled={panelBusy}
                 aria-label="Job description"
@@ -2717,7 +2720,7 @@ export default function ApplicationsPage() {
           today={dayKey(clock, tz)}
           onSaved={(rule) => {
             setCompanyRules((all) => [rule, ...(all ?? []).filter((r) => r.id !== rule.id)]);
-            showFlash(rule.dismissed_at ? "Rule switched off." : `Reapply rule saved for ${rule.company_name}. JD triage checks it before any credit.`);
+            showFlash(rule.dismissed_at ? "Rule switched off." : `Reapply rule saved for ${rule.company_name}. The job check uses it before you tailor.`);
           }}
         />
         <ReferralEditor key={row.id} row={row} onSave={(fields) => saveReferral(row, fields)} />
@@ -2780,7 +2783,7 @@ export default function ApplicationsPage() {
           actions={
             <>
               {hasRows && visible.length > 0 && !winsOpen && (
-                <Button variant="ghost" onClick={exportCsv} disabled={exporting} title={`Export these ${visible.length} rows as a CSV`} data-apps-export>
+                <Button variant="ghost" onClick={exportCsv} disabled={exporting} title={`Export these ${visible.length} applications as a CSV`} data-apps-export>
                   {exporting ? "Exporting…" : "Export"}
                 </Button>
               )}
@@ -2990,7 +2993,7 @@ export default function ApplicationsPage() {
               </>
             ) : (
               <>
-                <p>These rows would move to <strong>Ready to submit</strong> (not counted as applications until you move them back):</p>
+                <p>These applications would move to <strong>Ready to submit</strong> (not counted as applications until you move them back):</p>
                 <ul className="atsList">
                   {notSubmitted.map((r) => (
                     <li key={r.id}>
@@ -3024,13 +3027,12 @@ export default function ApplicationsPage() {
               title="No applications yet"
               actions={
                 <>
-                  <Button onClick={startNewRow}>+ Add row</Button>
+                  <Button onClick={startNewRow}>+ Add application</Button>
                   <Button variant="secondary" href="/app">Tailor a CV</Button>
                 </>
               }
             >
-              Tailor a CV and click <strong>Applied</strong> to track it here, or add a row for one you sent
-              through another channel.
+              Tailor a CV and click <strong>Applied</strong> to save it here. You can also add an application you sent another way.
             </EmptyState>
           </Card>
         )}
@@ -3039,7 +3041,7 @@ export default function ApplicationsPage() {
           <Card data-view-loading><Skeleton lines={3} label="Loading these applications" /></Card>
         )}
         {hasRows && !viewLoading && stageTabNow && visible.length === 0 && !newRow && noFilters && (
-          <p className="fitEvidence" data-live-empty>Nothing live at this stage.</p>
+          <p className="fitEvidence" data-live-empty>No open applications at this stage.</p>
         )}
         {hasRows && !viewLoading && visible.length === 0 && !newRow && !winsOpen && !(stageTabNow && noFilters) && (
           <Card variant="dashed">
@@ -3239,13 +3241,12 @@ export default function ApplicationsPage() {
                         <td colSpan={COL_COUNT}>
                           {newRowDuplicate && (
                             <span className="appsCellHint" role="status" data-dup-warning>
-                              You already have <strong>{newRowDuplicate.company_name}</strong> — {newRowDuplicate.role} ({formatDate(newRowDuplicate.date_applied)}, {statusLabel(newRowDuplicate.status)}).
-                              Save anyway only if this is a different posting.
+                              You already have <strong>{newRowDuplicate.company_name}</strong> — {newRowDuplicate.role} ({formatDate(newRowDuplicate.date_applied)}, {statusLabel(newRowDuplicate.status)}). Save anyway only if this is a different job.
                             </span>
                           )}
                           {newRowRoleLong && (
                             <span className="appsCellHint" role="status" data-role-long>
-                              {newRow.role.trim().length} characters is long for a role (over {ROLE_WARN_CHARS}) — the sheet and insights work best with the job title alone; put the rest in Notes.
+                              {newRow.role.trim().length} characters is long for a role (over {ROLE_WARN_CHARS}). Applications works best with the job title alone; put the rest in Notes.
                             </span>
                           )}
                         </td>
@@ -3275,7 +3276,7 @@ export default function ApplicationsPage() {
                                 className="replyOwed__badge"
                                 title={`They wrote on ${formatDate(row.last_contact_at?.slice(0, 10) ?? null)} and no reply is recorded since.`}
                               >
-                                Reply owed
+                                You need to reply
                               </span>
                               <button
                                 type="button"
@@ -3336,7 +3337,7 @@ export default function ApplicationsPage() {
                             className={"appsLinkBtn" + (panelIs("jd") ? " active" : "") + (row.has_job_description ? "" : " muted")}
                             onClick={() => togglePanel(row, "jd")}
                           >
-                            {row.has_job_description ? "View JD" : "Add JD"}
+                            {row.has_job_description ? "View job description" : "Add job description"}
                           </button>
                         </td>
                         <td data-label="Gate">
@@ -3345,7 +3346,7 @@ export default function ApplicationsPage() {
                             return (
                               <>
                                 <span
-                                  className={"appsGateDot " + (line.label === "Knockout" ? "knockout" : line.label === "Clear" ? "matched" : line.label === "Long shot" ? "longshot" : "muted")}
+                                  className={"appsGateDot " + (line.label === "Knockout" ? "knockout" : line.label === "Clear" ? "matched" : line.label === "Low chance" ? "longshot" : "muted")}
                                   title={line.detail}
                                   data-gate={line.label}
                                 >
@@ -3415,7 +3416,7 @@ export default function ApplicationsPage() {
                                   (row.prep_generated_at || row.status === "screening" || row.status === "interview" ? " primary" : "")
                                 }
                                 aria-label={`Interview prep for ${row.company_name}`}
-                                title={row.prep_generated_at ? "Open your prep pack" : "Prepare for the interview"}
+                                title={row.prep_generated_at ? "Open your interview pack" : "Prepare for the interview"}
                               >
                                 {row.prep_generated_at ? "Prep ✓" : "Prep"}
                               </Link>
@@ -3456,7 +3457,7 @@ export default function ApplicationsPage() {
                   ← Previous
                 </button>
                 <span className="appsCount">
-                  Page {sheet.page} of {sheet.pages} · {PAGE_SIZE} rows a page
+                  Page {sheet.page} of {sheet.pages} · {PAGE_SIZE} applications a page
                 </span>
                 <button type="button" className="appsActionBtn" onClick={() => goToPage(sheet.page + 1)} disabled={sheet.page === sheet.pages}>
                   Next →
@@ -3487,11 +3488,11 @@ export default function ApplicationsPage() {
                 {!fullLoaded && <span className="appsFootNote" data-apps-loading-rest> · loading the rest</span>}
               </span>
               {!attention && !searchTerm && tabNow === "closed" && (
-                <span className="appsFootNote" data-closed-breakdown>{fmt(rejectedCount)} rejected · {fmt(withdrawnCount)} withdrawn · {fmt(ghostedCount)} ghosted</span>
+                <span className="appsFootNote" data-closed-breakdown>{fmt(rejectedCount)} rejected · {fmt(withdrawnCount)} withdrawn · {fmt(ghostedCount)} no reply</span>
               )}
               {elsewhere > 0 && (
                 <span className="appsFootNote" data-counted-elsewhere>
-                  {elsewhere} more stored as {tabNow !== "all" ? TAB_LABELS[tabNow] : ""} {elsewhere === 1 ? "counts" : "count"} under Assessment: a test is open.
+                  {elsewhere} more with the status {tabNow !== "all" ? TAB_LABELS[tabNow] : ""} {elsewhere === 1 ? "is" : "are"} shown under Assessment, because a test is waiting.
                 </span>
               )}
             </div>
@@ -3512,43 +3513,63 @@ export default function ApplicationsPage() {
               }}
               data-stage-sheet
             >
-              {spreadsheet ? "← Back to the list" : "Open as spreadsheet →"}
+              {spreadsheet ? "← Back to the list" : "Open as a table →"}
             </button>
           </div>
         )}
 
         {/* The insights read off the sheet above them: the figures come second,
-            the rows first. */}
-        {insights && insights.counted >= 5 && (
-          <Card data-insights title={insightsNote || undefined}>
+            the rows first. One section, folded until the account has 10 results. */}
+        {insightsAvailable && insights && (
+          <Card data-insights data-open={insightsShown ? "" : undefined} title={insightsNote || undefined}>
             <div className="appsPanelHead">
-              <span className="appsPanelTitle">What&apos;s working</span>
+              <span className="appsPanelTitle">Insights</span>
               <button
                 type="button"
                 className="appsActionBtn"
-                onClick={() => setShowInsights((v) => !v)}
-                aria-expanded={showInsights}
+                onClick={() => setInsightsOpen(!insightsShown)}
+                aria-expanded={insightsShown}
+                aria-label={insightsShown ? "Hide Insights" : "Show Insights"}
+                data-insights-toggle
               >
-                {showInsights ? "Hide" : "Show breakdown"}
+                {insightsShown ? "Hide" : "Show"}
               </button>
             </div>
-            <InsightsSummary insights={insights} withoutJd={withoutJd} withoutCv={withoutCv} lanes={lanes} showStyle={isOwner} />
-            {showInsights && (
+            {!insightsShown && (
+              <p className="fitEvidence" data-insights-closed>{insightsClosedLine(insights.decided)}</p>
+            )}
+            {insightsShown && insights.counted >= 5 && (
+              <>
+                <div className="appsPanelHead">
+                  <span className="appsPanelTitle">How your applications are doing</span>
+                  <button
+                    type="button"
+                    className="appsActionBtn"
+                    onClick={() => setShowInsights((v) => !v)}
+                    aria-expanded={showInsights}
+                  >
+                    {showInsights ? "Hide details" : "Show details"}
+                  </button>
+                </div>
+                <InsightsSummary insights={insights} withoutJd={withoutJd} withoutCv={withoutCv} lanes={lanes} showStyle={isOwner} />
+              </>
+            )}
+            {insightsShown && insights.counted >= 5 && showInsights && (
               <>
                 <InsightGroup title="By search visibility of the saved CV" buckets={insights.byVisibility} />
                 <InsightGroup title="By required-skill coverage" buckets={insights.byRequired} />
-                <InsightGroup title="By eligibility read at the pre-check" buckets={insights.byGate} />
+                <InsightGroup title="By the free check's advice" buckets={insights.byGate} />
                 <InsightGroup title="By role seniority" buckets={insights.bySeniority} />
                 <InsightGroup title="By role" buckets={insights.byRole} />
                 <InsightGroup title="By company" buckets={insights.byCompany} />
-                <InsightGroup title="By how the row was made" buckets={insights.bySource} />
+                <InsightGroup title="By how the application was added" buckets={insights.bySource} />
                 <InsightGroup title="By follow-up date" buckets={insights.byFollowup} />
                 <InsightGroup title="By page count of the CV sent" buckets={insights.byPages} />
-                <InsightGroup title="By posting age when you applied" buckets={insights.byPostingAge} />
+                <InsightGroup title="By the age of the job advert when you applied" buckets={insights.byPostingAge} />
                 {isOwner && <InsightGroup title="By format style" buckets={insights.byStyle} />}
                 {insights.byVisibility.length + insights.byRequired.length + insights.byGate.length === 0 && (
                   <p className="fitEvidence">
-                    Score and eligibility bands appear once applications saved from a tailored run have outcomes.
+                    Score and eligibility groups appear when applications saved from Tailor have a result.
                   </p>
                 )}
               </>
@@ -3556,10 +3577,10 @@ export default function ApplicationsPage() {
           </Card>
         )}
 
-        {scoreOutcome && scoreOutcome.points.length > 0 && (
+        {insightsShown && scoreOutcome && scoreOutcome.points.length > 0 && (
           <Card data-score-outcome data-score-verdict={scoreOutcome.verdict}>
             <div className="appsPanelHead">
-              <span className="appsPanelTitle">Does the score predict the outcome?</span>
+              <span className="appsPanelTitle">Do higher scores get further?</span>
               <span className="verdictPill" data-verdict={scoreOutcome.verdict}>{VERDICT_LABEL[scoreOutcome.verdict]}</span>
             </div>
             <ScoreOutcomePanel s={scoreOutcome} />

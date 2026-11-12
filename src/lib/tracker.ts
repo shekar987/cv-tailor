@@ -28,7 +28,7 @@ export const STATUS_LABELS: Record<Status, string> = {
   accepted: "Won",
   rejected: "Rejected",
   withdrawn: "Withdrawn",
-  ghosted: "Ghosted",
+  ghosted: "No reply",
 };
 
 // Stored rows may still hold the old labels ("Applied", "Ready to submit"):
@@ -275,12 +275,12 @@ export type RowFlagFields = {
   triage_verdict?: "apply" | "review" | "skip";
   triage_reasons?: string[];
 };
-export function missingAttachments(row: RowFlagFields): ("Missing JD" | "Missing CV")[] {
+export function missingAttachments(row: RowFlagFields): ("Missing job description" | "Missing CV")[] {
   // A cold email has no posting and was sent without a CV file: nothing is missing.
   if (row.source === "cold-email") return [];
   if (!ATTACHMENT_STATUSES.has(normalizeStatus(row.status) ?? "")) return [];
-  const out: ("Missing JD" | "Missing CV")[] = [];
-  if (!row.has_job_description) out.push("Missing JD");
+  const out: ("Missing job description" | "Missing CV")[] = [];
+  if (!row.has_job_description) out.push("Missing job description");
   if (row.source !== "tailored" && !row.sent_cv_name) out.push("Missing CV");
   return out;
 }
@@ -327,14 +327,14 @@ export type SendConfirmInput = {
 
 export function sendConfirmReasons(input: SendConfirmInput): string[] {
   const reasons: string[] = [];
-  if (input.band === "weak") reasons.push("The search-visibility score is weak: fewer than half of the role's terms are in this CV.");
-  if (input.read === "skip") reasons.push("The eligibility read was \"likely auto-rejected\": the posting screens on a condition this profile does not meet.");
-  else if (input.read === "long_shot") reasons.push("The eligibility read was \"long shot\": one of the posting's conditions is a stretch for this profile.");
+  if (input.band === "weak") reasons.push("The search-visibility score is weak: fewer than half of the job's key words are in this CV.");
+  if (input.read === "skip") reasons.push("The free check's advice was \"likely to be rejected automatically\": the job description screens on a condition you do not meet.");
+  else if (input.read === "long_shot") reasons.push("The free check's advice was \"low chance\": you only partly meet one of the job's conditions.");
   if (input.duplicate) {
     const d = input.duplicate;
     const when = d.date_applied ? ` on ${d.date_applied}` : "";
     const status = d.status ? ` (${statusLabel(d.status)})` : "";
-    reasons.push(`You already have ${d.company_name} — ${d.role}${when}${status} in the tracker.`);
+    reasons.push(`You already have ${d.company_name}: ${d.role}${when}${status} in Applications.`);
   }
   return reasons;
 }

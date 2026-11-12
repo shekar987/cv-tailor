@@ -367,11 +367,11 @@ try {
   check("the funnel counts by stages_reached", (await countOf("applied")) === String(submitted) && (await countOf("screening")) === "26" && (await countOf("interview")) === "8" && (await countOf("offer")) === "0", `${await countOf("applied")} ${await countOf("screening")} ${await countOf("interview")} ${await countOf("offer")}`);
   check("each step says its conversion", /30.8%/.test(await page.locator('[data-wins-step="interview"] [data-wins-rate]').innerText()));
   check("every row that ever got there is listed", (await page.locator("[data-wins-row]").count()) === 26);
-  check("a closed one says how it ended", /Ghosted \d/.test(await page.locator('[data-wins-row="Bravo"]').innerText()), await page.locator('[data-wins-row="Bravo"]').innerText());
+  check("a closed one says how it ended", /No reply \d/.test(await page.locator('[data-wins-row="Bravo"]').innerText()), await page.locator('[data-wins-row="Bravo"]').innerText());
   check("a live one says Live", /Live/.test(await page.locator('[data-wins-row="Alpha"]').innerText()));
   check("grouped by source", (await page.locator('[data-wins-group="By source"] [data-wins-group-row]').count()) >= 2);
   check("a referral is its own source", (await page.locator('[data-wins-group-row="Referral"]').count()) === 1);
-  check("a small group shows a count, not a rate", /1 of 1.*Too few/s.test(await page.locator('[data-wins-group-row="Referral"]').innerText()), await page.locator('[data-wins-group-row="Referral"]').innerText());
+  check("a small group shows a count, not a rate", /1 of 1.*Not enough yet/s.test(await page.locator('[data-wins-group-row="Referral"]').innerText()), await page.locator('[data-wins-group-row="Referral"]').innerText());
   check("grouped by CV style for the owner", (await page.locator('[data-wins-group="By CV style"]').count()) === 1);
   check("no Export on a page that lists no filtered rows", (await page.locator("[data-apps-export]").count()) === 0);
   await page.screenshot({ path: path.join(SHOTS, "wins.png"), fullPage: true });
@@ -389,7 +389,7 @@ try {
   await page.locator('[data-menu-item="move-closed"]').click();
   await page.locator("[data-close-submit]").click();
   await page.waitForTimeout(300);
-  check("the warning reaches the user", /run migration 20261104130000/.test(await page.locator(".limitNotice").first().innerText()), await page.locator(".limitNotice").first().innerText().catch(() => ""));
+  check("the warning reaches the user", (await page.locator(".limitNotice").allInnerTexts()).some((t) => /run migration 20261104130000/.test(t)), (await page.locator(".limitNotice").allInnerTexts()).join(" | "));
   await page.locator("[data-toast-undo]").click();
   await page.waitForTimeout(250);
 

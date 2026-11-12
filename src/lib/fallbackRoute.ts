@@ -30,8 +30,8 @@ export function chooseFallback(a: {
 // What to tell the user when the OpenRouter key itself is out of road.
 export function openRouterLimitMessage(err: { message: string }): string {
   return /daily limit/i.test(err.message)
-    ? "Your OpenRouter key has used today's 50 free-model requests (a tailor is about 10). Add $10 of credit at openrouter.ai for 1,000 a day, or try again tomorrow."
-    : "Your OpenRouter key has hit its usage limit. Try again later.";
+    ? "Your API key has used today's 50 free requests at OpenRouter. One tailored CV needs about 10. Add $10 of credit at openrouter.ai for 1,000 a day, or try again tomorrow."
+    : "Your API key has reached its limit. Try again later.";
 }
 
 // Both roads closed: the shared account could not serve the run AND the
@@ -39,13 +39,13 @@ export function openRouterLimitMessage(err: { message: string }): string {
 // names OpenRouter reads as if Claude were fine.
 export function fallbackExhaustedMessage(reason: FallbackReason, err: { message: string }): string {
   const first = reason === "provider_credit"
-    ? "The shared Claude account is still out of credit (the top-up has to land on the API key this app uses, in the Anthropic Console, not a Claude.ai plan), so the run fell back to your OpenRouter key."
-    : "The shared Claude account is being rate-limited, so the run fell back to your OpenRouter key.";
+    ? "Our free AI service is not available, so Jobhuntz tried your own API key."
+    : "Our free AI service is busy, so Jobhuntz tried your own API key.";
   return `${first} ${openRouterLimitMessage(err)}`;
 }
 
 export function fallbackNotice(f: { source: FallbackSource; reason: FallbackReason }): string {
-  const why = f.reason === "provider_credit" ? "the shared Claude account is out of credit" : "the shared Claude account is being rate-limited";
-  const on = f.source === "own_key" ? "your OpenRouter key" : "the deployment's OpenRouter key";
-  return `This run used ${on} because ${why}. Nothing was charged to your free tailors.`;
+  const why = f.reason === "provider_credit" ? "our free AI service is not available right now" : "our free AI service is busy";
+  const on = f.source === "own_key" ? "your own API key" : "the deployment's OpenRouter key";
+  return `This CV was written with ${on} because ${why}. It did not use one of your free tailored CVs.`;
 }

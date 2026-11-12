@@ -600,7 +600,7 @@ export const SKILL_RULE_TEXT: Record<SkillRule, string> = {
   project_in_experience: "a project-level skill may not appear in Experience — write it under Projects as \"built <project> with X\"",
   project_as_competency: "a project-level skill may not be described as a competency or years of experience",
   project_lead_tool: `a project-level skill may not sit among the first ${8} Technical Tools`,
-  not_in_cv: "the posting asks for it, but your master CV never shows it, so it may not appear in the CV",
+  not_in_cv: "the job description asks for it, but your main CV never shows it, so it may not appear in the CV",
 };
 // level "absent": a technology the posting names that the master CV never
 // shows (lib/evidenceMap graftRules) — an invention wherever the CV says it.

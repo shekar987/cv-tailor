@@ -27,12 +27,12 @@ import FirstRunBanner from "@/components/FirstRunBanner";
 // and tagline sit on the dossier's left rule.
 
 const NAV = [
-  { href: "/app/actions", label: "Actions" },
-  { href: "/app/next", label: "What's next" },
+  { href: "/app/actions", label: "To do" },
+  { href: "/app/next", label: "Schedule" },
   { href: "/app", label: "Tailor" },
   { href: "/applications", label: "Applications" },
   { href: "/interviews", label: "Interview" },
-  { href: "/customize", label: "Customise" },
+  { href: "/customize", label: "My CV" },
 ];
 
 export default function AppHeader({

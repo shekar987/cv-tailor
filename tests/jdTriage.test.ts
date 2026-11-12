@@ -206,7 +206,7 @@ test("the badge reads 'Skip: 5+ years' with the sentence behind a disclosure; Ap
   assert.match(html, /data-triage-rule="years" data-triage-level="skip"><strong>Years of experience:<\/strong> “5\+ years of software engineering/);
   const apply = renderToStaticMarkup(createElement(TriageBadge, { triage: triageJd("Graduate Software Engineer\nPython and React.") }));
   assert.match(apply, /data-triage="apply"/);
-  assert.match(apply, />Apply<\/span><span class="triage__note"> Nothing in the posting is out of your criteria/);
+  assert.match(apply, />Apply<\/span><span class="triage__note"> Nothing in this job description rules you out/);
   assert.doesNotMatch(apply, /<details/);
   assert.equal(renderToStaticMarkup(createElement(TriageBadge, { triage: null })), "");
 });

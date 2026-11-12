@@ -45,13 +45,13 @@ export function scoreChange(masterCvText: string, tailoredText: string, terms: u
 /** One sentence for the card: what tailoring changed in the count, by term. */
 export function scoreChangeLine(c: ScoreChange): string {
   const list = (xs: string[]) => xs.join(", ");
-  const parts: string[] = [`Before tailoring: ${c.before.matched}/${c.before.total} in your master CV.`];
+  const parts: string[] = [`Before tailoring: ${c.before.matched}/${c.before.total} in your main CV.`];
   if (c.gained.length === 0 && c.lost.length === 0) {
     parts.push("Tailoring did not change which terms are matched.");
   } else {
     if (c.gained.length > 0) parts.push(`Now matched: ${list(c.gained)}.`);
     if (c.lost.length > 0)
-      parts.push(`No longer counted: ${list(c.lost)} (in your master CV, but not in the tailored summary, skills, experience or projects, which are what this score reads).`);
+      parts.push(`No longer counted: ${list(c.lost)} (in your main CV, but not in the tailored summary, skills, experience or projects, which are what this score reads).`);
   }
   return parts.join(" ");
 }

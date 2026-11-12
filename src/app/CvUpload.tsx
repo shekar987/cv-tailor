@@ -130,7 +130,7 @@ export default function CvUpload({
             <>
               <span className="dropSpinner" aria-hidden="true" />
               <span className="dropTitle">Reading your CV…</span>
-              <span className="dropHint">Extracting the text — this usually takes a few seconds.</span>
+              <span className="dropHint">Reading the text. This usually takes a few seconds.</span>
             </>
           ) : (
             <>

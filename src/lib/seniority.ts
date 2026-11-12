@@ -218,20 +218,20 @@ export function classifySeniority(jd: string, roleTitle?: string | null): Senior
 export function seniorityFit(read: SeniorityRead, yearsExperience: number | null, opts: { earlyCareerOnly?: boolean } = {}): SeniorityFit {
   const { level, signals } = read;
   const label = LEVEL_LABEL[level];
-  if (level === "unknown") return { level, fits: null, reason: "The posting doesn't say which level it is written for.", signals };
-  if (level === "junior") return { level, fits: true, reason: `This reads as ${label}.`, signals };
+  if (level === "unknown") return { level, fits: null, reason: "The job description does not say which level it is for.", signals };
+  if (level === "junior") return { level, fits: true, reason: `This looks like a ${label} job.`, signals };
   if (opts.earlyCareerOnly) {
-    return { level, fits: false, reason: `This reads as ${label} — tailoring anyway will spend a credit. You look for junior and early-career roles only (Customise → Eligibility).`, signals };
+    return { level, fits: false, reason: `This looks like a ${label} job. Tailoring anyway uses 1 tailored CV. You said you look for junior and early-career roles only (My CV → Eligibility).`, signals };
   }
   const need = level === "senior" ? SENIOR_MIN_YEARS : MID_MIN_YEARS;
   if (yearsExperience === null) {
-    return { level, fits: null, reason: `This reads as ${label} (roles at this level usually expect ${need}+ years) and your years of experience are not set in Customise → Eligibility, so it cannot be checked — set them. Tailoring anyway spends a credit.`, signals };
+    return { level, fits: null, reason: `This looks like a ${label} job. Jobs at this level usually expect ${need}+ years. Set your years of experience in My CV → Eligibility so we can check. Tailoring anyway uses 1 tailored CV.`, signals };
   }
-  if (yearsExperience >= need) return { level, fits: true, reason: `This reads as ${label}; your ${yearsExperience} years cover it.`, signals };
+  if (yearsExperience >= need) return { level, fits: true, reason: `This looks like a ${label} job. Your ${yearsExperience} years cover it.`, signals };
   return {
     level,
     fits: false,
-    reason: `This reads as ${label} — tailoring anyway will spend a credit. Roles at this level usually expect ${need}+ years; you have ${yearsExperience}.`,
+    reason: `This looks like a ${label} job. Tailoring anyway uses 1 tailored CV. Jobs at this level usually expect ${need}+ years; you have ${yearsExperience}.`,
     signals,
   };
 }

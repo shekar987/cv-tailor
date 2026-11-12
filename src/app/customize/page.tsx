@@ -171,7 +171,7 @@ const NAV_GROUPS: { group: string; items: { id: string; icon: IconName; label: s
   {
     group: "Your CV",
     items: [
-      { id: "master-cv", icon: "document", label: "Master CV", always: true },
+      { id: "master-cv", icon: "document", label: "Main CV", always: true },
       { id: "your-details", icon: "user", label: "Your details", always: true },
     ],
   },
@@ -179,8 +179,8 @@ const NAV_GROUPS: { group: string; items: { id: string; icon: IconName; label: s
     group: "Tailoring",
     items: [
       { id: "eligibility", icon: "shield", label: "Eligibility" },
-      { id: "claims", icon: "verified", label: "Claims registry" },
-      { id: "variants", icon: "target", label: "Positioning" },
+      { id: "claims", icon: "verified", label: "Skill levels" },
+      { id: "variants", icon: "target", label: "Headlines" },
     ],
   },
   {
@@ -190,7 +190,7 @@ const NAV_GROUPS: { group: string; items: { id: string; icon: IconName; label: s
       { id: "cv-length", icon: "document", label: "CV length" },
       { id: "right-to-work", icon: "globe", label: "Right to Work" },
       { id: "project-links", icon: "link", label: "Project links" },
-      { id: "advanced", icon: "sliders", label: "Project pool" },
+      { id: "advanced", icon: "sliders", label: "Project list" },
     ],
   },
 ];
@@ -436,7 +436,7 @@ export default function CustomizePage() {
       { formatStyle },
       "style",
       formatStyle === "careerset"
-        ? "Saved — every CV you tailor from now on uses the CareerSet style unless you switch it per run."
+        ? "Saved. Every CV you tailor from now on uses the CareerSet style, unless you change it for one CV."
         : "Saved — every CV you tailor from now on uses the UKJI style."
     );
   }
@@ -726,7 +726,7 @@ export default function CustomizePage() {
     if (!res.ok) {
       setPoolError(res.missingColumn
         ? "Your cards are saved. The pool's text column is missing — run supabase/migrations/20260911120000_master_cvs_projects_pool.sql in the Supabase SQL editor, then save again."
-        : "Your cards are saved and tailoring uses them, but the pool's text didn't update. Save again when you're back online.");
+        : "Your cards are saved and tailoring uses them, but the project list's text didn't update. Save again when you're back online.");
     }
     setPoolDraft(text);
     setPoolSaved(!!text);
@@ -744,18 +744,18 @@ export default function CustomizePage() {
       return;
     }
     if (!clear && !pool) {
-      setPoolError("Paste your projects first, or use Remove pool to switch this off.");
+      setPoolError("Paste your projects first, or use Remove project list to switch this off.");
       return;
     }
     if (pool.length > MAX_POOL_CHARS) {
-      setPoolError(`Project pool is too long (${pool.length.toLocaleString()} / ${MAX_POOL_CHARS.toLocaleString()} characters).`);
+      setPoolError(`Project list is too long (${pool.length.toLocaleString()} / ${MAX_POOL_CHARS.toLocaleString()} characters).`);
       return;
     }
     setPoolSaving(true);
     // Removing the pool removes its cards and the kept original too. First, because the
     // cards are what tailoring reads, and a later pool keeps its own original.
     if (clear && (prefsRef.current.projectCards.length > 0 || prefsRef.current.poolTextBeforeCards)) {
-      const ok = await updatePrefs({ projectCards: [], poolTextBeforeCards: "" }, "pool", "Pool removed.");
+      const ok = await updatePrefs({ projectCards: [], poolTextBeforeCards: "" }, "pool", "Project list removed.");
       if (!ok) {
         setPoolSaving(false);
         return;
@@ -769,12 +769,12 @@ export default function CustomizePage() {
       setConfirmRemovePool(false);
       invalidateWorkspaceResult();
       setPoolMsg(clear
-        ? "Pool removed. Tailoring uses the projects from your master CV again."
+        ? "Project list removed. Tailoring uses the projects from your main CV again."
         : "Saved. Your projects below can now be checked as cards.");
     } else if (res.missingColumn) {
       setPoolError("Your database doesn't have this feature's column yet — run supabase/migrations/20260911120000_master_cvs_projects_pool.sql in the Supabase SQL editor, then save again.");
     } else {
-      setPoolError("Couldn't save the pool. Check your connection and try again.");
+      setPoolError("Couldn't save the project list. Check your connection and try again.");
     }
   }
 
@@ -824,7 +824,7 @@ export default function CustomizePage() {
       }
       setConfirmRtwRemove(false);
       setRtwRemoveMsg(
-        `Removed ${r.removed.length === 1 ? "one line" : `${r.removed.length} lines`} from your master CV. Forms, the letter and the document now use your Eligibility answer.`
+        `Removed ${r.removed.length === 1 ? "one line" : `${r.removed.length} lines`} from your main CV. Forms, the letter and the document now use your Eligibility answer.`
       );
     } finally {
       setRtwRemoving(false);
@@ -845,8 +845,8 @@ export default function CustomizePage() {
           <>
             <StatusText as="span">
               {rtwLinesToRemove.length === 0
-                ? "No line of your master CV reads as a right-to-work status; only the extracted details are cleared."
-                : `Remove ${rtwLinesToRemove.length === 1 ? "this line" : `these ${rtwLinesToRemove.length} lines`} from your saved master CV?`}
+                ? "No line of your main CV looks like a right-to-work status. Only the details we read from it are cleared."
+                : `Remove ${rtwLinesToRemove.length === 1 ? "this line" : `these ${rtwLinesToRemove.length} lines`} from your saved main CV?`}
             </StatusText>
             {rtwLinesToRemove.length > 0 && (
               <ul className="atsList" data-rtw-remove-lines>
@@ -861,7 +861,7 @@ export default function CustomizePage() {
             <Button variant="ghost" onClick={() => setConfirmRtwRemove(false)} disabled={rtwRemoving}>Keep it</Button>
           </>
         ) : (
-          <Button variant="secondary" onClick={() => setConfirmRtwRemove(true)} data-rtw-remove>Remove from master CV</Button>
+          <Button variant="secondary" onClick={() => setConfirmRtwRemove(true)} data-rtw-remove>Remove from main CV</Button>
         )}
       </div>
       {rtwRemoveError && <StatusText as="span" role="alert">{rtwRemoveError}</StatusText>}
@@ -886,7 +886,7 @@ export default function CustomizePage() {
       setEligCountries(next.rightToWork.countries.join(", "));
       setEligBases(next.location.base.join(", "));
       setEligLicences(next.licences.join(", "));
-      setEligMsg("Saved. The pre-check on the tailoring page now compares each job's eligibility conditions against these answers.");
+      setEligMsg("Saved. The free check on the Tailor page now compares each job's eligibility conditions against these answers.");
     } else if (res.missingTable) {
       setSettingsMissing(true);
       setEligError("Your database doesn't have this feature's table yet — run supabase/migrations/20260917120000_user_settings_and_jd_lookup.sql in the Supabase SQL editor, then save again.");
@@ -992,8 +992,8 @@ export default function CustomizePage() {
       setLeadSkillsText(Object.fromEntries(saved.map((v) => [v.id, v.leadSkills.join(", ")])));
       setVariantsMsg(
         saved.length === 0
-          ? "Saved with no variants — tailoring uses your CV's own positioning."
-          : `Saved ${saved.length} variant${saved.length === 1 ? "" : "s"}${dropped ? ` (${dropped} without a name dropped)` : ""}. The pre-check picks one by the posting's role type; you can override it per run.`
+          ? "Saved with no headlines. Tailoring uses your CV's own headline."
+          : `Saved ${saved.length} headline${saved.length === 1 ? "" : "s"}${dropped ? ` (${dropped} without a name removed)` : ""}. The free check picks one by the kind of job. You can change it for one CV.`
       );
     } else if (res.missingColumn || res.missingTable) {
       setVariantsColumnMissing(true);
@@ -1128,17 +1128,17 @@ export default function CustomizePage() {
           // by the old project indexes must not survive it.
           invalidateWorkspaceResult();
         } else {
-          setProfileError("Extraction worked, but the result couldn't be stored. Try again.");
+          setProfileError("We read your CV, but could not save the result. Try again.");
         }
       } else {
         setProfileError(
           data.error
-            ? `Re-running extraction failed: ${data.error}`
-            : "Re-running extraction failed. Try again."
+            ? `We could not read your CV: ${data.error}`
+            : "We could not read your CV. Try again."
         );
       }
     } catch {
-      setProfileError("Couldn't reach the server to re-run extraction. Try again.");
+      setProfileError("Couldn't reach the server to read your CV. Try again.");
     } finally {
       setReextracting(false);
     }
@@ -1202,8 +1202,8 @@ export default function CustomizePage() {
     <main className="page">
       <div className="container container--ruled cstContainer">
         <AppHeader
-          title="Customise"
-          tagline="Manage your master CV, your details, and how your tailored CV is laid out."
+          title="My CV"
+          tagline="Your main CV, your details, and how each tailored CV looks."
         />
         {settingsReadFailed && (
           <div className="limitNotice" role="alert" data-settings-read-failed>
@@ -1236,14 +1236,14 @@ export default function CustomizePage() {
         <Card id="master-cv">
           {cvLoading ? (
             <>
-              <SectionHeading folio={FOLIO["master-cv"]}>Master CV</SectionHeading>
+              <SectionHeading folio={FOLIO["master-cv"]}>Main CV</SectionHeading>
               <Skeleton lines={3} label="Loading your CV" />
             </>
           ) : editingCv ? (
             <FormField
-              label="Master CV"
+              label="Main CV"
               htmlFor="cv"
-              help="Add your full CV once. It's saved to your account and reused for every job — you'll only need to paste the job description on the main page each time."
+              help="Add your full CV once. We save it in your account and use it for every job. After that you only paste the job description on the Tailor page."
             >
               <CvUpload
                 disabled={extracting}
@@ -1255,7 +1255,7 @@ export default function CustomizePage() {
                   setCvDraft(stripMarkdown(text));
                   setCvError("");
                   setUploadNotice(
-                    `Text extracted from ${meta.filename} (${meta.characters.toLocaleString()} characters). ` +
+                    `Text read from ${meta.filename} (${meta.characters.toLocaleString()} characters). ` +
                     `Check it below before saving — PDFs and Word files can lose formatting, so fix any run-together ` +
                     `lines or missing headings now.`
                   );
@@ -1284,7 +1284,7 @@ export default function CustomizePage() {
               </p>
               <div className="actions">
                 <Button onClick={handleSaveCv} disabled={extracting}>
-                  {extracting ? "Saving…" : "Save master CV"}
+                  {extracting ? "Saving…" : "Save my CV"}
                 </Button>
                 {masterCvText && (
                   <Button variant="secondary" onClick={() => setEditingCv(false)} disabled={extracting}>Cancel</Button>
@@ -1294,10 +1294,10 @@ export default function CustomizePage() {
             </FormField>
           ) : (
             <>
-            <SectionHeading folio={FOLIO["master-cv"]}>Master CV</SectionHeading>
+            <SectionHeading folio={FOLIO["master-cv"]}>Main CV</SectionHeading>
             <div className="cvSavedRow">
               <div>
-                <div className="cvSavedLabel">✓ Master CV saved</div>
+                <div className="cvSavedLabel">✓ Main CV saved</div>
                 {cvSavedAt && (
                   <div className="cvSavedMeta">Last updated {formatDate(cvSavedAt)}</div>
                 )}
@@ -1305,7 +1305,7 @@ export default function CustomizePage() {
               <div className="cvSavedActions">
                 {confirmReplace ? (
                   <>
-                    <StatusText as="span">Delete your saved CV and extracted details? Your project pool is kept.</StatusText>
+                    <StatusText as="span">Delete your main CV and the details we read from it? Your project list is kept.</StatusText>
                     <Button variant="ghost" className="keyRemove" onClick={handleClearCv}>
                       Yes, replace
                     </Button>
@@ -1328,14 +1328,14 @@ export default function CustomizePage() {
 
         <Card id="your-details">
           <SectionHeading folio={FOLIO["your-details"]}>
-            Your details {extracting && <span className="cvSavedMeta">— extracting…</span>}
+            Your details {extracting && <span className="cvSavedMeta">(reading your CV…)</span>}
           </SectionHeading>
           {profileError && <p role="alert" className="keyError">{profileError}</p>}
           {profileLoading ? (
             <Skeleton lines={2} label="Loading your details" />
           ) : profile ? (
             <>
-              <p className="cvHelp">Pulled from your CV. Check these are right — they appear in your tailored CV&apos;s header and sections.</p>
+              <p className="cvHelp">We read these from your CV. Check that they are right. They appear at the top of every tailored CV.</p>
               <div className="profileGrid">
                 <label>Name<Input value={profile.name} onChange={(e) => updateProfileField("name", e.target.value)} /></label>
                 <label>
@@ -1343,8 +1343,7 @@ export default function CustomizePage() {
                   <Input value={profile.tagline} onChange={(e) => updateProfileField("tagline", e.target.value)} />
                   {taglineRoles(profile.tagline).length >= 2 && (
                     <span className="fitEvidence" data-warn data-tagline-roles>
-                      This names {taglineRoles(profile.tagline).length} roles ({taglineRoles(profile.tagline).join(" / ")}). A headline naming two roles halves the impact of both —
-                      keep one here, and put the other on a positioning variant below; the tailored CV&apos;s header is built from the variant, never from this line.
+                      This names {taglineRoles(profile.tagline).length} roles ({taglineRoles(profile.tagline).join(" / ")}). A headline with two job titles is weaker than a headline with one. Keep one here, and add the other under Headlines below.
                     </span>
                   )}
                 </label>
@@ -1363,8 +1362,7 @@ export default function CustomizePage() {
               {extractionIssues.map((f) => (
                 <StatusText key={f.section} className="msgBelow" role="alert" data-extraction-flag={f.section}>
                   Your CV&apos;s {f.label} section seems to list {f.expected} entries, but {f.got}{" "}
-                  {f.got === 1 ? "was" : "were"} extracted. Check the list below; if something is missing,
-                  re-run extraction.
+                  {f.got === 1 ? "was" : "were"} were read. Check the list below. If something is missing, press Read my CV again.
                 </StatusText>
               ))}
 
@@ -1373,7 +1371,7 @@ export default function CustomizePage() {
                 profile.certifications.length > 0 ||
                 (profile.extraSections?.length ?? 0) > 0) && (
                 <div className="extractSummary">
-                  <div className="extractLabel">Also extracted from your CV</div>
+                  <div className="extractLabel">Also read from your CV</div>
                   <dl className="extractGrid">
                     {profile.projects.length > 0 && (
                       <div className="extractRow">
@@ -1410,29 +1408,27 @@ export default function CustomizePage() {
                     )}
                   </dl>
                   <p className="cvHelp cvHelpTight">
-                    This just shows what was read out of your CV — the wording itself is edited
-                    inline on the tailored CV preview.
+                    This list shows what we read from your CV. To change the wording, edit the tailored CV preview.
                   </p>
                 </div>
               )}
             </>
           ) : masterCvText ? (
             <p className="cvHelp">
-              Your CV is saved, but no details have been extracted from it yet — run the
-              extraction below.
+              Your CV is saved, but we have not read your details from it yet. Press Read my CV again below.
             </p>
           ) : (
             <p className="cvHelp">
-              No details yet — add your master CV above and these will be extracted automatically.
+              No details yet. Add your main CV above and we read them from it automatically.
             </p>
           )}
           {!profileLoading && masterCvText && (
             <div className="actions">
               {confirmReextract ? (
                 <>
-                  <StatusText as="span">Re-running uses one AI call — continue?</StatusText>
+                  <StatusText as="span">We will read your CV again. This takes a few seconds. Continue?</StatusText>
                   <Button variant="secondary" onClick={handleReextract} disabled={reextracting}>
-                    Yes, re-run
+                    Yes, read it again
                   </Button>
                   <Button variant="ghost" onClick={() => setConfirmReextract(false)} disabled={reextracting}>
                     Cancel
@@ -1444,7 +1440,7 @@ export default function CustomizePage() {
                   onClick={() => setConfirmReextract(true)}
                   disabled={reextracting || extracting || editingCv}
                 >
-                  {reextracting ? "Re-running extraction…" : "Re-run extraction"}
+                  {reextracting ? "Reading your CV…" : "Read my CV again"}
                 </Button>
               )}
             </div>
@@ -1464,14 +1460,11 @@ export default function CustomizePage() {
           summary={
             eligSet
               ? `${eligAnswered} of ${ELIGIBILITY_QUESTIONS} answered`
-              : "Not set — the pre-check can't warn you"
+              : "Not set. The free check cannot warn you."
           }
         >
           <p className="cvHelp">
-            The questions an application form asks before anyone reads your CV: right to work, clearance,
-            years, location, degree and graduation date, licences, contract type. Answer once; the pre-check on the tailoring
-            page then warns when a job has a condition you&apos;d fail, before a tailor is spent. Nothing here
-            is guessed from your CV — leave anything you&apos;re unsure of as &quot;Not set&quot;.
+            These are the questions an application form asks before anyone reads your CV: right to work, clearance, years, location, degree and graduation date, licences, contract type. Answer once. The free check on the Tailor page then warns you when a job has a condition you do not meet, before you use a tailored CV. Nothing here is guessed from your CV. Leave anything you are unsure of as &quot;Not set&quot;.
           </p>
           {!eligLoaded ? (
             <Skeleton lines={3} label="Loading your eligibility answers" />
@@ -1490,18 +1483,14 @@ export default function CustomizePage() {
               {rtwRemoveMsg && <StatusText as="span" tone="success" role="status" data-rtw-removed>{rtwRemoveMsg}</StatusText>}
               {permissionEndsMissing && (
                 <p className="fitEvidence" data-warn data-rtw-ends-missing>
-                  A time-limited visa needs its end month: without it the pre-check cannot tell whether a posting&apos;s start date falls inside your permission, and the
-                  statement for forms cannot say when sponsorship would be needed.
+                  A time-limited visa needs its end month. Without it, the free check cannot tell if a job&apos;s start date is inside your permission, and the statement for forms cannot say when you would need sponsorship.
                 </p>
               )}
               {eligibility.rightToWork.status === "full" && !rtwBannerDismissed && (
                 <div className="limitNotice" role="status" data-rtw-full-banner>
                   <div className="limitNotice__title">Is your right to work permanent?</div>
                   <div className="limitNotice__body">
-                    &quot;Full right to work&quot; means settled status, indefinite leave to remain or citizenship. On a
-                    Student, Graduate or Skilled Worker visa, choose &quot;Time-limited visa&quot; instead: postings that
-                    ask for permanent right to work are then flagged before a credit is spent, and the answer stays
-                    true when a form asks whether you will ever need sponsorship.
+                    &quot;Full right to work&quot; means settled status, indefinite leave to remain or citizenship. On a Student, Graduate or Skilled Worker visa, choose &quot;Time-limited visa&quot;. Jobs that ask for permanent right to work are then marked before you use a tailored CV. Your answer also stays true when a form asks if you will ever need sponsorship.
                   </div>
                   <div className="limitNotice__cta">
                     <Button
@@ -1643,8 +1632,7 @@ export default function CustomizePage() {
                   />
                   {eligibility.yearsExperience === null && (
                     <span className="fitEvidence" data-warn data-years-missing>
-                      Set this. The pre-check&apos;s &ldquo;this reads as mid-level&rdquo; warning compares the posting with it, and a
-                      mid-level or senior read is held until it is set.
+                      Set this. The free check compares each job&apos;s level with it. A mid-level or senior job is held until it is set.
                     </span>
                   )}
                 </label>
@@ -1658,7 +1646,7 @@ export default function CustomizePage() {
                     I look for junior and early-career roles only
                   </label>
                   <span className="fitEvidence" style={{ display: "block" }}>
-                    The pre-check then holds every posting that reads as mid-level or senior, whatever your years say.
+                    The free check then holds every job that looks mid-level or senior, whatever your years say.
                   </span>
                 </div>
                 <label>
@@ -1823,13 +1811,13 @@ export default function CustomizePage() {
             id="claims"
             folio={FOLIO["claims"]}
             icon="verified"
-            title="Claims registry"
+            title="Skill levels"
             open={openSections.has("claims")}
             onToggle={toggleSection}
             tone={claimsTotal === 0 ? "neutral" : claimsUnconfirmed > 0 ? "warn" : "ok"}
             summary={
               claimsTotal === 0
-                ? "Seeded when your CV is extracted"
+                ? "Made when we read your CV"
                 : claimsUnconfirmed > 0
                   ? `${claimsTotal} skills — ${claimsUnconfirmed} to confirm`
                   : `${claimsTotal} skills confirmed`
@@ -1838,19 +1826,17 @@ export default function CustomizePage() {
             <p className="cvHelp">
               Tailoring may describe a skill only at the level you set here. <strong>Production</strong> = used in
               paid work; <strong>project</strong> = personal projects only (written as &quot;built X with it&quot;, never
-              &quot;proficient in it&quot;); <strong>learning</strong> = never appears in any CV, letter or email. Click a
-              skill to change its level. Figures in generated text are checked against your master CV automatically.
+              &quot;proficient in it&quot;); <strong>learning</strong> = never appears in any CV, letter or email. Click a skill to change its level. Figures in generated text are checked against your main CV automatically.
             </p>
             {!claims || claims.skills.length === 0 ? (
               <p className="cvHelp cvHelpTight">
-                No skills registered yet — re-run extraction above to seed the list from your CV.
+                No skills yet. Press Read my CV again above to fill this list from your CV.
               </p>
             ) : (
               <>
                 {claimsStale && (
                   <p className="fitEvidence">
-                    Your CV changed since this list was seeded — re-run extraction above to refresh it. Levels you&apos;ve
-                    confirmed are kept.
+                    Your CV changed after this list was made. Press Read my CV again above to update it. Levels you confirmed are kept.
                   </p>
                 )}
                 <div className="claimLegend" aria-hidden="true">
@@ -1881,8 +1867,7 @@ export default function CustomizePage() {
                         {claimsSaving ? "Saving…" : `Confirm levels (${unconfirmedCount})`}
                       </Button>
                       <span className="cvSavedMeta">
-                        Levels were read from your CV and are already enforced: a result that claims a skill above its level, or a
-                        figure that isn&apos;t on your CV, blocks the download. Confirm once you&apos;ve reviewed them.
+                        We read these levels from your CV and already use them. If a tailored CV claims a skill above its level, or a number that is not in your CV, you cannot download it until it is fixed. Press Confirm when you have checked the levels.
                       </span>
                     </>
                   ) : (
@@ -1949,20 +1934,17 @@ export default function CustomizePage() {
             id="variants"
             folio={FOLIO["variants"]}
             icon="target"
-            title="Positioning"
+            title="Headlines"
             open={openSections.has("variants")}
             onToggle={toggleSection}
             summary={
               variantsDraft.length === 0
-                ? "None — your CV's own positioning"
-                : `${variantsDraft.length} variant${variantsDraft.length === 1 ? "" : "s"}`
+                ? "None. Your CV's own headline is used."
+                : `${variantsDraft.length} headline${variantsDraft.length === 1 ? "" : "s"}`
             }
           >
             <p className="cvHelp">
-              A headline naming two roles (&quot;Full Stack Engineer | AI Engineer&quot;) halves the impact of both. Set one
-              positioning per kind of role: the summary opens with that headline and the skills section leads with those
-              skills, drawn from your master CV as always. The pre-check picks the variant whose role types match the
-              posting and says why; you can override it for any run.
+              A headline with two job titles (&quot;Full Stack Engineer | AI Engineer&quot;) is weaker than a headline with one. Set one headline for each kind of job. The summary opens with it, and the skills section starts with the skills you choose. The free check picks the headline that fits the job. You can change it for one CV.
             </p>
             {variantsColumnMissing && (
               <p className="fitEvidence">
@@ -1974,15 +1956,15 @@ export default function CustomizePage() {
               <div className="extractSummary" key={v.id} data-variant-row={idx}>
                 <div className="profileGrid eligGrid">
                   <label>
-                    Variant name
+                    Name
                     <Input value={v.name} onChange={(e) => updateVariant(v.id, { name: e.target.value })} placeholder="e.g. Backend" />
                   </label>
                   <label>
-                    Headline (one positioning)
+                    Headline (one job title)
                     <Input value={v.headline} onChange={(e) => updateVariant(v.id, { headline: e.target.value })} placeholder="e.g. Backend engineer (Java, Spring Boot)" />
                   </label>
                   <label>
-                    Lead with these skills (comma-separated, production-level on your claims registry)
+                    Skills to show first (separate with commas; only skills at production level in Skill levels)
                     <Input
                       value={leadSkillsText[v.id] ?? ""}
                       onChange={(e) => { const t = e.target.value; setLeadSkillsText((m) => ({ ...m, [v.id]: t })); setVariantsMsg(""); }}
@@ -2016,17 +1998,17 @@ export default function CustomizePage() {
                 </div>
                 <div className="actions">
                   <Button variant="ghost" className="keyRemove" onClick={() => removeVariant(v.id)} disabled={variantsSaving}>
-                    Remove variant
+                    Remove headline
                   </Button>
                 </div>
               </div>
             ))}
             <div className="actions">
               <Button variant="secondary" onClick={addVariant} disabled={variantsSaving || variantsDraft.length >= MAX_VARIANTS}>
-                Add a variant
+                Add a headline
               </Button>
               <Button onClick={handleSaveVariants} disabled={variantsSaving || variantsColumnMissing}>
-                {variantsSaving ? "Saving…" : "Save variants"}
+                {variantsSaving ? "Saving…" : "Save headlines"}
               </Button>
             </div>
             {variantsError && <StatusText className="msgBelow" role="alert">{variantsError}</StatusText>}
@@ -2144,11 +2126,7 @@ export default function CustomizePage() {
           summary={`${prefs.cvLength === "one" ? "One page" : "Two pages, filled"}${isOwner ? ` · ${FORMAT_STYLE_LABELS[prefs.formatStyle]} style` : ""}`}
         >
           <p className="cvHelp">
-            Two pages is the default: the tailored CV keeps your master CV&apos;s content, and when the tailoring leaves a
-            bullet out and there is room, the most relevant ones are put back so both pages are used; the built PDF&apos;s
-            own page count is checked, never an estimate. One page trims the least relevant bullets to fit, and the
-            results page lists every one. (The UK Jobs Insider method prefers one page for graduate-scheme applications
-            — choose it per your own rule.)
+            Two pages is the default. The tailored CV keeps your main CV&apos;s content. When tailoring leaves a bullet out and there is room, the most relevant ones are put back, so both pages are used. We check the page count of the real PDF, never an estimate. One page cuts the least relevant bullets to fit, and the results page lists every one. (The UK Jobs Insider method prefers one page for graduate schemes. Choose by your own rule.)
           </p>
           {prefsColumnMissing && (
             <p className="fitEvidence">
@@ -2173,10 +2151,7 @@ export default function CustomizePage() {
           {isOwner && (
             <>
               <p className="cvHelp" data-pref-style-help>
-                Format style. UKJI is the shape every CV has had. CareerSet is the shape tuned by hand in the university&apos;s CV
-                tool: printed contact addresses, grouped tool lines, no bold and no full stops on bullets, a four-point letter.
-                Both run the same honesty checks and cost the same credit. This is the default; the Style control on the
-                tailoring page overrides it per run.
+                Format style. UKJI is the shape every CV has had. CareerSet is the shape tuned by hand in the university&apos;s CV tool. It prints contact addresses, groups the tool lines, and uses no bold and no full stops on bullets. Both run the same honesty checks and count as 1 tailored CV. This is the default. The Style control on the Tailor page changes it for one CV.
               </p>
               <div className="eligChecks" role="radiogroup" aria-label="Format style">
                 <label className="eligCheck">
@@ -2208,11 +2183,7 @@ export default function CustomizePage() {
           summary={prefs.includeRightToWorkOnCv ? "Shown on the CV" : "Off the CV — offered for forms"}
         >
           <p className="cvHelp">
-            Off by default. A reviewer who sees your immigration status before reading a line of your experience
-            screens on it, and the application form asks the same question in a better place. The wording comes
-            from your Eligibility answers above, never from the CV text: it is offered as a copy block beside the
-            download buttons for pasting into forms, and it closes the cover letter only when this is on. Turn it
-            on only for a posting that asks for it on the document itself.
+            Off by default. A reviewer who sees your immigration status first may judge you on it, and the application form asks the same question in a better place. The wording comes from your Eligibility answers above, never from your CV&apos;s text. You get it as a block to copy into forms, beside the download buttons. It closes the cover letter only when this is on. Turn it on only when a job asks for it on the CV itself.
           </p>
           {profile && profile.rightToWork.length > 0 && (
             <p className="fitEvidence">Your CV says: {profile.rightToWork.join(" · ")}</p>
@@ -2258,10 +2229,7 @@ export default function CustomizePage() {
           }
         >
           <p className="cvHelp">
-            The GitHub repository and live site shown under each project on every CV you tailor: in the preview,
-            the Word file, the PDF and the copy saved to your tracker. The address itself is printed, not just the
-            word &quot;GitHub&quot;, so a recruiter&apos;s system that keeps only the text still has it. Where your CV or
-            project pool already writes a link, it is filled in for you.
+            The GitHub repository and live site shown under each project on every tailored CV: in the preview, the Word file, the PDF and the copy saved on Applications. The address itself is printed, not only the word &quot;GitHub&quot;, so a recruiter&apos;s system that keeps only text still has it. A link that your CV or project list already writes is filled in for you.
           </p>
           {prefsColumnMissing && (
             <p className="fitEvidence">
@@ -2270,7 +2238,7 @@ export default function CustomizePage() {
             </p>
           )}
           {linkRows.length === 0 ? (
-            <p className="fitEvidence">Your projects appear here once your master CV is saved.</p>
+            <p className="fitEvidence">Your projects appear here once your main CV is saved.</p>
           ) : (
             <div className="projectLinkRows">
               {linkRows.map((row) => {
@@ -2391,7 +2359,7 @@ export default function CustomizePage() {
             id="advanced"
             folio={FOLIO["advanced"]}
             icon="sliders"
-            title="Project pool"
+            title="Project list"
             open={openSections.has("advanced")}
             onToggle={toggleSection}
             summary={
@@ -2422,8 +2390,8 @@ export default function CustomizePage() {
             {prefsMsgAt === "pool" && prefsError && <StatusText className="msgBelow" role="alert">{prefsError}</StatusText>}
             {prefs.projectCards.length === 0 && (
             <FormField
-                label="Project pool"
-                help="Paste ALL your projects here, in your own words — names, dates, tech, and what you did. Once saved they read into cards you can check, pin and order. Until then, on every tailor run the 2 most relevant to that job (1 if you only add one) are selected and get tailored bullets, replacing the projects from your master CV for that run. Remove the pool to switch back. Replacing your master CV keeps the pool."
+                label="Project list"
+                help="Paste ALL your projects here, in your own words: names, dates, tech, and what you did. After you save, each project becomes a card that you can check, order, or mark &quot;Always include&quot;. Until then, each tailored CV uses the 2 projects that best fit the job, in place of the projects in your main CV. Remove the project list to go back. Replacing your main CV keeps the project list."
               >
                 <Textarea
                   rows={12}
@@ -2437,7 +2405,7 @@ export default function CustomizePage() {
                 </p>
                 <div className="actions">
                   <Button onClick={() => handleSavePool(false)} disabled={poolSaving}>
-                    {poolSaving ? "Saving…" : "Save project pool"}
+                    {poolSaving ? "Saving…" : "Save project list"}
                   </Button>
                   <Button variant="ghost" onClick={() => toggleSection("advanced")} disabled={poolSaving}>
                     Close
@@ -2449,12 +2417,12 @@ export default function CustomizePage() {
               <div className="actions" data-pool-remove-area>
                 {confirmRemovePool ? (
                   <>
-                    <StatusText as="span">Delete your whole project pool?</StatusText>
-                    <Button variant="secondary" autoFocus onClick={() => setConfirmRemovePool(false)} data-pool-keep>Keep pool</Button>
+                    <StatusText as="span">Delete your whole project list?</StatusText>
+                    <Button variant="secondary" autoFocus onClick={() => setConfirmRemovePool(false)} data-pool-keep>Keep it</Button>
                     <Button variant="ghost" className="keyRemove" onClick={() => handleSavePool(true)} disabled={poolSaving} data-pool-remove-confirm>Delete it</Button>
                   </>
                 ) : (
-                  <Button variant="ghost" className="keyRemove" onClick={() => setConfirmRemovePool(true)} disabled={poolSaving} data-pool-remove-all>Remove pool</Button>
+                  <Button variant="ghost" className="keyRemove" onClick={() => setConfirmRemovePool(true)} disabled={poolSaving} data-pool-remove-all>Remove project list</Button>
                 )}
               </div>
             )}

@@ -104,6 +104,20 @@ export type Insights = {
 // applications have an outcome (the ≥8-per-group rule): below that a 2-of-3
 // reads as 67% and sends the user chasing noise.
 export const MIN_DECIDED = 8;
+// The Insights section on /applications opens by itself only from this many applications
+// with a result (12 Nov 2026, Chunk 25): a new account met "Not enough results yet" tiles
+// and a score chart built on one or two applications. Below it the section is folded,
+// says how many results it has, and can still be opened by hand.
+export const INSIGHTS_OPEN_AT = 10;
+export function insightsOpenByDefault(decided: number): boolean {
+  return Number.isFinite(decided) && decided >= INSIGHTS_OPEN_AT;
+}
+export function insightsClosedLine(decided: number): string {
+  const n = Number.isFinite(decided) && decided > 0 ? Math.floor(decided) : 0;
+  return n >= INSIGHTS_OPEN_AT
+    ? "Hidden. Press Show to open it."
+    : `Opens when ${INSIGHTS_OPEN_AT} of your applications have a result. You have ${n}.`;
+}
 // Rows that say nothing about the screen: pulled out, or never sent.
 const EXCLUDED: ReadonlySet<string> = new Set(["withdrawn", "saved"]);
 const isExcluded = (status: string) => EXCLUDED.has(normalizeStatus(status) ?? "");
@@ -195,7 +209,7 @@ const REQUIRED_BANDS: { key: string; label: string; test: (f: number) => boolean
   { key: "mid", label: "50-79% of required skills", test: (f) => f >= 0.5 && f < 0.8 },
   { key: "high", label: "80%+ of required skills", test: (f) => f >= 0.8 },
 ];
-const GATE_LABEL: Record<GateRead, string> = { apply: "Read: apply", long_shot: "Read: long shot", skip: "Read: likely auto-rejected" };
+const GATE_LABEL: Record<GateRead, string> = { apply: "Advice: apply", long_shot: "Advice: low chance", skip: "Advice: likely to be rejected automatically" };
 
 export function computeInsights(rows: InsightRow[]): Insights {
   const counted = rows.filter((r) => !isExcluded(r.status));

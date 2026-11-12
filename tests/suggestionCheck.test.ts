@@ -25,7 +25,7 @@ test("a line the master CV can't support is never shown as ready to paste", () =
   assert.match(r.needsEvidence[0].note, /^HTTP: your CV may show the work as “Built REST APIs in FastAPI serving 2,000 daily users”/);
   assert.doesNotMatch(r.needsEvidence[0].note, /Optimised/, "the term, never the line");
   const bare = checkSuggestions([`Add DNS: "Configured DNS records and routing for the payments service"`], { ...ctx, absentTerms: ["DNS"] });
-  assert.match(bare.needsEvidence[0].note, /^DNS: your master CV doesn't show this/);
+  assert.match(bare.needsEvidence[0].note, /^DNS: your main CV doesn't show this/);
 });
 
 test("a short quoted term before the quoted line: the line itself is checked", () => {

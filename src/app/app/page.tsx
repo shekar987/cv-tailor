@@ -250,7 +250,7 @@ type Result = {
 
 // Said wherever a claims block holds Download or Applied shut: the way out
 // is an edit, re-checked in the browser — never another paid tailor.
-const FREE_FIX = "Press Fix it to correct it for you (no tailor credit is used), or edit that sentence in the CV preview and click outside the text: the re-check runs in your browser and unlocks the download.";
+const FREE_FIX = "Press Fix it and we correct it for you. This is free. Or edit that sentence in the CV preview and click outside the text. The check runs again in your browser and unlocks the download.";
 
 const WHERE_LABEL: Record<ClaimWhere, string> = { cv: "CV", coverLetter: "cover letter", email: "email", extra: "text" };
 
@@ -298,8 +298,8 @@ const EVIDENCE_LABEL: Record<EvidenceItem["status"], string> = {
 
 const READ_LABEL: Record<GateRead, string> = {
   apply: "Apply",
-  long_shot: "Long shot",
-  skip: "Likely auto-rejected",
+  long_shot: "Low chance",
+  skip: "Likely to be rejected automatically",
 };
 const VERDICT_RANK: Record<GateVerdict["verdict"], number> = { hard: 0, soft: 1, pass: 2, unknown: 3 };
 
@@ -332,15 +332,15 @@ const clip = (t: string, n = 160) => (t.length > n ? `${t.slice(0, n - 1)}…` :
 const STALE_REASON = "The job description changed since this CV was tailored — restore it or clear the result.";
 // Why the summary/letter fact check did not run (lib/supportCheck `skipped`).
 function supportSkippedText(r: SupportReport): string {
-  if (r.skipped === "fast") return "This result was tailored before the fact check ran on free models, so the summary and letter were never checked against your master CV.";
-  if (r.reason === "time") return "The run had no time left for the fact check (free models are slow), so the summary and letter were not checked against your master CV.";
-  return "The fact check of the summary and letter gave no usable answer, so they were not checked against your master CV.";
+  if (r.skipped === "fast") return "This result was tailored before the fact check ran on free models, so the summary and letter were never checked against your main CV.";
+  if (r.reason === "time") return "There was no time left for the fact check (free models are slow), so the summary and letter were not checked against your main CV.";
+  return "The fact check of the summary and letter gave no usable answer, so they were not checked against your main CV.";
 }
 // What the fact check did on this run, for the fast-mode notice.
 function fastCheckText(r: SupportReport | null | undefined): string {
   if (!r) return "";
   if (r.skipped) return "The fact check of the summary and letter did not run — the cover letter's download is held until you confirm you have read it.";
-  return `The fact check read ${r.checked} sentence${r.checked === 1 ? "" : "s"} of the summary and letter against your master CV.`;
+  return `The fact check read ${r.checked} sentence${r.checked === 1 ? "" : "s"} of the summary and letter against your main CV.`;
 }
 
 // ── Stage 3: company research (the /api/research payload, typed loosely — the
@@ -773,7 +773,7 @@ export default function Home() {
   async function handleResearch(force = false) {
     if (researchLoading || loading) return;
     if (!masterCvText.trim()) {
-      setResearchError("Add your master CV in Customise first — the Fit Score compares the company against it.");
+      setResearchError("Add your main CV on My CV first. The Fit Score compares the company with it.");
       return;
     }
     const url = companyUrl.trim();
@@ -916,7 +916,7 @@ export default function Home() {
   // paid 8-step pipeline runs. Never blocks on a low score — just informs.
   async function handlePreCheck() {
     if (!masterCvText.trim()) {
-      setError("Add your master CV in Customise first.");
+      setError("Add your main CV on My CV first.");
       setErrorType(null);
       return;
     }
@@ -986,7 +986,7 @@ export default function Home() {
           setErrorType(type);
           setError(message);
         } else if (res.status >= 500) {
-          setGateError(message || `The pre-check failed on the server (HTTP ${res.status}). Try again; you can also tailor without it.`);
+          setGateError(message || `The free check failed on the server (HTTP ${res.status}). Try again; you can also tailor without it.`);
         } else {
           setGateError(message || "Couldn't check keyword match. You can still tailor without it.");
         }
@@ -1101,7 +1101,7 @@ export default function Home() {
     const s = activeCheck.skillViolations[0];
     if (s) return `${s.skill}: ${s.claim || `appears in the ${WHERE_LABEL[s.where]}`} — ${SKILL_RULE_TEXT[s.rule]}. ${FREE_FIX}`;
     const n = activeCheck.numberViolations.find((x) => x.kind === "absent");
-    if (n) return `${n.figure} isn't on your master CV: "${n.sentence.length > 100 ? `${n.sentence.slice(0, 99)}…` : n.sentence}". ${FREE_FIX}`;
+    if (n) return `${n.figure} isn't on your main CV: "${n.sentence.length > 100 ? `${n.sentence.slice(0, 99)}…` : n.sentence}". ${FREE_FIX}`;
     return undefined;
   })();
 
@@ -1315,7 +1315,7 @@ export default function Home() {
       shownTriage?.verdict === "skip" &&
       !(await confirm({
         title: "Tailor anyway?",
-        message: `This JD looks out of criteria: ${shownTriage.reasons.join("; ")}. Tailor anyway?`,
+        message: `This job may not suit you: ${shownTriage.reasons.join("; ")}. Tailor anyway?`,
         confirmLabel: "Tailor anyway",
         cancelLabel: "Don't tailor",
       }))
@@ -1553,7 +1553,7 @@ export default function Home() {
       setLiveQuality(null);
       setLiveStyleCheck(null);
       setPreviewKey((k) => k + 1);
-      const techLeftOut = Array.isArray(data.techLeftOut) && data.techLeftOut.length > 0 ? ` Left off its tech line, because your claims registry holds them as learning: ${data.techLeftOut.join(", ")}.` : "";
+      const techLeftOut = Array.isArray(data.techLeftOut) && data.techLeftOut.length > 0 ? ` Left off its tech line, because your skill levels list marks them as learning: ${data.techLeftOut.join(", ")}.` : "";
       setSwapNote(`${typeof data.modelError === "string" ? `${data.modelError} ` : ""}Swapped in ${data.used.name}.${techLeftOut} Your edits to the summary, skills, experience, bullets and letter are kept; edits to your header or project titles go back. Your cover letter was not rewritten, so check what it says about your projects.`);
     } catch {
       setSwapError("Couldn't reach the server. Your CV is unchanged.");
@@ -1685,7 +1685,7 @@ export default function Home() {
         jobDescription.trim() !== job.description.trim() &&
         !(await confirm({
           title: "Replace the job description?",
-          message: `The box already holds a job description. Replace it with the posting imported from ${job.source}?`,
+          message: `The box already holds a job description. Replace it with the job description imported from ${job.source}?`,
           confirmLabel: "Replace",
           cancelLabel: "Keep mine",
         }))
@@ -1828,7 +1828,7 @@ export default function Home() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setAppliedState("error");
-        setAppliedError(data.error || "Couldn't save to the tracker. Try again.");
+        setAppliedError(data.error || "Couldn't save to Applications. Try again.");
         return;
       }
       setAppliedState(data.alreadySaved ? "already" : "saved");
@@ -2045,14 +2045,14 @@ export default function Home() {
     if (!result.coverLetter?.trim()) empty.push("cover letter");
     const issues: string[] = [];
     if (empty.length > 0) {
-      issues.push(`The ${empty.join(", ")} ${empty.length > 1 ? "sections" : "section"} came back empty this run.`);
+      issues.push(`The ${empty.join(", ")} ${empty.length > 1 ? "sections" : "section"} came back empty this time.`);
     }
     if (!result.atsScore?.keyword_coverage) issues.push("Search-visibility scoring didn't complete.");
     // The server includes selectedProjects (possibly empty) whenever a pool
     // was sent — an empty array means the selection step failed and the
     // master-CV projects rendered instead.
     if (Array.isArray(result.selectedProjects) && result.selectedProjects.length === 0) {
-      issues.push("Project selection from your pool didn't complete this run — showing your master CV's projects instead.");
+      issues.push("We could not choose projects from your project list this time. Your main CV's projects are shown instead.");
     }
     return issues;
   }, [result]);
@@ -2082,13 +2082,13 @@ export default function Home() {
       <div className="container container--ruled">
         <AppHeader
           title="Tailor your CV"
-          tagline="Honest tailoring. Every claim traces back to your real CV — nothing invented."
+          tagline="Paste a job description and get a CV written for that job. Everything in it comes from your main CV. Nothing is invented."
         />
 
         {/* Master CV status — uploading/editing/replacing it lives on /customize now */}
         {cvLoading ? (
           <Card>
-            <div className="label">Master CV</div>
+            <div className="label">Main CV</div>
             <Skeleton lines={2} label="Loading your CV" />
           </Card>
         ) : !masterCvText ? (
@@ -2101,10 +2101,10 @@ export default function Home() {
                   <path d="M9 13h6M9 17h6" />
                 </svg>
               }
-              title="Start with your master CV"
-              actions={<Button href="/customize">Add your CV in Customise →</Button>}
+              title="First, add your main CV"
+              actions={<Button href="/customize">Add my CV →</Button>}
             >
-              Add it once and it&apos;s reused for every job you tailor for here. Paste it or upload a PDF or Word file.
+              Add it once. Jobhuntz uses it for every job. Paste it, or upload a PDF or Word file.
             </EmptyState>
           </Card>
         ) : null}
@@ -2116,7 +2116,7 @@ export default function Home() {
               <FormField
                 label="Paste a job link"
                 htmlFor="importUrl"
-                help="Lever, Ashby, Greenhouse, Workable, SmartRecruiters, BambooHR or LinkedIn. We read the posting into the box below; check it before you tailor."
+                help="Lever, Ashby, Greenhouse, Workable, SmartRecruiters, BambooHR or LinkedIn. We read the job description into the box below; check it before you tailor."
               >
                 <form
                   className="researchRow"
@@ -2175,14 +2175,14 @@ export default function Home() {
             <TriageBadge triage={shownTriage} />
             {usage && !usage.unlimited && (
               <p className="usageRow">
-                <span>
-                  Free tailors today:{" "}
-                  <strong>{Math.max(usage.dailyLimit - usage.dailyUsed, 0)} of {usage.dailyLimit}</strong>
+                <span data-usage-free>
+                  Free tailored CVs:{" "}
+                  <strong>{Math.max(usage.claudeLimit - usage.claudeUsed, 0)} of {usage.claudeLimit}</strong> left
                 </span>
                 <span aria-hidden="true">·</span>
-                <span>
-                  Claude credits:{" "}
-                  <strong>{Math.max(usage.claudeLimit - usage.claudeUsed, 0)} of {usage.claudeLimit}</strong>
+                <span data-usage-today>
+                  Today:{" "}
+                  <strong>{Math.max(usage.dailyLimit - usage.dailyUsed, 0)} of {usage.dailyLimit}</strong> left
                 </span>
               </p>
             )}
@@ -2195,7 +2195,7 @@ export default function Home() {
               <div className="actions">
                 {/* Once a result exists the primary action is its download, so this steps back to an outline. */}
                 <Button variant={result ? "secondary" : "primary"} onClick={handlePreCheck} disabled={gateLoading || loading}>
-                  {gateLoading ? "Checking keyword match…" : "Tailor my CV"}
+                  {gateLoading ? "Checking this job…" : "Check this job (free)"}
                 </Button>
                 {poolRunLine}
                 {isUnlimited && (
@@ -2240,7 +2240,7 @@ export default function Home() {
                 {research?.profile?.company_name && (
                   <p className="gateNote" style={{ marginBottom: 'var(--space-3)' }}>
                     Without the check we can&apos;t confirm this job is at{" "}
-                    <strong>{research.profile.company_name}</strong>, so your research won&apos;t be applied to this run.
+                    <strong>{research.profile.company_name}</strong>, so your research won&apos;t be applied to this CV.
                   </p>
                 )}
                 <div className="gateActions">
@@ -2258,24 +2258,24 @@ export default function Home() {
                   <p className="gateRole">
                     Looks like: <strong>{gateInfo.role || "this role"}</strong>
                     {gateInfo.company && <> at <strong>{gateInfo.company}</strong></>}
-                    {" "}— if that&apos;s not the job you meant, fix the JD above before continuing.
+                    . If that is not the job you meant, fix the job description above before you continue.
                   </p>
                 )}
                 {researchBinding && (
                   <p className="gateNote" data-research-binding={researchBinding.status}>
                     {researchBinding.status === "match" && (
-                      <>Company research for <strong>{researchBinding.company}</strong> will be used in this run.</>
+                      <>Company research for <strong>{researchBinding.company}</strong> will be used in this CV.</>
                     )}
                     {researchBinding.status === "mismatch" && (
                       <>
                         Your research is for <strong>{researchBinding.company}</strong>; this job looks like{" "}
-                        <strong>{researchBinding.jobCompany}</strong> — the research won&apos;t be applied to this run.
+                        <strong>{researchBinding.jobCompany}</strong>. The research will not be applied to this CV.
                       </>
                     )}
                     {researchBinding.status === "unknown" && (
                       <>
                         Couldn&apos;t tell which company this job is at, so your research for{" "}
-                        <strong>{researchBinding.company}</strong> won&apos;t be applied to this run.
+                        <strong>{researchBinding.company}</strong> won&apos;t be applied to this CV.
                       </>
                     )}
                   </p>
@@ -2322,14 +2322,14 @@ export default function Home() {
                     {gateExtras.seniority.reason}
                     {gateExtras.seniority.signals.length > 0 && (
                       <>
-                        {" "}Read from: {gateExtras.seniority.signals.map((s) => `${s.kind === "title" ? "title" : s.kind === "years" ? "years" : s.kind === "salary" ? "salary" : s.kind === "label" ? "the posting's level" : "ownership"} (${s.text})`).join(", ")}.
+                        {" "}Read from: {gateExtras.seniority.signals.map((s) => `${s.kind === "title" ? "title" : s.kind === "years" ? "years" : s.kind === "salary" ? "salary" : s.kind === "label" ? "the job description's level" : "ownership"} (${s.text})`).join(", ")}.
                       </>
                     )}
                   </div>
                 )}
                 {gateExtras?.knockouts && (
                   <>
-                    <div className="gateLabel">Read on this application</div>
+                    <div className="gateLabel">Our advice for this job</div>
                     <Badge variant="value" tone={gateRead === "apply" ? "success" : "neutral"} data-gate-read={gateRead}>
                       {READ_LABEL[gateRead]}
                     </Badge>
@@ -2337,16 +2337,15 @@ export default function Home() {
                       {gateExtras.knockouts.read.reason}
                       {!gateExtras.knockouts.profileSet && (
                         <>
-                          {" "}Set up your eligibility answers in{" "}
-                          <Link href="/customize" className="customizeLink">Customise</Link> (about 2 minutes) and this
-                          check turns each job&apos;s eligibility conditions into pass or fail before you spend a tailor.
+                          {" "}Answer the Eligibility questions on{" "}
+                          <Link href="/customize" className="customizeLink">My CV</Link> (about 2 minutes). This check then tells you if you meet each job&apos;s requirements, before you use a tailored CV.
                         </>
                       )}
                     </p>
                     {gateVerdicts.length > 0 && (
                       <div className="atsGroup">
                         <div className={"atsGroupLabel " + (gateExtras.knockouts.verdicts.some((x) => x.verdict === "hard") ? "misses" : "recs")}>
-                          Eligibility gates ({gateVerdicts.length})
+                          Requirements in this job ({gateVerdicts.length})
                         </div>
                         <ul className="atsList" data-gate-list>
                           {gateVerdicts.map((x, i) => (
@@ -2374,8 +2373,8 @@ export default function Home() {
                 <p className="gateNote">
                   {preCheck.matched >= 10
                     ? "Good overlap with this role's top keywords, from your CV as it stands today."
-                    : "Below the usual 10-keyword mark for your CV as-is — tailoring can still genuinely help by surfacing real adjacent skills, though a gap this size may be honest too."}
-                  {" "}The same {preCheck.total} terms, counted the same way as the search-visibility score after tailoring, but read here over your master CV as saved; after tailoring, the score card shows this figure again under the new one.
+                    : "Your CV has fewer than 10 of this job's key words. Tailoring can help by showing related skills you really have. A gap this big can also mean the job is not a good match."}
+                  {" "}The same {preCheck.total} terms. We count them the same way as the score after tailoring, but here we count them in your main CV. After tailoring, the score card shows both numbers.
                 </p>
                 {gateExtras?.required && gateExtras.required.total > 0 && (
                   <>
@@ -2387,14 +2386,14 @@ export default function Home() {
                       <p className="gateNote">
                         {gateExtras.required.missedKeywords.length > 0
                           ? `Not in your CV as it stands: ${gateExtras.required.missedKeywords.join(", ")}.`
-                          : "Every required skill the posting names is in your CV."}
+                          : "Every required skill the job description names is in your CV."}
                       </p>
                     )}
                   </>
                 )}
                 {gateExtras?.evidence && gateExtras.evidence.items.length > 0 && (
                   <div className="atsGroup" data-evidence-map>
-                    <div className="atsGroupLabel recs">What the posting asks for, and where your CV shows it</div>
+                    <div className="atsGroupLabel recs">What the job description asks for, and where your CV shows it</div>
                     <ul className="atsList">
                       {gateExtras.evidence.items
                         .filter((i) => i.importance !== "keyword" || i.status !== "gap" || i.kind !== "soft")
@@ -2412,11 +2411,11 @@ export default function Home() {
                               {i.where ? `: ${i.where}` : ""}
                               {gap?.class === "rename" && gap.line ? (
                                 <>
-                                  . Your CV may show it as &ldquo;{gap.line}&rdquo;{gap.where ? ` (${gap.where})` : ""}. If that is the same work, you can name it that way in your master CV.
+                                  . Your CV may show it as &ldquo;{gap.line}&rdquo;{gap.where ? ` (${gap.where})` : ""}. If that is the same work, you can name it that way in your main CV.
                                 </>
                               ) : null}
                               {gap?.class !== "rename" && i.status === "gap" && i.kind === "soft" ? ". Your CV never says it in words; show it with a real example if you have one." : ""}
-                              {gap?.class !== "rename" && i.status === "gap" && i.kind !== "soft" ? ". A core gap: no evidence in your CV. It won't be claimed; the letter may name your nearest real experience instead." : ""}
+                              {gap?.class !== "rename" && i.status === "gap" && i.kind !== "soft" ? ". Your CV does not show this at all. The tailored CV will not claim it. The letter may name your closest real experience instead." : ""}
                             </span>
                           </li>
                           );
@@ -2427,22 +2426,22 @@ export default function Home() {
                 {companyHits.length > 0 && (
                   <div className={companyBlocks ? "limitNotice" : "gateNote"} role="status" style={{ marginBottom: 'var(--space-4)' }} data-gate-company-rules={companyBlocks ? "skip" : "review"}>
                     {companyBlocks ? "Skip" : "Review"}: {companyHits.map((h) => h.phrase).join("; ")}.
-                    {companyBlocks ? " Tailoring anyway spends a credit on an application they said they won't take." : ""}
+                    {companyBlocks ? " The company said it will not accept this application. Tailoring anyway still uses 1 tailored CV." : ""}
                   </div>
                 )}
                 {coreGaps && (
                   <div className={coreGaps.blocks ? "limitNotice" : "gateNote"} role="status" style={{ marginBottom: 'var(--space-4)' }} data-gate-core-gaps={coreGaps.terms.length}>
                     {coreGaps.text}
-                    {coreGaps.blocks ? " Tailoring anyway spends a credit." : ""}
+                    {coreGaps.blocks ? " Tailoring anyway uses 1 tailored CV." : ""}
                   </div>
                 )}
                 <div className="gateActions">
                   <Button variant={gateRead === "skip" || seniorityBlocks || gapBlocks || companyBlocks ? "secondary" : "primary"} onClick={runFullTailor} disabled={loading}>
-                    {loading ? "Tailoring…" : gateRead === "skip" || seniorityBlocks || gapBlocks || companyBlocks ? "Tailor anyway (uses a credit) →" : "Continue to full tailoring →"}
+                    {loading ? "Tailoring…" : gateRead === "skip" || seniorityBlocks || gapBlocks || companyBlocks ? "Tailor anyway (uses 1 tailored CV) →" : "Tailor my CV →"}
                   </Button>
                   {variants && variants.variants.length > 0 && (
                     <span className="providerPick" data-variant-pick={variantPick.variant?.id ?? "none"}>
-                      <label htmlFor="variantSelect">Positioning</label>
+                      <label htmlFor="variantSelect">Headline</label>
                       <select
                         id="variantSelect"
                         value={variantOverride ?? "auto"}
@@ -2506,21 +2505,19 @@ export default function Home() {
 
             {errorType === "provider_credit" && (
               <div className="limitNotice" role="alert" data-provider-credit>
-                <div className="limitNotice__title">{errorStep === "pre-check" ? "The pre-check" : "Tailoring"} is temporarily unavailable.</div>
+                <div className="limitNotice__title">{errorStep === "pre-check" ? "The free check" : "Tailoring"} is temporarily unavailable.</div>
                 <div className="limitNotice__body">
-                  The shared Claude account has run out of credit — this isn&apos;t your account, and you
-                  haven&apos;t been charged a tailor. Add your own free OpenRouter key and {errorStep === "pre-check" ? "the pre-check and tailoring run" : "tailoring runs"} on
-                  it instead, starting immediately.
+                  Our free AI service is not available right now. This is not a problem with your account, and it did not use one of your tailored CVs. Add your own free API key and {errorStep === "pre-check" ? "the free check and tailoring run" : "tailoring runs"} on your key instead, straight away.
                 </div>
                 <Button href="/settings" className="limitNotice__cta">
-                  Add your key in Settings →
+                  Add my API key →
                 </Button>
               </div>
             )}
 
             {errorType === "key_decrypt_failed" && (
               <div className="limitNotice" role="alert">
-                <div className="limitNotice__title">Your API key needs to be re-entered.</div>
+                <div className="limitNotice__title">Please enter your API key again.</div>
                 <div className="limitNotice__body">
                   Your saved key can no longer be read. Please go to Settings and replace it.
                 </div>
@@ -2533,12 +2530,12 @@ export default function Home() {
             {/* ── Free tailors used up — no keys saved yet ── */}
             {errorType === "needs_keys" && (
               <div className="limitNotice" role="alert">
-                <div className="limitNotice__title">Your 3 free tailors are used up.</div>
+                <div className="limitNotice__title">You have used your 3 free tailored CVs.</div>
                 <div className="limitNotice__body">
-                  Add your own key to keep going — it takes 2 minutes and the tool stays free.
+                  Add your own API key to continue. It is free and takes about 2 minutes.
                 </div>
                 <Button href="/settings" className="limitNotice__cta">
-                  Add your key in Settings →
+                  Add my API key →
                 </Button>
               </div>
             )}
@@ -2546,11 +2543,9 @@ export default function Home() {
             {/* ── Has a Gemini key, but Gemini can't complete a run ── */}
             {errorType === "needs_openrouter_key" && (
               <div className="limitNotice" role="alert">
-                <div className="limitNotice__title">Your Gemini key can&apos;t run a tailor.</div>
+                <div className="limitNotice__title">Your Gemini key cannot tailor a CV.</div>
                 <div className="limitNotice__body">
-                  Gemini&apos;s free tier allows 5 requests per minute, and one tailoring run makes 8 —
-                  so it can&apos;t finish even once. Add an OpenRouter key instead; its free tier handles
-                  a full run.
+                  Gemini&apos;s free plan allows 5 requests a minute. Tailoring one CV needs 8, so it cannot finish. Add an OpenRouter key in Settings instead.
                 </div>
                 <Button href="/settings" className="limitNotice__cta">
                   Add an OpenRouter key →
@@ -2561,9 +2556,9 @@ export default function Home() {
             {/* ── User's own key quota exhausted ── */}
             {errorType === "user_key_limit" && (
               <div className="limitNotice" role="alert">
-                <div className="limitNotice__title">Your OpenRouter key has hit its limit.</div>
+                <div className="limitNotice__title">Your API key has reached today&apos;s limit.</div>
                 <div className="limitNotice__body">
-                  {error || "Your key's free quota resets daily — come back tomorrow to continue."}
+                  {error || "The free limit on your key starts again each day. Try again tomorrow."}
                 </div>
                 <div className="limitNotice__body">
                   A subscription plan with higher limits is on the way.
@@ -2584,7 +2579,7 @@ export default function Home() {
             <FormField
               label="Company research (optional)"
               htmlFor="companyUrl"
-              help="Paste the company's website and we'll read their site and live job ads, then score how well your real CV fits before you spend a tailor. Uses one tailor credit — repeat lookups of the same company are free for 7 days."
+              help="Paste the company's website. We read the site and its job adverts, then score how well your CV fits the company. This counts as 1 tailored CV: it uses one of your free ones, and one of today's 3. Looking up the same company again is free for 7 days."
             >
               <div className="researchRow">
                 <Input
@@ -2680,7 +2675,7 @@ export default function Home() {
                         );
                       })}
                     </div>
-                    <p className="fitEvidence">✓ = already evidenced in your master CV.</p>
+                    <p className="fitEvidence">✓ = already evidenced in your main CV.</p>
                   </div>
                 )}
 
@@ -2716,7 +2711,7 @@ export default function Home() {
                           >
                             <span className="openingTitle">{o.title}</span>
                             {o.location && <span className="openingLoc">{o.location}</span>}
-                            <span className="openingUse">Use as JD ↓</span>
+                            <span className="openingUse">Use this job ↓</span>
                           </button>
                         </li>
                       ))}
@@ -2739,7 +2734,7 @@ export default function Home() {
                     the CV attached (email is owner-only; server enforces). */}
                 {research.profile && (research.profile.company_name || research.profile.what_they_build) ? (
                   <div className="atsGroup">
-                    <div className="atsGroupLabel recs">Cold outreach — no job posting needed</div>
+                    <div className="atsGroupLabel recs">Contact the company directly (no job advert needed)</div>
                     <p className="gateNote" style={{ marginBottom: "var(--space-3)" }}>
                       Tailors your CV and cover letter to {research.profile.company_name || "this company"}&apos;s
                       real stack from the research — completely separate from the job-description box below.
@@ -2843,7 +2838,7 @@ export default function Home() {
                 <li>Writing your cover letter</li>
                 <li>Scoring recruiter search visibility</li>
               </ul>
-              <p className="loadingMeta">{elapsed}s — a full run usually takes under a minute.</p>
+              <p className="loadingMeta">{elapsed}s. This usually takes under a minute.</p>
             </div>
           </section>
         )}
@@ -2859,7 +2854,7 @@ export default function Home() {
                   {resultInfo.company && <> at <strong>{resultInfo.company}</strong></>}
                   {result.variantName && (
                     <span data-variant-used={result.variantName}>
-                      {" "}· positioned as <strong>{result.variantName}</strong>
+                      {" "}· headline: <strong>{result.variantName}</strong>
                       {result.variantReason && <span className="fitEvidence" style={{ display: "block" }}>{result.variantReason}</span>}
                     </span>
                   )}
@@ -2881,9 +2876,7 @@ export default function Home() {
               <div className="limitNotice" role="alert" data-stale-jd>
                 <div className="limitNotice__title">The job description changed since this CV was tailored</div>
                 <div className="limitNotice__body">
-                  Downloads are held until the text above matches the posting this was tailored for (Applied still
-                  saves the run with the posting it was tailored from). Restore that text, or clear this result and
-                  tailor the new posting.
+                  You cannot download until the text above matches the job description this CV was tailored for. (Applied still saves it with the job description it was tailored from.) Restore that text, or clear this result and tailor for the new job.
                 </div>
                 <div className="limitNotice__cta" style={{ gap: "var(--space-2)" }}>
                   <Button type="button" variant="secondary" onClick={() => setJobDescription(resultJd ?? "")}>
@@ -2897,8 +2890,7 @@ export default function Home() {
             )}
             {partialIssues.length > 0 && (
               <div className="limitNotice" role="status">
-                {partialIssues.join(" ")} Re-running the same job description retries those steps
-                (it counts as a new run).
+                {partialIssues.join(" ")} Tailoring the same job description again retries those steps. It counts as a new tailored CV.
               </div>
             )}
             {activeCheck && claimIssues > 0 && (
@@ -2918,18 +2910,17 @@ export default function Home() {
                         <span>
                           {s.level === "absent" ? (
                             <>
-                              <strong>{s.skill}</strong>: the posting asks for it, but your master CV never shows it — {s.claim}. Remove it, or add
-                              it to your master CV first if you have really done it.
+                              <strong>{s.skill}</strong>: the job description asks for it, but your main CV never shows it. The text says: {s.claim}. Remove it, or add it to your main CV first if you have really done it.
                             </>
                           ) : s.level === "learning" ? (
                             <>
-                              <strong>{s.skill}</strong> is marked <em>learning</em> in your registry, and it appears in the {WHERE_LABEL[s.where]}
+                              <strong>{s.skill}</strong> is marked <em>learning</em> in your skill levels list, and it appears in the {WHERE_LABEL[s.where]}
                               {s.claim ? <>: &ldquo;{s.claim}&rdquo;</> : null}.
                             </>
                           ) : (
                             <>
                               <strong>{s.skill}</strong> is registered as <em>project-only</em>, but the {WHERE_LABEL[s.where]} claims more — {s.claim}.
-                              Rule: {SKILL_RULE_TEXT[s.rule]}. Raise its level in Customise only if you have used it at work.
+                              Rule: {SKILL_RULE_TEXT[s.rule]}. Raise its level on My CV only if you have used it at work.
                             </>
                           )}
                         </span>
@@ -2943,9 +2934,9 @@ export default function Home() {
                         <span>
                           <strong>{n.figure}</strong>{" "}
                           {n.kind === "absent"
-                            ? "isn't on your master CV"
+                            ? "isn't on your main CV"
                             : n.kind === "combined"
-                              ? "joins two separate figures into a range your master CV never states"
+                              ? "joins two separate figures into a range your main CV never states"
                               : "is on your CV in a different context"}{" "}
                           — in the{" "}
                           {WHERE_LABEL[n.where]}: &ldquo;{n.sentence.length > 140 ? `${n.sentence.slice(0, 139)}…` : n.sentence}&rdquo;
@@ -2955,10 +2946,10 @@ export default function Home() {
                   </ul>
                   <p className="fitEvidence">
                     {blocked
-                      ? "Press Fix it and the flagged words are corrected for you, with the job description in view — no tailor credit is used. Or edit the highlighted text in the preview below, then click outside it or press Re-check now. Download and Applied unlock when it passes."
+                      ? "Press Fix it and we correct the marked words for you. This is free. Or edit the highlighted text in the preview below, then click outside it or press Check again. Download and Applied unlock when the check passes."
                       : activeCheck.mode === "enforce"
                         ? "Warnings don't block downloads; a figure missing from your CV or a skill claimed above its level would."
-                        : "Save a master CV in Customise and its skills become blocking checks."}
+                        : "Save your main CV on My CV. Its skills are then checked on every tailored CV."}
                   </p>
                   {claimFixError && <StatusText role="alert">{claimFixError}</StatusText>}
                 </div>
@@ -2968,7 +2959,7 @@ export default function Home() {
                       {fixingClaims ? "Fixing…" : "Fix it"}
                     </Button>
                   )}
-                  <Button variant="secondary" onClick={recheckClaims}>Re-check now</Button>
+                  <Button variant="secondary" onClick={recheckClaims}>Check again</Button>
                 </div>
               </div>
             )}
@@ -3016,7 +3007,7 @@ export default function Home() {
                       : claimFixReport.model?.rejected
                         ? `${claimFixReport.model.rejected === 1 ? "One AI rewrite" : `${claimFixReport.model.rejected} AI rewrites`} still broke a rule, so ${claimFixReport.model.rejected === 1 ? "that sentence was" : "those sentences were"} removed instead.`
                         : "Only the flagged words were changed; everything else is as it was."}{" "}
-                    No tailor credit was used. Read the changes, then download.
+                    This was free. Read the changes, then download.
                   </p>
                 </div>
                 {preFixResult && (
@@ -3028,17 +3019,17 @@ export default function Home() {
             )}
             {result.supportCheck && (result.supportCheck.changed.length > 0 || result.supportCheck.skipped || result.supportCheck.unverified.length > 0) && (
               <div className="limitNotice" role="status" data-support-check data-support-skipped={result.supportCheck.skipped || undefined}>
-                <div className="limitNotice__title">{result.supportCheck.skipped ? "The fact check did not run" : "Checked against your master CV"}</div>
+                <div className="limitNotice__title">{result.supportCheck.skipped ? "The fact check did not run" : "Checked against your main CV"}</div>
                 <div className="limitNotice__body">
                   {result.supportCheck.skipped ? (
                     <p className="fitEvidence">
-                      {supportSkippedText(result.supportCheck)} The deterministic checks still ran
+                      {supportSkippedText(result.supportCheck)} The automatic checks still ran
                       {result.supportCheck.changed.length > 0 ? " and changed the sentences below" : ""}. The cover letter&apos;s download is held until you confirm you have read it; the
                       unchecked sentences are listed beside the letter.
                     </p>
                   ) : (
                     <p className="fitEvidence">
-                      Every sentence about your past in the summary and the letter was checked against your master CV.{" "}
+                      Every sentence about your past in the summary and the letter was checked against your main CV.{" "}
                       {result.supportCheck.changed.length === 0 ? "" : result.supportCheck.changed.length === 1 ? "One said" : `${result.supportCheck.changed.length} said`}
                       {result.supportCheck.changed.length > 0 ? " something it doesn't show:" : ""}
                     </p>
@@ -3100,7 +3091,7 @@ export default function Home() {
                       <li data-format-fix="unsupported-tools">
                         <Badge variant="dot" tone="miss">−</Badge>
                         <span>
-                          Dropped from Technical Tools because your master CV never names them: {result.formatFixes.unsupportedTools.join(", ")}.
+                          Dropped from Technical Tools because your main CV never names them: {result.formatFixes.unsupportedTools.join(", ")}.
                         </span>
                       </li>
                     )}
@@ -3108,7 +3099,7 @@ export default function Home() {
                       <li data-format-fix="competencies">
                         <Badge variant="dot" tone="miss">−</Badge>
                         <span>
-                          Dropped from Functional Competencies because your master CV shows no such work: {result.formatFixes.competencies.join("; ")}.
+                          Dropped from Functional Competencies because your main CV shows no such work: {result.formatFixes.competencies.join("; ")}.
                         </span>
                       </li>
                     )}
@@ -3116,7 +3107,7 @@ export default function Home() {
                       <li data-format-fix="restored-tools">
                         <Badge variant="dot" tone="hit">+</Badge>
                         <span>
-                          Put back on Technical Tools because the posting asks for them and your master CV lists them: {result.formatFixes.restoredTools.join(", ")}.
+                          Put back on Technical Tools because the job description asks for them and your main CV lists them: {result.formatFixes.restoredTools.join(", ")}.
                         </span>
                       </li>
                     )}
@@ -3179,7 +3170,7 @@ export default function Home() {
                           ]
                             .filter(Boolean)
                             .join("; ")}
-                          .{result.formatFixes.style.swapped.length > 0 ? " Every swap stays within the two-word budget a master bullet allows." : ""}
+                          .{result.formatFixes.style.swapped.length > 0 ? " Every swap stays within the two words that a main CV bullet may change." : ""}
                         </span>
                       </li>
                     )}
@@ -3209,9 +3200,9 @@ export default function Home() {
             )}
             {result.variantLeadSkills && result.variantLeadSkills.dropped.length > 0 && (
               <div className="limitNotice" role="status" data-lead-skills-skipped>
-                <div className="limitNotice__title">Lead skills skipped</div>
+                <div className="limitNotice__title">Skills not shown first</div>
                 <div className="limitNotice__body">
-                  {leadSkillsNotice(result.variantLeadSkills.dropped)} Change the level on Customise if it is production work, or take it out of the variant.
+                  {leadSkillsNotice(result.variantLeadSkills.dropped)} Change the level on My CV if it is production work, or remove it from the headline&apos;s skills.
                 </div>
               </div>
             )}
@@ -3225,8 +3216,7 @@ export default function Home() {
               <div className="limitNotice" role="status" data-fast-mode-notice>
                 <div className="limitNotice__title">What ran on the free model</div>
                 <div className="limitNotice__body">
-                  Free models are slow, so the four polish retries were skipped: the role-title retry, the bullet-lint retry, the claims rewrite and the letter&apos;s name rewrite (a
-                  sentence naming a place or product your sources don&apos;t was removed instead). Every deterministic check ran.{" "}
+                  Free models are slow, so four second attempts were skipped: the job title in the summary, weak bullets, the claims rewrite, and names in the letter (a sentence naming a place or product that your sources do not name was removed instead). Every automatic check still ran.{" "}
                   {fastCheckText(result.supportCheck)}
                 </div>
               </div>
@@ -3235,12 +3225,11 @@ export default function Home() {
               <div className="limitNotice" role="status" data-graduate-layout>
                 <div className="limitNotice__title">Graduate-scheme layout</div>
                 <div className="limitNotice__body">
-                  This posting is screened on the degree first, so Education sits under the summary for this run.
-                  Your saved section order is unchanged.
+                  This job is screened on the degree first, so Education sits under the summary for this CV. Your saved section order is unchanged.
                 </div>
                 <div className="limitNotice__cta">
                   <Button type="button" variant="secondary" onClick={() => setStandardOrderFor(tailorSessionId ?? "run")}>
-                    Use my standard order for this run
+                    Use my standard order for this CV
                   </Button>
                 </div>
               </div>
@@ -3254,15 +3243,15 @@ export default function Home() {
                 const title =
                   fit.target === 1
                     ? fit.fits ? "Fitted to one page" : "Could not fit one page"
-                    : !fit.fits ? "Could not fit two pages" : fit.restored.length > 0 ? "Filled to two pages from your master CV" : "Fitted to two pages";
+                    : !fit.fits ? "Could not fit two pages" : fit.restored.length > 0 ? "Filled to two pages from your main CV" : "Fitted to two pages";
                 return (
                   <div className="limitNotice" role="status" data-page-fit={`${fit.target}-${fit.fits ? "fits" : "over"}`}>
                     <div className="limitNotice__title">{title}</div>
                     <div className="limitNotice__body">
                       {fit.target === 1
-                        ? "You chose a one-page CV on Customise, so the download is laid out to one."
+                        ? "You chose a one-page CV on My CV, so the download is laid out to one."
                         : "The download is laid out to two pages."}
-                      {fit.restored.length > 0 && " These bullets from your master CV were put back to fill the second page:"}
+                      {fit.restored.length > 0 && " These bullets from your main CV were put back to fill the second page:"}
                       {leftOutTotal > 0 && " Left out for length — paste one back into the preview if it matters more than what stayed:"}
                       {fit.target === 1 && leftOutTotal === 0 && " Nothing had to be left out."}
                       {!fit.fits && " Even at the tightest spacing it still runs over: shorten the remaining bullets in the preview."}
@@ -3317,7 +3306,7 @@ export default function Home() {
                       {(result.letterCheck.lint?.restatedJd ?? []).map((s, i) => (
                         <li key={`r${i}`} data-letter-restated>
                           <Badge variant="dot" tone="miss">−</Badge>
-                          <span>Removed — it told the reader their own posting back: &ldquo;{clip(s)}&rdquo;</span>
+                          <span>Removed. It told the reader their own job description back: &ldquo;{clip(s)}&rdquo;</span>
                         </li>
                       ))}
                       {(result.letterCheck.lint?.secondPerson ?? []).map((s, i) => (
@@ -3340,9 +3329,8 @@ export default function Home() {
                         <li data-letter-gap>
                           <Badge variant="dot" tone="rec">?</Badge>
                           <span>
-                            The posting asks for {result.letterCheck.honestGap.gaps.slice(0, 3).join(", ")}
-                            {result.letterCheck.honestGap.gaps.length > 3 ? " and more" : ""}, which your master CV never shows, and the letter does not say so. One plain sentence
-                            naming the gap and your nearest real experience reads better than silence — add it in the preview if you agree.
+                            The job description asks for {result.letterCheck.honestGap.gaps.slice(0, 3).join(", ")}
+                            {result.letterCheck.honestGap.gaps.length > 3 ? " and more" : ""}, which your main CV never shows, and the letter does not say so. One plain sentence that names the gap and your nearest real experience reads better than silence. Add it in the preview if you agree.
                           </span>
                         </li>
                       )}
@@ -3372,7 +3360,7 @@ export default function Home() {
                     ))}
                     {result.rightToWork.availability.removed.length > 0 && (
                       <p className="fitEvidence" data-rtw-availability-removed>
-                        Removed, because it is not an answer you gave on Customise:{" "}
+                        Removed, because it is not an answer you gave on My CV:{" "}
                         {result.rightToWork.availability.removed.map((s) => `“${clip(s)}”`).join(" · ")}
                       </p>
                     )}
@@ -3384,7 +3372,7 @@ export default function Home() {
                           : result.rightToWork.asked.includes("status")
                             ? "your right to work"
                             : "your availability"}{" "}
-                        under Eligibility on <Link href="/customize">Customise</Link>, so the letter can state it in your words.
+                        under Eligibility on <Link href="/customize">My CV</Link>, so the letter can state it in your words.
                       </p>
                     )}
                   </div>
@@ -3415,7 +3403,7 @@ export default function Home() {
                   <p className="fitEvidence">Edit the preview below; this read updates when you click away or re-check.</p>
                 </div>
                 <div className="limitNotice__cta">
-                  <Button variant="secondary" onClick={recheckClaims} data-style-recheck>Re-check now</Button>
+                  <Button variant="secondary" onClick={recheckClaims} data-style-recheck>Check again</Button>
                 </div>
               </div>
             )}
@@ -3423,11 +3411,10 @@ export default function Home() {
                 tailoring never rewrites a master bullet beyond two words. */}
             {isUnlimited && result?.masterCvNotes && result.masterCvNotes.length > 0 && (
               <div className="limitNotice" role="status" data-master-cv-notes={result.masterCvNotes.length}>
-                <div className="limitNotice__title">Your master CV</div>
+                <div className="limitNotice__title">Your main CV</div>
                 <div className="limitNotice__body">
                   <p className="fitEvidence">
-                    These bullets break a rule of the {styleLabel} style that the tailoring may not fix for you — it never changes a master
-                    CV bullet by more than two words. Edit them on <Link href="/customize">Customise</Link>.
+                    These bullets break a rule of the {styleLabel} style that the tailoring may not fix for you. It never changes a main CV bullet by more than two words. Edit them on <Link href="/customize">My CV</Link>.
                   </p>
                   <ul className="atsList">
                     {result.masterCvNotes.map((n, i) => (
@@ -3471,7 +3458,7 @@ export default function Home() {
                       <li data-quality-one-page={quality.pages.fitsOnePage ? "stretched" : "over"}>
                         <Badge variant="dot" tone="miss">✕</Badge>
                         <span>
-                          About <strong>{quality.pages.pages} pages</strong> — over the one page you chose on Customise.{" "}
+                          About <strong>{quality.pages.pages} pages</strong>. That is over the one page you chose on My CV.{" "}
                           Cut the least relevant bullets and projects in the preview below, or switch the CV length back to two pages.
                         </span>
                       </li>
@@ -3525,7 +3512,7 @@ export default function Home() {
                       <li>
                         <Badge variant="dot" tone="rec">?</Badge>
                         <span>
-                          Filler a recruiter reads straight past:{" "}
+                          Empty words that recruiters skip:{" "}
                           {quality.inflation.map((h) => `${h.word}${h.count > 1 ? ` ×${h.count}` : ""}`).join(", ")}. Cut or replace with what you did.
                         </span>
                       </li>
@@ -3537,8 +3524,7 @@ export default function Home() {
                           {quality.boltOns.length === 1 ? "One bullet ends" : `${quality.boltOns.length} bullets end`}{" "}
                           by explaining why it matters to
                           the employer: &ldquo;…{quality.boltOns[0].slice(-80)}&rdquo;
-                          {quality.boltOns.length > 1 ? " and more" : ""}. That clause is the clearest sign of a tool at work; cut it and let the bullet
-                          stop on the result.
+                          {quality.boltOns.length > 1 ? " and more" : ""}. This kind of ending looks machine-written. Cut it and end the bullet on the result.
                         </span>
                       </li>
                     )}
@@ -3546,7 +3532,7 @@ export default function Home() {
                   <p className="fitEvidence">Edit the preview below; this read updates when you click away or re-check.</p>
                 </div>
                 <div className="limitNotice__cta">
-                  <Button variant="secondary" onClick={recheckClaims} data-quality-recheck>Re-check now</Button>
+                  <Button variant="secondary" onClick={recheckClaims} data-quality-recheck>Check again</Button>
                 </div>
               </div>
             )}
@@ -3561,8 +3547,7 @@ export default function Home() {
                   🔥 High-fit extras for {research.profile.company_name || "this company"}
                 </div>
                 <p className="cvHelp">
-                  This company scored {research.fitScore.total}/100 against your real CV — worth going
-                  beyond the CV. Both are built only from your master CV and the research; nothing invented.
+                  This company scored {research.fitScore.total}/100 against your real CV, so it is worth doing more than the CV. Both are built only from your main CV and the research. Nothing is invented.
                 </p>
                 <div className="actions" style={{ marginTop: 0 }}>
                   <Button
@@ -3591,7 +3576,7 @@ export default function Home() {
                   <div className="extraBlock">
                     <div className="gateLabel">Interview talking points</div>
                     <p className="extraText">{talkingPoints}</p>
-                    <p className="fitEvidence">Saved into the tracker row&apos;s notes when you click Applied below.</p>
+                    <p className="fitEvidence">Saved in the application&apos;s notes when you click Applied below.</p>
                   </div>
                 )}
               </Card>
@@ -3606,13 +3591,13 @@ export default function Home() {
                   <StatusText as="span" role="alert">{appliedError}</StatusText>
                 )}
                 {blocked && appliedState === "idle" && (
-                  <StatusText as="span" role="status">Fix the flagged claims above first — press Fix it, or edit the preview. No credit is used.</StatusText>
+                  <StatusText as="span" role="status">Fix the marked claims above first. Press Fix it, or edit the preview. This is free.</StatusText>
                 )}
               </div>
             )}
             {appliedConfirm && appliedState !== "saving" && appliedState !== "saved" && (
               <div className="limitNotice" role="status" data-send-confirm>
-                <p><strong>Send anyway?</strong> Before this goes in the tracker as applied:</p>
+                <p><strong>Send anyway?</strong> Before you save this as applied:</p>
                 <ul className="atsList">
                   {appliedConfirm.map((reason) => (
                     <li key={reason}>{reason}</li>
@@ -3633,7 +3618,7 @@ export default function Home() {
             )}
             {!!result?.retiredClaims && (result.retiredClaims.replaced.length > 0 || result.retiredClaims.removed.length > 0) && (
               <div className="limitNotice" role="status" data-retired-notice>
-                From your list on Customise:{" "}
+                From your list on My CV:{" "}
                 {[
                   ...result.retiredClaims.replaced.map((r) => `"${r.from}" now reads "${r.to}"`),
                   ...result.retiredClaims.removed.map((p) => `the line saying "${p}" was removed`),
@@ -3672,7 +3657,7 @@ export default function Home() {
                 and untouched). */}
             {(appliedState === "saved" || appliedState === "already") && (editedAfterSave || (appliedResult !== null && result !== appliedResult)) && (
               <div className="limitNotice" role="status" data-changed-since-saved>
-                Changed since you saved it. The tracker keeps the CV and letter as they were when you clicked Applied; the downloads here give this version.
+                Changed since you saved it. Applications keeps the CV and letter as they were when you clicked Applied. The downloads here give this version.
               </div>
             )}
             <div onBlur={onPreviewBlur} onClick={onPreviewClick} onInput={onPreviewInput}>
@@ -3683,10 +3668,10 @@ export default function Home() {
                     : appliedState === "saving"
                       ? "Saving…"
                       : appliedState === "saved"
-                        ? "Saved to tracker ✓"
+                        ? "Saved to Applications ✓"
                         : appliedState === "already"
-                          ? "Already in tracker"
-                          : "Applied — save to tracker"
+                          ? "Already in Applications"
+                          : "I applied. Save to Applications"
                 }
                 appliedDisabled={blocked || appliedChecking || appliedState === "saving" || appliedState === "saved" || appliedState === "already"}
                 appliedTitle={blocked ? "Fix the flagged claims first" : undefined}
@@ -3726,7 +3711,7 @@ export default function Home() {
                   {[
                     result.poolFit?.message,
                     result.poolFit?.pinWarning,
-                    (result.poolFit?.techLeftOut?.length ?? 0) > 0 ? `Left off the tech lines, because your claims registry holds them as learning: ${result.poolFit!.techLeftOut!.join(", ")}.` : "",
+                    (result.poolFit?.techLeftOut?.length ?? 0) > 0 ? `Left off the tech lines, because your skill levels list marks them as learning: ${result.poolFit!.techLeftOut!.join(", ")}.` : "",
                   ].filter(Boolean).join(" ")}
                 </div>
               )}
@@ -3736,19 +3721,18 @@ export default function Home() {
               {result.bulletChanges && (result.bulletChanges.experience || result.bulletChanges.projects.length > 0) && (
                 <details className="changesView" data-bullet-changes>
                   <summary>
-                    Changes vs master CV
+                    Changes from your main CV
                     {result.bulletChanges.experience && (
                       <span className="changesView__counts">
                         {" "}— {result.bulletChanges.experience.kept} kept, {result.bulletChanges.experience.edited} edited,{" "}
                         {result.bulletChanges.experience.dropped} left out
-                        {result.bulletChanges.experience.added > 0 ? `, ${result.bulletChanges.experience.added} not in the master CV` : ""}
+                        {result.bulletChanges.experience.added > 0 ? `, ${result.bulletChanges.experience.added} not in the main CV` : ""}
                       </span>
                     )}
                   </summary>
                   <p className="fitEvidence">
-                    Every experience bullet is one of the master CV&apos;s, chosen and reordered for this posting, with at most two words
-                    changed. {result.bulletChanges.protocol ? "Ids were checked on this run." : "This run came back without bullet ids, so the comparison below is by closest match."}{" "}
-                    Roles run newest first{result.bulletChanges.chronology?.moved ? " (reordered by date)" : ""}. Role titles, employers and dates are the master CV&apos;s, verbatim
+                    Every experience bullet is one from your main CV, chosen and reordered for this job, with at most two words changed. {result.bulletChanges.protocol ? "Each bullet was matched to your main CV by its number." : "The bullets came back without numbers, so the comparison below is by closest match."}{" "}
+                    Roles run newest first{result.bulletChanges.chronology?.moved ? " (reordered by date)" : ""}. Role titles, employers and dates are the main CV&apos;s, verbatim
                     {result.bulletChanges.headers && (result.bulletChanges.headers.locked.length > 0 || result.bulletChanges.headers.droppedEmpty.length > 0)
                       ? ` (${[
                           result.bulletChanges.headers.locked.length > 0 ? `${result.bulletChanges.headers.locked.length} restored` : "",
@@ -3777,7 +3761,7 @@ export default function Home() {
                       <ul className="atsList">
                         {r.bullets.map((b, bi) => (
                           <li key={bi} data-status={b.status}>
-                            <span className="changesView__status">{b.status === "kept" ? "kept" : b.status === "edited" ? "edited" : b.status === "reverted" ? "reverted to master" : "not in master"}</span>
+                            <span className="changesView__status">{b.status === "kept" ? "kept" : b.status === "edited" ? "edited" : b.status === "reverted" ? "reverted to your main CV" : "not in your main CV"}</span>
                             <span>
                               {b.output}
                               {b.status === "edited" && (b.from.length > 0 || b.to.length > 0) && (
@@ -3855,7 +3839,7 @@ export default function Home() {
                     </div>
                   )}
                   <p className="scoreNote">
-                    How likely a recruiter searching their pipeline for this role&apos;s terms is to surface your CV — the count is how many of those terms the tailored text carries.
+                    Recruiters search their list of applicants by key words. This score counts how many of this job&apos;s key words are in your tailored CV. More matches make your CV more likely to appear in their search.
                   </p>
 
                   {Array.isArray(result.atsScore.hits) && result.atsScore.hits.length > 0 && (
@@ -3881,10 +3865,10 @@ export default function Home() {
                               <span>
                                 {m}
                                 {gap?.class === "rename" && gap.line && (
-                                  <span className="fitEvidence" style={{ display: "block" }}>Your CV may show this as &ldquo;{gap.line}&rdquo;. If it is the same work, you can name it that way in your master CV.</span>
+                                  <span className="fitEvidence" style={{ display: "block" }}>Your CV may show this as &ldquo;{gap.line}&rdquo;. If it is the same work, you can name it that way in your main CV.</span>
                                 )}
                                 {gap?.class === "core" && (
-                                  <span className="fitEvidence" style={{ display: "block" }}>{gap.learning ? "Being learnt: never claimed." : "Core gap: no evidence in your master CV."}</span>
+                                  <span className="fitEvidence" style={{ display: "block" }}>{gap.learning ? "Being learnt: never claimed." : "Not in your main CV at all."}</span>
                                 )}
                               </span>
                             </li>
@@ -3909,7 +3893,7 @@ export default function Home() {
 
                   {Array.isArray(result.atsScore.needs_evidence) && result.atsScore.needs_evidence.length > 0 && (
                     <div className="atsGroup" data-needs-evidence>
-                      <div className="atsGroupLabel misses">Needs your evidence ({result.atsScore.needs_evidence.length})</div>
+                      <div className="atsGroupLabel misses">We could not confirm these from your CV ({result.atsScore.needs_evidence.length})</div>
                       <ul className="atsList">
                         {result.atsScore.needs_evidence.map((n, i) => (
                           <li key={i}><Badge variant="dot" tone="miss">?</Badge>{n.note}</li>

@@ -194,7 +194,7 @@ export default function LoginPage() {
       <main className="authPage">
         <div className="authCard">
           <Wordmark href="/" className="authWordmark authWordmarkLink" />
-          <p className="authEyebrow">Almost there</p>
+          <p className="authEyebrow">One more step</p>
           <h1 className="authTitle">Check your inbox</h1>
           <p className="authMuted">
             We sent a confirmation link to <strong className="authStrong">{email}</strong>.
@@ -219,8 +219,8 @@ export default function LoginPage() {
         <h1 className="authTitle">{mode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
         <p className="authMuted">
           {mode === 'login'
-            ? 'Sign in to pick up your master CV and applications.'
-            : 'Free to start — three tailored CVs on us, then bring your own key.'}
+            ? 'Sign in to open your CV and your applications.'
+            : 'Free to start. You get 3 free tailored CVs in total. After that, add your own free API key and keep going at no cost. We show you how.'}
         </p>
 
         {/* Mode toggle */}

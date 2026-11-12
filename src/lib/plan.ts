@@ -508,7 +508,7 @@ export const FUNNEL_LABELS: Record<FunnelStep | "rejected" | "ghosted", string> 
   offer: "Offer",
   accepted: "Won",
   rejected: "Rejected",
-  ghosted: "Ghosted",
+  ghosted: "No reply",
 };
 // A rate over fewer than this many says nothing (the tracker's ≥8-per-group rule).
 export const FUNNEL_MIN_GROUP = 8;

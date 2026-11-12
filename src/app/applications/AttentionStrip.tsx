@@ -89,7 +89,7 @@ export default function AttentionStrip({
         data-attn="fix"
       >
         <span className="attnNumber">{loading ? <Pending /> : counts.dataToFix}</span>
-        <span className="attnLabel">{loading ? "Data to fix" : `Data to fix · ${counts.statusToFix} status, ${counts.attachmentsToFix} JD/CV`}</span>
+        <span className="attnLabel">{loading ? "Applications to fix" : `Applications to fix · ${counts.statusToFix} with the wrong status, ${counts.attachmentsToFix} with no job description or CV`}</span>
       </button>
       {/* The cold-email count needs every row too: no card until the full list is here. */}
       {!loading && coldNoFollowup > 0 && (

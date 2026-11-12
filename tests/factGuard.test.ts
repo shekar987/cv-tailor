@@ -63,7 +63,7 @@ test("factGuardNotices: one line per non-empty list, lifted phrases first; a cle
   const report = { degrees: ["BSc → BTech"], droppedTools: ["Kafka", "Azure"], roleStatus: [], roleStatusCheck: [], liftedPhrases: ["live translation ai"] };
   const notices = factGuardNotices(report);
   assert.deepEqual(notices.map((n) => n.kind), ["liftedPhrases", "droppedTools", "degrees"]);
-  assert.equal(notices[0].label, "Summary lines copied from the job ad, check they are true:");
+  assert.equal(notices[0].label, "Summary lines copied from the job description. Check they are true:");
   assert.equal(notices[1].label, FACT_GUARD_LABELS.droppedTools);
   assert.deepEqual(notices[1].items, ["Kafka", "Azure"]);
   assert.deepEqual(factGuardNotices({ degrees: [], droppedTools: [], liftedPhrases: [], roleStatus: [], roleStatusCheck: [] }), [], "a clean tailor: no notice");

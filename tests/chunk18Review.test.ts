@@ -68,5 +68,5 @@ test("cold outreach has no seniority, so it never swells the mid-level lane; it 
 test("a cold-email row never asks for a JD check or a CV file", () => {
   assert.equal(rowCheck({ status: "Applied", source: "cold-email", has_job_description: false }), null);
   assert.deepEqual(missingAttachments({ status: "Screening", source: "cold-email", has_job_description: false }), []);
-  assert.deepEqual(missingAttachments({ status: "Screening", source: "manual", has_job_description: false }), ["Missing JD", "Missing CV"]);
+  assert.deepEqual(missingAttachments({ status: "Screening", source: "manual", has_job_description: false }), ["Missing job description", "Missing CV"]);
 });

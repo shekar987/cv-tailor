@@ -57,8 +57,8 @@ export default function ActionCentrePage() {
       if (res.status === 503 && body.errorType === "needs_migration") { setErrorText(String(body.error)); setLoad("needs_migration"); return; }
       if (!res.ok) {
         // A failed background read keeps what is on screen, and any email being pasted.
-        if (hasData.current) { setActionError("Couldn't refresh your actions, so this may be out of date."); return; }
-        setErrorText(String(body.error || "Could not load your actions."));
+        if (hasData.current) { setActionError("Couldn't refresh your to-do list, so this may be out of date."); return; }
+        setErrorText(String(body.error || "Could not load your to-do list."));
         setLoad("error");
         return;
       }
@@ -68,7 +68,7 @@ export default function ActionCentrePage() {
       setLoad("ready");
     } catch {
       if (seq !== readSeq.current) return;
-      if (hasData.current) { setActionError("Couldn't refresh your actions, so this may be out of date."); return; }
+      if (hasData.current) { setActionError("Couldn't refresh your to-do list, so this may be out of date."); return; }
       setErrorText("Couldn't reach the server. Check your connection and try again.");
       setLoad("error");
     }
@@ -129,7 +129,7 @@ export default function ActionCentrePage() {
   async function snooze(event: PlanEvent) {
     if (!(await putEvent({ id: event.id, snooze: true }))) return;
     showToast({
-      message: `Snoozed for a day. The deadline itself has not moved.`,
+      message: `Hidden for a day. The deadline itself has not moved.`,
       undo: async () => {
         await putEvent({ id: event.id, snooze: false });
         void refresh();
@@ -151,7 +151,7 @@ export default function ActionCentrePage() {
         body: JSON.stringify({ id: applicationId, append_note: `Confirmation pasted: "${phrase}"` }),
       });
       const body = await jsonFrom(res);
-      if (!res.ok) return String(body.error || "Could not save that to the row's notes.");
+      if (!res.ok) return String(body.error || "Could not save that to the application's notes.");
       const auto = body.autoClose as { closed: { id: string; title: string }[]; stillOpen: string[] } | undefined;
       showToast({ message: auto ? autoCloseMessage(auto.closed, auto.stillOpen) : "Saved to the notes. Nothing was closed." });
       setQuickAdd(false);
@@ -200,7 +200,7 @@ export default function ActionCentrePage() {
                 <strong>No date yet</strong>
               )}
             </p>
-            {snoozed && <p className="planCardMeta" data-action-snoozed>Snoozed until {formatWhen(Date.parse(event.snoozed_until ?? ""), tz)}. It comes back sooner if it falls due within 24 hours.</p>}
+            {snoozed && <p className="planCardMeta" data-action-snoozed>Hidden until {formatWhen(Date.parse(event.snoozed_until ?? ""), tz)}. It comes back sooner if it falls due within 24 hours.</p>}
             {event.source && SOURCE_LABELS[event.source] && <p className="planCardMeta" data-action-source>The email is in {SOURCE_LABELS[event.source]}.</p>}
             {event.location_or_link && !url && <p className="planCardMeta">{event.location_or_link}</p>}
             {event.prep_notes && <p className="planCardNotes">{event.prep_notes}</p>}
@@ -208,7 +208,7 @@ export default function ActionCentrePage() {
               <button type="button" className="linkBtn" onClick={() => setStatus(event, "done")} data-action-done>Mark done</button>
               {url && <a href={url} target="_blank" rel="noopener noreferrer" className="linkBtn" data-action-open>Open link</a>}
               {snoozed ? (
-                <button type="button" className="linkBtn" onClick={async () => { if (await putEvent({ id: event.id, snooze: false })) void refresh(); }} data-action-unsnooze>Bring back</button>
+                <button type="button" className="linkBtn" onClick={async () => { if (await putEvent({ id: event.id, snooze: false })) void refresh(); }} data-action-unsnooze>Show again</button>
               ) : (
                 <button
                   type="button"
@@ -218,7 +218,7 @@ export default function ActionCentrePage() {
                   onClick={() => snooze(event)}
                   data-action-snooze
                 >
-                  Snooze 1 day
+                  Hide for 1 day
                 </button>
               )}
               <button type="button" className="linkBtn" onClick={() => setForm({ type: "edit", event, application: application as never })} data-action-edit>{event.status === "to_book" ? "Set a date" : "Edit"}</button>
@@ -235,11 +235,11 @@ export default function ActionCentrePage() {
   return (
     <main className="page">
       <div className="container">
-        <AppHeader title="Action Centre" tagline="Every assessment, interview and deadline still to do, soonest first." />
+        <AppHeader title="To do" tagline="Every assessment, interview and deadline still to do, soonest first." />
 
-        {load === "loading" && <Card><Skeleton lines={5} label="Loading your actions" /></Card>}
+        {load === "loading" && <Card><Skeleton lines={5} label="Loading your to-do list" /></Card>}
         {load === "expired" && (
-          <Card><EmptyState title="You've been signed out" actions={<Button href="/auth/login?next=/app/actions">Sign in</Button>}>Sign in again to see your actions.</EmptyState></Card>
+          <Card><EmptyState title="You've been signed out" actions={<Button href="/auth/login?next=/app/actions">Sign in</Button>}>Sign in again to see your to-do list.</EmptyState></Card>
         )}
         {load === "needs_migration" && <div className="limitNotice" role="status" data-needs-migration>{errorText}</div>}
         {load === "error" && (
@@ -252,7 +252,7 @@ export default function ActionCentrePage() {
         {load === "ready" && data && (
           <>
             <div className="nextToolbar">
-              <p className="cvHelp" data-action-count>{lists.due.length === 1 ? "1 thing to do" : `${lists.due.length} things to do`}{lists.snoozed.length > 0 ? `, ${lists.snoozed.length} snoozed` : ""}.</p>
+              <p className="cvHelp" data-action-count>{lists.due.length === 1 ? "1 thing to do" : `${lists.due.length} things to do`}{lists.snoozed.length > 0 ? `, ${lists.snoozed.length} hidden for now` : ""}.</p>
               <div className="actionToolbarButtons">
                 <Button variant="secondary" onClick={() => setQuickAdd((v) => !v)} aria-expanded={quickAdd} data-quick-add-open>Add from an email</Button>
                 <Button variant={quickAdd ? "secondary" : undefined} onClick={() => setForm({ type: "new", preset: { kind: "assessment" } })} data-new-action>New event</Button>
@@ -286,7 +286,7 @@ export default function ActionCentrePage() {
 
             {lists.snoozed.length > 0 && (
               <section className="planGroup" data-action-snoozed-list>
-                <h2 className="planGroupHead">Snoozed <span className="planGroupCount">{lists.snoozed.length}</span></h2>
+                <h2 className="planGroupHead">Hidden for now <span className="planGroupCount">{lists.snoozed.length}</span></h2>
                 <ol className="actionList">{lists.snoozed.map(renderCard)}</ol>
               </section>
             )}

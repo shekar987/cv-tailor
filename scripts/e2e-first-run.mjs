@@ -163,7 +163,7 @@ try {
     // From here, every click counts.
     let clicks = 0;
     const click = async (locator) => { clicks++; await locator.click(); };
-    await click(page.locator("button", { hasText: /^Save master CV$/ }));
+    await click(page.locator("button", { hasText: /^Save my CV$/ }));
     const rtwChoice = page.locator('[data-first-run-rtw="time_limited"]');
     await rtwChoice.waitFor({ timeout: 60000 });
     check(`${width}: after the save, the next step is right to work`, (await page.locator("[data-first-run]").getAttribute("data-first-run-step")) === "rtw");
@@ -202,20 +202,20 @@ try {
     await page.locator(".usageRow").waitFor({ timeout: 30000 });
     const usageBefore = await page.locator(".usageRow").innerText();
     await page.locator("#jd").fill(JD);
-    await page.locator("button", { hasText: /^Tailor my CV/ }).first().click();
-    const cont = page.locator("button", { hasText: /Continue to full tailoring|Tailor anyway/ }).first();
+    await page.locator("button", { hasText: /^Check this job/ }).first().click();
+    const cont = page.locator("button", { hasText: /^Tailor my CV|Tailor anyway/ }).first();
     await cont.waitFor({ timeout: 60000 });
-    const preCheckNote = await page.locator(".gateNote", { hasText: /counted the same way/ }).first().innerText().catch(() => "");
-    check("the pre-check says it is the same measure as the score", /same \d+ terms, counted the same way as the search-visibility score/.test(preCheckNote), preCheckNote.slice(0, 160));
+    const preCheckNote = await page.locator(".gateNote", { hasText: /count them the same way/ }).first().innerText().catch(() => "");
+    check("the pre-check says it is the same measure as the score", /same \d+ terms\. We count them the same way as the score after tailoring/.test(preCheckNote), preCheckNote.slice(0, 160));
     await cont.click();
     await page.locator('[role="dialog"] button', { hasText: /Tailor anyway/ }).first().click({ timeout: 4000 }).catch(() => {});
     await page.locator("[data-game-done]").click({ timeout: 180000 });
     await page.locator(".cvDoc").first().waitFor({ timeout: 30000 });
     await page.waitForFunction(() => /2 of 3/.test(document.querySelector(".usageRow")?.textContent ?? ""), null, { timeout: 15000, polling: 250 }).catch(() => {});
     const usageAfter = await page.locator(".usageRow").innerText();
-    check("the usage chip moves after a real tailor (3 of 3 → 2 of 3)", /Free tailors today:\s*3 of 3/.test(usageBefore) && /Free tailors today:\s*2 of 3/.test(usageAfter), `${usageBefore} → ${usageAfter}`);
+    check("the usage chip moves after a real tailor (3 of 3 → 2 of 3)", /Free tailored CVs:\s*3 of 3 left\s*·\s*Today:\s*3 of 3 left/.test(usageBefore) && /Free tailored CVs:\s*2 of 3 left\s*·\s*Today:\s*2 of 3 left/.test(usageAfter), `${usageBefore} → ${usageAfter}`);
     const before = page.locator("[data-score-before]");
-    check("the score card shows the master CV's figure before tailoring", (await before.count()) === 1 && /^Before tailoring: \d+\/6 in your master CV\./.test(await before.innerText()), await before.innerText().catch(() => ""));
+    check("the score card shows the master CV's figure before tailoring", (await before.count()) === 1 && /^Before tailoring: \d+\/6 in your main CV\./.test(await before.innerText()), await before.innerText().catch(() => ""));
     check("…and names what moved", /Computer Science/.test(await before.innerText().catch(() => "")), await before.innerText().catch(() => ""));
 
     // Applied — save to tracker.
@@ -225,7 +225,7 @@ try {
     await savedLink.waitFor({ timeout: 30000 });
     const href = await savedLink.getAttribute("href");
     const savedId = /saved=([0-9a-f-]+)/.exec(href ?? "")?.[1] ?? "";
-    check('"Saved to tracker" links to that application', /Saved to tracker/.test(await savedLink.innerText()) && !!savedId, href ?? "");
+    check('"Saved to tracker" links to that application', /Saved to Applications/.test(await savedLink.innerText()) && !!savedId, href ?? "");
     check('"Start a new job" is offered beside it', (await page.locator("[data-new-job]").count()) === 1);
     check("the CV, the letter and the form answers are still on screen", (await page.locator(".cvDoc").count()) >= 1 && (await page.locator("[data-answer-key]").count()) >= 1 && (await page.locator("[data-applied-cleared]").count()) === 0);
     await page.screenshot({ path: path.join(SHOTS, "app-saved-1280.png"), fullPage: true });
@@ -338,7 +338,7 @@ try {
     check("no 3 Nov caveat for an account made after it", (await page.locator("[data-funnel-caveat]").count()) === 0);
 
     await page.goto(`${BASE}/applications`, { waitUntil: "load" });
-    await page.locator("button", { hasText: /Open as spreadsheet/ }).click({ timeout: 60000 });
+    await page.locator("button", { hasText: /Open as a table/ }).click({ timeout: 60000 });
     await page.locator("[role=tab]", { hasText: /^All/ }).click({ timeout: 15000 }).catch(() => {});
     const card = page.locator("tr.appsRow", { hasText: "Kestrel Energy" });
     await card.waitFor({ timeout: 30000 });
@@ -374,7 +374,7 @@ try {
     check("its Company field's words end above its Role field's", m.companyBottom <= m.roleTop + 0.5, JSON.stringify(m));
     check("its tap areas stay out of the Role field", m.tapBottom <= m.roleFieldTop + 0.5, JSON.stringify(m));
     check("the gate is a dot, not a bar", m.dotWidth <= 10, String(m.dotWidth));
-    check("the gate says its word on a phone", /Not checked|Clear|Knockout|Long shot/.test(await card.locator(".appsGateLabel").innerText().catch(() => "")));
+    check("the gate says its word on a phone", /Not checked|Clear|Knockout|Low chance/.test(await card.locator(".appsGateLabel").innerText().catch(() => "")));
     await card.screenshot({ path: path.join(SHOTS, "sheet-card-390.png") });
     // The check catches the old rule: put the desktop row height back and it fails.
     await page.addStyleTag({ content: ".appsTable td { height: 44px !important; }" });

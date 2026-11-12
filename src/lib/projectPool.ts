@@ -89,7 +89,7 @@ export function normalizePoolCards(value: unknown): PoolCard[] {
  * past its limits on every read, so a save refuses rather than lose the end of it later.
  */
 export function poolCardsProblem(cards: readonly PoolCard[]): string | null {
-  if (cards.length > MAX_POOL_CARDS) return `That is ${cards.length} projects, and the pool holds ${MAX_POOL_CARDS}. Remove ${cards.length - MAX_POOL_CARDS} to save.`;
+  if (cards.length > MAX_POOL_CARDS) return `That is ${cards.length} projects, and the project list holds ${MAX_POOL_CARDS}. Remove ${cards.length - MAX_POOL_CARDS} to save.`;
   for (const card of cards) {
     const name = card.name.trim() || "A project";
     if (card.name.trim().length > MAX_NAME) return `A project name is over ${MAX_NAME} characters. Shorten it to save.`;

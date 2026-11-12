@@ -12,18 +12,17 @@ test("chooseFallback: the user's own OpenRouter key first, the deployment's only
 });
 
 test("openRouterLimitMessage names the free-model daily cap and the $10 unlock", () => {
-  assert.match(openRouterLimitMessage({ message: "OpenRouter free-model daily limit reached" }), /50 free-model requests.*\$10 of credit/);
-  assert.equal(openRouterLimitMessage({ message: "OpenRouter rate limit exceeded" }), "Your OpenRouter key has hit its usage limit. Try again later.");
+  assert.match(openRouterLimitMessage({ message: "OpenRouter free-model daily limit reached" }), /50 free requests.*\$10 of credit/);
+  assert.equal(openRouterLimitMessage({ message: "OpenRouter rate limit exceeded" }), "Your API key has reached its limit. Try again later.");
 });
 
 test("fallbackExhaustedMessage names both closed roads", () => {
   const m = fallbackExhaustedMessage("provider_credit", { message: "OpenRouter free-model daily limit reached" });
-  assert.match(m, /^The shared Claude account is still out of credit/);
-  assert.match(m, /Anthropic Console, not a Claude\.ai plan/);
-  assert.match(m, /50 free-model requests/);
+  assert.match(m, /^Our free AI service is not available, so Jobhuntz tried your own API key\./);
+  assert.match(m, /50 free requests/);
 });
 
 test("fallbackNotice says what ran and why, and that no free tailor was spent", () => {
-  assert.equal(fallbackNotice({ source: "own_key", reason: "provider_credit" }), "This run used your OpenRouter key because the shared Claude account is out of credit. Nothing was charged to your free tailors.");
-  assert.match(fallbackNotice({ source: "env_key", reason: "provider_limit" }), /deployment's OpenRouter key because the shared Claude account is being rate-limited/);
+  assert.equal(fallbackNotice({ source: "own_key", reason: "provider_credit" }), "This CV was written with your own API key because our free AI service is not available right now. It did not use one of your free tailored CVs.");
+  assert.match(fallbackNotice({ source: "env_key", reason: "provider_limit" }), /deployment's OpenRouter key because our free AI service is busy/);
 });

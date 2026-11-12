@@ -56,7 +56,7 @@ try {
 
   const { page, errors } = await open({ width: 1280, height: 1000 });
   await page.locator("[data-action-list]").waitFor({ timeout: 30000 });
-  check("Actions is first in the nav", (await page.locator("#appBarNav a").first().innerText()).trim() === "Actions");
+  check("To do is first in the nav", (await page.locator("#appBarNav a").first().innerText()).trim() === "To do");
   check("and marked as the current page", (await page.locator("#appBarNav a").first().getAttribute("aria-current")) === "page");
   const order = await page.locator("[data-action-title]").evaluateAll((els) => els.map((e) => e.getAttribute("data-action-title")));
   check("deadline order", order.join(",") === "Red task,Amber task,Green task", order.join(","));
@@ -69,13 +69,17 @@ try {
 
   // Quick add: paste, read, edit, save.
   await page.locator("[data-quick-add-open]").click();
-  await page.locator("[data-quick-add-text]").fill("Hello. Please complete your online assessment at https://example.com/test by Sunday, 8 November 2026 at 23:59 GMT. Good luck.");
+  const due = new Date(Date.now() + 5 * 86400000);
+  const dueIso = due.toISOString().slice(0, 10);
+  const dueLong = due.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  const dueShort = `${due.getUTCDate()} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][due.getUTCMonth()]}`;
+  await page.locator("[data-quick-add-text]").fill(`Hello. Please complete your online assessment at https://example.com/test by ${dueLong} at 23:59 GMT. Good luck.`);
   const read = await page.locator("[data-quick-add-read]").innerText();
-  check("the date is read as you paste", /8 Nov/.test(read) && /23:59/.test(read), read);
+  check("the date is read as you paste", read.includes(dueShort) && /23:59/.test(read), read);
   await page.screenshot({ path: path.join(SHOTS, "quick-add.png"), fullPage: true });
   await page.locator("[data-quick-add-next]").click();
   await page.locator("[data-event-form]").waitFor();
-  check("the form opens with the date to edit", (await page.locator("#evDate").inputValue()) === "2026-11-08" && (await page.locator("#evTime").inputValue()) === "23:59");
+  check("the form opens with the date to edit", (await page.locator("#evDate").inputValue()) === dueIso && (await page.locator("#evTime").inputValue()) === "23:59");
   check("and the link", (await page.locator("#evLink").inputValue()) === "https://example.com/test");
   await page.locator("[data-event-search]").fill("Made Up Screening");
   await page.locator(".planPickerItem").first().click();

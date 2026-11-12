@@ -38,7 +38,7 @@ function GroupTable({ title, groups, note }: { title: string; groups: readonly C
             <tr key={g.label} data-wins-group-row={g.label}>
               <td data-label="Group">{g.label}</td>
               <td data-label="Reached screening">{g.reached} of {g.submitted.toLocaleString("en-GB")}</td>
-              <td data-label="Rate">{g.rate === null ? "Too few" : `${g.rate}%`}</td>
+              <td data-label="Rate">{g.rate === null ? "Not enough yet" : `${g.rate}%`}</td>
             </tr>
           ))}
         </tbody>
@@ -67,7 +67,7 @@ export default function WinsView({ rows, showStyle }: { rows: readonly WinsRow[]
 
       <div className="winsGroups">
         <GroupTable title="By source" groups={bySource} />
-        {showStyle && <GroupTable title="By CV style" groups={byStyle} note="Rows with no style recorded are counted here and never read as either style." />}
+        {showStyle && <GroupTable title="By CV style" groups={byStyle} note="Applications with no style recorded are counted here and never read as either style." />}
       </div>
 
       <section className="winsReached">

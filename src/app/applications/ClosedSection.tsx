@@ -107,7 +107,7 @@ export default function ClosedSection({
     >
       <summary className="closedSectionSummary" data-closed-summary>Closed after {tab} ({rows.length}){asking > 0 ? ` · ${asking} with new activity` : ""}</summary>
       {rows.length === 0 ? (
-        <p className="fitEvidence closedEmpty" data-closed-empty>Nothing closed yet. A row you move to Closed stays here, with how far it got.</p>
+        <p className="fitEvidence closedEmpty" data-closed-empty>Nothing closed yet. An application you move to Closed stays here, with how far it got.</p>
       ) : (
         <ul className="closedList">
           {rows.map((row) => (

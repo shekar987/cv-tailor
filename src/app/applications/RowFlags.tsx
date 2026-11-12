@@ -63,7 +63,7 @@ export default function RowFlags({
       )}
       {check?.kind === "add_jd" && (
         <button type="button" className="inlineLink" onClick={onAddJd} aria-label={`Add a job description to check ${row.company_name}`} data-add-jd-check="true">
-          Add JD to check
+          Add a job description to check
         </button>
       )}
     </span>

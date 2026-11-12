@@ -153,7 +153,7 @@ function holds(row: CleanupRow, att: Attachments | undefined): string | null {
   if (row.sent_cv_name) return "it holds the CV file you sent";
   if (row.tailor_session_id) return "it holds a tailored CV";
   if (row.prep_generated_at) return "it holds a prep pack";
-  if (att && att.events > 0) return "it has events on What's next";
+  if (att && att.events > 0) return "it has events on Schedule";
   if (att && att.interviews > 0) return "it has mock interviews";
   if (text(row.job_description)) return "it holds a job description";
   if (text(row.req_id)) return "it holds a req ID";

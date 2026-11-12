@@ -20,7 +20,7 @@ import Folio from "@/components/ui/Folio";
 import Skeleton from "@/components/ui/Skeleton";
 import StatusText from "@/components/ui/StatusText";
 
-const PAGE_TAGLINE = "Your account, your usage, and the provider keys that keep tailoring running after the free credits.";
+const PAGE_TAGLINE = "Your account, how much you have used, and your own API key for after the 3 free tailored CVs.";
 
 type Provider = "gemini" | "openrouter";
 type SlotStatus = "idle" | "saving" | "error";
@@ -43,9 +43,9 @@ const SLOTS: {
 }[] = [
   {
     label: "OpenRouter",
-    role: "Runs your tailoring once your free credits are used. A free OpenRouter account is enough — its free tier handles full runs.",
+    role: "OpenRouter is a service that gives free access to AI models. Jobhuntz uses your key from it after your 3 free tailored CVs. A free OpenRouter account is enough.",
     caveat:
-      "Heads up: free OpenRouter models may use what you send for training. If that matters for your CV, check the privacy settings in your OpenRouter account.",
+      "Note: free OpenRouter models may use what you send for training. If that matters for your CV, check the privacy settings in your OpenRouter account.",
     muted: false,
     provider: "openrouter",
     providerDisplay: "OpenRouter",
@@ -61,7 +61,7 @@ const SLOTS: {
   },
   {
     label: "Google Gemini",
-    role: "Optional — not used for tailoring yet. Gemini's free tier allows 5 requests a minute and a full run makes 8, so a run can't finish on it.",
+    role: "Optional. Jobhuntz does not use it for tailoring yet. Gemini's free plan allows 5 requests a minute and one CV needs 8, so it cannot finish.",
     caveat: "",
     muted: true,
     provider: "gemini",
@@ -315,13 +315,13 @@ export default function SettingsPage() {
                 {usage && !usage.unlimited && (
                   <>
                     <li>
-                      Free tailors today:{" "}
-                      <strong>{Math.max(usage.dailyLimit - usage.dailyUsed, 0)} of {usage.dailyLimit}</strong> left
-                      {resetsIn(usage.resetAt) && <> — {resetsIn(usage.resetAt)}</>}
+                      Free tailored CVs:{" "}
+                      <strong>{Math.max(usage.claudeLimit - usage.claudeUsed, 0)} of {usage.claudeLimit}</strong> left ({usage.claudeLimit} in total)
                     </li>
                     <li>
-                      Free Claude credits:{" "}
-                      <strong>{Math.max(usage.claudeLimit - usage.claudeUsed, 0)} of {usage.claudeLimit}</strong> left (lifetime)
+                      Today:{" "}
+                      <strong>{Math.max(usage.dailyLimit - usage.dailyUsed, 0)} of {usage.dailyLimit}</strong> left
+                      {resetsIn(usage.resetAt) && <> ({resetsIn(usage.resetAt)})</>}
                     </li>
                   </>
                 )}
@@ -468,8 +468,7 @@ export default function SettingsPage() {
               <span className="keyLabel"><Folio n={2 + SLOTS.length} />Your data</span>
             </div>
             <p className="keyCaveat">
-              Everything in your account — CV, answers, applications, prep packs, interview transcripts — as one JSON file, or gone
-              for good. What is stored and who processes it is in the <Link href="/privacy" className="inlineLink">privacy notice</Link>;
+              Everything in your account as one JSON file: CV, answers, applications, interview packs and interview transcripts. Or delete it all for good. What is stored and who processes it is in the <Link href="/privacy" className="inlineLink">privacy notice</Link>;
               the <Link href="/terms" className="inlineLink">terms of use</Link> say what you agree to.
             </p>
             <div className="actions">
@@ -486,8 +485,7 @@ export default function SettingsPage() {
             {deleteOpen && (
               <div className="limitNotice" role="region" aria-label="Delete account" data-delete-account>
                 <p>
-                  <strong>This cannot be undone.</strong> Your account, your CV, every application, every uploaded file, every prep pack
-                  and interview transcript are deleted immediately. Download your data first if you want to keep it.
+                  <strong>This cannot be undone.</strong> Your account, your CV, every application, every uploaded file, every interview pack and interview transcript are deleted immediately. Download your data first if you want to keep it.
                 </p>
                 <label className="label" htmlFor="deleteConfirm">Type <em>{DELETE_CONFIRM_PHRASE}</em> to confirm</label>
                 <Input

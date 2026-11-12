@@ -64,7 +64,7 @@ function clamp(days: number): number {
 
 export type PostingAgeBand = "fresh" | "week" | "old";
 export const POSTING_AGE_BANDS: { key: PostingAgeBand; label: string; test: (d: number) => boolean }[] = [
-  { key: "fresh", label: "Applied within 3 days of posting", test: (d) => d <= 3 },
-  { key: "week", label: "Applied 4–14 days after posting", test: (d) => d > 3 && d <= 14 },
-  { key: "old", label: "Applied 15+ days after posting", test: (d) => d > 14 },
+  { key: "fresh", label: "Applied within 3 days of the job being posted", test: (d) => d <= 3 },
+  { key: "week", label: "Applied 4–14 days after the job was posted", test: (d) => d > 3 && d <= 14 },
+  { key: "old", label: "Applied 15+ days after the job was posted", test: (d) => d > 14 },
 ];

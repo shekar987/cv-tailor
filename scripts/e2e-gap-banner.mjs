@@ -72,12 +72,12 @@ try {
 
   await page.goto(`${BASE}/app`, { waitUntil: "load" });
   await page.locator("textarea#jd, textarea").first().fill(JD);
-  await page.locator("button", { hasText: /^Tailor my CV/ }).first().click();
+  await page.locator("button", { hasText: /^Check this job/ }).first().click();
   const banner = page.locator("[data-gate-core-gaps]");
   await banner.waitFor({ timeout: 60000 });
-  check("the core-gap banner shows before any credit", /^3 core gaps: DNS, Routing, Firewalls\. This role may not suit you\./.test(await banner.innerText()), await banner.innerText());
-  const continueButton = page.locator("button", { hasText: /Continue to full tailoring|Tailor anyway/ }).first();
-  check("and the button asks to tailor anyway", /Tailor anyway \(uses a credit\)/.test(await continueButton.innerText()), await continueButton.innerText());
+  check("the core-gap banner shows before any credit", /^3 main requirements are not in your CV: DNS, Routing, Firewalls\. This job may not suit you\./.test(await banner.innerText()), await banner.innerText());
+  const continueButton = page.locator("button", { hasText: /^Tailor my CV|Tailor anyway/ }).first();
+  check("and the button asks to tailor anyway", /Tailor anyway \(uses 1 tailored CV\)/.test(await continueButton.innerText()), await continueButton.innerText());
   const rename = page.locator('[data-evidence-map] li[data-gap-class="rename"]').first();
   check("troubleshooting shows the master CV line it maps to", /Troubleshooting[\s\S]*Your CV may show it as “Diagnosed and resolved production incidents/.test(await rename.innerText()), await rename.innerText());
   check("a core gap says so", (await page.locator('[data-evidence-map] li[data-gap-class="core"]').count()) >= 3);
@@ -93,7 +93,7 @@ try {
   const missHttp = page.locator('li[data-miss-class]', { hasText: "HTTP" }).first();
   check("the Missing list says HTTP is a rename, with the CV's line", /Your CV may show this as “Built REST APIs/.test(await missHttp.innerText().catch(() => "")), await missHttp.innerText().catch(() => "(none)"));
   const missDns = page.locator('li[data-miss-class="core"]', { hasText: "DNS" }).first();
-  check("and DNS is a core gap", /Core gap/.test(await missDns.innerText().catch(() => "")), await missDns.innerText().catch(() => "(none)"));
+  check("and DNS is a core gap", /Not in your main CV at all/.test(await missDns.innerText().catch(() => "")), await missDns.innerText().catch(() => "(none)"));
   await needs.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(SHOTS, "result-needs-evidence.png"), fullPage: false });
   check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));

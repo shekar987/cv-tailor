@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 // sign-in, so never indexed; the canonical is its own path (or none for a
 // per-application page).
 export const metadata: Metadata = {
-  title: "Customise",
+  title: "My CV",
   robots: { index: false, follow: false },
   alternates: { canonical: "/customize" },
 };

@@ -124,7 +124,7 @@ export default function NextPage() {
   const refresh = useCallback(async () => {
     const seq = ++readSeq.current;
     const failed = (message: string) => {
-      if (hasData.current) { setRefreshError("Couldn't refresh your plan, so this may be out of date."); return; }
+      if (hasData.current) { setRefreshError("Couldn't refresh your schedule, so this may be out of date."); return; }
       setErrorText(message);
       setLoad("error");
     };
@@ -134,7 +134,7 @@ export default function NextPage() {
       if (seq !== readSeq.current) return;
       if (res.status === 401) { setLoad("expired"); return; }
       if (res.status === 503 && body.errorType === "needs_migration") { setErrorText(body.error); setLoad("needs_migration"); return; }
-      if (!res.ok) { failed(body.error || "Could not load your plan."); return; }
+      if (!res.ok) { failed(body.error || "Could not load your schedule."); return; }
       hasData.current = true;
       setRefreshError("");
       setData(body as PlanData);
@@ -209,12 +209,12 @@ export default function NextPage() {
     const body = res ? await res.json().catch(() => ({})) : {};
     if (!res || !res.ok) {
       // A notes write on a version the row has moved on from (lib/notesWrite): nothing landed.
-      setActionError(body.error === "stale_notes" ? "This row's notes changed since, so nothing was saved. Open it on Applications to change it there." : body.error || "Could not save that change. Try again.");
+      setActionError(body.error === "stale_notes" ? "This application's notes changed since, so nothing was saved. Open it on Applications to change it there." : body.error || "Could not save that change. Try again.");
       return null;
     }
     // Closed on the server, whatever this page last read: nothing moved, and the tracker asks.
     if (res.status === 202) {
-      setActionError(typeof body.message === "string" ? body.message : "This row is closed.");
+      setActionError(typeof body.message === "string" ? body.message : "This application is closed.");
       return null;
     }
     if (typeof body.warning === "string") setActionError(body.warning);
@@ -415,8 +415,8 @@ export default function NextPage() {
           <span className="planNudge" data-nudge={nudge} data-nudge-basis={basis}>
             <Icon name="mail" />
             {basis === "contact"
-              ? `T+${nudge}: ${nudge === 7 ? "send a first follow-up" : nudge === 14 ? "send a second follow-up" : "send a last follow-up, then consider Ghosted"}`
-              : `T+${nudge} from applying: if you have heard nothing, follow up`}
+              ? `${nudge} days after applying: ${nudge === 7 ? "send a first follow-up" : nudge === 14 ? "send a second follow-up" : "send a last follow-up, then mark it No reply"}`
+              : `${nudge} days after applying: if you have heard nothing, send a follow-up`}
           </span>
         )}
       </div>
@@ -447,14 +447,14 @@ export default function NextPage() {
           {owed ? "I replied today" : "Followed up today"}
         </button>
         <button type="button" className="linkBtn" onClick={() => moveApplication(application, "rejected", [], `${application.company_name} moved to Rejected.`)} data-waiting-reject>Rejected</button>
-        <button type="button" className="linkBtn" onClick={() => moveApplication(application, "ghosted", [], `${application.company_name} moved to Ghosted.`)}>Ghosted</button>
+        <button type="button" className="linkBtn" onClick={() => moveApplication(application, "ghosted", [], `${application.company_name} moved to No reply.`)}>No reply</button>
       </div>
     </li>
   );
   const replySection = !dayFilter && plan.replyOwed.length > 0 && (
     <section className="planGroup" data-group="reply_owed">
-      <h2 className="planGroupHead">Reply owed <span className="planGroupCount">{plan.replyOwed.length}</span></h2>
-      <p className="cvHelp planGroupNote">They spoke last, so the next move is yours.</p>
+      <h2 className="planGroupHead">You need to reply <span className="planGroupCount">{plan.replyOwed.length}</span></h2>
+      <p className="cvHelp planGroupNote">They wrote last, so you need to reply.</p>
       <ul className="planWaiting">{plan.replyOwed.map((w) => renderQuietRow(w, true))}</ul>
     </section>
   );
@@ -474,17 +474,17 @@ export default function NextPage() {
   return (
     <main className="page">
       <div className="container">
-        <AppHeader title="What's next" tagline="Every screening, interview, assessment and deadline, most urgent first." />
+        <AppHeader title="Schedule" tagline="Every screening, interview, assessment and deadline, most urgent first." />
         <p className="srOnly" aria-live="polite" data-next-live>{liveText}</p>
 
         {load === "loading" && (
           <div className="nextLayout" data-next-skeleton>
-            <div className="planMain"><Card><Skeleton lines={5} label="Loading your plan" /></Card></div>
+            <div className="planMain"><Card><Skeleton lines={5} label="Loading your schedule" /></Card></div>
             <aside className="planRail"><Card><Skeleton lines={4} label="Loading your calendar" /></Card></aside>
           </div>
         )}
         {load === "expired" && (
-          <Card><EmptyState title="You've been signed out" actions={<Button href="/auth/login?next=/app/next">Sign in</Button>}>Sign in again to see your plan.</EmptyState></Card>
+          <Card><EmptyState title="You've been signed out" actions={<Button href="/auth/login?next=/app/next">Sign in</Button>}>Sign in again to see your schedule.</EmptyState></Card>
         )}
         {load === "needs_migration" && (
           <div className="limitNotice" role="status" data-needs-migration>{errorText}</div>
@@ -513,7 +513,7 @@ export default function NextPage() {
                 <div className="appsSeg" role="group" aria-label="View">
                   {(["plan", "week", "pipeline"] as View[]).map((v) => (
                     <button key={v} type="button" className={"appsSegBtn" + (view === v ? " active" : "")} aria-pressed={view === v} onClick={() => setView(v)} data-view={v}>
-                      {v === "plan" ? "Plan" : v === "week" ? "Week" : "Pipeline"}
+                      {v === "plan" ? "List" : v === "week" ? "Week" : "Pipeline"}
                     </button>
                   ))}
                 </div>
@@ -570,7 +570,7 @@ export default function NextPage() {
                                   {group.key === "overdue" && <Icon name="alert" />}
                                   {group.label} <span className="planGroupCount">{items.length}</span>
                                 </h2>
-                                {group.key === "needs_booking" && <p className="cvHelp planGroupNote">They are waiting on a time from you. An unanswered offer can lose the interview.</p>}
+                                {group.key === "needs_booking" && <p className="cvHelp planGroupNote">They are waiting for you to choose a time. If you do not answer, you can lose the interview.</p>}
                                 <ul className="planList">{items.map(renderCard)}</ul>
                               </section>
                             )}
@@ -619,16 +619,16 @@ export default function NextPage() {
                         <Link href={`/applications?status=${n.key}`} className="planFunnelRow" data-stage={n.key === "accepted" ? "accepted" : n.key} data-funnel-step={n.key}>
                           <span className="planFunnelName">{n.label}</span>
                           <span className="planFunnelCount">{n.count}</span>
-                          <span className="planFunnelRate">{n.here} here now{n.key === "accepted" ? "" : n.tooFew ? " · too few to judge" : ` · ${Math.round((n.furtherRate ?? 0) * 100)}% of those decided went further`}</span>
+                          <span className="planFunnelRate">{n.here} here now{n.key === "accepted" ? "" : n.tooFew ? " · not enough results yet" : ` · ${Math.round((n.furtherRate ?? 0) * 100)}% of those with a result went further`}</span>
                         </Link>
                       </li>
                     ))}
                   </ol>
                   <p className="cvHelp">
-                    {data.funnel.rejected} rejected · {data.funnel.ghosted} ghosted · <button type="button" className="inlineLink" onClick={() => setView("pipeline")}>see the map</button>
+                    {data.funnel.rejected} rejected · {data.funnel.ghosted} no reply · <button type="button" className="inlineLink" onClick={() => setView("pipeline")}>see the chart</button>
                   </p>
                   {accountCreatedAt !== undefined && showsStagesCaveat(accountCreatedAt) && (
-                    <p className="cvHelp" data-funnel-caveat>Stages are recorded from 3 Nov 2026: an earlier rejection counts at Applied, and an earlier row shows only its current stage.</p>
+                    <p className="cvHelp" data-funnel-caveat>Stages are recorded from 3 Nov 2026: an earlier rejection counts at Applied, and an earlier application shows only its current stage.</p>
                   )}
                 </section>
               </aside>

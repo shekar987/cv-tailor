@@ -85,10 +85,10 @@ function Kicker({ n, children }: { n: number; children: React.ReactNode }) {
 const JOURNEY: { n: number; title: string; body: string; img: StaticImageData; alt: string }[] = [
   {
     n: 1,
-    title: "A free pre-check before any credit is spent.",
-    body: "Paste a posting. Its eligibility conditions are read against your own answers, your keyword match is counted, and the tracker says whether you have applied to this company before.",
+    title: "A free check before you use a tailored CV.",
+    body: "Paste a job description. We compare its requirements with your own answers. We count how many of its key words your CV has. We tell you if you have applied to this company before.",
     img: shotPrecheck,
-    alt: "The pre-check: a notice that you have already applied to this company three times, then the read \"Apply\" and a rough keyword match of 6/10.",
+    alt: "The free check: a notice that you have already applied to this company three times, then the advice \"Apply\" and a rough keyword match of 6/10.",
   },
   {
     n: 2,
@@ -100,7 +100,7 @@ const JOURNEY: { n: number; title: string; body: string; img: StaticImageData; a
   {
     n: 3,
     title: "Interview answers traced, line by line, to your CV.",
-    body: "A prep pack for the job: the questions it will ask, STAR answers built only from your CV, and every line marked as traced to your CV or flagged for you to rephrase.",
+    body: "An interview pack for the job: the questions it will ask, STAR answers built only from your CV, and every line marked as traced to your CV or flagged for you to rephrase.",
     img: shotPrep,
     alt: "One prep question with its STAR answer — situation, task, action, result — and under it the CV line it was traced to, ticked.",
   },
@@ -184,7 +184,7 @@ export default function Landing() {
             </p>
             <div className="lpHeroCta">
               <Button href="/app">Tailor my CV →</Button>
-              <a href="#journey" className="cta secondary">See the journey ↓</a>
+              <a href="#journey" className="cta secondary">See how it works ↓</a>
             </div>
           </div>
           <div className="lpExample" id="example">
@@ -262,9 +262,7 @@ export default function Landing() {
               <div className="lpColumn">
                 <h3 className="lpColumnTitle">Doing it by hand works, but it&apos;s slow</h3>
                 <p className="lpColumnBody">
-                  Rewriting your CV properly for one role — rereading the posting, hunting the right
-                  phrasing, reformatting — takes about an hour. Most people stop customising after the
-                  third application and start mass-applying with one generic version instead.
+                  Rewriting your CV properly for one role takes about an hour. You reread the job description, look for the right phrasing and reformat. Most people stop customising after the third application and start mass-applying with one generic version instead.
                 </p>
               </div>
             </div>
@@ -272,7 +270,7 @@ export default function Landing() {
 
           {/* ── The whole journey — real screenshots, a test account ────────── */}
           <Reveal as="section" className="lpSection lpJourney" id="journey">
-            <Kicker n={2}>The whole journey</Kicker>
+            <Kicker n={2}>How it works</Kicker>
             <h2 className="lpH2">From one saved CV to the interview, in one place.</h2>
             <ol className="lpJourneySteps">
               {JOURNEY.map((step) => (
@@ -305,17 +303,13 @@ export default function Landing() {
               <div className="lpColumn">
                 <h3 className="lpColumnTitle">It tells you when it&apos;s wrong</h3>
                 <p className="lpColumnBody">
-                  The score is a count of the job&apos;s terms your CV carries — never an inflated
-                  percentage. Your tracker then measures whether that score predicts which
-                  applications progress, and says so plainly when it doesn&apos;t.
+                  The score is a count of the job&apos;s key words that your CV has. It is never an inflated percentage. Your applications list then shows whether higher scores really get further, and says so plainly when they do not.
                 </p>
               </div>
               <div className="lpColumn">
-                <h3 className="lpColumnTitle">A tracker built in</h3>
+                <h3 className="lpColumnTitle">Your applications, in one list</h3>
                 <p className="lpColumnBody">
-                  Click Applied and the run lands in your tracker — the exact CV you sent, the job
-                  description you sent it for, and a follow-up date, ready for the week the recruiter
-                  calls back.
+                  Click Applied and it is saved to your applications list: the exact CV you sent, the job description, and a follow-up date.
                 </p>
               </div>
             </div>
@@ -327,19 +321,17 @@ export default function Landing() {
             <h2 className="lpH2">Free to start. Honest about what happens after.</h2>
             <dl className="lpCostRows">
               <div>
-                <dt>Three tailors on us, no card</dt>
-                <dd>Your first three runs are on Claude — CV, cover letter and search-visibility score.</dd>
+                <dt>3 free tailored CVs. No payment card needed.</dt>
+                <dd>Your first 3 tailored CVs are free. That is 3 in total, not 3 a day. Each one comes with a cover letter and a keyword score. They are written by Claude (an AI model), and we pay for it.</dd>
               </div>
               <div>
-                <dt>The cap</dt>
-                <dd>Three a day, whoever pays.</dd>
+                <dt>The daily limit</dt>
+                <dd>3 tailored CVs a day. The limit is the same on the free ones and on your own API key.</dd>
               </div>
               <div>
-                <dt>Then your own free key</dt>
+                <dt>After that: your own free API key</dt>
                 <dd>
-                  Add a free OpenRouter key in Settings and keep going at no cost. One honest note:
-                  OpenRouter&apos;s free models may train on what you send — Settings says how to
-                  check that in your OpenRouter account.
+                  Add your own free API key in Settings and keep tailoring at no cost. Settings shows how to get one from OpenRouter, a service with free AI models. One honest note: OpenRouter&apos;s free models may train on what you send. Settings says how to check that in your OpenRouter account.
                 </dd>
               </div>
             </dl>

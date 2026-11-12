@@ -18,7 +18,7 @@ const SKIP_ATTRS = new Set([
   "sectionId", "value", "defaultValue", "pattern", "step", "min", "max", "form", "media", "sizes",
   "loading", "decoding", "tabIndex", "spellCheck", "dataKey", "nameKey", "format",
 ]);
-const SKIP_CALLS = /^(console\.|fetch$|api$|trackedFetch$|require$|import$|.*\.(get|set|has|delete|append|getItem|setItem|removeItem|querySelector|querySelectorAll|closest|matches|getAttribute|setAttribute|removeAttribute|addEventListener|removeEventListener|includes|startsWith|endsWith|indexOf|split|join|replace|replaceAll|match|test|from|select|eq|neq|in|order|rpc|push|replaceState|pushState|createElement|getElementById|contains|add|remove|toggle|toLocaleDateString|toLocaleString|localeCompare|padStart|padEnd)$)/;
+const SKIP_CALLS = /^(console\.|fetch$|api$|trackedFetch$|require$|import$|.*\.(get|set|has|delete|append|getItem|setItem|removeItem|querySelector|querySelectorAll|closest|matches|getAttribute|setAttribute|removeAttribute|addEventListener|removeEventListener|includes|startsWith|endsWith|indexOf|split|join|replace|replaceAll|match|test|from|select|eq|neq|in|order|rpc|replaceState|pushState|createElement|getElementById|contains|add|remove|toggle|toLocaleDateString|toLocaleString|localeCompare|padStart|padEnd)$)/;
 
 function sentenceLike(s) {
   const t = s.trim();
@@ -76,7 +76,7 @@ for (const file of process.argv.slice(2)) {
     const clean = text.replace(/\s+/g, " ").trim();
     if (!clean) return;
     const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-    out.push({ file: file.replace(/\\/g, "/"), line, text: clean, kind, fn: enclosing(node), tag: jsxHost(node), cls: hostClass(node) });
+    out.push({ file: file.replace(/\\/g, "/"), line, text: clean, kind, fn: enclosing(node), tag: jsxHost(node), cls: hostClass(node), start: node.getStart(sf), end: node.getEnd(), nk: ts.SyntaxKind[node.kind] + (node.parent && ts.isJsxAttribute(node.parent) ? ":attr" : "") });
   };
   const visit = (node) => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node) || ts.isTypeNode(node)) return;

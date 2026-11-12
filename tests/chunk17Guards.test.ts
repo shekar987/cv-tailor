@@ -127,7 +127,7 @@ test("a £55k+ floor with mentoring or architecture duties reads as mid-level", 
   assert.ok(read.signals.some((s) => s.kind === "salary" && /with mentoring duties/.test(s.text)));
   const fit = seniorityFit(read, 2);
   assert.equal(fit.fits, false);
-  assert.match(fit.reason, /^This reads as mid-level — tailoring anyway will spend a credit/);
+  assert.match(fit.reason, /^This looks like a mid-level job\. Tailoring anyway uses 1 tailored CV/);
   assert.equal(classifySeniority("£58,000 - £70,000\nYou will be architecting our data platform.", "Data Engineer").level, "mid", "architecture duties");
   assert.equal(classifySeniority("£45,000\nMentoring junior engineers as you grow.", "Software Engineer").signals.some((s) => /duties/.test(s.text)), false, "a floor under £55k is not the rule");
   assert.equal(classifySeniority("£80,000 - £100,000\nMentoring engineers across the team.", "Platform Engineer").level, "senior", "a senior band stays senior");
