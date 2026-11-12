@@ -56,7 +56,7 @@ function jsxHost(node) {
   return "";
 }
 
-function hostClass(node, sf) {
+function hostClass(node) {
   for (let n = node.parent; n; n = n.parent) {
     const open = ts.isJsxElement(n) ? n.openingElement : ts.isJsxSelfClosingElement(n) ? n : null;
     if (!open) continue;
@@ -76,7 +76,7 @@ for (const file of process.argv.slice(2)) {
     const clean = text.replace(/\s+/g, " ").trim();
     if (!clean) return;
     const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-    out.push({ file: file.replace(/\\/g, "/"), line, text: clean, kind, fn: enclosing(node), tag: jsxHost(node), cls: hostClass(node, sf) });
+    out.push({ file: file.replace(/\\/g, "/"), line, text: clean, kind, fn: enclosing(node), tag: jsxHost(node), cls: hostClass(node) });
   };
   const visit = (node) => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node) || ts.isTypeNode(node)) return;
