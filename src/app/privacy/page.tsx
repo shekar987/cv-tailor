@@ -36,11 +36,18 @@ export default function PrivacyPage() {
         </li>
         <li>
           <strong>Your application tracker.</strong> For each row: company, role, dates, status, salary, your notes, the job description
-          you pasted, the tailored CV and cover letter you saved with it, the CV file you uploaded as the one you sent, the
+          you pasted, the tailored CV and cover letter you saved with it, the CV and cover letter files you uploaded as the ones you sent, the
           interview prep pack, when and why you closed it with any lesson you noted, an outcome detected from your inbox while it waits for you to confirm it, and the transcript and feedback of each mock interview. The mock interview stores text only:
           your voice is turned into text in your browser and <strong>no audio is sent or stored</strong>. Also, if you give them, the email
           address you applied from and the next deadline with a note of what is due. Every earlier version of a row&apos;s notes is kept, so
-          you can restore one; it goes when the row or your account is deleted.
+          you can restore one; it goes when the row or your account is deleted. A row an assistant logged for you through the API
+          also records the name it gave itself (for example &ldquo;Claude sweep&rdquo;), shown on the row.
+        </li>
+        <li>
+          <strong>Repeat protection for automated writes.</strong> When a script or assistant sends a change with an
+          Idempotency-Key, we keep that key, a fingerprint of the request and our answer, so a retried request within 24 hours gets the
+          same answer instead of writing twice. Records older than a day are cleared the next time a key is used, and all of them go
+          with your account.
         </li>
         <li>
           <strong>Reapply rules</strong> you save, or that your notes give when a company says when you can apply again (for example

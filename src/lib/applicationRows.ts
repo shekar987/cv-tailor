@@ -169,14 +169,20 @@ export function storedValuesFor(statuses: readonly Status[]): string[] {
   return [...new Set(statuses.flatMap((s) => storedStatusValues(s)))];
 }
 
+// `d` is "" for a row with no date applied (a Ready to submit row, since 12 Nov 2026, Chunk 22).
 export type ListCursor = { d: string; c: string; i: string };
 const CURSOR_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CURSOR_TS_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}(?::?\d{2})?)$/;
 const CURSOR_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The position after `row`, in the list's order (date_applied desc, created_at desc, id asc). */
+/**
+ * The position after `row`, in the list's order (date_applied desc, created_at desc, id asc).
+ * Postgres sorts a missing date applied FIRST in a descending order, so the undated rows
+ * (Ready to submit only) open the list; their cursor carries an empty date.
+ */
 export function encodeCursor(row: { date_applied?: unknown; created_at?: unknown; id?: unknown }): string | null {
-  const cursor = { d: row.date_applied, c: row.created_at, i: row.id };
+  const d = row.date_applied === null || row.date_applied === undefined ? "" : row.date_applied;
+  const cursor = { d, c: row.created_at, i: row.id };
   if (typeof cursor.d !== "string" || typeof cursor.c !== "string" || typeof cursor.i !== "string") return null;
   // Plain text (the page imports this file, and a browser has no Buffer); a "|" never occurs in a part.
   return [cursor.d, cursor.c, cursor.i].join("|");
@@ -187,7 +193,7 @@ export function decodeCursor(value: string): ListCursor | null {
   try {
     const [d, c, i, extra] = value.split("|");
     if (extra !== undefined) return null;
-    if (typeof d !== "string" || !CURSOR_DATE_RE.test(d)) return null;
+    if (typeof d !== "string" || (d !== "" && !CURSOR_DATE_RE.test(d))) return null;
     if (typeof c !== "string" || !CURSOR_TS_RE.test(c)) return null;
     if (typeof i !== "string" || !CURSOR_ID_RE.test(i)) return null;
     return { d, c, i };
@@ -198,7 +204,11 @@ export function decodeCursor(value: string): ListCursor | null {
 
 /** The rows after the cursor, as one PostgREST `or` filter (values quoted: a timestamp carries ':' '+' '.'). */
 export function afterCursor(c: ListCursor): string {
-  const d = `"${c.d}"`, ts = `"${c.c}"`;
+  const ts = `"${c.c}"`;
+  // Inside the undated block: the rest of it, then every dated row (they all come after it).
+  if (c.d === "") return `and(date_applied.is.null,created_at.lt.${ts}),and(date_applied.is.null,created_at.eq.${ts},id.gt.${c.i}),date_applied.not.is.null`;
+  // A dated row: the undated block came before it, so it is never matched here.
+  const d = `"${c.d}"`;
   return `date_applied.lt.${d},and(date_applied.eq.${d},created_at.lt.${ts}),and(date_applied.eq.${d},created_at.eq.${ts},id.gt.${c.i})`;
 }
 
@@ -248,4 +258,112 @@ export function toPageRow(row: Record<string, unknown>): Record<string, unknown>
   if (typeof row.notes === "string" && row.notes.trim()) out.notes_more = true;
   else delete out.notes_more;
   return out;
+}
+
+// ── The light list for automations (12 Nov 2026, Chunk 22) ─────────────────
+// GET /api/applications?lite=1: seven small fields per row in ONE select, filtered in
+// the database. On 11 Nov a sweep's few full-list reads (~1,190 rows each) froze its
+// browser tab past the 45 s CDP limit three times; the full list stays as it was for
+// the page and for the sweeps that read it.
+//
+// No notes and no version: `updated_at_minute` is the row's updated_at cut to the
+// minute, so it can never be sent back as if_updated_at (lib/notesWrite): a version
+// must come from the read that returned the full notes (the 10 Nov wipe).
+
+export const LITE_COLUMNS = "id, company_name, role, status, date_applied, followup_date, updated_at";
+export const LITE_LIMIT_DEFAULT = 200;
+export const LITE_LIMIT_MAX = MAX_APPLICATIONS;
+export const LITE_Q_MAX = 100;
+// What due_by leaves out: a closed row has no follow-up to make.
+export const LITE_DUE_EXCLUDED: readonly Status[] = ["rejected", "withdrawn", "ghosted"];
+
+export type LiteQuery = { q: string | null; since: string | null; statuses: Status[] | null; dueBy: string | null; limit: number };
+
+const LITE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function liteDate(value: string): boolean {
+  if (!LITE_DATE_RE.test(value)) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
+/** The lite list's filters, every one checked before it reaches a query. */
+export function readLiteQuery(params: URLSearchParams): { query: LiteQuery } | { error: string } {
+  const value = (k: string) => {
+    const v = params.get(k);
+    return v !== null && v.trim() !== "" ? v.trim() : null;
+  };
+  const q = value("q")?.replace(/\s+/g, " ") ?? null;
+  if (q !== null && q.length > LITE_Q_MAX) return { error: `q is too long (max ${LITE_Q_MAX} characters).` };
+  const since = value("since");
+  if (since !== null && !liteDate(since)) return { error: "since must be a date (YYYY-MM-DD)." };
+  const dueBy = value("due_by");
+  if (dueBy !== null && !liteDate(dueBy)) return { error: "due_by must be a date (YYYY-MM-DD)." };
+  let statuses: Status[] | null = null;
+  const statusText = value("status");
+  if (statusText !== null) {
+    const parts = statusText.split(",").map((s) => s.trim()).filter(Boolean);
+    const read = parts.map((s) => ({ s, status: normalizeStatus(s) }));
+    const unknown = read.find((r) => !r.status);
+    if (unknown) return { error: `Unknown status "${unknown.s.slice(0, 40)}".` };
+    statuses = [...new Set(read.map((r) => r.status as Status))];
+    if (statuses.length === 0) statuses = null;
+  }
+  let limit = LITE_LIMIT_DEFAULT;
+  const limitText = value("limit");
+  if (limitText !== null) {
+    const n = Number(limitText);
+    if (!Number.isInteger(n) || n < 1) return { error: "limit must be a whole number from 1." };
+    limit = Math.min(n, LITE_LIMIT_MAX);
+  }
+  return { query: { q, since, statuses, dueBy, limit } };
+}
+
+/**
+ * company_name or role contains `q`, ignoring case, as one PostgREST `or` filter. The text is
+ * escaped twice: for LIKE (\ % _ are literal) and for PostgREST's quoted value (\ "), so a
+ * comma, bracket or quote in a company's name is just a character. A `*` stays PostgREST's
+ * wildcard: it has no escape there.
+ */
+export function liteSearchFilter(q: string): string {
+  const like = `*${q.replace(/[\\%_]/g, (m) => `\\${m}`)}*`;
+  const quoted = `"${like.replace(/[\\"]/g, (m) => `\\${m}`)}"`;
+  return `company_name.ilike.${quoted},role.ilike.${quoted}`;
+}
+
+/** A PostgREST `in` list of every stored spelling of these statuses, quoted. */
+export function storedInList(statuses: readonly Status[]): string {
+  return `(${storedValuesFor(statuses).map((v) => `"${v}"`).join(",")})`;
+}
+
+/** The row's updated_at cut to the minute ("2026-11-12T14:05:00Z"): when it last changed, never a version. */
+export function minuteOf(updatedAt: unknown): string | null {
+  if (typeof updatedAt !== "string") return null;
+  const ms = Date.parse(updatedAt);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(Math.floor(ms / 60_000) * 60_000).toISOString().replace(".000Z", "Z");
+}
+
+export type LiteRow = {
+  id: string;
+  company_name: string;
+  role: string;
+  status: string;
+  date_applied: string | null;
+  followup_date: string | null;
+  updated_at_minute: string | null;
+};
+
+/** One row of the lite list: every key present (null when empty), the status in the API's spelling. */
+export function toLiteRow(row: Record<string, unknown>): LiteRow {
+  const text = (v: unknown) => (typeof v === "string" ? v : "");
+  const date = (v: unknown) => (typeof v === "string" && v ? v : null);
+  return {
+    id: text(row.id),
+    company_name: text(row.company_name),
+    role: text(row.role),
+    status: apiStatus(row.status),
+    date_applied: date(row.date_applied),
+    followup_date: date(row.followup_date),
+    updated_at_minute: minuteOf(row.updated_at),
+  };
 }

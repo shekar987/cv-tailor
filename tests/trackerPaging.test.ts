@@ -45,7 +45,11 @@ test("the cursor round-trips, and anything it did not give out is refused before
     assert.equal(decodeCursor(bad), null, bad);
   }
   assert.equal(readListMode(q("cursor=garbage")).mode, "error");
-  assert.equal(encodeCursor({ date_applied: null, created_at: "x", id: "y" }), null);
+  // Since Chunk 22 an undated (Ready to submit) row has a cursor with an empty date; a
+  // date that is not text still has none, and a bad timestamp never decodes.
+  assert.equal(encodeCursor({ date_applied: 20261030, created_at: "x", id: "y" }), null);
+  assert.equal(encodeCursor({ date_applied: null, created_at: "x", id: "y" }), "|x|y");
+  assert.equal(decodeCursor("|x|y"), null);
   // Keyset after (date desc, created desc, id asc), the values quoted.
   assert.equal(
     afterCursor({ d: row.date_applied, c: row.created_at, i: row.id }),

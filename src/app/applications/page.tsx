@@ -94,7 +94,10 @@ type Application = {
   cv_reference: string | null;
   status: Status;
   salary: string | null;
-  date_applied: string;
+  // Absent on a Ready to submit row that has not been sent (Chunk 22): the list leaves null keys out.
+  date_applied?: string | null;
+  // Who logged the row: "you", an automation's name ("Claude sweep"), or absent = not recorded.
+  logged_by?: string;
   followup_date: string | null;
   // The list carries no full text (lib/applicationRows toListRow): a flag for
   // the JD and a preview for the notes. The full text is rowText below, read
@@ -551,6 +554,16 @@ const STATUS_TONES: Record<Status, string> = {
   ghosted: "muted",
 };
 
+// A row's day for ordering: the date applied, else (a Ready to submit row never sent,
+// Chunk 22) the day it was added, so a parked row sorts with that day's rows.
+function sortDay(r: Pick<Application, "date_applied" | "created_at">): string {
+  return r.date_applied || r.created_at.slice(0, 10);
+}
+// In the period filter's range: only a row with a date applied can be.
+function inPeriod(r: Pick<Application, "date_applied">, bounds: { from: string; to: string }): boolean {
+  return !!r.date_applied && r.date_applied >= bounds.from && r.date_applied <= bounds.to;
+}
+
 // Period filter on date_applied, in the user's own timezone. Calendar periods:
 // "week" is Monday–Sunday of the current week, "month" the current month.
 type Period = "all" | "today" | "week" | "month";
@@ -634,8 +647,9 @@ function salaryNumber(value: string | null): number | null {
 function newRowError(d: NewRow): string {
   if (!d.company_name.trim()) return "Company name is required.";
   if (!d.role.trim()) return "Role is required.";
-  if (!d.date_applied) return "Enter the date applied.";
-  if (d.followup_date && d.followup_date < d.date_applied) {
+  // A Ready to submit row has not been sent, so it may have no date yet (Chunk 22).
+  if (!d.date_applied && d.status !== "saved") return "Enter the date applied.";
+  if (d.followup_date && d.date_applied && d.followup_date < d.date_applied) {
     return "Follow-up date can't be earlier than the date applied.";
   }
   return "";
@@ -725,6 +739,8 @@ export default function ApplicationsPage() {
   const [cvCache, setCvCache] = useState<Record<string, TailoredCv | null>>({});
   // The CV file uploaded for a row (lib/sentCv), read with the snapshot.
   const [sentCache, setSentCache] = useState<Record<string, SentCvInfo | null>>({});
+  // The cover letter file sent with it (applications.sent_cover_letter, Chunk 22).
+  const [letterCache, setLetterCache] = useState<Record<string, SentCvInfo | null>>({});
   // Per row: a load in flight and the error it ended in, so the View CV
   // button can say "Loading…", a failure never masks another row's panel,
   // and closing + reopening during a load doesn't fire a second GET.
@@ -1022,13 +1038,13 @@ export default function ApplicationsPage() {
         // A closed row is in the Closed section under this table, never in Live.
         !(stageTab && isClosed(r)) &&
         (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) &&
-        (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to)) &&
+        (!bounds || inPeriod(r, bounds)) &&
         matchesSearch(r, searchTerm)
     );
     // The list reads by what is soonest; the spreadsheet by its own columns.
     if (!sheetMode) {
       const soonest = (r: Application) => Math.min(...(byApp.get(r.id) ?? []).map((e) => eventMs(e) ?? Infinity), Infinity);
-      const newest = (a: Application, b: Application) => b.date_applied.localeCompare(a.date_applied) || b.created_at.localeCompare(a.created_at);
+      const newest = (a: Application, b: Application) => sortDay(b).localeCompare(sortDay(a)) || b.created_at.localeCompare(a.created_at);
       const list = [...filtered].sort((a, b) => {
         if (listSort === "company") return a.company_name.localeCompare(b.company_name, undefined, { sensitivity: "base" }) || newest(a, b);
         if (listSort === "contact") return (b.last_contact_at ?? "").localeCompare(a.last_contact_at ?? "") || newest(a, b);
@@ -1548,9 +1564,10 @@ export default function ApplicationsPage() {
       setCvErrors((e) => ({ ...e, [id]: status === 401 ? SESSION_EXPIRED : data.error || "Could not load that CV." }));
       return;
     }
-    const app = data.application as { tailored_cv?: TailoredCv | null; sent_cv?: SentCvInfo | null } | undefined;
+    const app = data.application as { tailored_cv?: TailoredCv | null; sent_cv?: SentCvInfo | null; sent_cover_letter?: SentCvInfo | null } | undefined;
     setCvCache((c) => ({ ...c, [id]: app?.tailored_cv ?? null }));
     setSentCache((c) => ({ ...c, [id]: app?.sent_cv ?? null }));
+    setLetterCache((c) => ({ ...c, [id]: app?.sent_cover_letter ?? null }));
   }
 
   // An upload, replacement or removal in the CV panel (SentCvBlock).
@@ -1558,6 +1575,11 @@ export default function ApplicationsPage() {
     setSentCache((c) => ({ ...c, [row.id]: next }));
     setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, sent_cv_name: next?.fileName ?? null } : r)));
     showFlash(next ? "CV saved with this application." : "CV file removed.");
+  }
+
+  function sentLetterChanged(row: Application, next: SentCvInfo | null) {
+    setLetterCache((c) => ({ ...c, [row.id]: next }));
+    showFlash(next ? "Cover letter saved with this application." : "Cover letter file removed.");
   }
 
   // "Run check": the server triages the row's stored JD with the user's current
@@ -1799,9 +1821,12 @@ export default function ApplicationsPage() {
     setNewRowErr("");
     const { ok, status, data } = await api("POST", {
       ...newRow,
+      date_applied: newRow.date_applied || null,
       followup_date: newRow.followup_date || null,
       formatStyle: newRow.formatStyle === "unknown" ? null : newRow.formatStyle,
       source: "manual",
+      // Made on this page: the "Logged by" badge marks only rows an automation logged.
+      logged_by: "you",
     });
     if (!ok) {
       if (status === 401) setSessionExpired(true);
@@ -2222,6 +2247,23 @@ export default function ApplicationsPage() {
               }}
             />
           )}
+          {/* The letter sent with it: offered on a row made elsewhere; a tailored row shows its own letter below, so only a stored file is listed there. */}
+          {!cvError && snap !== undefined && (row.source !== "tailored" || letterCache[row.id]) && (
+            <SentCvBlock
+              key={`${row.id}-letter`}
+              doc="cover_letter"
+              applicationId={row.id}
+              company={row.company_name}
+              sentCv={letterCache[row.id] ?? null}
+              compact
+              label
+              onChange={(next) => sentLetterChanged(row, next)}
+              onSessionExpired={() => {
+                setSessionExpired(true);
+                setActionError(SESSION_EXPIRED);
+              }}
+            />
+          )}
           {cvError ? (
             <StatusText role="alert">
               {cvError}{" "}
@@ -2527,7 +2569,7 @@ export default function ApplicationsPage() {
   // The Screening and Interview tabs are pages of their own: their title, their summary, Live and Closed.
   const stageTabNow: StageTab | null = !winsOpen && !attention && !searchTerm && !sheetMode && (tabNow === "screening" || tabNow === "interview") ? tabNow : null;
   // The page's own filters reach the Closed section too; the summary above stays all time.
-  const closedHere = stageTabNow ? closedRows(rows.filter((r) => (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) && (!bounds || (r.date_applied >= bounds.from && r.date_applied <= bounds.to))), stageTabNow) : [];
+  const closedHere = stageTabNow ? closedRows(rows.filter((r) => (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) && (!bounds || inPeriod(r, bounds))), stageTabNow) : [];
   const noFilters = periodFilter === "all" && styleFilter === "all";
   const viewLabel = !attention && searchTerm ? "across every tab" : attention === "radar" ? `due in the next ${DUE_WINDOW_HOURS} hours` : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due this week" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : attention === "cold" ? "cold emails missing a follow-up date" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
   const viewTotal = !attention && searchTerm ? rows.length : attention === "radar" ? radarIds.size : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : attention === "cold" ? coldNoFollowup : tabNow === "all" ? rows.length : counts[tabNow];

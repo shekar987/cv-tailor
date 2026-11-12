@@ -79,11 +79,12 @@ export async function GET() {
         return row.status === "finished" ? row : { ...row, plan: null, planNote: "withheld until the interview is finished" };
       });
     }
-    // The uploaded CV's record without its storage path.
+    // The uploaded CV's and cover letter's records without their storage paths.
     if (applications.rows) {
       applications.rows = applications.rows.map((r) => {
-        const row = r as Record<string, unknown>;
-        if ("sent_cv" in row) return { ...row, sent_cv: publicSentCv(normalizeSentCv(row.sent_cv)) };
+        const row = { ...(r as Record<string, unknown>) };
+        if ("sent_cv" in row) row.sent_cv = publicSentCv(normalizeSentCv(row.sent_cv));
+        if ("sent_cover_letter" in row) row.sent_cover_letter = publicSentCv(normalizeSentCv(row.sent_cover_letter));
         return row;
       });
     }

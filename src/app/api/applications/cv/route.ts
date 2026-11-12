@@ -13,12 +13,18 @@ import {
   contentDisposition,
   displayFileName,
   textNoteFor,
+  readSentDoc,
+  SENT_DOC_COLUMN,
   type SentCv,
   type SentCvKind,
+  type SentDoc,
 } from "@/lib/sentCv";
 
 // The CV file a user sent for one application (lib/sentCv): POST uploads or
-// replaces it, GET ?id= downloads it, DELETE ?id= removes it. Every call runs
+// replaces it, GET ?id= downloads it, DELETE ?id= removes it. Since 12 Nov 2026
+// (Chunk 22) the cover letter sent with it too: `doc=cover_letter` (a form field on
+// POST, a query parameter on GET and DELETE) reads and writes
+// applications.sent_cover_letter instead; no `doc` is the CV, as before. Every call runs
 // as the signed-in user, so both the table's RLS and the bucket's policies
 // apply; the route also checks the row and the stored path's prefix itself.
 //
@@ -31,7 +37,11 @@ export const runtime = "nodejs";
 const PARSE_TIMEOUT_MS = 20_000;
 const NOT_SET_UP =
   "Uploading the CV you sent isn't set up in the database yet — run supabase/migrations/20260927120000_application_cvs.sql in the Supabase SQL editor, then try again.";
+const LETTER_NOT_SET_UP =
+  "Keeping the cover letter you sent isn't set up in the database yet — run supabase/migrations/20261112120000_fast_tracker_api.sql in the Supabase SQL editor, then try again.";
+const notSetUp = (doc: SentDoc) => (doc === "cv" ? NOT_SET_UP : LETTER_NOT_SET_UP);
 const TOO_LARGE = UPLOAD_TOO_LARGE;
+const BAD_DOC = () => NextResponse.json({ error: 'doc must be "cv" or "cover_letter".' }, { status: 400 });
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUuid(value: unknown): value is string {
@@ -51,21 +61,23 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-// The application row (own rows only) and whatever file it records.
+// The application row (own rows only) and whatever file of this kind it records.
 async function readRow(
   supabase: RouteSupabase,
   userId: string,
-  id: string
+  id: string,
+  doc: SentDoc
 ): Promise<{ found: false } | { found: true; sent: SentCv | null } | { missingColumn: true } | { error: string }> {
+  const column = SENT_DOC_COLUMN[doc];
   const { data, error } = await supabase
     .from("applications")
-    .select("id, sent_cv")
+    .select(`id, ${column}`)
     .eq("id", id)
     .eq("user_id", userId)
     .maybeSingle();
   if (error) return isMissingColumn(error) ? { missingColumn: true } : { error: error.message };
   if (!data) return { found: false };
-  return { found: true, sent: normalizeSentCv((data as { sent_cv?: unknown }).sent_cv) };
+  return { found: true, sent: normalizeSentCv((data as Record<string, unknown>)[column]) };
 }
 
 const notFound = () => NextResponse.json({ error: "Application not found" }, { status: 404 });
@@ -96,6 +108,8 @@ export async function POST(req: NextRequest) {
     }
     const id = form.get("id");
     if (!isUuid(id)) return notFound();
+    const doc = readSentDoc(form.get("doc"));
+    if (!doc) return BAD_DOC();
     const file = form.get("file");
     if (!file || typeof file === "string") {
       return NextResponse.json({ error: "No file was uploaded." }, { status: 400 });
@@ -103,8 +117,8 @@ export async function POST(req: NextRequest) {
     if (file.size === 0) return NextResponse.json({ error: "That file is empty." }, { status: 400 });
     if (file.size > MAX_FILE_BYTES) return NextResponse.json({ error: TOO_LARGE }, { status: 400 });
 
-    const row = await readRow(supabase, userId, id);
-    if ("missingColumn" in row) return NextResponse.json({ error: NOT_SET_UP }, { status: 503 });
+    const row = await readRow(supabase, userId, id, doc);
+    if ("missingColumn" in row) return NextResponse.json({ error: notSetUp(doc) }, { status: 503 });
     if ("error" in row) {
       console.error("sent CV row read error:", row.error);
       return NextResponse.json({ error: "Could not store that file. Try again." }, { status: 500 });
@@ -135,7 +149,7 @@ export async function POST(req: NextRequest) {
     }
 
     const now = Date.now();
-    const path = sentCvPath(userId, id, file.name, kind, now);
+    const path = sentCvPath(userId, id, file.name, kind, now, doc);
     const storage = supabase.storage.from(SENT_CV_BUCKET);
     const { error: uploadError } = await storage.upload(path, bytes, { contentType: contentTypeFor(kind), upsert: false });
     if (uploadError) {
@@ -147,7 +161,7 @@ export async function POST(req: NextRequest) {
     const record: SentCv = {
       version: 1,
       path,
-      fileName: displayFileName(file.name, kind),
+      fileName: displayFileName(file.name, kind, doc),
       size: bytes.length,
       kind,
       uploadedAt: new Date(now).toISOString(),
@@ -156,7 +170,7 @@ export async function POST(req: NextRequest) {
     };
     const { data: updated, error: updateError } = await supabase
       .from("applications")
-      .update({ sent_cv: record })
+      .update({ [SENT_DOC_COLUMN[doc]]: record })
       .eq("id", id)
       .eq("user_id", userId)
       .select("id");
@@ -164,7 +178,7 @@ export async function POST(req: NextRequest) {
       // Never leave a stored file that no row points at.
       const { error: cleanupError } = await storage.remove([path]);
       if (cleanupError) console.warn("sent CV cleanup failed:", cleanupError.message);
-      if (updateError && isMissingColumn(updateError)) return NextResponse.json({ error: NOT_SET_UP }, { status: 503 });
+      if (updateError && isMissingColumn(updateError)) return NextResponse.json({ error: notSetUp(doc) }, { status: 503 });
       if (!updateError) return notFound();
       console.error("sent CV record error:", updateError.message);
       return NextResponse.json({ error: "Could not store that file. Try again." }, { status: 500 });
@@ -177,7 +191,7 @@ export async function POST(req: NextRequest) {
       if (removeError) console.warn("sent CV: replaced file not removed:", removeError.message);
     }
 
-    return NextResponse.json({ ok: true, sentCv: publicSentCv(record) });
+    return NextResponse.json({ ok: true, doc, sentCv: publicSentCv(record) });
   } catch (err) {
     console.error("sent CV POST error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not store that file. Try again." }, { status: 500 });
@@ -189,17 +203,20 @@ export async function GET(req: NextRequest) {
     const auth = await signedIn();
     if (!auth) return unauthorized();
     const { supabase, userId } = auth;
-    const id = new URL(req.url).searchParams.get("id");
+    const params = new URL(req.url).searchParams;
+    const id = params.get("id");
     if (!isUuid(id)) return notFound();
+    const doc = readSentDoc(params.get("doc"));
+    if (!doc) return BAD_DOC();
 
-    const row = await readRow(supabase, userId, id);
+    const row = await readRow(supabase, userId, id, doc);
     if ("error" in row) {
       console.error("sent CV row read error:", row.error);
       return NextResponse.json({ error: "Could not load that file. Try again." }, { status: 500 });
     }
     const sent = "found" in row && row.found ? row.sent : null;
     if (!sent || !ownsPath(sent.path, userId, id)) {
-      return NextResponse.json({ error: "No CV file is stored for this application." }, { status: 404 });
+      return NextResponse.json({ error: doc === "cv" ? "No CV file is stored for this application." : "No cover letter file is stored for this application." }, { status: 404 });
     }
 
     const { data: blob, error: downloadError } = await supabase.storage.from(SENT_CV_BUCKET).download(sent.path);
@@ -230,10 +247,13 @@ export async function DELETE(req: NextRequest) {
     const auth = await signedIn();
     if (!auth) return unauthorized();
     const { supabase, userId } = auth;
-    const id = new URL(req.url).searchParams.get("id");
+    const params = new URL(req.url).searchParams;
+    const id = params.get("id");
     if (!isUuid(id)) return notFound();
+    const doc = readSentDoc(params.get("doc"));
+    if (!doc) return BAD_DOC();
 
-    const row = await readRow(supabase, userId, id);
+    const row = await readRow(supabase, userId, id, doc);
     // No column yet: there is nothing stored to remove.
     if ("missingColumn" in row) return NextResponse.json({ ok: true });
     if ("error" in row) {
@@ -254,7 +274,7 @@ export async function DELETE(req: NextRequest) {
     }
     const { error: updateError } = await supabase
       .from("applications")
-      .update({ sent_cv: null })
+      .update({ [SENT_DOC_COLUMN[doc]]: null })
       .eq("id", id)
       .eq("user_id", userId);
     if (updateError) {

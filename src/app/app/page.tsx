@@ -1747,6 +1747,7 @@ export default function Home() {
           tailor_session_id: sid,
           status: "applied",
           source: "tailored",
+          logged_by: "you",
           // The JD's literal figure with its unit ("£480 per day"),
           // "Voluntary (unpaid)", or an explicit "Not Specified".
           salary: salaryFromJd(jdForRow),
