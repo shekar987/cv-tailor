@@ -32,6 +32,8 @@ const CV_PDF = new Uint8Array(doc.output("arraybuffer"));
 const email = `fast-tracker-e2e-${Date.now()}@example.com`, password = `Pw-${Math.random().toString(36).slice(2)}-A1!`;
 const created = await (await fetch(`${SB}/auth/v1/admin/users`, { method: "POST", headers: admin, body: JSON.stringify({ email, password, email_confirm: true }) })).json();
 let browser;
+// Set when the 1280 pass stores the letter (after the migration); the 390 pass then opens the same row.
+let letterStored = false;
 try {
   const session = await (await fetch(`${SB}/auth/v1/token?grant_type=password`, { method: "POST", headers: { apikey: PUB, "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) })).json();
   const cookieValue = "base64-" + Buffer.from(JSON.stringify(session)).toString("base64url");
@@ -69,7 +71,8 @@ try {
     check(`${w}: the panel shows the CV you sent`, (await name.innerText()).trim() === "Alex Tester CV.pdf" && /CV you sent/i.test(await page.locator(".appsPanelTitle").first().innerText()));
     const textOk = await page.locator("[data-sent-cv-text]").evaluate((el) => /REST APIs/.test(el.textContent ?? "")).catch(() => false);
     check(`${w}: with the text read from it`, textOk);
-    check(`${w}: and a line for the cover letter sent with it`, (await page.locator('[data-sent-letter="none"]').count()) === 1 && (await page.locator("[data-sent-letter-upload]").count()) === 1);
+    if (letterStored) check(`${w}: and the cover letter stored at 1280`, (await page.locator("[data-sent-letter-name]").innerText().catch(() => "")).trim() === "Cover letter.txt");
+    else check(`${w}: and a line for the cover letter sent with it`, (await page.locator('[data-sent-letter="none"]').count()) === 1 && (await page.locator("[data-sent-letter-upload]").count()) === 1);
     check(`${w}: no sideways scroll`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
     check(`${w}: no page errors`, errors.length === 0, errors.join(" | "));
     await page.screenshot({ path: path.join(SHOTS, `fast-tracker-${w}.png`) });
@@ -78,6 +81,7 @@ try {
       await page.locator("[data-sent-letter-input]").setInputFiles({ name: "Cover letter.txt", mimeType: "text/plain", buffer: Buffer.from("Dear Hiring Team,\n\nI am applying for the Graduate Engineer role.\n\nKind regards,\nAlex Tester\n") });
       await page.waitForFunction(() => document.querySelector("[data-sent-letter-name]") || document.querySelector(".sentCv .uploadError"), null, { timeout: 15000 });
       const stored = await page.locator("[data-sent-letter-name]").count();
+      letterStored = stored > 0;
       if (stored) check("1280: the cover letter uploads beside the CV", (await page.locator("[data-sent-letter-name]").innerText()).trim() === "Cover letter.txt");
       else check("1280: before the migration the letter upload names it", /20261112120000/.test(await page.locator(".sentCv .uploadError").innerText()));
       await page.screenshot({ path: path.join(SHOTS, "fast-tracker-letter.png") });
