@@ -4,6 +4,7 @@
 import { MAX_JD_CHARS } from "../limits.ts";
 import { boardDisplayName, postingPageUrl, type JobRef, type JobSource } from "./parse.ts";
 import { capText, decodeEntities, htmlToPlainText, tidyPlainText, unescapeHtml } from "./text.ts";
+import { jobPostingFromJsonLd } from "./readable.ts";
 
 export type ImportedJob = {
   company: string;
@@ -219,9 +220,44 @@ export function fromBambooHr(ref: JobRef, data: unknown): ImportedJob | null {
   });
 }
 
-/** The extractor for a source: JSON for the boards, HTML for LinkedIn. */
+/**
+ * Gem (api.gem.com/job_board/v0/<board>/job_posts/<id>, Chunk 23): Greenhouse's shape,
+ * `content` as plain (unescaped) HTML, `content_plain` beside it. No company field: the
+ * board names the company.
+ */
+export function fromGem(ref: JobRef, data: unknown): ImportedJob | null {
+  const job = obj(data);
+  if (!job) return null;
+  const html = str(job.content, MAX_HTML);
+  const place = decodeEntities(str(obj(job.location)?.name));
+  const remote = str(job.location_type) === "remote" && !/remote/i.test(place) ? "Remote" : "";
+  return finish(ref, {
+    title: decodeEntities(str(job.title)),
+    company: boardDisplayName(ref.board),
+    location: [place, remote].filter(Boolean).join(" · "),
+    body: html ? htmlToPlainText(unescapeHtml(html)) : str(job.content_plain, MAX_HTML),
+    applyUrl: cleanLink(job.absolute_url),
+  });
+}
+
+/** Teamtailor (<company>.teamtailor.com/jobs/<id>, Chunk 23): the page's JobPosting block. */
+export function fromTeamtailor(ref: JobRef, html: unknown): ImportedJob | null {
+  if (typeof html !== "string" || !html) return null;
+  const posting = jobPostingFromJsonLd(html);
+  if (!posting) return null;
+  return finish(ref, {
+    title: posting.title,
+    company: posting.company || boardDisplayName(ref.board),
+    location: posting.location,
+    body: posting.body,
+    applyUrl: postingPageUrl(ref),
+  });
+}
+
+/** The extractor for a source: JSON for the boards, HTML for LinkedIn and Teamtailor. */
 export function extractJob(ref: JobRef, body: string): ImportedJob | null {
   if (ref.source === "linkedin") return fromLinkedIn(ref, body);
+  if (ref.source === "teamtailor") return fromTeamtailor(ref, body);
   let data: unknown;
   try {
     data = JSON.parse(body);
@@ -241,5 +277,7 @@ export function extractJob(ref: JobRef, body: string): ImportedJob | null {
       return fromSmartRecruiters(ref, data);
     case "bamboohr":
       return fromBambooHr(ref, data);
+    case "gem":
+      return fromGem(ref, data);
   }
 }

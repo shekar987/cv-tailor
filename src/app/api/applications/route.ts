@@ -18,8 +18,8 @@ import { normalizeStyleCheck } from "@/lib/styleCheck";
 import { REFERRAL_MIGRATION_HINT } from "@/lib/referrals";
 import { triageForUser, withTriage } from "@/lib/applicationTriage";
 import {
-  LITE_COLUMNS, LITE_DUE_EXCLUDED, MAX_APPLICATIONS, afterCursor, encodeCursor, liteSearchFilter, readApplicationPages, readListMode, readLiteQuery,
-  storedInList, storedValuesFor, toListRow, toLiteRow, toPageRow, type OrderableQuery,
+  LITE_COLUMNS, LITE_DUE_STATUSES, MAX_APPLICATIONS, liteDuePendingFilter, afterCursor, encodeCursor, liteSearchFilter, readApplicationPages, readListMode, readLiteQuery,
+  storedValuesFor, toListRow, toLiteRow, toPageRow, type OrderableQuery,
 } from "@/lib/applicationRows";
 import {
   FOLLOWUP_ERROR, MAX_NOTES, clampOptional, followupTooEarly, readLoggedBy, resolveSentDate, validateEditable,
@@ -357,24 +357,34 @@ export async function GET(req: NextRequest) {
 
     // ?lite=1: the light list for automations (lib/applicationRows readLiteQuery): seven
     // small fields, filtered in the database, one select per 1,000 rows. Columns every
-    // database has, so no ladder.
+    // database has, so no ladder; due_by's pending-outcome filter alone is dropped on a
+    // database without migration 20261104130000.
     if (params.get("lite") === "1") {
       const lite = readLiteQuery(params);
       if ("error" in lite) return NextResponse.json({ error: lite.error }, { status: 400 });
       const { q, since, statuses, dueBy, limit } = lite.query;
+      let pendingFilter = true;
       const build = () => {
         let query = supabase.from("applications").select(LITE_COLUMNS).eq("user_id", userId);
         if (q) query = query.or(liteSearchFilter(q));
         if (since) query = query.gte("date_applied", since);
         if (statuses) query = query.in("status", storedValuesFor(statuses));
-        if (dueBy) query = query.lte("followup_date", dueBy).not("status", "in", storedInList(LITE_DUE_EXCLUDED));
+        // The rows the page's "Follow-ups due today" counts (lib/followupsDue).
+        if (dueBy) {
+          query = query.lte("followup_date", dueBy).in("status", storedValuesFor(LITE_DUE_STATUSES));
+          if (pendingFilter) query = query.or(liteDuePendingFilter());
+        }
         return query.order("date_applied", { ascending: false }).order("created_at", { ascending: false }).order("id", { ascending: true });
       };
       // One row past the limit says whether there is more.
       const rows: Record<string, unknown>[] = [];
       for (let from = 0; from <= limit; from += 1000) {
         const to = Math.min(from + 999, limit);
-        const res = await build().range(from, to);
+        let res = await build().range(from, to);
+        if (res.error && dueBy && pendingFilter && isMissingColumn(res.error)) {
+          pendingFilter = false;
+          res = await build().range(from, to);
+        }
         if (res.error) {
           console.error("applications lite read error:", res.error.code ?? "unknown");
           return NextResponse.json({ error: "Could not load your applications" }, { status: 500 });

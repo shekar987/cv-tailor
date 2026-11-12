@@ -1,0 +1,22 @@
+{
+  "absolute_url": "https://jobs.gem.com/elwood-robotics/am9icG9zdDqbZkwcc-zcsGEBP8ypUFvs",
+  "content": "<h3>About Elwood Robotics</h3><p>Elwood Robotics builds the software that plans and checks warehouse robot fleets for grocery and parcel companies across the UK and Ireland. Our platform schedules 4,000 robots a night and our customers rely on it to ship on time.</p><h3>What you'll do</h3><ul><li>Build and run Python services that plan robot routes across a warehouse floor</li><li>Design PostgreSQL schemas for telemetry that arrives at 20,000 events a second</li><li>Write tests in pytest and review your colleagues' pull requests every day</li><li>Work with operations engineers on site to understand what a failed pick costs</li><li>Own a service from the design document to the on-call rota, with support</li></ul><h3>What we're looking for</h3><ul><li>A degree in computer science, engineering or a related subject, or equivalent experience</li><li>Experience building REST APIs in Python, Go or a similar language</li><li>Comfort with SQL and relational databases such as PostgreSQL or MySQL</li><li>Clear written English: we decide most things in short design documents</li><li>The right to work in the UK (we are unable to sponsor visas for this role)</li></ul><h3>What we offer</h3><ul><li>A salary of £38,000 to £45,000 depending on experience</li><li>25 days of holiday plus bank holidays</li><li>Hybrid working from our Manchester office two days a week</li></ul>",
+  "content_plain": "About Elwood Robotics\nElwood Robotics builds the software that plans and checks warehouse robot fleets for grocery and parcel companies across the UK and Ireland. Our platform schedules 4,000 robots a night and our customers rely on it to ship on time.\nWhat you'll do\nBuild and run Python services that plan robot routes across a warehouse floor\nDesign PostgreSQL schemas for telemetry that arrives at 20,000 events a second\nWrite tests in pytest and review your colleagues' pull requests every day\nWork with operations engineers on site to understand what a failed pick costs\nOwn a service from the design document to the on-call rota, with support\nWhat we're looking for\nA degree in computer science, engineering or a related subject, or equivalent experience\nExperience building REST APIs in Python, Go or a similar language\nComfort with SQL and relational databases such as PostgreSQL or MySQL\nClear written English: we decide most things in short design documents\nThe right to work in the UK (we are unable to sponsor visas for this role)\nWhat we offer\nA salary of £38,000 to £45,000 depending on experience\n25 days of holiday plus bank holidays\nHybrid working from our Manchester office two days a week",
+  "created_at": "2026-10-01T09:00:00.000Z",
+  "departments": [
+    {
+      "id": "x",
+      "name": "Engineering"
+    }
+  ],
+  "employment_type": "full_time",
+  "id": "am9icG9zdDqbZkwcc-zcsGEBP8ypUFvs",
+  "location": {
+    "name": "Manchester, United Kingdom"
+  },
+  "location_type": "hybrid",
+  "offices": [],
+  "requisition_id": "R12",
+  "title": "Graduate Software Engineer",
+  "updated_at": "2026-11-10T09:00:00.000Z"
+}

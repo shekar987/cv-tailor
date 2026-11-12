@@ -14,12 +14,19 @@
 // /api/jd/fetch). A Workable short link (apply.workable.com/j/<code>) names
 // no account: the route follows its redirect on apply.workable.com and
 // parses the address it lands on (workableShortLinkUrl).
+//
+// Gem and Teamtailor since 12 Nov 2026 (Chunk 23). Gem's posting page
+// (jobs.gem.com/<board>/<id>) is a JavaScript shell with no posting in it;
+// its public job-board API (api.gem.com/job_board/v0/<board>/job_posts/<id>)
+// answers the posting as JSON, Greenhouse-shaped. Teamtailor serves the
+// posting from the company's own <company>.teamtailor.com (one DNS label, as
+// BambooHR), with a schema.org JobPosting block in the page.
 
-export type JobSource = "lever" | "ashby" | "greenhouse" | "linkedin" | "workable" | "smartrecruiters" | "bamboohr";
+export type JobSource = "lever" | "ashby" | "greenhouse" | "linkedin" | "workable" | "smartrecruiters" | "bamboohr" | "gem" | "teamtailor";
 
 export type JobRef = {
   source: JobSource;
-  /** Lever company, Ashby slug, Greenhouse board, Workable account, SmartRecruiters company, BambooHR subdomain; "" for LinkedIn and a Workable short link. */
+  /** Lever company, Ashby slug, Greenhouse board, Workable account, SmartRecruiters company, BambooHR or Teamtailor subdomain, Gem board; "" for LinkedIn and a Workable short link. */
   board: string;
   /** The posting's id as the board writes it. */
   id: string;
@@ -35,10 +42,12 @@ export const SOURCE_LABELS: Record<JobSource, string> = {
   workable: "Workable",
   smartrecruiters: "SmartRecruiters",
   bamboohr: "BambooHR",
+  gem: "Gem",
+  teamtailor: "Teamtailor",
 };
 
 /** The boards the import reads, for the "we read job links from …" sentence. */
-export const SUPPORTED_SOURCES_TEXT = "Lever, Ashby, Greenhouse, Workable, SmartRecruiters, BambooHR and LinkedIn";
+export const SUPPORTED_SOURCES_TEXT = "Lever, Ashby, Greenhouse, Gem, Workable, SmartRecruiters, Teamtailor, BambooHR and LinkedIn";
 
 // Every host the import route may request — the fixed API hosts behind the
 // four sources. The route refuses any other host, redirects included.
@@ -50,6 +59,7 @@ export const IMPORT_FETCH_HOSTS: ReadonlySet<string> = new Set([
   "www.linkedin.com",
   "apply.workable.com",
   "api.smartrecruiters.com",
+  "api.gem.com",
   // A Greenhouse short link is followed through these to the posting's page,
   // and only the address it lands on is used (5 Nov 2026).
   "grnh.se",
@@ -64,11 +74,17 @@ const GREENHOUSE_PAGE_HOSTS: ReadonlySet<string> = new Set(["job-boards.greenhou
 
 // <company>.bamboohr.com: one DNS label, never a deeper name.
 const BAMBOO_HOST_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.bamboohr\.com$/;
+// <company>.teamtailor.com, the same rule; Teamtailor's own hosts are not a company.
+const TEAMTAILOR_HOST_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.teamtailor\.com$/;
+const TEAMTAILOR_RESERVED: ReadonlySet<string> = new Set(["www", "app", "api", "support", "docs", "status"]);
+function isTeamtailorCompanyHost(h: string): boolean {
+  return TEAMTAILOR_HOST_RE.test(h) && !TEAMTAILOR_RESERVED.has(h.slice(0, -".teamtailor.com".length));
+}
 
-/** Whether the import route may request this host (the fixed set, or a BambooHR company subdomain). */
+/** Whether the import route may request this host (the fixed set, or a BambooHR or Teamtailor company subdomain). */
 export function isImportFetchHost(host: string): boolean {
   const h = host.toLowerCase();
-  return IMPORT_FETCH_HOSTS.has(h) || BAMBOO_HOST_RE.test(h);
+  return IMPORT_FETCH_HOSTS.has(h) || BAMBOO_HOST_RE.test(h) || isTeamtailorCompanyHost(h);
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -83,6 +99,11 @@ const WORKABLE_CODE_RE = /^[A-Z0-9]{6,16}$/i;
 const SMARTRECRUITERS_COMPANY_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
 const SMARTRECRUITERS_ID_RE = /^(\d{6,20})(?:-[A-Za-z0-9-]*)?$/;
 const BAMBOO_ID_RE = /^\d{1,10}$/;
+const GEM_BOARD_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
+// A UUID, or the base64url id newer postings carry ("am9icG9zdDqbZkwcc-zcsGEBP8ypUFvs").
+const GEM_ID_RE = /^[A-Za-z0-9_-]{8,80}$/;
+const TEAMTAILOR_POSTING_RE = /^(\d{1,12})(?:-[A-Za-z0-9-]*)?$/;
+const LOCALE_RE = /^[a-z]{2}(?:-[a-z]{2})?$/i;
 
 function segmentsOf(url: URL): string[] | null {
   const out: string[] = [];
@@ -211,6 +232,22 @@ export function parseJobUrl(raw: string): JobRef | null {
     return null;
   }
 
+  // Gem: jobs.gem.com/<board>/<id>, read from the public job-board API.
+  if (host === "jobs.gem.com") {
+    const [board, id, ...more] = segs;
+    if (!board || !id || more.length || !GEM_BOARD_RE.test(board) || !GEM_ID_RE.test(id)) return null;
+    return { source: "gem", board, id };
+  }
+
+  // Teamtailor: <company>.teamtailor.com/jobs/<id>-<slug>, a locale first allowed (/en/jobs/…).
+  if (isTeamtailorCompanyHost(host)) {
+    const path = segs.length > 1 && LOCALE_RE.test(segs[0]) && segs[1] === "jobs" ? segs.slice(1) : segs;
+    const [jobs, posting, ...more] = path;
+    if (jobs !== "jobs" || !posting || more.length) return null;
+    const m = TEAMTAILOR_POSTING_RE.exec(posting);
+    return m ? { source: "teamtailor", board: host.slice(0, -".teamtailor.com".length), id: m[1] } : null;
+  }
+
   return null;
 }
 
@@ -246,6 +283,10 @@ export function sourceApiUrl(ref: JobRef): string {
       return `https://api.smartrecruiters.com/v1/companies/${board}/postings/${id}`;
     case "bamboohr":
       return `https://${board}.bamboohr.com/careers/${id}/detail`;
+    case "gem":
+      return `https://api.gem.com/job_board/v0/${board}/job_posts/${id}`;
+    case "teamtailor":
+      return `https://${board}.teamtailor.com/jobs/${id}`;
   }
 }
 
@@ -268,6 +309,10 @@ export function postingPageUrl(ref: JobRef): string {
       return `https://jobs.smartrecruiters.com/${board}/${id}`;
     case "bamboohr":
       return `https://${board}.bamboohr.com/careers/${id}`;
+    case "gem":
+      return `https://jobs.gem.com/${board}/${id}`;
+    case "teamtailor":
+      return `https://${board}.teamtailor.com/jobs/${id}`;
   }
 }
 

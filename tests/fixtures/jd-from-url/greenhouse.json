@@ -1,0 +1,10 @@
+{
+  "id": 7012345,
+  "title": "Graduate Software Engineer",
+  "company_name": "Elwood Robotics",
+  "location": {
+    "name": "Manchester, England"
+  },
+  "absolute_url": "https://job-boards.greenhouse.io/elwoodrobotics/jobs/7012345",
+  "content": "&lt;h3&gt;About Elwood Robotics&lt;/h3&gt;&lt;p&gt;Elwood Robotics builds the software that plans and checks warehouse robot fleets for grocery and parcel companies across the UK and Ireland. Our platform schedules 4,000 robots a night and our customers rely on it to ship on time.&lt;/p&gt;&lt;h3&gt;What you'll do&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;Build and run Python services that plan robot routes across a warehouse floor&lt;/li&gt;&lt;li&gt;Design PostgreSQL schemas for telemetry that arrives at 20,000 events a second&lt;/li&gt;&lt;li&gt;Write tests in pytest and review your colleagues' pull requests every day&lt;/li&gt;&lt;li&gt;Work with operations engineers on site to understand what a failed pick costs&lt;/li&gt;&lt;li&gt;Own a service from the design document to the on-call rota, with support&lt;/li&gt;&lt;/ul&gt;&lt;h3&gt;What we're looking for&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;A degree in computer science, engineering or a related subject, or equivalent experience&lt;/li&gt;&lt;li&gt;Experience building REST APIs in Python, Go or a similar language&lt;/li&gt;&lt;li&gt;Comfort with SQL and relational databases such as PostgreSQL or MySQL&lt;/li&gt;&lt;li&gt;Clear written English: we decide most things in short design documents&lt;/li&gt;&lt;li&gt;The right to work in the UK (we are unable to sponsor visas for this role)&lt;/li&gt;&lt;/ul&gt;&lt;h3&gt;What we offer&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;A salary of £38,000 to £45,000 depending on experience&lt;/li&gt;&lt;li&gt;25 days of holiday plus bank holidays&lt;/li&gt;&lt;li&gt;Hybrid working from our Manchester office two days a week&lt;/li&gt;&lt;/ul&gt;"
+}

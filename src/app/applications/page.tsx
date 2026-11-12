@@ -72,6 +72,7 @@ import {
   type Status,
 } from "@/lib/tracker";
 import type { TrackerCounts } from "@/lib/trackerCounts";
+import { followupsDueToday, isFollowupDueToday } from "@/lib/followupsDue";
 import CleanupPanel from "./CleanupPanel";
 import { trackedFetch, whenNoWrites, writeSeq, writesInFlight } from "@/lib/writeTracker";
 import type { TabKey } from "@/lib/applicationStage";
@@ -986,6 +987,10 @@ export default function ApplicationsPage() {
     () => (!fullLoaded && serverCounts ? { ...attentionAll, followups: serverCounts.followups_due_this_week } : attentionAll),
     [fullLoaded, serverCounts, attentionAll]
   );
+  // "Follow-ups due today" (lib/followupsDue), the rows the sweep's ?lite=1&due_by=<today> reads;
+  // from the server too until the rows can count it.
+  const dueTodayAll = useMemo(() => followupsDueToday(rows, localIsoDate(new Date(clock))), [rows, clock]);
+  const dueTodayNumbers = !fullLoaded && serverCounts?.followups_due_today ? serverCounts.followups_due_today : dueTodayAll;
   // A tab opened before the full list is in gets its own first page.
   useEffect(() => {
     if (fullLoaded || !serverCounts || !loaded || tab === null || tab === "all") return;
@@ -1021,6 +1026,7 @@ export default function ApplicationsPage() {
     const inView = (r: Application): boolean => {
       if (attention === "due") return (byApp.get(r.id) ?? []).some((e) => isDueSoon(e, clock, tz));
       if (attention === "followups") return isFollowupDueThisWeek(r, todayLocal());
+      if (attention === "today") return isFollowupDueToday(r, todayLocal());
       if (attention === "fix") return isDataToFix(r);
       if (attention === "referrals") return referralIds.has(r.id);
       if (attention === "cold") return coldEmailNeedsFollowup(r);
@@ -2586,8 +2592,8 @@ export default function ApplicationsPage() {
   // The page's own filters reach the Closed section too; the summary above stays all time.
   const closedHere = stageTabNow ? closedRows(rows.filter((r) => (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) && (!bounds || inPeriod(r, bounds.from, bounds.to))), stageTabNow) : [];
   const noFilters = periodFilter === "all" && styleFilter === "all";
-  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "radar" ? `due in the next ${DUE_WINDOW_HOURS} hours` : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due this week" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : attention === "cold" ? "cold emails missing a follow-up date" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
-  const viewTotal = !attention && searchTerm ? rows.length : attention === "radar" ? radarIds.size : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : attention === "cold" ? coldNoFollowup : tabNow === "all" ? rows.length : counts[tabNow];
+  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "radar" ? `due in the next ${DUE_WINDOW_HOURS} hours` : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due this week" : attention === "today" ? "follow-ups due today" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : attention === "cold" ? "cold emails missing a follow-up date" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
+  const viewTotal = !attention && searchTerm ? rows.length : attention === "radar" ? radarIds.size : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "today" ? dueTodayNumbers.total : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : attention === "cold" ? coldNoFollowup : tabNow === "all" ? rows.length : counts[tabNow];
   const elsewhere = !attention && !searchTerm && tabNow !== "all" && tabNow !== "assessment" ? countedElsewhere(rows, byApp, tabNow) : 0;
   const activeFilters = (styleFilter !== "all" ? 1 : 0) + (includePast ? 1 : 0) + (listSort !== "next" ? 1 : 0);
 
@@ -2648,6 +2654,7 @@ export default function ApplicationsPage() {
         {hasRows && (
           <AttentionStrip
             counts={attentionNumbers}
+            dueToday={dueTodayNumbers}
             coldNoFollowup={coldNoFollowup}
             loading={!fullLoaded}
             dueLabel={`Due by ${tomorrowName} night`}
