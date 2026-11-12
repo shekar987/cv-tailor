@@ -10,6 +10,8 @@ import {
   IDEMPOTENCY_TTL_MS,
   IN_PROGRESS_MESSAGE,
   REUSED_MESSAGE,
+  UNKNOWN_MESSAGE,
+  keptBody,
   canonicalJsonBody,
   fingerprint,
   readIdempotencyKey,
@@ -74,13 +76,19 @@ function supabaseStore(supabase: RouteSupabase, userId: string): IdempotencyStor
   };
 }
 
-async function storedFrom(res: NextResponse): Promise<StoredResponse | null> {
+async function jsonOf(res: NextResponse): Promise<StoredResponse | null> {
   if (!(res.headers.get("content-type") ?? "").includes("application/json")) return null;
   try {
     return { status: res.status, body: await res.clone().json() };
   } catch {
     return null;
   }
+}
+
+// What the store keeps: the answer without the row's notes and a file's text (lib/idempotency keptBody).
+async function storedFrom(res: NextResponse): Promise<StoredResponse | null> {
+  const answer = await jsonOf(res);
+  return answer ? { status: answer.status, body: keptBody(answer.body) } : null;
 }
 
 /**
@@ -96,22 +104,32 @@ export async function idempotent(req: NextRequest, path: string, canonicalBody: 
   // Signed out: the handler answers 401 and nothing is kept.
   if (!caller) return handler();
   const store = supabaseStore(caller.supabase, caller.userId);
-  const hash = fingerprint({ method: req.method, path, body: await canonicalBody() });
-  const outcome = await runIdempotent({ key: parsed.key, hash, method: req.method, path, store, now: Date.now }, handler, storedFrom);
+  let outcome: Awaited<ReturnType<typeof runIdempotent<NextResponse>>>;
+  try {
+    const hash = fingerprint({ method: req.method, path, body: await canonicalBody() });
+    outcome = await runIdempotent({ key: parsed.key, hash, method: req.method, path, store, now: Date.now }, handler, storedFrom);
+  } catch (err) {
+    // The key could not be claimed or read: the handler never ran (it catches its own errors).
+    console.error("idempotency error:", err instanceof Error ? err.message : "Unknown error");
+    return NextResponse.json({ error: "idempotency_error", errorType: "idempotency_error", message: "The Idempotency-Key could not be checked, so nothing was written. Send the request again." }, { status: 503, headers: { "Retry-After": "5" } });
+  }
   switch (outcome.kind) {
     case "ran":
       after(() => store.sweep());
       return outcome.value;
     case "replayed":
+      after(() => store.sweep());
       return NextResponse.json(outcome.response.body, { status: outcome.response.status, headers: { "Idempotent-Replayed": "true" } });
     case "in_progress":
       return NextResponse.json({ error: "idempotency_in_progress", errorType: "idempotency_in_progress", message: IN_PROGRESS_MESSAGE }, { status: 409, headers: { "Retry-After": "5" } });
+    case "unknown":
+      return NextResponse.json({ error: "idempotency_unknown", errorType: "idempotency_unknown", message: UNKNOWN_MESSAGE }, { status: 409 });
     case "reused":
       return NextResponse.json({ error: "idempotency_key_reused", errorType: "idempotency_key_reused", message: REUSED_MESSAGE }, { status: 422 });
     case "unavailable": {
       // Ran, unprotected: the caller must know its key did nothing.
-      const stored = await storedFrom(outcome.value);
-      const body = stored && stored.body && typeof stored.body === "object" && !Array.isArray(stored.body) ? { ...(stored.body as Record<string, unknown>), idempotencyWarning: IDEMPOTENCY_MIGRATION_HINT } : null;
+      const answer = await jsonOf(outcome.value);
+      const body = answer && answer.body && typeof answer.body === "object" && !Array.isArray(answer.body) ? { ...(answer.body as Record<string, unknown>), idempotencyWarning: IDEMPOTENCY_MIGRATION_HINT } : null;
       return body ? NextResponse.json(body, { status: outcome.value.status }) : outcome.value;
     }
   }

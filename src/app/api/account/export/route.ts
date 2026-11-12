@@ -54,7 +54,7 @@ export async function GET() {
       return section("applications", rows, error);
     }
 
-    const [profile, masterCv, cvProfile, settings, applications, interviews, research, keys, events, availability, notesHistory, companyRules] = await Promise.all([
+    const [profile, masterCv, cvProfile, settings, applications, interviews, research, keys, events, availability, notesHistory, companyRules, idempotency] = await Promise.all([
       read("profiles", "tailor_count, tailor_count_reset_at, claude_tailors_used, is_unlimited, section_order"),
       read("master_cvs", "text, projects_pool, updated_at"),
       read("cv_profiles", "data, updated_at"),
@@ -69,6 +69,8 @@ export async function GET() {
       // companies' reapply rules.
       readPaged("notes_history", "changed_at"),
       read("company_rules", "*", "created_at"),
+      // Chunk 22 (migration 20261112120000): the Idempotency-Keys a script sent, with the answers kept.
+      read("api_idempotency", "key, method, path, status_code, response, created_at", "created_at"),
     ]);
 
     // An unfinished interview's plan holds the questions not yet asked; the
@@ -103,6 +105,7 @@ export async function GET() {
       availability,
       notesHistory,
       companyRules,
+      idempotencyKeys: idempotency,
       providerKeys: { ...keys, note: keys.note ?? "hints only — the keys themselves are encrypted and never exported" },
     };
     const day = payload.exportedAt.slice(0, 10);

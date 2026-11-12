@@ -73,9 +73,8 @@ try {
   const detail = async (id) => (await a.call(`/api/applications?id=${id}`)).body.application;
 
   // A tracker the size of the owner's: made-up companies, notes and JDs of realistic length.
-  // Stored keys (lib/tracker STATUSES); the API answers them in its own spelling (API).
+  // Stored keys (lib/tracker STATUSES); the API answers them in its own spelling.
   const statuses = ["applied", "applied", "applied", "rejected", "saved", "screening", "withdrawn", "ghosted", "interview"];
-  const API = { applied: "Applied", rejected: "Rejected", saved: "Ready to submit", screening: "Screening", withdrawn: "Withdrawn", ghosted: "Ghosted", interview: "Interview" };
   const seed = [];
   for (let i = 0; i < SEED_ROWS; i++) {
     const day = new Date(Date.UTC(2026, 0, 1) + (i % 310) * 86_400_000).toISOString().slice(0, 10);
@@ -170,6 +169,12 @@ try {
     skipped("Ready to submit without a date");
   } else {
     check("a Ready to submit row is saved with no date", parked.status === 200 && (await detail(parked.body.id)).date_applied === null);
+    const fullParked = (await a.call("/api/applications")).body.applications.find((r) => r.id === parked.body.id);
+    check("the full list keeps the key, as null", fullParked && "date_applied" in fullParked && fullParked.date_applied === null);
+    const unsent = (await a.call("/api/applications", "POST", { company_name: "Smoke Role Closed", role: "Engineer", status: "Ready to submit" })).body.id;
+    const closed = await a.call("/api/applications", "PUT", { id: unsent, status: "Withdrawn" });
+    check("a parked row withdrawn before it was sent gets no made-up date", closed.status === 200 && !closed.body.date_applied && (await detail(unsent)).date_applied === null);
+    check("a set date can't be cleared on a sent row", (await a.call("/api/applications", "PUT", { id: nid, date_applied: null })).body.error?.includes("can't be cleared"));
     const liteParked = (await a.call("/api/applications?lite=1&q=smoke%20sage%20parked")).body.applications[0];
     check("lite shows it undated, Ready to submit", liteParked?.date_applied === null && liteParked?.status === "Ready to submit");
     const moved = await a.call("/api/applications", "PUT", { id: parked.body.id, status: "Applied" });

@@ -5,14 +5,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  LITE_LIMIT_DEFAULT, LITE_LIMIT_MAX, afterCursor, decodeCursor, encodeCursor, liteSearchFilter, minuteOf, readLiteQuery, storedInList, toLiteRow,
+  LITE_LIMIT_DEFAULT, LITE_LIMIT_MAX, afterCursor, decodeCursor, encodeCursor, liteSearchFilter, minuteOf, readLiteQuery, storedInList, toListRow, toLiteRow,
 } from "../src/lib/applicationRows.ts";
 import {
-  IN_PROGRESS_STALE_MS, IDEMPOTENCY_TTL_MS, canonicalJsonBody, classifyRecord, fingerprint, readIdempotencyKey, runIdempotent,
+  IN_PROGRESS_STALE_MS, IDEMPOTENCY_TTL_MS, canonicalJsonBody, classifyRecord, fingerprint, isKeepable, keptBody, readIdempotencyKey, runIdempotent,
   type IdempotencyRecord, type IdempotencyStore, type StoredResponse,
 } from "../src/lib/idempotency.ts";
 import { isRecentDuplicate, sameVersion, stampNoteLine } from "../src/lib/notesWrite.ts";
-import { DATE_REQUIRED, followupTooEarly, loggedByBadge, readLoggedBy, resolveSentDate, validateEditable } from "../src/lib/applicationFields.ts";
+import { DATE_KEPT, DATE_REQUIRED, followupTooEarly, loggedByBadge, readLoggedBy, resolveSentDate, validateEditable } from "../src/lib/applicationFields.ts";
+import { mergeNote } from "../src/lib/trackerCleanup.ts";
 
 const q = (s: string) => readLiteQuery(new URLSearchParams(s));
 
@@ -49,6 +50,12 @@ test("lite: a row carries seven fields and never a version", () => {
   assert.deepEqual(row, { id: "r1", company_name: "Elwood", role: "Engineer", status: "Ready to submit", date_applied: null, followup_date: null, updated_at_minute: "2026-11-12T14:05:00Z" });
   assert.equal(sameVersion(updatedAt, row.updated_at_minute as string), false, "the minute is not accepted as if_updated_at");
   assert.equal(minuteOf("nonsense"), null);
+});
+
+test("the full list keeps date_applied, as null, on an undated row (the sweeps always found the key)", () => {
+  assert.equal(toListRow({ id: "r", status: "saved", date_applied: null, notes: null }).date_applied, null);
+  assert.ok("date_applied" in toListRow({ id: "r", status: "saved", date_applied: null }));
+  assert.equal(toListRow({ id: "r", status: "applied", date_applied: "2026-11-01", salary: null }).salary, undefined, "other empty keys still go");
 });
 
 // ── The list cursor across undated rows ───────────────────────────────────
@@ -127,16 +134,34 @@ test("idempotency: the body is compared whatever its key order; other work under
   assert.equal(ran, false);
 });
 
-test("idempotency: a key whose first request still runs answers in progress; a dead one is taken again", async () => {
+test("idempotency: a key whose first request still runs answers in progress; one whose answer was lost is never run again", async () => {
   const m = memoryStore();
   await m.store.claim("k", "h".repeat(64), "POST", "/p");
   let ran = 0;
   const opts = { key: "k", hash: "h".repeat(64), method: "POST", path: "/p", store: m.store, now: m.now };
   assert.deepEqual(await runIdempotent(opts, async () => ({ status: 200, body: { n: ++ran } }), asStored), { kind: "in_progress" });
   m.advance(IN_PROGRESS_STALE_MS);
-  const retaken = await runIdempotent(opts, async () => ({ status: 200, body: { n: ++ran } }), asStored);
-  assert.equal(retaken.kind, "ran");
-  assert.equal(ran, 1);
+  // It may have written: running it again could write twice, so it says "unknown".
+  assert.deepEqual(await runIdempotent(opts, async () => ({ status: 200, body: { n: ++ran } }), asStored), { kind: "unknown" });
+  assert.equal(ran, 0);
+});
+
+test("idempotency: when the full answer can't be kept, that it ran is kept, so a retry never writes twice", async () => {
+  const m = memoryStore();
+  const realFinish = m.store.finish.bind(m.store);
+  let tries = 0;
+  m.store.finish = async (key, hash, response) => {
+    if (++tries === 1) throw new Error("transient");
+    return realFinish(key, hash, response);
+  };
+  let writes = 0;
+  const opts = { key: "k", hash: "4".repeat(64), method: "POST", path: "/p", store: m.store, now: m.now };
+  await runIdempotent(opts, async () => ({ status: 200, body: { id: `row-${++writes}` } }), asStored);
+  m.advance(IN_PROGRESS_STALE_MS * 3);
+  const again = await runIdempotent(opts, async () => ({ status: 200, body: { id: `row-${++writes}` } }), asStored);
+  assert.equal(writes, 1);
+  assert.equal(again.kind, "replayed");
+  assert.equal((again as { response: { body: { answerLost: boolean } } }).response.body.answerLost, true);
 });
 
 test("idempotency: a failure is not kept, so a retry runs again; a 4xx is kept", async () => {
@@ -147,8 +172,40 @@ test("idempotency: a failure is not kept, so a retry runs again; a 4xx is kept",
   assert.equal(m.rows.has("k"), false);
   await assert.rejects(runIdempotent(opts, async () => { throw new Error("boom"); }, asStored));
   assert.equal(m.rows.has("k"), false, "a thrown error releases the claim");
+  // "Try again" answers are not kept: the retry under the same key really runs.
+  for (const status of [429, 408, 425]) {
+    assert.equal(isKeepable(status), false, String(status));
+    await runIdempotent(opts, async () => ({ status, body: { error: "later" } }), asStored);
+    assert.equal(m.rows.has("k"), false, `${status} released`);
+  }
   await runIdempotent(opts, async () => ({ status: 409, body: { error: "duplicate" } }), asStored);
   assert.deepEqual(await runIdempotent(opts, async () => ({ status: 200, body: {} }), asStored), { kind: "replayed", response: { status: 409, body: { error: "duplicate" } } });
+});
+
+test("idempotency: the answer kept leaves out notes and file text", () => {
+  const kept = keptBody({
+    ok: true,
+    notes: "12 Nov 2026 09:00 Private line",
+    reportNotes: "Reopened by the sweep",
+    followupCleared: { followup_date: null, notes: "Follow-up cleared" },
+    pending_outcome: { outcome: "reopen", date: "2026-11-12", source: "gmail", note: "Quoted words" },
+    sentCv: { fileName: "cv.pdf", size: 10, kind: "pdf", text: "Alex Tester, private CV text" },
+    sentCoverLetter: null,
+    id: "row-1",
+    updated_at: "2026-11-12T09:00:00Z",
+  });
+  assert.deepEqual(kept, {
+    ok: true,
+    notes: null,
+    reportNotes: null,
+    followupCleared: { followup_date: null, notes: null },
+    pending_outcome: { outcome: "reopen", date: "2026-11-12", source: "gmail" },
+    sentCv: { fileName: "cv.pdf", size: 10, kind: "pdf", text: "" },
+    sentCoverLetter: null,
+    id: "row-1",
+    updated_at: "2026-11-12T09:00:00Z",
+  });
+  assert.equal(keptBody(null), null);
 });
 
 test("idempotency: a key is free again after a day; no table runs the request unprotected", async () => {
@@ -202,6 +259,17 @@ test("a Ready to submit row may be created without a date; a sent one may not", 
   assert.equal(followupTooEarly("2026-11-21", "2026-11-20"), true);
 });
 
+test("an ending invents no date; a set date is never cleared but on Ready to submit", () => {
+  const today = "2026-11-12";
+  for (const status of ["withdrawn", "Rejected", "ghosted"]) {
+    assert.deepEqual(resolveSentDate({ status, stored: null, patch: undefined, today }), { ok: true }, `${status}: a parked row closed unsent stays undated`);
+  }
+  assert.deepEqual(resolveSentDate({ status: "withdrawn", stored: "2026-11-01", patch: null, today }), { error: DATE_KEPT });
+  assert.deepEqual(resolveSentDate({ status: "saved", stored: "2026-11-01", patch: null, today }), { ok: true });
+  // An undated duplicate is "not sent" in the clean-up's note, never "applied ".
+  assert.equal(mergeNote({ role: "Engineer", date_applied: null, status: "saved", notes: null }, today), "Merged from a duplicate row (Engineer, not sent, Ready to submit) on 12 Nov 2026.");
+});
+
 test("moving a dateless row on dates it today; clearing a sent row's date is refused", () => {
   const today = "2026-11-12";
   assert.deepEqual(resolveSentDate({ status: "Applied", stored: null, patch: undefined, today }), { ok: true, set: today });
@@ -209,7 +277,8 @@ test("moving a dateless row on dates it today; clearing a sent row's date is ref
   assert.deepEqual(resolveSentDate({ status: "applied", stored: "2026-11-01", patch: undefined, today }), { ok: true });
   assert.deepEqual(resolveSentDate({ status: "applied", stored: null, patch: "2026-11-10", today }), { ok: true });
   assert.deepEqual(resolveSentDate({ status: "Ready to submit", stored: "2026-11-01", patch: null, today }), { ok: true });
-  assert.deepEqual(resolveSentDate({ status: "applied", stored: "2026-11-01", patch: null, today }), { error: DATE_REQUIRED });
+  assert.deepEqual(resolveSentDate({ status: "applied", stored: "2026-11-01", patch: null, today }), { error: DATE_KEPT });
+  assert.deepEqual(resolveSentDate({ status: "applied", stored: null, patch: null, today }), { error: DATE_REQUIRED });
 });
 
 // ── Logged by ──────────────────────────────────────────────────────────────

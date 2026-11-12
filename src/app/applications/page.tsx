@@ -560,8 +560,8 @@ function sortDay(r: Pick<Application, "date_applied" | "created_at">): string {
   return r.date_applied || r.created_at.slice(0, 10);
 }
 // In the period filter's range: only a row with a date applied can be.
-function inPeriod(r: Pick<Application, "date_applied">, bounds: { from: string; to: string }): boolean {
-  return !!r.date_applied && r.date_applied >= bounds.from && r.date_applied <= bounds.to;
+function inPeriod(r: Pick<Application, "date_applied">, from: string, to: string): boolean {
+  return !!r.date_applied && r.date_applied >= from && r.date_applied <= to;
 }
 
 // Period filter on date_applied, in the user's own timezone. Calendar periods:
@@ -1038,7 +1038,7 @@ export default function ApplicationsPage() {
         // A closed row is in the Closed section under this table, never in Live.
         !(stageTab && isClosed(r)) &&
         (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) &&
-        (!bounds || inPeriod(r, bounds)) &&
+        (!bounds || inPeriod(r, bounds.from, bounds.to)) &&
         matchesSearch(r, searchTerm)
     );
     // The list reads by what is soonest; the spreadsheet by its own columns.
@@ -1189,6 +1189,11 @@ export default function ApplicationsPage() {
     const autoClose = data.autoClose as { message?: unknown } | undefined;
     autoCloseNote.current = typeof autoClose?.message === "string" ? autoClose.message : null;
     if (typeof data.warning === "string") setNotice(data.warning);
+    // A dateless row moved on was dated today by the server (Chunk 22): show it.
+    if (typeof data.date_applied === "string") {
+      const dated = data.date_applied;
+      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, date_applied: dated } : r)));
+    }
     // A Reopen took the words of the report it answered into the notes.
     if (typeof data.reportNotes === "string") {
       const notes = data.reportNotes;
@@ -1296,7 +1301,7 @@ export default function ApplicationsPage() {
   function cellValidationError(row: Application, field: TextField, value: string): string {
     if (field === "company_name" && !value) return "Company name is required.";
     if (field === "role" && !value) return "Role is required.";
-    if (field === "date_applied" && !value) return "Enter the date applied.";
+    if (field === "date_applied" && !value && row.status !== "saved" && row.date_applied) return "Enter the date applied.";
     const dateApplied = field === "date_applied" ? value : row.date_applied;
     const followup = field === "followup_date" ? value : (row.followup_date ?? "");
     if (followup && dateApplied && followup < dateApplied) {
@@ -1797,13 +1802,15 @@ export default function ApplicationsPage() {
     setWins(false);
     cancelCell();
     setPanel(null);
+    const startStatus = statusForNewRow(attention || !tabPicked ? "all" : tabNow);
     setNewRow({
       company_name: "",
       role: "",
       // On a stage tab a new row belongs to that stage, or it would vanish from view on save.
-      status: statusForNewRow(attention || !tabPicked ? "all" : tabNow),
+      status: startStatus,
       salary: "",
-      date_applied: todayLocal(),
+      // A Ready to submit row has not been sent: no date until it is (Chunk 22).
+      date_applied: startStatus === "saved" ? "" : todayLocal(),
       followup_date: "",
       formatStyle: "unknown",
     });
@@ -1853,7 +1860,15 @@ export default function ApplicationsPage() {
   }
 
   function updateNewRow<K extends keyof NewRow>(key: K, value: NewRow[K]) {
-    setNewRow((d) => (d ? { ...d, [key]: value } : d));
+    setNewRow((d) => {
+      if (!d) return d;
+      const next = { ...d, [key]: value };
+      // The date follows the status while the user hasn't typed one: none for a row not
+      // sent yet, today for one that was (Chunk 22).
+      if (key === "status" && value === "saved" && d.date_applied === todayLocal()) next.date_applied = "";
+      if (key === "status" && value !== "saved" && !d.date_applied) next.date_applied = todayLocal();
+      return next;
+    });
   }
 
   async function confirmDelete(id: string) {
@@ -2569,7 +2584,7 @@ export default function ApplicationsPage() {
   // The Screening and Interview tabs are pages of their own: their title, their summary, Live and Closed.
   const stageTabNow: StageTab | null = !winsOpen && !attention && !searchTerm && !sheetMode && (tabNow === "screening" || tabNow === "interview") ? tabNow : null;
   // The page's own filters reach the Closed section too; the summary above stays all time.
-  const closedHere = stageTabNow ? closedRows(rows.filter((r) => (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) && (!bounds || inPeriod(r, bounds))), stageTabNow) : [];
+  const closedHere = stageTabNow ? closedRows(rows.filter((r) => (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) && (!bounds || inPeriod(r, bounds.from, bounds.to))), stageTabNow) : [];
   const noFilters = periodFilter === "all" && styleFilter === "all";
   const viewLabel = !attention && searchTerm ? "across every tab" : attention === "radar" ? `due in the next ${DUE_WINDOW_HOURS} hours` : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due this week" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : attention === "cold" ? "cold emails missing a follow-up date" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
   const viewTotal = !attention && searchTerm ? rows.length : attention === "radar" ? radarIds.size : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : attention === "cold" ? coldNoFollowup : tabNow === "all" ? rows.length : counts[tabNow];

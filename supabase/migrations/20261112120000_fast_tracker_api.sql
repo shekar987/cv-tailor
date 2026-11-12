@@ -5,12 +5,14 @@
 -- here deletes or rewrites a row. Apply by hand in the Supabase SQL editor (one
 -- paste; the editor runs it as one transaction).
 --
--- 1. applications.date_applied may be empty, but ONLY on a row that is not sent yet
---    (status 'saved', shown as "Ready to submit"; its old spelling counts too). On
---    11 Nov a parked application was refused for want of a date it did not have, and
---    a made-up date is a false fact in the tracker. A trigger dates any other row
---    that arrives without one (today in London), so no writer — a sweep, the plan's
---    stage move, a reopen — can leave a sent row undated; a check states the rule.
+-- 1. applications.date_applied may be empty on a row that was never sent: one still
+--    Ready to submit (status 'saved'; its old spelling counts too), or one that ended
+--    before it was sent (rejected / withdrawn / ghosted with no date, e.g. a parked row
+--    whose role closed). On 11 Nov a parked application was refused for want of a date
+--    it did not have, and a made-up date is a false fact in the tracker. A trigger dates
+--    a row that arrives at any status meaning it WAS sent (Applied, Screening, Interview,
+--    Assessment, Offer, Won) without one, with today in London, so no writer — a sweep,
+--    the plan's stage move, a reopen — can leave a sent row undated; a check states it.
 --
 -- 2. applications.sent_cover_letter: the cover letter file sent with an application,
 --    the same record as sent_cv (lib/sentCv), stored in the same private bucket under
@@ -33,7 +35,8 @@ language plpgsql
 set search_path = ''
 as $func$
 begin
-  if new.date_applied is null and new.status not in ('saved', 'Ready to submit') then
+  if new.date_applied is null
+     and new.status not in ('saved', 'Ready to submit', 'rejected', 'Rejected', 'withdrawn', 'Withdrawn', 'ghosted') then
     new.date_applied := (now() at time zone 'Europe/London')::date;
   end if;
   return new;
@@ -50,7 +53,7 @@ create trigger applications_date_when_sent
 
 alter table public.applications drop constraint if exists applications_date_applied_when_sent;
 alter table public.applications add constraint applications_date_applied_when_sent
-  check (date_applied is not null or status in ('saved', 'Ready to submit'));
+  check (date_applied is not null or status in ('saved', 'Ready to submit', 'rejected', 'Rejected', 'withdrawn', 'Withdrawn', 'ghosted'));
 
 -- 2. The cover letter file sent -------------------------------------------------------
 
@@ -89,12 +92,15 @@ create policy api_idempotency_delete_own on public.api_idempotency
 revoke all on public.api_idempotency from public, anon, authenticated;
 grant select, insert, update, delete on public.api_idempotency to authenticated;
 
--- Down (run by hand to reverse). The first update dates every undated row with the
--- day it was created, so the column can require a date again. Dropping
+-- Down (run by hand to reverse). The update dates every undated row with the day it
+-- was created, so the column can require a date again; the table's own triggers are
+-- off around it, so updated_at (the version a notes save sends) is not reset. Dropping
 -- sent_cover_letter forgets the letter files' records: the files stay in the user's
 -- own bucket folder until the account is deleted, so download them first if needed.
 --
+--   alter table public.applications disable trigger user;
 --   update public.applications set date_applied = (created_at at time zone 'Europe/London')::date where date_applied is null;
+--   alter table public.applications enable trigger user;
 --   drop table if exists public.api_idempotency;
 --   alter table public.applications drop column if exists sent_cover_letter;
 --   alter table public.applications drop constraint if exists applications_date_applied_when_sent;

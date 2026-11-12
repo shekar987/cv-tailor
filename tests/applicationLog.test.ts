@@ -63,7 +63,7 @@ test("a duplicate is the same whole company and role within 90 days", () => {
 test("the 409 names the row and how to log anyway", () => {
   assert.equal(
     duplicateMessage(row({ status: "Ready to submit", date_applied: null, created_at: "2026-11-10T09:00:00Z" })),
-    "Already in your tracker: Sage — Graduate Engineer, logged 10 Nov 2026 (Ready to submit). Nothing was saved. If this is a new application, send force=1 to log it again."
+    "Already in your tracker: Sage — Graduate Engineer, logged 10 Nov 2026 (Ready to submit). Nothing was saved. If this is a new application, send force=1 to log it again (with a new Idempotency-Key, if you send one)."
   );
   assert.match(duplicateMessage(row({})), /applied 1 Oct 2026 \(Applied\)/);
 });

@@ -45,9 +45,10 @@ export default function PrivacyPage() {
         </li>
         <li>
           <strong>Repeat protection for automated writes.</strong> When a script or assistant sends a change with an
-          Idempotency-Key, we keep that key, a fingerprint of the request and our answer, so a retried request within 24 hours gets the
-          same answer instead of writing twice. Records older than a day are cleared the next time a key is used, and all of them go
-          with your account.
+          Idempotency-Key, we keep that key, a fingerprint of the request and our answer to it, so a retried request within 24 hours gets
+          the same answer instead of writing twice. The answer kept leaves out your notes and the text of any file, but can hold the
+          company, role, status and file names of the row it changed. Records older than a day are cleared the next time a key is
+          used (not on their own), and all of them go with your account.
         </li>
         <li>
           <strong>Reapply rules</strong> you save, or that your notes give when a company says when you can apply again (for example

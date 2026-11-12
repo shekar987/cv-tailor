@@ -246,11 +246,20 @@ function submitted(status: unknown): Status | null {
   return s && s !== "saved" ? s : null;
 }
 
+// A row that was sent. An ending with no date applied was closed before it was ever sent
+// (a parked row whose role went, Chunk 22): it is no earlier application.
+const ENDED_UNSENT = new Set<Status>(["rejected", "withdrawn", "ghosted"]);
+function sentRow(r: { status?: unknown; date_applied?: unknown }): Status | null {
+  const s = submitted(r.status);
+  if (!s) return null;
+  return ENDED_UNSENT.has(s) && !isDateKey(r.date_applied) ? null : s;
+}
+
 /** The newest date applied among the user's submitted rows for the company (for one role, when given). */
 export function lastAppliedAt(company: string, rows: readonly CooldownRow[], role?: string | null): string | null {
   let latest: string | null = null;
   for (const r of rows) {
-    if (typeof r.company_name !== "string" || !sameCompany(company, r.company_name) || !submitted(r.status)) continue;
+    if (typeof r.company_name !== "string" || !sameCompany(company, r.company_name) || !sentRow(r)) continue;
     if (role !== undefined && !(role && sameRole(role, r.role))) continue;
     if (isDateKey(r.date_applied) && (!latest || r.date_applied > latest)) latest = r.date_applied;
   }
@@ -330,7 +339,7 @@ export function checkCompanyRules({ company, role, jdText, rules, rows, today }:
   // What the user did before: the same role at the same company.
   if (role && !hits.some((h) => h.rule === "same_role" && h.level === "skip")) {
     const before = rows
-      .filter((r) => typeof r.company_name === "string" && sameCompany(company, r.company_name) && submitted(r.status) && sameRole(role, r.role))
+      .filter((r) => typeof r.company_name === "string" && sameCompany(company, r.company_name) && sentRow(r) && sameRole(role, r.role))
       .sort((a, b) => String(b.date_applied ?? "").localeCompare(String(a.date_applied ?? "")))[0];
     if (before) {
       const status = submitted(before.status)!;

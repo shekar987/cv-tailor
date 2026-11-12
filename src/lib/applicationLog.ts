@@ -124,7 +124,7 @@ export function duplicateMessage(row: LoggedRow): string {
   const status = normalizeStatus(row.status);
   const label = status ? STATUS_LABELS[status] : row.status;
   const when = row.date_applied ? `applied ${formatDate(row.date_applied)}` : row.created_at ? `logged ${formatDate(row.created_at)}` : "logged before";
-  return `Already in your tracker: ${row.company_name} — ${row.role}, ${when} (${label}). Nothing was saved. If this is a new application, send force=1 to log it again.`;
+  return `Already in your tracker: ${row.company_name} — ${row.role}, ${when} (${label}). Nothing was saved. If this is a new application, send force=1 to log it again (with a new Idempotency-Key, if you send one).`;
 }
 
 /**

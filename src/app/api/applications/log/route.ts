@@ -5,7 +5,7 @@ import { parseCvFile, detectFileKind, CvParseError, MAX_FILE_BYTES } from "@/lib
 import { MAX_JD_CHARS, JD_TOO_LONG } from "@/lib/limits";
 import { DEFAULT_TIMEZONE, dayKey } from "@/lib/planTime";
 import { cleanNoteLine, stampNoteLine } from "@/lib/notesWrite";
-import { oldStatusLabel } from "@/lib/tracker";
+import { apiStatus, oldStatusLabel } from "@/lib/tracker";
 import { sha256Hex } from "@/lib/idempotency";
 import { idempotent } from "@/lib/idempotentRoute";
 import { FOLLOWUP_ERROR, followupTooEarly, readLoggedBy, validateEditable } from "@/lib/applicationFields";
@@ -199,7 +199,7 @@ async function logApplication(req: NextRequest) {
             error: "duplicate",
             errorType: "duplicate",
             message: duplicateMessage(match),
-            existing: { id: match.id, company_name: match.company_name, role: match.role, status: match.status, date_applied: match.date_applied, has_sent_cv: !!match.sent_cv_name },
+            existing: { id: match.id, company_name: match.company_name, role: match.role, status: apiStatus(match.status), date_applied: match.date_applied, has_sent_cv: !!match.sent_cv_name },
           },
           { status: 409 }
         );

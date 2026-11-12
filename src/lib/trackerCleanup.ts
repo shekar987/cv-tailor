@@ -143,7 +143,8 @@ export function cadenceNote(row: Pick<CleanupRow, "followup_date" | "date_applie
 }
 
 export function mergeNote(dup: Pick<CleanupRow, "role" | "date_applied" | "status" | "notes">, today: string): string {
-  const head = `Merged from a duplicate row (${text(dup.role) || "no role"}, applied ${formatDate(dup.date_applied)}, ${statusLabel(dup.status)}) on ${formatDate(today)}.`;
+  const sent = dup.date_applied ? `applied ${formatDate(dup.date_applied)}` : "not sent";
+  const head = `Merged from a duplicate row (${text(dup.role) || "no role"}, ${sent}, ${statusLabel(dup.status)}) on ${formatDate(today)}.`;
   return text(dup.notes) ? `${head}\n${text(dup.notes)}` : head;
 }
 

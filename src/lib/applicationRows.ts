@@ -113,6 +113,9 @@ export function toListRow(row: Record<string, unknown>): Record<string, unknown>
   }
   // The API's spelling, whichever one is stored (lib/tracker API_STATUS).
   if (typeof row.status === "string") out.status = apiStatus(row.status);
+  // A Ready to submit row may have no date applied (Chunk 22): the key stays, null, as the
+  // sweeps have always found it present.
+  if ("date_applied" in row && (row.date_applied === null || row.date_applied === undefined)) out.date_applied = null;
   // Only a row that got shortlisted needs it, for the Live section's order: every row's would cost 40 KB.
   // Whole minutes, never the row's updated_at: that is the version a notes replace must send
   // (lib/notesWrite), and it must come from a read that returned the full notes. A list row

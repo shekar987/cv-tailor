@@ -5,14 +5,20 @@
 //
 // The date rule (Chunk 22): a row that is not sent yet ("Ready to submit", stored
 // `saved`) may have no date applied — on 11 Nov a parked application was refused
-// for want of one, and a made-up date is a false fact in the tracker. Every other
-// status needs one: a create says so; an update that moves a dateless row on gets
-// today (resolveSentDate), and the trigger of migration 20261112120000 does the
-// same for any writer that doesn't.
+// for want of one, and a made-up date is a false fact in the tracker. A create
+// needs one for any other status. An update that moves a dateless row to a status
+// that means it WAS sent (Applied, Screening, Interview, Assessment, Offer, Won)
+// gets today (resolveSentDate), and the trigger of migration 20261112120000 does
+// the same for any writer that doesn't. An ending (Rejected, Withdrawn, Ghosted)
+// keeps no date if it never had one — a parked row closed because the role went
+// was never sent — and a date once set is cleared only on a Ready to submit row.
 import { MAX_JD_CHARS, MAX_NOTES_CHARS, JD_TOO_LONG } from "./limits.ts";
 import { isValidEmail } from "./contactCheck.ts";
 import { MAX_DEADLINE_NOTE, deadlineFromFields } from "./deadlines.ts";
 import { READY_TO_SUBMIT, normalizeStatus, isLastContactFrom, parseContactAt, type Status, type LastContactFrom } from "./tracker.ts";
+
+// Statuses that end a row without saying it was ever sent: no date is invented for them.
+export const UNDATED_ENDINGS: ReadonlySet<Status> = new Set<Status>(["rejected", "withdrawn", "ghosted"]);
 import { validateReferralFields, type ReferralFields } from "./referrals.ts";
 import { MAX_LESSON_CHARS, isCloseReason, normalizePendingOutcome, type CloseReason, type PendingOutcome, type UndoSnapshot } from "./closing.ts";
 
@@ -25,6 +31,8 @@ export const MAX_OUTCOME_REASON = 500;
 
 export const DATE_REQUIRED =
   "Enter the date applied (YYYY-MM-DD). Only a Ready to submit row may leave it out; once a row is sent it needs the date it was sent.";
+export const DATE_KEPT =
+  "The date applied can't be cleared once it is set (only a Ready to submit row may have none). Send the right date instead.";
 export const FOLLOWUP_ERROR = "Follow-up date can't be earlier than the date applied.";
 
 // Strict YYYY-MM-DD that also exists on the calendar (rejects 2026-02-30).
@@ -235,9 +243,10 @@ export function followupTooEarly(dateApplied: string | null | undefined, followu
 }
 
 /**
- * An update's date applied, decided against the row as it will be: a row that is not
- * Ready to submit needs one. Moving a dateless row on gets `today` (`set`); clearing the
- * date of a sent row is refused. `patch` is the body's value (undefined = not sent).
+ * An update's date applied, decided against the row as it will be. Ready to submit: anything.
+ * An ending (Rejected, Withdrawn, Ghosted): no date is invented, but a set one stays. Any
+ * other status means it was sent: a dateless row gets `today` (`set`). Clearing a set date
+ * is refused everywhere but Ready to submit. `patch` is the body's value (undefined = not sent).
  */
 export function resolveSentDate(input: {
   status: unknown;
@@ -247,8 +256,9 @@ export function resolveSentDate(input: {
 }): { ok: true; set?: string } | { error: string } {
   const status = normalizeStatus(input.status);
   if (status === READY_TO_SUBMIT) return { ok: true };
+  if (input.patch === null && input.stored) return { error: DATE_KEPT };
   const result = input.patch !== undefined ? input.patch : (input.stored ?? null);
-  if (result) return { ok: true };
+  if (result || (status && UNDATED_ENDINGS.has(status))) return { ok: true };
   if (input.patch === null) return { error: DATE_REQUIRED };
   return { ok: true, set: input.today };
 }

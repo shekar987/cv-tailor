@@ -100,10 +100,20 @@ test("a Ready to submit row is saved with no date applied, in either spelling", 
 test("a sent row that arrives with no date is dated today in London, on insert and on update", async () => {
   const inserted = (await asUser<{ id: string }>(A, "insert into public.applications (user_id, company_name, status) values ($1, 'Acme', 'applied') returning id", [A])).rows[0].id;
   assert.equal(await dateOf(inserted), londonToday());
-  for (const next of ["applied", "Interview", "rejected"]) {
+  for (const next of ["applied", "Interview", "offer", "accepted"]) {
     const id = (await asUser<{ id: string }>(A, "insert into public.applications (user_id, company_name, status) values ($1, 'Parked', 'saved') returning id", [A])).rows[0].id;
     await asUser(A, "update public.applications set status = $1 where id = $2", [next, id]);
     assert.equal(await dateOf(id), londonToday(), next);
+  }
+});
+
+test("a parked row closed before it was sent stays undated; reopened to Applied it is dated", async () => {
+  for (const ending of ["withdrawn", "Rejected", "ghosted"]) {
+    const id = (await asUser<{ id: string }>(A, "insert into public.applications (user_id, company_name, status) values ($1, 'Closed unsent', 'saved') returning id", [A])).rows[0].id;
+    await asUser(A, "update public.applications set status = $1 where id = $2", [ending, id]);
+    assert.equal(await dateOf(id), null, ending);
+    await asUser(A, "update public.applications set status = 'applied' where id = $1", [id]);
+    assert.equal(await dateOf(id), londonToday(), `${ending} then applied`);
   }
 });
 
