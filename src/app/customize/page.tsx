@@ -17,8 +17,12 @@ import {
   saveProfile,
   clearProfile,
   importFromLocalStorageIfNeeded,
+  countApplications,
   type Profile,
 } from "@/lib/cvStore";
+import FirstRunGuide from "@/components/FirstRunGuide";
+import { forgetSavedCv } from "@/components/FirstRunBanner";
+import { firstRunMode, withRightToWork, type FirstRunFacts } from "@/lib/firstRun";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { MAX_CV_CHARS, MAX_POOL_CHARS } from "@/lib/limits";
 import { rightToWorkDisagrees, stripRightToWorkLines, type RtwStatus } from "@/lib/rightToWorkText";
@@ -279,6 +283,13 @@ export default function CustomizePage() {
   // inferred from the CV; "not set" answers "unknown", never pass or fail.
   const [eligibility, setEligibility] = useState<Eligibility>(EMPTY_ELIGIBILITY);
   const [eligLoaded, setEligLoaded] = useState(false);
+  // Eligibility as last read or saved: the first-run guide's right-to-work answer is
+  // written on top of THIS, never on top of the section's unsaved draft (lib/firstRun).
+  const [savedElig, setSavedElig] = useState<Eligibility>(EMPTY_ELIGIBILITY);
+  // Every tracker row the account holds; null until read (and on a failed read, when no guide shows).
+  const [applicationCount, setApplicationCount] = useState<number | null>(null);
+  // Both the guide and the section's Save write the whole Eligibility value: never two at once.
+  const [rtwGuideSaving, setRtwGuideSaving] = useState(false);
   // One-time nudge for a "Full right to work" answer: "full" means permanent,
   // and a visa holder who picked it gets no warning on postings that ask for
   // permanent status. Dismissed per user in localStorage.
@@ -548,6 +559,10 @@ export default function CustomizePage() {
       } catch {
         // Storage blocked: the nudge just shows each visit.
       }
+      // For the first-run guide under the saved CV: an account with no application yet.
+      void countApplications().then((n) => {
+        if (active) setApplicationCount(n);
+      });
 
       try {
         const res = await fetch("/api/section-order");
@@ -620,6 +635,7 @@ export default function CustomizePage() {
         }
         if (settings.eligibility) {
           setEligibility(settings.eligibility);
+          setSavedElig(settings.eligibility);
           setEligCountries(settings.eligibility.rightToWork.countries.join(", "));
           setEligBases(settings.eligibility.location.base.join(", "));
           setEligLicences(settings.eligibility.licences.join(", "));
@@ -630,6 +646,13 @@ export default function CustomizePage() {
           setEligLicences(p.certifications.join(", "));
         }
         setEligLoaded(true);
+        // A link to one section ("/customize#eligibility", from the first-run guide): open it
+        // and scroll there, as the section nav does. Master CV and Your details are always open.
+        const hash = decodeURIComponent(window.location.hash.slice(1));
+        if (hash && Object.prototype.hasOwnProperty.call(FOLIO, hash)) {
+          if (hash !== "master-cv" && hash !== "your-details") setOpenSections((prev) => (prev.has(hash) ? prev : new Set(prev).add(hash)));
+          requestAnimationFrame(() => document.getElementById(hash)?.scrollIntoView({ block: "start" }));
+        }
       }
     }
     load();
@@ -859,6 +882,7 @@ export default function CustomizePage() {
     setEligSaving(false);
     if (res.ok) {
       setEligibility(next);
+      setSavedElig(next);
       setEligCountries(next.rightToWork.countries.join(", "));
       setEligBases(next.location.base.join(", "));
       setEligLicences(next.licences.join(", "));
@@ -869,6 +893,21 @@ export default function CustomizePage() {
     } else {
       setEligError("Couldn't save. Check your connection and try again.");
     }
+  }
+
+  // The first-run guide's step 2 (lib/firstRun): one explicit click is the answer. Only the
+  // right-to-work answer changes, on top of the Eligibility as last saved; the section's
+  // unsaved draft (the licences box starts from the CV's certifications) is not written.
+  async function chooseRightToWork(status: RtwStatus): Promise<boolean> {
+    if (eligSaving) return false;
+    const next = withRightToWork(savedElig, status);
+    setRtwGuideSaving(true);
+    const res = await saveEligibility(next);
+    setRtwGuideSaving(false);
+    if (!res.ok) return false;
+    setSavedElig(next);
+    setEligibility((e) => ({ ...e, rightToWork: { ...e.rightToWork, status } }));
+    return true;
   }
 
   // Seed or refresh the claims registry from the CV itself plus the
@@ -1053,6 +1092,8 @@ export default function CustomizePage() {
     // A replaced CV starts a fresh registry (eligibility is kept - it isn't
     // CV-derived).
     setClaims(null);
+    // Other pages' "Start here: upload your CV" must ask again in this tab.
+    forgetSavedCv(userId);
     await clearMasterCV();
     await clearProfile();
     await saveClaims(null);
@@ -1145,6 +1186,13 @@ export default function CustomizePage() {
   // what it holds, so nothing is hidden — only put away.
   const eligAnswered = eligibilityAnswered(eligibility);
   const eligSet = isEligibilitySet(eligibility);
+  // Under the saved CV, for an account with no application yet: right to work, then the first job.
+  // Not after a failed or missing settings read: "Not set" would then be a guess, and the write
+  // would be refused anyway (lib/cvStore).
+  const firstRunFacts: FirstRunFacts | null =
+    masterCvText && eligLoaded && applicationCount !== null && !settingsReadFailed && !settingsMissing
+      ? { hasCv: true, rtwStatus: savedElig.rightToWork.status, applicationCount }
+      : null;
   const claimsTotal = claims?.skills.length ?? 0;
   const claimsUnconfirmed = countUnconfirmed(claims);
   const orderIsCustom = order.join() !== DEFAULT_SECTION_ORDER.join();
@@ -1271,6 +1319,9 @@ export default function CustomizePage() {
                 )}
               </div>
             </div>
+            {firstRunFacts && firstRunMode(firstRunFacts) === "guide" && (
+              <FirstRunGuide facts={firstRunFacts} cvHref={null} onChooseRtw={chooseRightToWork} busy={eligSaving} />
+            )}
             </>
           )}
         </Card>
@@ -1752,7 +1803,7 @@ export default function CustomizePage() {
                 ))}
               </div>
               <div className="actions">
-                <Button onClick={handleSaveEligibility} disabled={eligSaving || settingsMissing}>
+                <Button onClick={handleSaveEligibility} disabled={eligSaving || rtwGuideSaving || settingsMissing}>
                   {eligSaving ? "Saving…" : "Save eligibility"}
                 </Button>
                 {isEligibilitySet(eligibility) && eligibility.updatedAt && (

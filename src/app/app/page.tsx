@@ -56,6 +56,8 @@ import type { BulletChanges, RoleChanges } from "@/lib/bulletIds";
 import { fallbackNotice } from "@/lib/fallbackRoute";
 import { postingAgeDays } from "@/lib/postingAge";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
+import { writeJustSaved } from "@/lib/justSaved";
+import { scoreChange, scoreChangeLine } from "@/lib/scoreChange";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { bandFor, parseCoverage, combineWithFit, reconcileAtsScore, type VisibilityBand, type CombinedVerdict } from "@/lib/visibilityVerdict";
 import { MAX_JD_CHARS, JD_TOO_LONG, MAX_APPLIED_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
@@ -305,9 +307,10 @@ function formatDay(iso: string): string {
   return formatDate(iso) || iso;
 }
 
-// "cleared": the run was saved to the tracker and the workspace emptied for
-// the next posting (undo keeps the last run for the session).
-type AppliedState = "idle" | "saving" | "saved" | "already" | "error" | "cleared";
+// "saved" / "already": the run is on the tracker. Since Chunk 24 (12 Nov 2026) the result
+// stays on screen after a save: the CV, the letter and the form answers are still what the
+// user is about to send. "Start a new job" empties the workspace when they are done.
+type AppliedState = "idle" | "saving" | "saved" | "already" | "error";
 
 // What "Fix it" (/api/fix-claims) changed, and how: exact trims, one model
 // rewrite, then removal of anything still failing. `passed` = the claims
@@ -576,6 +579,13 @@ export default function Home() {
   // session id): a new run, or a loaded result, starts unattested.
   const [attestedFor, setAttestedFor] = useState<string | null>(null);
   const [appliedState, setAppliedState] = useState<AppliedState>("idle");
+  // The tracker row this result was saved as, for "Saved to tracker" (kept with the workspace).
+  const [appliedId, setAppliedId] = useState<string | null>(null);
+  // The result as saved, and whether the previews were edited since: the tracker keeps the
+  // snapshot taken at the click, so a Fix it, a Swap or an edit after it is said out loud.
+  // This session only (a reload cannot tell what changed before it).
+  const [appliedResult, setAppliedResult] = useState<Result | null>(null);
+  const [editedAfterSave, setEditedAfterSave] = useState(false);
   // "Send anyway?": the reasons the first Applied click found (a weak score,
   // a long-shot / skip eligibility read, a row the tracker already holds for
   // this company and role — lib/tracker sendConfirmReasons). The second click
@@ -633,8 +643,6 @@ export default function Home() {
   // quality memo declared below it — the React Compiler refuses to preserve a
   // memo that a function declared above it closes over.
   const pagesRef = useRef<number | null>(null);
-  // The run cleared after Applied, kept for one undo in this session.
-  const undoRef = useRef<{ result: Result; resultJd: string | null; resultSource: "jd" | "outreach" | null; tailorSessionId: string | null; jobDescription: string } | null>(null);
 
   // On load: fetch CV + profile from Supabase.
   // If the DB has nothing but localStorage does, import it once then clear localStorage.
@@ -662,6 +670,11 @@ export default function Home() {
           if (saved.resultSource === "jd" || saved.resultSource === "outreach") setResultSource(saved.resultSource);
           if (saved.research && typeof saved.research === "object") setResearch(saved.research as ResearchData);
           if (saved.researchUrl) setCompanyUrl(saved.researchUrl);
+          // A result already saved to the tracker reloads as saved, with its link.
+          if (saved.result && saved.appliedId) {
+            setAppliedId(saved.appliedId);
+            setAppliedState("saved");
+          }
         }
       }
       // Only now may the save effect run — writing before this point would
@@ -742,8 +755,8 @@ export default function Home() {
   // workspaceReady so the initial empty state never overwrites saved work.
   useEffect(() => {
     if (!workspaceReady || !userId) return;
-    saveWorkspace(userId, { jobDescription, result, ranProvider, tailorSessionId, resultJd, resultSource, research, researchUrl: companyUrl || null });
-  }, [workspaceReady, userId, jobDescription, result, ranProvider, tailorSessionId, resultJd, resultSource, research, companyUrl]);
+    saveWorkspace(userId, { jobDescription, result, ranProvider, tailorSessionId, resultJd, resultSource, research, researchUrl: companyUrl || null, appliedId });
+  }, [workspaceReady, userId, jobDescription, result, ranProvider, tailorSessionId, resultJd, resultSource, research, companyUrl, appliedId]);
 
   // Tick once a second while the pipeline runs; resets to 0 on each new run.
   useEffect(() => {
@@ -1266,6 +1279,9 @@ export default function Home() {
       setResultJd(jdText);
       setResultSource(source);
       setAppliedState("idle");
+      setAppliedId(null);
+      setAppliedResult(null);
+      setEditedAfterSave(false);
       setAppliedError("");
       setAppliedNotice("");
       setAppliedConfirm(null);
@@ -1563,6 +1579,13 @@ export default function Home() {
     const t = e.target as HTMLElement;
     if (t.closest("[data-fix-claims]")) fixClaims();
     else if (t.closest("[data-applied]")) void handleApplied();
+    else if (t.closest("[data-new-job]")) startNewJob();
+  }
+  // An edit in either preview after the save (the form-question box sits in the same wrapper,
+  // so only an editable document counts).
+  function onPreviewInput(e: React.FormEvent<HTMLDivElement>) {
+    if (appliedState !== "saved" && appliedState !== "already") return;
+    if ((e.target as HTMLElement).isContentEditable) setEditedAfterSave(true);
   }
 
   // Paint the flagged figures and skills onto the editable previews with the
@@ -1811,15 +1834,21 @@ export default function Home() {
       setAppliedState(data.alreadySaved ? "already" : "saved");
       // Saved, but without the CV snapshot (database migration pending).
       setAppliedNotice(typeof data.warning === "string" ? data.warning : "");
-      // Saved: the tracker holds the CV, the letter and the posting, so the
-      // workspace clears for the next one (undo brings it back this session).
-      if (!data.alreadySaved && result) {
-        undoRef.current = { result, resultJd, resultSource, tailorSessionId, jobDescription };
-        const warning = typeof data.warning === "string" ? data.warning : "";
-        clearRun();
-        setJobDescription("");
-        setAppliedNotice(warning);
-        setAppliedState("cleared");
+      // The result stays: the user downloads the CV, copies the letter and the form
+      // answers from it next (Chunk 24; the workspace used to empty here). "Saved to
+      // tracker" links to the row, and the tracker opens on it (lib/justSaved).
+      const savedId = typeof data.id === "string" ? data.id : null;
+      setAppliedId(savedId);
+      setAppliedResult(result);
+      setEditedAfterSave(false);
+      if (savedId) {
+        writeJustSaved(userId, {
+          id: savedId,
+          company: realValue(analysis?.company_name) || importedFor?.company || "Unknown company",
+          role: realValue(analysis?.role_title) || importedFor?.title || "Unknown role",
+          status: "Applied",
+          at: today.getTime(),
+        });
       }
     } catch {
       setAppliedState("error");
@@ -1840,6 +1869,9 @@ export default function Home() {
     setAppliedError("");
     setAppliedNotice("");
     setAppliedConfirm(null);
+    setAppliedId(null);
+    setAppliedResult(null);
+    setEditedAfterSave(false);
     setPreCheck(null);
     setGateAnalysis(null);
     setGateExtras(null);
@@ -1849,16 +1881,17 @@ export default function Home() {
     clearRun();
     setAppliedState("idle");
   }
-  function undoClear() {
-    const u = undoRef.current;
-    if (!u) return;
-    undoRef.current = null;
-    setResult(u.result);
-    setResultJd(u.resultJd);
-    setResultSource(u.resultSource);
-    setTailorSessionId(u.tailorSessionId);
-    setJobDescription(u.jobDescription);
-    setAppliedState("already");
+  // After a save: the CV, letter and posting are on the tracker, so the workspace empties for
+  // the next posting and the job box takes the focus.
+  function startNewJob() {
+    clearResult();
+    setJobDescription("");
+    setImportedJob(null);
+    requestAnimationFrame(() => {
+      const box = document.getElementById("jd");
+      box?.scrollIntoView({ block: "center" });
+      (box as HTMLTextAreaElement | null)?.focus({ preventScroll: true });
+    });
   }
 
   // Stable reference so React.memo on CvPreview can skip re-renders when only the JD
@@ -1869,6 +1902,18 @@ export default function Home() {
     experience: result?.experience,
     projects: result?.projects as any,
   }), [result]);
+
+  // The score card's "Before tailoring" line (lib/scoreChange): the pre-check's figure,
+  // the same matcher over the same terms read over the master CV, beside the result's.
+  const beforeAfter = useMemo(() => {
+    if (!result?.atsScore?.keyword_coverage || !result.analysis || !masterCvText) return null;
+    const shown = /^(\d+)\s*\/\s*\d+$/.exec(result.atsScore.keyword_coverage.trim());
+    const text = tailoredSectionsText(
+      { summary: result.summary, skills: result.skills, experience: result.experience, projects: result.projects },
+      SKILLS_SHAPE[normalizeFormatStyle(result.formatStyle)]
+    );
+    return scoreChange(masterCvText, text, result.analysis.top_15_ats_keywords, shown ? Number(shown[1]) : null);
+  }, [result, masterCvText]);
 
   // Pool mode: the profile the document renders with. When the run selected
   // projects from the user's pool, those replace the master-CV projects —
@@ -2067,21 +2112,6 @@ export default function Home() {
         {/* JD card — the job comes first; research is the optional step after it */}
         {masterCvText && (
           <Card>
-            {appliedState === "cleared" && !result && (
-              <div className="limitNotice" role="status" data-applied-cleared style={{ marginTop: 0, marginBottom: "var(--space-4)" }}>
-                <div className="limitNotice__title">Saved to your tracker</div>
-                <div className="limitNotice__body">
-                  The CV, the cover letter and the posting are on the tracker, so the workspace is clear for the next one.
-                  {appliedNotice ? ` ${appliedNotice}` : ""}
-                </div>
-                <div className="limitNotice__cta" style={{ gap: "var(--space-2)" }}>
-                  <Button type="button" variant="secondary" onClick={undoClear}>
-                    Bring the last result back
-                  </Button>
-                  <Link href="/applications" className="customizeLink">View tracker →</Link>
-                </div>
-              </div>
-            )}
             <div className="importJob">
               <FormField
                 label="Paste a job link"
@@ -2345,7 +2375,7 @@ export default function Home() {
                   {preCheck.matched >= 10
                     ? "Good overlap with this role's top keywords, from your CV as it stands today."
                     : "Below the usual 10-keyword mark for your CV as-is — tailoring can still genuinely help by surfacing real adjacent skills, though a gap this size may be honest too."}
-                  {" "}This checks literal keyword presence in your raw CV; the tailored version gets scored separately afterward, and the two numbers can differ.
+                  {" "}The same {preCheck.total} terms, counted the same way as the search-visibility score after tailoring, but read here over your master CV as saved; after tailoring, the score card shows this figure again under the new one.
                 </p>
                 {gateExtras?.required && gateExtras.required.total > 0 && (
                   <>
@@ -2843,7 +2873,7 @@ export default function Home() {
                     (jd as HTMLTextAreaElement | null)?.focus({ preventScroll: true });
                   }}
                 >
-                  Start a new tailoring ↑
+                  Back to the job description ↑
                 </button>
               </div>
             )}
@@ -3580,7 +3610,7 @@ export default function Home() {
                 )}
               </div>
             )}
-            {appliedConfirm && appliedState !== "saving" && appliedState !== "saved" && appliedState !== "cleared" && (
+            {appliedConfirm && appliedState !== "saving" && appliedState !== "saved" && (
               <div className="limitNotice" role="status" data-send-confirm>
                 <p><strong>Send anyway?</strong> Before this goes in the tracker as applied:</p>
                 <ul className="atsList">
@@ -3640,7 +3670,12 @@ export default function Home() {
             {/* Focus leaving either editable preview re-runs the claim check
                 on the edited text (focusout bubbles; the previews stay memo'd
                 and untouched). */}
-            <div onBlur={onPreviewBlur} onClick={onPreviewClick}>
+            {(appliedState === "saved" || appliedState === "already") && (editedAfterSave || (appliedResult !== null && result !== appliedResult)) && (
+              <div className="limitNotice" role="status" data-changed-since-saved>
+                Changed since you saved it. The tracker keeps the CV and letter as they were when you clicked Applied; the downloads here give this version.
+              </div>
+            )}
+            <div onBlur={onPreviewBlur} onClick={onPreviewClick} onInput={onPreviewInput}>
               <CvPreview
                 appliedLabel={
                   appliedChecking
@@ -3655,7 +3690,12 @@ export default function Home() {
                 }
                 appliedDisabled={blocked || appliedChecking || appliedState === "saving" || appliedState === "saved" || appliedState === "already"}
                 appliedTitle={blocked ? "Fix the flagged claims first" : undefined}
-                showTrackerLink={appliedState === "saved" || appliedState === "already"}
+                trackerHref={
+                  appliedState === "saved" || appliedState === "already"
+                    ? appliedId ? `/applications?saved=${encodeURIComponent(appliedId)}` : "/applications"
+                    : undefined
+                }
+                newJobLabel={appliedState === "saved" || appliedState === "already" ? "Start a new job" : undefined}
                 pagesNote={
                   quality
                     ? `About ${quality.pages.pages} ${quality.pages.pages === 1 ? "page" : "pages"} at the download's spacing${
@@ -3788,9 +3828,14 @@ export default function Home() {
               {result.atsScore?.keyword_coverage && (
                 <div className="scoreCard">
                   <div className="scoreLabel">
-                    Recruiter search visibility
+                    Recruiter search visibility, after tailoring
                   </div>
                   <div className="scoreValue">{result.atsScore.keyword_coverage}</div>
+                  {beforeAfter && (
+                    <p className="scoreBefore" data-score-before={`${beforeAfter.before.matched}/${beforeAfter.before.total}`}>
+                      {scoreChangeLine(beforeAfter)}
+                    </p>
+                  )}
                   {verdict && (
                     <div className="scoreVerdict" data-band={verdict.band} data-visibility-verdict>
                       {verdict.label}

@@ -249,6 +249,19 @@ export function savePreferences(preferences: unknown): Promise<{ ok: boolean; mi
   return upsertUserSettings({ preferences })
 }
 
+// How many tracker rows the account holds (any status), for the first-run
+// guide (lib/firstRun). A count, never the rows; null when it can't be read,
+// which shows no guide rather than a wrong one.
+export async function countApplications(): Promise<number | null> {
+  try {
+    const supabase = createClient()
+    const { count, error } = await supabase.from('applications').select('id', { count: 'exact', head: true })
+    return error ? null : count ?? 0
+  } catch {
+    return null
+  }
+}
+
 export async function clearMasterCV(): Promise<void> {
   try {
     const userId = await getUserId()

@@ -103,7 +103,8 @@ export function listTriageFields(gates: unknown): { triage_verdict: "apply" | "r
 }
 
 // Replaced below, or read by no page from the list; all are in the detail read.
-const NOT_IN_LIST = new Set(["job_description", "notes", "gates", "updated_at", "tailor_session_id"]);
+// cover_letter_text becomes has_cover_letter (Chunk 24), as job_description becomes has_job_description.
+const NOT_IN_LIST = new Set(["job_description", "notes", "gates", "updated_at", "tailor_session_id", "cover_letter_text"]);
 
 /** One row of GET /api/applications' list: no JD, a notes preview, no null keys. */
 export function toListRow(row: Record<string, unknown>): Record<string, unknown> {
@@ -126,6 +127,8 @@ export function toListRow(row: Record<string, unknown>): Record<string, unknown>
     if (Number.isFinite(ms)) out.updated_minute = Math.floor(ms / 60_000);
   }
   if (typeof row.job_description === "string" && row.job_description.trim()) out.has_job_description = true;
+  // A tailored row's letter as sent (tailored_cv.coverLetter): the row's Letter button.
+  if (typeof row.cover_letter_text === "string" && row.cover_letter_text.trim()) out.has_cover_letter = true;
   for (const [key, value] of Object.entries(notesListFields(row.notes))) {
     if (value !== undefined) out[key] = value;
   }

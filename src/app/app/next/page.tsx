@@ -27,6 +27,12 @@ import EventForm, { describeConflict, type EventFormMode } from "./EventForm";
 import { CompanyInitial, StageChip, browserTimeZone, copyText } from "./planUi";
 import WeekView from "./WeekView";
 import { formatDate } from "@/lib/formatDate";
+import FirstRunGuide from "@/components/FirstRunGuide";
+import { FirstRunBannerView } from "@/components/FirstRunBanner";
+import { firstRunMode, planRailIsEmpty, showsStagesCaveat, withRightToWork, type FirstRunFacts, type RtwStatus } from "@/lib/firstRun";
+import { getUserSettings, saveEligibility } from "@/lib/cvStore";
+import { EMPTY_ELIGIBILITY } from "@/lib/knockouts";
+import { createClient } from "@/lib/supabase/client";
 
 const PipelineChart = dynamic(() => import("./PipelineChart"), {
   ssr: false,
@@ -34,7 +40,9 @@ const PipelineChart = dynamic(() => import("./PipelineChart"), {
 });
 
 type PlanWaiting = ReturnType<typeof buildPlan>["waiting"][number];
-type PlanData = { applications: PlanApplication[]; events: PlanEvent[]; availability: AvailabilityWindow[]; funnel: Funnel };
+// applicationCount and firstRun (Chunk 24): every row the account holds, and the first-run
+// facts (lib/firstRun); absent from an older server, when the page draws as before.
+type PlanData = { applications: PlanApplication[]; events: PlanEvent[]; availability: AvailabilityWindow[]; funnel: Funnel; applicationCount?: number; firstRun?: FirstRunFacts | null };
 type Load = "loading" | "ready" | "needs_migration" | "expired" | "error";
 type View = "plan" | "week" | "pipeline";
 type Toast = { message: string; undo?: () => Promise<void> | void };
@@ -103,6 +111,10 @@ export default function NextPage() {
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const [dayFilter, setDayFilter] = useState<string | null>(null);
   const [liveText, setLiveText] = useState("");
+  // When the account was made: the "Stages are recorded from 3 Nov 2026" caveat is only
+  // true of an account that has rows from before then (lib/firstRun showsStagesCaveat).
+  // undefined until the session is read, so a new account never sees the caveat flash first.
+  const [accountCreatedAt, setAccountCreatedAt] = useState<string | null | undefined>(undefined);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Only the newest read may land: a read begun before a write must not bring back
   // what the write removed. A failed read keeps the plan on screen and says so.
@@ -139,8 +151,22 @@ export default function NextPage() {
     const onFocus = () => { void refresh(); };
     window.addEventListener("focus", onFocus);
     const tick = setInterval(() => setNow(Date.now()), TICK_MS);
+    // The session is read from this browser's cookie store: no network call.
+    createClient().auth.getSession().then(({ data: { session } }) => setAccountCreatedAt(session?.user?.created_at ?? null)).catch(() => setAccountCreatedAt(null));
     return () => { window.removeEventListener("focus", onFocus); clearInterval(tick); };
   }, [refresh]);
+
+  // Step 2 of the first-run guide: the stored Eligibility read fresh, only its right-to-work
+  // answer changed (lib/firstRun withRightToWork), saved. A failed read refuses the write
+  // (lib/cvStore), so the user's other answers are never put back to defaults.
+  async function chooseRightToWork(status: Exclude<RtwStatus, "unknown">): Promise<boolean> {
+    const settings = await getUserSettings();
+    if (settings.readFailed || settings.missingTable) return false;
+    const res = await saveEligibility(withRightToWork(settings.eligibility ?? EMPTY_ELIGIBILITY, status));
+    if (!res.ok) return false;
+    setData((d) => (d && d.firstRun ? { ...d, firstRun: { ...d.firstRun, rtwStatus: status } } : d));
+    return true;
+  }
 
   const events = useMemo(() => data?.events ?? [], [data]);
   const windows = useMemo(() => data?.availability ?? [], [data]);
@@ -436,6 +462,14 @@ export default function NextPage() {
   const replyAt = plan.sections.findIndex((s) => s.key !== "overdue" && s.key !== "today" && s.key !== "needs_booking");
   const hero = plan.nextUp;
   const heroTiming = hero ? describeTiming(hero.event, now, tz) : null;
+  // The first-run flow (lib/firstRun): the checklist in place of an empty plan, or for an
+  // account with rows but no CV the one first step above it. With no application and no
+  // event the plan's views, the calendar, Clashes and Pipeline have nothing to show.
+  const firstRun = data?.firstRun ?? null;
+  const runMode = firstRunMode(firstRun);
+  const appCount = typeof data?.applicationCount === "number" ? data.applicationCount : null;
+  const railEmpty = appCount !== null && planRailIsEmpty(appCount, events.length);
+  const guideAlone = runMode === "guide" && events.length === 0;
 
   return (
     <main className="page">
@@ -472,22 +506,43 @@ export default function NextPage() {
               </div>
             )}
 
-            <div className="nextToolbar">
-              <div className="appsSeg" role="group" aria-label="View">
-                {(["plan", "week", "pipeline"] as View[]).map((v) => (
-                  <button key={v} type="button" className={"appsSegBtn" + (view === v ? " active" : "")} aria-pressed={view === v} onClick={() => setView(v)} data-view={v}>
-                    {v === "plan" ? "Plan" : v === "week" ? "Week" : "Pipeline"}
-                  </button>
-                ))}
+            {runMode === "banner" && <FirstRunBannerView />}
+
+            {!guideAlone && (
+              <div className="nextToolbar">
+                <div className="appsSeg" role="group" aria-label="View">
+                  {(["plan", "week", "pipeline"] as View[]).map((v) => (
+                    <button key={v} type="button" className={"appsSegBtn" + (view === v ? " active" : "")} aria-pressed={view === v} onClick={() => setView(v)} data-view={v}>
+                      {v === "plan" ? "Plan" : v === "week" ? "Week" : "Pipeline"}
+                    </button>
+                  ))}
+                </div>
+                {/* While the first-run guide shows, its step is the one filled action. */}
+                <Button variant={runMode === "guide" ? "secondary" : "primary"} onClick={() => setForm({ type: "new" })} data-new-event>New event</Button>
               </div>
-              <Button onClick={() => setForm({ type: "new" })} data-new-event>New event</Button>
-            </div>
+            )}
             {actionError && <StatusText tone="error" role="alert" className="msgBelow">{actionError}</StatusText>}
             {refreshError && <StatusText tone="error" role="alert" className="msgBelow" data-refresh-error>{refreshError}</StatusText>}
 
-            <div className="nextLayout">
+            <div className={"nextLayout" + (railEmpty ? " nextLayout--solo" : "")}>
               <div className="planMain">
-                {view === "plan" && (
+                {runMode === "guide" && firstRun && (
+                  <Card className="firstRunCard">
+                    <FirstRunGuide
+                      facts={firstRun}
+                      onChooseRtw={chooseRightToWork}
+                      footer={
+                        guideAlone ? (
+                          <p className="cvHelp firstRun__footer">
+                            Already have an interview or a deadline?{" "}
+                            <button type="button" className="inlineLink" onClick={() => setForm({ type: "new" })} data-first-run-add-event>Add it here</button>
+                          </p>
+                        ) : null
+                      }
+                    />
+                  </Card>
+                )}
+                {view === "plan" && !guideAlone && (
                   nothing ? (
                     <Card>
                       <EmptyState
@@ -539,6 +594,7 @@ export default function NextPage() {
                 {view === "pipeline" && <PipelineChart funnel={data.funnel} />}
               </div>
 
+              {!railEmpty && (
               <aside className="planRail" aria-label="Calendar, clashes and pipeline">
                 <MiniCalendar events={events} now={now} tz={tz} selected={dayFilter} onSelect={(d) => { setDayFilter(d); setView("plan"); }} />
                 <section className="planRailCard" data-conflicts>
@@ -571,9 +627,12 @@ export default function NextPage() {
                   <p className="cvHelp">
                     {data.funnel.rejected} rejected · {data.funnel.ghosted} ghosted · <button type="button" className="inlineLink" onClick={() => setView("pipeline")}>see the map</button>
                   </p>
-                  <p className="cvHelp" data-funnel-caveat>Stages are recorded from 3 Nov 2026: an earlier rejection counts at Applied, and an earlier row shows only its current stage.</p>
+                  {accountCreatedAt !== undefined && showsStagesCaveat(accountCreatedAt) && (
+                    <p className="cvHelp" data-funnel-caveat>Stages are recorded from 3 Nov 2026: an earlier rejection counts at Applied, and an earlier row shows only its current stage.</p>
+                  )}
                 </section>
               </aside>
+              )}
             </div>
           </>
         )}

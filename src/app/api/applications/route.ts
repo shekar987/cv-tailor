@@ -86,7 +86,10 @@ const SELECT_COLUMNS =
 // hand for a manual row (lib/formatStyles; absent = not recorded).
 // logged_by: who logged the row ("you", or an automation's name; lib/applicationFields
 // readLoggedBy), for the "Logged by" badge (Chunk 22).
-const LIST_COLUMNS = `${SELECT_COLUMNS}, prep_generated_at:prep_pack->>generatedAt, gates:tailored_cv->gates, format_style:tailored_cv->>formatStyle, logged_by:tailored_cv->>loggedBy`;
+// cover_letter_text: the letter stored with a tailored snapshot, read here only to answer
+// `has_cover_letter` (lib/applicationRows toListRow); the text never leaves the server in
+// the list, like the JD's (Chunk 24: the row's CV and Letter buttons).
+const LIST_COLUMNS = `${SELECT_COLUMNS}, prep_generated_at:prep_pack->>generatedAt, gates:tailored_cv->gates, format_style:tailored_cv->>formatStyle, logged_by:tailored_cv->>loggedBy, cover_letter_text:tailored_cv->>coverLetter`;
 // sent_cv_name: the file name of the CV the user uploaded for the row
 // (lib/sentCv, migration 20260927120000), so the sheet can mark it.
 const LIST_COLUMNS_SENT = `${LIST_COLUMNS}, sent_cv_name:sent_cv->>fileName`;
@@ -105,6 +108,9 @@ const LIST_COLUMNS_COLD = `${LIST_COLUMNS_CLOSED}, contact_email`;
 // 20261110120000, Chunk 21; lib/deadlines): the newest rung.
 const DEADLINE_KEYS = ["applied_from_email", "next_deadline", "deadline_note"] as const;
 const LIST_COLUMNS_DEADLINE = `${LIST_COLUMNS_COLD}, ${DEADLINE_KEYS.join(", ")}`;
+// The cover letter file sent with it (migration 20261112120000, Chunk 22), by name, for the
+// row's Letter button (Chunk 24): the newest rung.
+const LIST_COLUMNS_LETTER = `${LIST_COLUMNS_DEADLINE}, sent_letter_name:sent_cover_letter->>fileName`;
 const DEADLINE_MIGRATION_HINT =
   "Saving the applied-from address or a deadline needs migration 20261110120000_safe_notes_cooldowns_deadlines.sql. Run it in the Supabase SQL editor, then try again.";
 const DEADLINE_SAVED_WITHOUT =
@@ -401,7 +407,7 @@ export async function GET(req: NextRequest) {
     // and the upload route name the migration when it matters.
     let rows: Record<string, unknown>[] | null = null;
     let readError: { code?: string; message: string } | null = null;
-    const listLadder = [LIST_COLUMNS_DEADLINE, LIST_COLUMNS_COLD, LIST_COLUMNS_CLOSED, LIST_COLUMNS_STAGES, LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
+    const listLadder = [LIST_COLUMNS_LETTER, LIST_COLUMNS_DEADLINE, LIST_COLUMNS_COLD, LIST_COLUMNS_CLOSED, LIST_COLUMNS_STAGES, LIST_COLUMNS_REFERRAL, LIST_COLUMNS_CONTACT, LIST_COLUMNS_SENT, LIST_COLUMNS, SELECT_COLUMNS];
 
     // ?stage=&limit=&cursor= is one page (lib/applicationRows readListMode): the same
     // columns and order, no notes preview. No parameters, or ?all=1, is the full
