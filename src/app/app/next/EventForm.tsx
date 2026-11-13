@@ -217,7 +217,7 @@ export default function EventForm({
         });
         if (!moved.ok || moved.status === 202) {
           const detail = await moved.json().catch(() => ({}));
-          setError(`The event is saved, but ${application.company_name} did not move to ${STATUS_LABELS[movesTo]}, so it stays off your plan.${detail.error ? ` ${detail.error}` : ""} Saving again will not add a second event.`);
+          setError(`The event is saved, but ${application.company_name} did not move to ${STATUS_LABELS[movesTo]}, so it stays off your schedule.${detail.error ? ` ${detail.error}` : ""} Saving again will not add a second event.`);
           return;
         }
         // Reopening took the words of a report into the notes: the page must not save over them.
@@ -230,7 +230,7 @@ export default function EventForm({
         : movesTo
           ? `Event added, and ${application?.company_name} moved to ${STATUS_LABELS[movesTo]}.`
           : hidden
-            ? `Event saved. It stays off your plan until ${application?.company_name} reaches Screening or later.`
+            ? `Event saved. It stays off your schedule until ${application?.company_name} reaches Screening or later.`
             : "Event added.";
       onSaved(message, movesTo && application ? { id: application.id, status: movesTo, reportNotes } : undefined);
     } catch {
@@ -372,12 +372,12 @@ export default function EventForm({
           {inactive && application && impliedStage && (
             <label className="planRadio planField--wide" data-event-move>
               <input type="checkbox" checked={moveIt} onChange={(e) => setMoveIt(e.target.checked)} data-event-move-toggle />
-              {application.company_name} is {statusLabel(normalizeStatus(application.status))}. Move it to {STATUS_LABELS[impliedStage]}, so this shows on your plan.
+              {application.company_name} is {statusLabel(normalizeStatus(application.status))}. Move it to {STATUS_LABELS[impliedStage]}, so this shows on your schedule.
             </label>
           )}
           {inactive && application && !movesTo && (
             <p className="cvHelp planField--wide" data-event-hidden>
-              This stays off your plan until {application.company_name} reaches Screening or later.
+              This stays off your schedule until {application.company_name} reaches Screening or later.
             </p>
           )}
           {error && <StatusText tone="error" role="alert" className="planField--wide">{error}</StatusText>}

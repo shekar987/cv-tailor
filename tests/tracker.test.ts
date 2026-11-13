@@ -242,11 +242,11 @@ test("sendConfirmReasons lists weak / skip / long shot / duplicate as sentences 
   assert.equal(weak.length, 1);
   assert.match(weak[0], /weak/);
   const skip = sendConfirmReasons({ read: "skip" });
-  assert.match(skip[0], /likely auto-rejected/);
+  assert.match(skip[0], /likely to be rejected automatically/);
   const long = sendConfirmReasons({ read: "long_shot" });
-  assert.match(long[0], /long shot/);
+  assert.match(long[0], /low chance/);
   const dup = sendConfirmReasons({ duplicate: { company_name: "Monzo", role: "Software Engineer", date_applied: "2026-09-20", status: "Rejected" } });
-  assert.equal(dup[0], "You already have Monzo — Software Engineer on 2026-09-20 (Rejected) in the tracker.");
+  assert.equal(dup[0], "You already have Monzo: Software Engineer on 2026-09-20 (Rejected) in Applications.");
   assert.equal(sendConfirmReasons({ band: "weak", read: "skip", duplicate: { company_name: "A", role: "B" } }).length, 3);
 });
 

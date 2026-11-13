@@ -225,7 +225,7 @@ try {
   const precheck = async (company, role) => {
     await page.goto(`${BASE}/app`, { waitUntil: "load" });
     await page.locator("textarea#jd, textarea").first().fill(jdFor(company, role));
-    await page.locator("button", { hasText: /^Tailor my CV/ }).first().click();
+    await page.locator("button", { hasText: /^Check this job/ }).first().click();
     const note = page.locator("[data-gate-company-rules]");
     await note.waitFor({ timeout: 60000 });
     return note;
@@ -234,8 +234,8 @@ try {
   check('a one-year wait reads "Skip: reapply after 5 Jul 2027, from …"', /^Skip: reapply after 5 Jul 2027, from "wait at least one year"\./.test(await note.innerText()), await note.innerText());
   const badge = page.locator("[data-triage]").first();
   check("the JD triage badge says Skip with the same reason", (await badge.getAttribute("data-triage")) === "skip" && /reapply after 5 Jul 2027, from "wait at least one year"/.test(await badge.innerText()), await badge.innerText());
-  const go = page.locator("button", { hasText: /Continue to full tailoring|Tailor anyway/ }).first();
-  check("the button asks to tailor anyway", /Tailor anyway \(uses a credit\)/.test(await go.innerText()));
+  const go = page.locator("button", { hasText: /^Tailor my CV|Tailor anyway/ }).first();
+  check("the button asks to tailor anyway", /Tailor anyway \(uses 1 tailored CV\)/.test(await go.innerText()));
   await page.screenshot({ path: path.join(SHOTS, "6-app-skip.png"), fullPage: false });
   await go.click();
   const ask = page.locator("[data-confirm-dialog]");

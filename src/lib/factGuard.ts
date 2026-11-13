@@ -452,11 +452,11 @@ export type FactGuardNotice = { kind: FactGuardKind; label: string; items: strin
 
 // Lifted phrases first: they are the ones that need the user's own check.
 export const FACT_GUARD_LABELS: Record<FactGuardKind, string> = {
-  roleStatus: "Removed, as your master CV describes the role differently:",
-  roleStatusCheck: "Kept as written; check these against your master CV (Customize → Claims registry → \"Wording your CV must never say\" keeps a phrase out for good):",
-  liftedPhrases: "Summary lines copied from the job ad, check they are true:",
-  droppedTools: "Removed tools not in your master CV:",
-  degrees: "Degree name corrected to your master CV:",
+  roleStatus: "Removed, as your main CV describes the role differently:",
+  roleStatusCheck: "Kept as written. Check these against your main CV. (My CV → Skill levels → \"Wording your CV must never say\" keeps a phrase out for good.)",
+  liftedPhrases: "Summary lines copied from the job description. Check they are true:",
+  droppedTools: "Removed tools not in your main CV:",
+  degrees: "Degree name corrected to your main CV:",
 };
 const NOTICE_ORDER: FactGuardKind[] = ["roleStatusCheck", "roleStatus", "liftedPhrases", "droppedTools", "degrees"];
 const MAX_NOTICE_ITEMS = 10;

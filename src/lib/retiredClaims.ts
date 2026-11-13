@@ -259,5 +259,5 @@ export function mergeReports(...reports: RetiredReport[]): RetiredReport {
 /** The sentence beside a held download. */
 export function retiredBlockMessage(phrases: readonly string[]): string {
   const list = phrases.slice(0, 3).map((p) => `"${p}"`).join(", ");
-  return `This still says ${list}, which your list on Customise rules out. Edit it in the preview, then download.`;
+  return `This still says ${list}, which your list on My CV rules out. Edit it in the preview, then download.`;
 }

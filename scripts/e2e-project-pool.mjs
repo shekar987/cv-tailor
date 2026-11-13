@@ -160,8 +160,8 @@ try {
   await page.goto(`${BASE}/app`, { waitUntil: "load" });
   await page.locator("[data-pool-run]").waitFor({ timeout: 30000 });
   await page.locator("textarea#jd, textarea").first().fill(JD);
-  await page.locator("button", { hasText: /^Tailor my CV/ }).first().click();
-  await page.locator("button", { hasText: /Continue to full tailoring|Tailor anyway/ }).first().click({ timeout: 60000 });
+  await page.locator("button", { hasText: /^Check this job/ }).first().click();
+  await page.locator("button", { hasText: /^Tailor my CV|Tailor anyway/ }).first().click({ timeout: 60000 });
   // The triage reads this synthetic CV as out of criteria and asks first; the question is the page working.
   await page.locator('[role="dialog"] button', { hasText: /Tailor anyway/ }).first().click({ timeout: 6000 }).catch(() => {});
   await page.locator("button", { hasText: "Back to my CV" }).click({ timeout: 120000 });
@@ -201,7 +201,7 @@ try {
   // ── Replacing the CV keeps everything ────────────────────────────────────
   await openPool();
   await page.locator("button", { hasText: /^Replace$/ }).first().click();
-  check("replacing says the pool is kept", /Your project pool is kept/.test(await page.locator("body").innerText()));
+  check("replacing says the pool is kept", /Your project list is kept/.test(await page.locator("body").innerText()));
   await page.locator("button", { hasText: "Yes, replace" }).click();
   for (let i = 0; i < 12 && (await poolRow())?.text !== ""; i++) await page.waitForTimeout(500);
   const row = await poolRow();

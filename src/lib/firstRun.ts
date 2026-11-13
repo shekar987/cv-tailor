@@ -73,7 +73,7 @@ export const RTW_CHOICES: readonly { status: Exclude<RtwStatus, "unknown">; labe
   {
     status: "time_limited",
     label: "Time-limited visa",
-    detail: "A Student, Graduate or similar visa: no sponsorship to start, but needed later.",
+    detail: "A Student, Graduate or similar visa. You can start without sponsorship (an employer supporting your visa), but you will need it later.",
   },
   {
     status: "needs_sponsorship",

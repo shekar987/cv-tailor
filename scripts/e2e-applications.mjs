@@ -107,7 +107,7 @@ try {
   const stageOf = (name) => page.locator(`[data-stage-row="${name}"] [data-stage-pill]`).getAttribute("data-stage-pill");
   check("a plain interview stays in Interview", (await stageOf("Made Up Ratings")) === "interview");
   check("Interview holds only what is not overtaken", (await companies()).sort().join(",") === "Made Up Advisory,Made Up Ratings", (await companies()).join(","));
-  check("the footer keeps the stored 3: 2 here + 1 moved", /1 more stored as Interview/.test(await page.locator("[data-counted-elsewhere]").innerText()) || /stored as Interview/.test(await page.locator("[data-counted-elsewhere]").innerText()));
+  check("the footer keeps the stored 3: 2 here + 1 moved", /1 more with the status Interview is shown under Assessment/.test(await page.locator("[data-counted-elsewhere]").innerText()) || /with the status Interview/.test(await page.locator("[data-counted-elsewhere]").innerText()));
   await page.screenshot({ path: path.join(SHOTS, "interview-tab.png"), fullPage: true });
   await tab("assessment");
   await page.screenshot({ path: path.join(SHOTS, "assessment-tab.png"), fullPage: true });
@@ -162,11 +162,26 @@ try {
   check("no tab reads as selected while a card filters", (await page.locator('[role="tab"][aria-selected="true"]').count()) === 0);
   await card("fix").click();
   const fix = await card("fix").innerText();
-  check("Data to fix says both numbers", /1 status/.test(fix), fix.replace(/\s+/g, " "));
+  check("Data to fix says both numbers", /1 with the wrong status/.test(fix), fix.replace(/\s+/g, " "));
   check("and its list holds the unsent row", (await companies()).includes("Made Up Unsent"), (await companies()).join(","));
   check("the reviewed move is still there", (await page.locator('[data-bulk-ready]').count()) === 1);
   await card("fix").click();
   check("clicking the card again clears it", (await page.locator('[role="tab"][aria-selected="true"]').count()) === 1);
+  // ── Insights (Chunk 25): one section, folded until 10 applications have a result ──
+  const insightsCard = page.locator("[data-insights]");
+  if ((await insightsCard.count()) === 1) {
+    const closedLine = await insightsCard.locator("[data-insights-closed]").innerText().catch(() => "");
+    check("Insights is folded on a small account and says how many results it has", /^Opens when 10 of your applications have a result\. You have \d\.$/.test(closedLine.trim()), closedLine);
+    check("no analytics card shows while it is folded", (await page.locator("[data-score-outcome]").count()) === 0 && (await insightsCard.locator(".statGrid").count()) === 0);
+    await insightsCard.locator("[data-insights-toggle]").click();
+    check("Show opens it by hand", (await insightsCard.getAttribute("data-open")) === "" && (await insightsCard.locator("[data-insights-closed]").count()) === 0);
+    await insightsCard.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(SHOTS, "insights-open.png"), fullPage: true });
+    await insightsCard.locator("[data-insights-toggle]").click();
+    check("and Hide folds it again", (await insightsCard.getAttribute("data-open")) === null);
+  } else {
+    check("Insights is not drawn before there is anything to show", (await page.locator("[data-score-outcome]").count()) === 0);
+  }
   const refCard = await page.locator('[data-attn="referral"]').innerText();
   check("the referral card names it once", /Made Up Advisory · AI Engineer \(25246\)/.test(refCard) && /since 20 Oct/.test(refCard), refCard.replace(/\s+/g, " "));
   await page.locator("[data-attn-referral-open]").click();
@@ -178,7 +193,7 @@ try {
   // ── Every old number within one click ────────────────────────────────────
   await tab("closed");
   const breakdown = await page.locator("[data-closed-breakdown]").innerText();
-  check("Closed breaks down into rejected and withdrawn", /1 rejected · 1 withdrawn · 0 ghosted/.test(breakdown), breakdown);
+  check("Closed breaks down into rejected and withdrawn", /1 rejected · 1 withdrawn · 0 no reply/.test(breakdown), breakdown);
   check("Showing X of Y in the tab", /Showing 2 of 2 in Closed/.test(await page.locator("[data-apps-count]").innerText()));
 
   // ── Toolbar ──────────────────────────────────────────────────────────────
@@ -212,8 +227,8 @@ try {
   const menu = (name) => page.locator(`[data-stage-row="${name}"]`);
   await menu("Made Up Sales").locator("[data-row-menu]").click();
   const items = await menu("Made Up Sales").locator("[data-menu-item]").evaluateAll((els) => els.map((e) => e.textContent.trim()));
-  check("the menu has the brief's items", ["Edit date/time", "Mark done", "Snooze 1 day", "Edit row", "Update status to Assessment", "Delete"].every((i) => items.includes(i)), items.join(" | "));
-  check("and nothing lost: CV, JD, notes, prep", ["Add CV", "Add JD", "Add notes", "Prep pack"].every((i) => items.includes(i)), items.join(" | "));
+  check("the menu has the brief's items", ["Edit date/time", "Mark done", "Hide for 1 day", "Edit application", "Update status to Assessment", "Delete"].every((i) => items.includes(i)), items.join(" | "));
+  check("and nothing lost: CV, JD, notes, prep", ["Add CV", "Add job description", "Add notes", "Interview pack"].every((i) => items.includes(i)), items.join(" | "));
   check("and the mock interview", items.includes("Mock interview"), items.join(" | "));
   await menu("Made Up Sales").locator('[data-menu-item="match-status"]').click();
   await page.waitForTimeout(600);

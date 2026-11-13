@@ -112,7 +112,7 @@ test("the banner names the required core gaps before a credit is spent, and says
   const done: GapCheck = { items: applyModelRenames(items, { renames: [] }, askModel, CV, ""), model: "ok" };
   const banner = coreGapBanner(done);
   assert.deepEqual(banner!.terms, ["DNS", "Routing", "Firewalls", "Kubernetes", "Root cause analysis"]);
-  assert.equal(banner!.text, "5 core gaps: DNS, Routing, Firewalls, Kubernetes, Root cause analysis. This role may not suit you.");
+  assert.equal(banner!.text, "5 main requirements are not in your CV: DNS, Routing, Firewalls, Kubernetes, Root cause analysis. This job may not suit you.");
   assert.equal(banner!.blocks, true);
 
   const failed = coreGapBanner({ items, model: "failed" });
@@ -122,12 +122,12 @@ test("the banner names the required core gaps before a credit is spent, and says
   assert.equal(unfinished!.blocks, false, "nothing is held on a read that didn't finish");
   assert.doesNotMatch(unfinished!.text, /may not suit you/);
 
-  assert.equal(coreGapBanner({ items: [gap("dbt")], model: "none" })!.text, "1 core gap: dbt.");
+  assert.equal(coreGapBanner({ items: [gap("dbt")], model: "none" })!.text, "1 main requirement is not in your CV: dbt.");
   assert.equal(coreGapBanner({ items: [gap("dbt")], model: "none" })!.blocks, false, "one gap is said, not held");
   assert.equal(coreGapBanner({ items: [gap("Communication", { kind: "soft" })], model: "none" }), null);
   assert.equal(coreGapBanner(null), null);
   const many: GapCheck = { items: ["a", "b", "c", "d", "e", "f", "g"].map((t) => gap(t)), model: "none" };
-  assert.match(coreGapBanner(many)!.text, /^7 core gaps: a, b, c, d, e and 2 more\./);
+  assert.match(coreGapBanner(many)!.text, /^7 main requirements are not in your CV: a, b, c, d, e and 2 more\./);
 });
 
 test("the Missing list finds a term's class by its own words, and a stored check is re-bounded", () => {

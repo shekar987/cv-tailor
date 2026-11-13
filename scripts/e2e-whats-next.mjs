@@ -199,14 +199,14 @@ try {
   const card = page.locator('[data-event-title="Interview call"]');
   check("the card shows company, role and stage", /Northwind Ratings/.test(await card.innerText()) && /Associate Software Engineer/.test(await card.innerText()) && (await card.locator(".stageChip").getAttribute("data-stage")) === "interview");
   check("date, time and countdown", /Wed 4 Nov, 10:10/.test(await card.innerText()) && (await card.locator("[data-event-countdown]").innerText()) === "in 1 day", await card.locator("[data-event-countdown]").innerText());
-  check("the prep pack is linked", (await card.getByRole("link", { name: "Prep pack" }).count()) === 1);
+  check("the prep pack is linked", (await card.getByRole("link", { name: "Interview pack" }).count()) === 1);
   await card.getByRole("button", { name: "Copy" }).click();
   check("the link copies in one click", (await page.evaluate(() => navigator.clipboard.readText())) === "https://example.com/teams/abc");
   const pharma = page.locator('[data-event-title="Video assessment"]');
   check("a date with no time prints no time", /Tue 10 Nov/.test(await pharma.innerText()) && !/23:59/.test(await pharma.innerText()) && (await pharma.locator("[data-event-countdown]").innerText()) === "due in 7 days", await pharma.innerText());
   check("Waiting on them lists rows with nothing booked, longest first", (await page.locator("[data-waiting]").evaluateAll((e) => e.map((x) => x.dataset.waiting))).join() === "Old Silence Ltd,Offer Ltd,Bluebell Telecom");
   check("with no contact recorded it counts from applying and says so", /Applied 33 days ago; no contact recorded/.test(await page.locator('[data-waiting="Old Silence Ltd"]').innerText()) && !/days since contact/.test(await page.locator('[data-waiting="Old Silence Ltd"]').innerText()), await page.locator('[data-waiting="Old Silence Ltd"]').innerText());
-  check("the nudge does not tell a row with no record to give up", /T\+21 from applying: if you have heard nothing, follow up/.test(await page.locator('[data-waiting="Old Silence Ltd"] [data-nudge]').innerText()));
+  check("the nudge does not tell a row with no record to give up", /21 days after applying: if you have heard nothing, send a follow-up/.test(await page.locator('[data-waiting="Old Silence Ltd"] [data-nudge]').innerText()));
   await page.locator('[data-waiting="Bluebell Telecom"] [data-waiting-followed]').click();
   await page.waitForFunction(() => /In touch today/.test(document.querySelector('[data-waiting="Bluebell Telecom"]')?.textContent ?? ""), null, { timeout: 8000 });
   check("Followed up today records the contact", db.applications.find((a) => a.company_name === "Bluebell Telecom").last_contact_from === "me");
@@ -229,7 +229,7 @@ try {
   check("the promised follow-up date shows (lib/formatDate)", /follow-up 10 Nov 2026/.test(await page.locator('[data-waiting="Bluebell Telecom"]').innerText()));
   check("the calendar dots its event days", (await page.locator('[data-mini-calendar] [data-has-events]').count()) >= 3);
   check("the funnel lists its steps with counts", /Screening\s*\d+/.test(await page.locator("[data-funnel]").innerText()));
-  check("under eight in a group says too few to judge", /too few to judge/.test(await page.locator("[data-funnel]").innerText()));
+  check("under eight in a group says too few to judge", /not enough results yet/.test(await page.locator("[data-funnel]").innerText()));
 
   // ── A reminder moves nothing; a call proves its stage, and the user can say no ──
   await page.locator("[data-new-event]").click();
@@ -239,10 +239,10 @@ try {
   await page.getByLabel("A deadline").check();
   await page.locator("[data-event-date]").fill("2026-11-20");
   await page.locator("[data-event-notime]").check();
-  check("a deadline on an unsent row says it stays off the plan", /stays off your plan until Unsent Ltd/.test(await page.locator("[data-event-hidden]").innerText()) && (await page.locator("[data-event-move]").count()) === 0);
+  check("a deadline on an unsent row says it stays off the plan", /stays off your schedule until Unsent Ltd/.test(await page.locator("[data-event-hidden]").innerText()) && (await page.locator("[data-event-move]").count()) === 0);
   await page.locator("[data-event-save]").click();
   await page.locator("[data-toast]").waitFor();
-  check("and saves without moving the row", db.applications.find((a) => a.company_name === "Unsent Ltd").status === "saved" && /stays off your plan/.test(await page.locator("[data-toast]").innerText()), await page.locator("[data-toast]").innerText());
+  check("and saves without moving the row", db.applications.find((a) => a.company_name === "Unsent Ltd").status === "saved" && /stays off your schedule/.test(await page.locator("[data-toast]").innerText()), await page.locator("[data-toast]").innerText());
   await page.locator("[data-new-event]").click();
   await page.locator("[data-event-search]").fill("Applied Only");
   await page.getByRole("button", { name: /Applied Only Ltd/ }).click();
@@ -408,7 +408,7 @@ try {
   check("the pipeline chart renders its nodes", ["applied", "screening", "interview", "rejected"].every((k) => nodes.includes(k)), nodes.join());
   await page.screenshot({ path: path.join(SHOTS, "next-pipeline.png"), fullPage: true });
   await page.locator('[data-pipeline] summary').click();
-  check("the table holds every figure", /Too few to judge/.test(await page.locator("[data-pipe-table]").innerText()));
+  check("the table holds every figure", /Not enough results yet/.test(await page.locator("[data-pipe-table]").innerText()));
   check("hover and label agree", /^Screening: \d+/.test(await page.locator('[data-pipe-node="screening"] title').textContent()) && (await page.locator(".recharts-tooltip-wrapper").count()) === 0);
   await page.locator('[data-pipe-node="screening"]').click();
   await page.waitForURL(/\/applications\?status=screening/, { timeout: 30000 });

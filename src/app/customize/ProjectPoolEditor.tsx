@@ -124,7 +124,7 @@ export default function ProjectPoolEditor({
   async function save() {
     const next = (draft ?? [...shown]).map((c) => ({ ...c, tech: c.tech.map((t) => t.trim()).filter(Boolean) }));
     if (next.length === 0) {
-      setError("That removes every project. To remove the pool, use Remove pool.");
+      setError("That removes every project. To remove the project list, use Remove project list.");
       return;
     }
     if (next.some((c) => !c.name.trim())) {
@@ -186,7 +186,7 @@ export default function ProjectPoolEditor({
         </div>
       </div>
       {warning && <StatusText role="status" className="msgBelow" data-pool-pin-warning>{warning}</StatusText>}
-      {!confirmed && <p className="fitEvidence">These apply once your projects are saved as cards below. You can change them for one run on the tailoring page.</p>}
+      {!confirmed && <p className="fitEvidence">These apply once your projects are saved as cards below. You can change them for one CV on the Tailor page.</p>}
 
       {reviewing && !keepText && (
         <div className="limitNotice" role="status" data-pool-review>

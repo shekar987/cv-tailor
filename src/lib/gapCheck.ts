@@ -273,7 +273,7 @@ export function coreGapBanner(check: GapCheck | null | undefined): { terms: stri
   const caveat = unchecked > 0 ? ` The check for other wording didn't finish for ${unchecked === 1 ? "one of them" : `${unchecked} of them`}, so your CV may show ${unchecked === 1 ? "it" : "them"} under another name.` : "";
   return {
     terms,
-    text: `${terms.length} core ${terms.length === 1 ? "gap" : "gaps"}: ${shown}${more}.${blocks ? " This role may not suit you." : ""}${caveat}`,
+    text: `${terms.length} main ${terms.length === 1 ? "requirement is" : "requirements are"} not in your CV: ${shown}${more}.${blocks ? " This job may not suit you." : ""}${caveat}`,
     blocks,
   };
 }

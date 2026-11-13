@@ -30,7 +30,7 @@ test("combineWithFit: the research Fit Score is authoritative and can only lower
   const low = combineWithFit("ready", { total: 49, tier: "low" });
   assert.equal(low.band, "weak");
   assert.match(low.label, /^Weak fit\. Company research scored 49\/100 \(low match\)/);
-  assert.match(low.label, /do not send as-is/);
+  assert.match(low.label, /Do not send it yet/);
   assert.match(low.fitNote ?? "", /49\/100, low match/);
   assert.equal(combineWithFit("weak", { total: 49, tier: "low" }).band, "weak");
   // Medium fit caps a ready band at borderline and leaves lower bands alone.
@@ -66,7 +66,7 @@ test("bandFor: below 50% weak, 50-74% borderline, 75%+ ready — integer edges i
 });
 
 test("labels are the fixed strings and carry no praise below ready", () => {
-  assert.equal(BAND_LABELS.weak, "Weak match. Do not send as-is.");
+  assert.equal(BAND_LABELS.weak, "Weak match. Do not send it yet.");
   assert.equal(BAND_LABELS.borderline, "Borderline. Fix these before sending.");
   assert.equal(BAND_LABELS.ready, "Ready to send.");
   assert.doesNotMatch(BAND_LABELS.weak, PRAISE);
@@ -96,7 +96,7 @@ test("3/15 can never produce a verdict containing strong, competitive or submitt
   const out = reconcileAtsScore(adversarial, coverageOf(3, 15), null);
 
   assert.equal(out.band, "weak");
-  assert.equal(out.verdict, "Weak match. Do not send as-is.");
+  assert.equal(out.verdict, "Weak match. Do not send it yet.");
   assert.equal(out.keyword_coverage, "3/15");
   assert.doesNotMatch(out.verdict, PRAISE);
   for (const edit of out.recommendations) assert.doesNotMatch(edit, PRAISE);
@@ -175,7 +175,7 @@ test("a failed annotation call still yields the deterministic score", () => {
 
 test("renderBandBlock states the band as settled and asks only for edits inside it", () => {
   const weak = renderBandBlock(coverageOf(3, 15), null);
-  assert.match(weak, /Band: WEAK — "Weak match\. Do not send as-is\."/);
+  assert.match(weak, /Band: WEAK — "Weak match\. Do not send it yet\."/);
   assert.match(weak, /3\/15/);
   assert.match(weak, /EXACTLY the 2 highest-impact edits/);
   assert.match(weak, /cannot change it/);

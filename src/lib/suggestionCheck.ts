@@ -256,12 +256,12 @@ export function checkSuggestions(
     needsEvidence.push({
       term,
       note: shown
-        ? `${term}: your CV may show the work as “${shown}”. If it is the same work, name it in your master CV in your own words; the suggested line goes further than that.`
+        ? `${term}: your CV may show the work as “${shown}”. If it is the same work, name it in your main CV in your own words; the suggested line goes further than that.`
         : term
-          ? `${term}: your master CV doesn't show this. Add it only with real work you can point to.`
+          ? `${term}: your main CV doesn't show this. Add it only with real work you can point to.`
           : moved
-            ? "A suggestion moved project work into a paid role, so it isn't listed. Your master CV shows that work in a project."
-            : "A suggestion went beyond what your master CV shows, so it isn't listed. Add only what you can point to.",
+            ? "A suggestion moved project work into a paid role, so it isn't listed. Your main CV shows that work in a project."
+            : "A suggestion went beyond what your main CV shows, so it isn't listed. Add only what you can point to.",
     });
   }
   // One line per term: two suggestions about the same gap say the same thing.

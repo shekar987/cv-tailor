@@ -57,13 +57,13 @@ test("seniorityFit: a mid-level read against fewer years than it expects is the 
   const mid = classifySeniority("Software Engineer\n3+ years of experience.");
   const f = seniorityFit(mid, 2);
   assert.equal(f.fits, false);
-  assert.match(f.reason, /^This reads as mid-level — tailoring anyway will spend a credit\./);
+  assert.match(f.reason, /^This looks like a mid-level job\. Tailoring anyway uses 1 tailored CV\./);
   assert.match(f.reason, new RegExp(`${MID_MIN_YEARS}\\+ years; you have 2`));
   assert.equal(seniorityFit(mid, 3).fits, true);
   assert.equal(seniorityFit(mid, null).fits, null, "unknown years never block");
   const senior = classifySeniority("Senior Backend Engineer");
   assert.equal(seniorityFit(senior, 4).fits, false);
-  assert.match(seniorityFit(senior, 4).reason, /senior — tailoring anyway will spend a credit/);
+  assert.match(seniorityFit(senior, 4).reason, /senior job\. Tailoring anyway uses 1 tailored CV/);
   assert.equal(seniorityFit(senior, SENIOR_MIN_YEARS).fits, true);
   assert.equal(seniorityFit(classifySeniority("Graduate Engineer"), 0).fits, true);
   assert.equal(seniorityFit(classifySeniority("We are hiring."), 2).fits, null);

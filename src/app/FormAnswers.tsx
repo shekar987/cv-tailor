@@ -33,10 +33,10 @@ export default function FormAnswers({ facts }: { facts: AnswerFacts | null }) {
     <section className="ruledCard formAnswers" aria-labelledby="form-answers-title" data-form-answers>
       <h2 id="form-answers-title" className="label">Form answers</h2>
       <p className="formAnswers__intro">
-        From your Eligibility answers on <Link href="/customize#eligibility">Customise</Link>. Copy them into the application form. Consent and criminal-record questions are never filled in: answer those yourself.
+        From your Eligibility answers on <Link href="/customize#eligibility">My CV</Link>. Copy them into the application form. Consent and criminal-record questions are never filled in: answer those yourself.
       </p>
       {unanswered ? (
-        <p className="formAnswers__empty">Answer the Eligibility questions on Customise and your form answers appear here.</p>
+        <p className="formAnswers__empty">Answer the Eligibility questions on My CV and your form answers appear here.</p>
       ) : (
         <ul className="formAnswers__list">
           {bank.map((e) => (
@@ -50,7 +50,7 @@ export default function FormAnswers({ facts }: { facts: AnswerFacts | null }) {
                   </button>
                 </>
               ) : (
-                <span className="formAnswers__a formAnswers__a--unset">Not answered on Customise</span>
+                <span className="formAnswers__a formAnswers__a--unset">Not answered on My CV</span>
               )}
             </li>
           ))}
@@ -81,7 +81,7 @@ export default function FormAnswers({ facts }: { facts: AnswerFacts | null }) {
               {note && <p className="formAnswers__note">{note}</p>}
             </>
           ) : matched ? (
-            <p>That is the “{matched.label}” question, which your Eligibility answers on Customise don&apos;t cover yet.</p>
+            <p>That is the “{matched.label}&rdquo; question, which your Eligibility answers on My CV don&apos;t cover yet.</p>
           ) : (
             <p>No stored answer fits that question. Answer it yourself.</p>
           )}

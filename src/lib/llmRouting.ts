@@ -205,7 +205,7 @@ export async function resolveLlmRoute(
         ok: false,
         status: 429,
         body: {
-          error: `You've reached your daily tailoring limit (${DAILY_TAILOR_LIMIT} per 24 hours). Resets in ${remaining}.`,
+          error: `You have reached today's limit (${DAILY_TAILOR_LIMIT} tailored CVs in 24 hours). You can tailor again in ${remaining}.`,
           errorType: "user_limit",
           resetAt,
         },
@@ -288,7 +288,7 @@ export async function resolveLlmRoute(
           ok: false,
           status: 422,
           body: {
-            error: "Your saved API key couldn't be read — it may need to be re-entered. Go to Settings and replace it.",
+            error: "We could not read your saved API key. Go to Settings and enter it again.",
             errorType: "key_decrypt_failed",
           },
         };
@@ -304,7 +304,7 @@ export async function resolveLlmRoute(
             needsKeys: true,
             error:
               opts.geminiOnlyMessage ??
-              "Your Gemini key can't complete a tailoring run — Gemini's free tier allows 5 requests per minute and one run makes 8. Add an OpenRouter key in Settings to continue.",
+              "Your Gemini key cannot tailor a CV. Gemini's free plan allows 5 requests a minute and one CV needs 8. Add an OpenRouter key in Settings to continue.",
             errorType: "needs_openrouter_key",
           },
         };
@@ -315,7 +315,7 @@ export async function resolveLlmRoute(
         status: 402,
         body: {
           needsKeys: true,
-          error: "You've used all free tailors. Add your own API key in Settings to continue.",
+          error: "You have used your 3 free tailored CVs. Add your own API key in Settings to continue.",
           errorType: "needs_keys",
         },
       };

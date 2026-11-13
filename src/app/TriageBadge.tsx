@@ -8,7 +8,7 @@
 // (tests/support/tsxLoader.mjs).
 import { TRIAGE_LABELS, TRIAGE_RULE_LABELS, type JdTriage } from "../lib/triage/jdTriage.ts";
 
-const APPLY_NOTE = "Nothing in the posting is out of your criteria (years, clearance, right to work, contract, languages).";
+const APPLY_NOTE = "Nothing in this job description rules you out. We checked years of experience, security clearance, right to work, contract type and programming languages.";
 // A company's own rule or the user's tracker (lib/companyRules) is not the posting speaking.
 const COMPANY_RULES = new Set(["company_cooldown", "company_closed", "same_role", "same_role_before"]);
 
@@ -18,13 +18,13 @@ export default function TriageBadge({ triage }: { triage: JdTriage | null }) {
   return (
     <div className={`triage triage--${verdict}`} data-triage={verdict}>
       <p className="triage__line" role="status">
-        <span className="triage__label">JD triage</span>{" "}
+        <span className="triage__label">Job check</span>{" "}
         <span className="triage__verdict">{TRIAGE_LABELS[verdict]}{reasons.length ? ":" : ""}</span>
         {reasons.length > 0 ? <span className="triage__reasons" data-triage-reasons="true"> {reasons.join("; ")}</span> : <span className="triage__note"> {APPLY_NOTE}</span>}
       </p>
       {hits.length > 0 && (
         <details className="triage__where" open>
-          <summary>{hits.some((h) => COMPANY_RULES.has(h.rule)) ? "Where each reason comes from" : "Where the posting says so"}</summary>
+          <summary>{hits.some((h) => COMPANY_RULES.has(h.rule)) ? "Where each reason comes from" : "Where the job description says so"}</summary>
           <ul>
             {hits.map((h, i) => (
               <li key={i} data-triage-rule={h.rule} data-triage-level={h.level}>

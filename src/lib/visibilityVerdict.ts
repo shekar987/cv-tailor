@@ -19,7 +19,7 @@ import type { AtsMatchResult } from "./atsMatch.ts";
 export type VisibilityBand = "weak" | "borderline" | "ready";
 
 export const BAND_LABELS: Record<VisibilityBand, string> = {
-  weak: "Weak match. Do not send as-is.",
+  weak: "Weak match. Do not send it yet.",
   borderline: "Borderline. Fix these before sending.",
   ready: "Ready to send.",
 };
@@ -119,7 +119,7 @@ export function combineWithFit(band: VisibilityBand, fit: FitReference | null | 
   if (fit.tier === "low") {
     return {
       band: "weak",
-      label: `Weak fit. Company research scored ${figure} (low match) against your CV; do not send as-is.`,
+      label: `Weak fit. Company research scored ${figure} (low match) against your CV. Do not send it yet.`,
       fitNote: `Company research: ${figure}, low match. The search-term count above is not a fit score.`,
     };
   }

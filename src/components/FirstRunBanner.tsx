@@ -81,7 +81,7 @@ export function FirstRunBannerView() {
     <div className="limitNotice firstRunBanner" role="status" data-first-run-banner>
       <div className="limitNotice__title">Start here: upload your CV</div>
       <div className="limitNotice__body">
-        Everything here is built from your master CV, and nothing goes in that it doesn&apos;t say. Add it once on Customise.
+        Jobhuntz builds everything from your main CV. It never adds anything your CV does not say. Add your CV once on My CV.
       </div>
       <div className="limitNotice__cta">
         <Button href="/customize#master-cv" data-first-run-cv>Upload your CV</Button>

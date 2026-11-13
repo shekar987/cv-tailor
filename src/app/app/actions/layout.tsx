@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 // The page itself is a client component, so its title lives here.
 export const metadata: Metadata = {
-  title: { absolute: "Action Centre · Jobhuntz" },
+  title: { absolute: "To do · Jobhuntz" },
   robots: { index: false, follow: false },
   alternates: { canonical: "/app/actions" },
 };

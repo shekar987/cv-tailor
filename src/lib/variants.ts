@@ -51,8 +51,8 @@ export function productionLeadSkills(
 
 export function leadSkillsNotice(dropped: LeadSkillDrop[]): string {
   if (dropped.length === 0) return "";
-  const word = (r: LeadSkillDrop["reason"]) => (r === "project" ? "project-level" : r === "learning" ? "still being learned" : "not on your claims registry");
-  return `Only production-level skills can lead. Skipped: ${dropped.map((d) => `${d.skill} (${word(d.reason)})`).join(", ")}.`;
+  const word = (r: LeadSkillDrop["reason"]) => (r === "project" ? "project-level" : r === "learning" ? "still being learned" : "not in your skill levels list");
+  return `Only production-level skills can be shown first. Skipped: ${dropped.map((d) => `${d.skill} (${word(d.reason)})`).join(", ")}.`;
 }
 
 export const ROLE_TYPE_LABEL: Record<RoleType, string> = {
@@ -116,20 +116,20 @@ export type VariantPick = { variant: Variant | null; reason: string; source: "ov
 // lone variant with no role types applies to everything; else none.
 export function pickVariant(config: VariantsConfig | null | undefined, roleType: unknown, overrideId?: string | null): VariantPick {
   const variants = config?.variants ?? [];
-  if (variants.length === 0) return { variant: null, reason: "No positioning variants saved.", source: "none" };
-  if (overrideId === "none") return { variant: null, reason: "No variant applied (your choice for this run).", source: "override" };
+  if (variants.length === 0) return { variant: null, reason: "No headlines saved.", source: "none" };
+  if (overrideId === "none") return { variant: null, reason: "No headline used (your choice for this CV).", source: "override" };
   if (overrideId) {
     const v = variants.find((x) => x.id === overrideId);
-    if (v) return { variant: v, reason: `${v.name} (your choice for this run).`, source: "override" };
+    if (v) return { variant: v, reason: `${v.name} (your choice for this CV).`, source: "override" };
   }
   const rt = typeof roleType === "string" ? roleType : "";
   const byRole = rt ? variants.find((v) => v.roleTypes.includes(rt as RoleType)) : undefined;
-  if (byRole) return { variant: byRole, reason: `${byRole.name} - the posting reads as ${ROLE_TYPE_LABEL[rt as RoleType] ?? rt}.`, source: "role_type" };
+  if (byRole) return { variant: byRole, reason: `${byRole.name} - this looks like a ${ROLE_TYPE_LABEL[rt as RoleType] ?? rt} job.`, source: "role_type" };
   if (variants.length === 1 && variants[0].roleTypes.length === 0)
-    return { variant: variants[0], reason: `${variants[0].name} - your only variant, set for every role type.`, source: "single" };
+    return { variant: variants[0], reason: `${variants[0].name} - your only headline, set for every kind of job.`, source: "single" };
   return {
     variant: null,
-    reason: rt ? `None of your variants is set for a ${ROLE_TYPE_LABEL[rt as RoleType] ?? rt} role - tailoring uses your CV's own positioning.` : "The posting's role type wasn't read - tailoring uses your CV's own positioning.",
+    reason: rt ? `None of your headlines is set for a ${ROLE_TYPE_LABEL[rt as RoleType] ?? rt} job - tailoring uses your CV's own headline.` : "We could not tell what kind of job this is - tailoring uses your CV's own headline.",
     source: "none",
   };
 }

@@ -625,6 +625,30 @@ The app has a deliberate look — a dark, warm, amber-accented interface — and
 - **Verify visually, not just by compiling.** Run `npm run dev`, open the page, and look at it (the `/run` skill can drive the app and screenshot it). Compare against the reference or the neighbouring screens, fix mismatches, look again — at least two rounds. Be specific when comparing ("gap is 16px, should be 24px").
 - **`CvPreview` / `CoverLetterPreview` are special.** They're `contentEditable`, wrapped in `React.memo`, and their DOM class names (`cvJobHeader` etc.) are parsed by `downloadWord()`. A "cosmetic" change there can silently break the Word/PDF output — re-run the download checks after touching them.
 
+### Wording: plain words and one name per thing (12 Nov 2026, Chunk 25)
+
+A first-time user with English as a second language met jargon and three names for one thing. Every string a person reads now follows these rules, and `docs/wording-audit.md` is the record (3,281 strings read by `scripts/wording-extract.mjs`, 539 changed). **Older passages of this file still quote the old names; the table is what the screen says now.**
+
+- British English; short sentences; one idea per sentence; a button says what happens next; no idioms; no em dash in new text; a term that must stay is explained once in brackets.
+- **One name per thing.** Never bring an old name back in new copy:
+
+| Thing | The name on screen | Never |
+|---|---|---|
+| The user's own CV | main CV (the page: **My CV**, still `/customize`) | master CV, Customise |
+| The job advert's text | job description ("the job" for the job itself) | posting, JD, job ad |
+| The free allowance | free tailored CVs (3 in total) and the daily limit (3 a day); another feature "counts as 1 tailored CV" | credit, free tailors, Claude credits |
+| The user's own key | your own API key (OpenRouter is explained once, in Settings; "OpenRouter key" only beside a Gemini key) | bring your own key, provider key |
+| The action and its result | tailor (verb), tailored CV | a tailor, a run |
+| The list | Applications, an application | tracker, row, sheet |
+| Nav | To do · Schedule · Tailor · Applications · Interview · My CV | Actions, What's next |
+| Other | free check · Skill levels · Headlines · Project list · Read my CV again · Job check · Interview pack · Low chance · Not enough results yet · You need to reply · Hide for 1 day · No reply | pre-check, claims registry, positioning, pool, extraction, JD triage, prep pack, long shot, too few to judge, reply owed, snooze, ghosted |
+
+- Kept on purpose: Recruiter search visibility (never "ATS"), Eligibility, Fit Score, Ready to submit, Wins, Knockout.
+- Internal names did not move: files, routes, CSS classes, data attributes, `STATUSES`, and `lib/tracker` `API_STATUS` (the sweeps' contract still answers "Ghosted"). Privacy and terms, the API routes' own error text, the generated documents and every prompt were left alone; a prompt still says "master CV" to the model.
+- Tailor's first button is "Check this job (free)"; "Tailor my CV →" comes after the check. The usage line reads "Free tailored CVs: 3 of 3 left · Today: 3 of 3 left".
+- Applications' two analytics cards are one **Insights** section, folded until 10 applications have a result (`lib/insights` `INSIGHTS_OPEN_AT`, `insightsOpenByDefault`, `insightsClosedLine`); it says how many it has and opens by hand.
+- To check new copy: `node scripts/wording-extract.mjs <files>` lists every string with its line. It reads strings passed to `.push(...)` too (the first pass skipped them and missed three notices).
+
 ---
 
 ## Commands

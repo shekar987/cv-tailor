@@ -23,7 +23,7 @@ import { statusLabel } from "@/lib/tracker";
 // practice mode. Deep-linkable: the auth proxy already protects /applications/*.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SESSION_EXPIRED = "Your session has expired — sign in again to see your prep pack.";
+const SESSION_EXPIRED = "Your session has expired. Sign in again to see your interview pack.";
 
 type Row = {
   id: string;
@@ -149,12 +149,12 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) { setLoad("expired"); return; }
       if (!res.ok) {
-        setError(data.error || "Couldn't build your prep pack. Try again.");
+        setError(data.error || "Couldn't build your interview pack. Try again.");
         setErrorType(typeof data.errorType === "string" ? data.errorType : null);
         return;
       }
       const fresh = packFromRow(data.pack);
-      if (!fresh) { setError("The prep pack came back in an unexpected shape. Try again."); return; }
+      if (!fresh) { setError("The interview pack came back in an unexpected shape. Try again."); return; }
       setPack(fresh);
       // A regenerated pack has different questions — it starts unrated.
       setRatings(userId ? loadPrepProgress(userId, id, fresh.generatedAt) : {});
@@ -186,7 +186,7 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
       if (res.status === 401) { setLoad("expired"); return; }
       if (!res.ok) { setError(data.error || "Couldn't rewrite that. Try again."); return; }
       const fresh = packFromRow(data.pack);
-      if (!fresh) { setError("The prep pack came back in an unexpected shape. Try again."); return; }
+      if (!fresh) { setError("The interview pack came back in an unexpected shape. Try again."); return; }
       setPack(fresh);
       const n = (v: unknown) => (typeof v === "number" ? v : 0);
       setRewriteMsg(
@@ -234,39 +234,39 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
       case "needs_cv":
         return (
           <div className="limitNotice" role="alert">
-            <div className="limitNotice__title">Save your master CV first.</div>
+            <div className="limitNotice__title">Save your main CV first.</div>
             <div className="limitNotice__body">Every answer in the pack is built from it — there is nothing to build from yet.</div>
-            <Button href="/customize" className="limitNotice__cta">Go to Customise →</Button>
+            <Button href="/customize" className="limitNotice__cta">Go to My CV →</Button>
           </div>
         );
       case "needs_jd":
         return (
           <div className="limitNotice" role="alert">
             <div className="limitNotice__title">Add the job description first.</div>
-            <div className="limitNotice__body">The prep pack is built from it. Paste it into this application in the tracker, then come back.</div>
-            <Button href="/applications" className="limitNotice__cta">Open the tracker →</Button>
+            <div className="limitNotice__body">The interview pack is built from it. Paste it into this application on Applications, then come back.</div>
+            <Button href="/applications" className="limitNotice__cta">Open your applications list →</Button>
           </div>
         );
       case "needs_keys":
         return (
           <div className="limitNotice" role="alert">
-            <div className="limitNotice__title">Your 3 free tailors are used up.</div>
-            <div className="limitNotice__body">Add your own key to keep going — it takes 2 minutes and the tool stays free.</div>
-            <Button href="/settings" className="limitNotice__cta">Add your key in Settings →</Button>
+            <div className="limitNotice__title">You have used your 3 free tailored CVs.</div>
+            <div className="limitNotice__body">Add your own API key to continue. It is free and takes about 2 minutes.</div>
+            <Button href="/settings" className="limitNotice__cta">Add my API key →</Button>
           </div>
         );
       case "needs_openrouter_key":
         return (
           <div className="limitNotice" role="alert">
-            <div className="limitNotice__title">Your Gemini key can&apos;t run interview prep.</div>
-            <div className="limitNotice__body">Once your free Claude credits are used, prep runs on an OpenRouter key. Add one in Settings to continue.</div>
+            <div className="limitNotice__title">Your Gemini key cannot make an interview pack.</div>
+            <div className="limitNotice__body">After your free tailored CVs are used, an interview pack needs an OpenRouter key. Add one in Settings to continue.</div>
             <Button href="/settings" className="limitNotice__cta">Add an OpenRouter key →</Button>
           </div>
         );
       case "key_decrypt_failed":
         return (
           <div className="limitNotice" role="alert">
-            <div className="limitNotice__title">Your API key needs to be re-entered.</div>
+            <div className="limitNotice__title">Please enter your API key again.</div>
             <div className="limitNotice__body">Your saved key can no longer be read. Please go to Settings and replace it.</div>
             <Button href="/settings" className="limitNotice__cta">Go to Settings →</Button>
           </div>
@@ -274,7 +274,7 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
       case "user_key_limit":
         return (
           <div className="limitNotice" role="alert">
-            <div className="limitNotice__title">Your key&apos;s daily limit is reached.</div>
+            <div className="limitNotice__title">Your API key has reached today&apos;s limit.</div>
             <div className="limitNotice__body">Its free quota resets daily — come back tomorrow to continue.</div>
           </div>
         );
@@ -312,7 +312,7 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
 
         {load === "loading" && (
           <Card>
-            <Skeleton lines={4} label="Loading your prep pack" />
+            <Skeleton lines={4} label="Loading your interview pack" />
           </Card>
         )}
 
@@ -341,8 +341,8 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
 
         {load === "ready" && row && !pack && !hasJd && (
           <Card>
-            <EmptyState title="Add the job description first" actions={<Button href="/applications">Open the tracker</Button>}>
-              The prep pack is built from the job description. Paste it into this application&apos;s JD cell in the tracker, then come back here.
+            <EmptyState title="Add the job description first" actions={<Button href="/applications">Open your applications list</Button>}>
+              The interview pack is built from the job description. Add the job description to this application on Applications, then come back here.
             </EmptyState>
           </Card>
         )}
@@ -352,7 +352,7 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
             <div className="label">What you&apos;ll get</div>
             <ul>
               <li>8–10 likely questions for this exact role: behavioral, technical, motivation, company — and the honest gaps they&apos;ll probe.</li>
-              <li>A STAR answer for each, built from your master CV and checked sentence by sentence: the CV lines it came from with a ✓ when they trace verbatim, and a mark on any sentence the check couldn&apos;t trace, with one click to rewrite it from CV facts alone.</li>
+              <li>A STAR answer for each, built from your main CV and checked sentence by sentence: the CV lines it came from with a ✓ when they trace verbatim, and a mark on any sentence the check couldn&apos;t trace, with one click to rewrite it from CV facts alone.</li>
               <li>Questions worth asking them, and a 30-second opener.</li>
               <li>Practice mode: one question at a time, reveal the answer, rate yourself, review the shaky ones.</li>
             </ul>
@@ -360,17 +360,17 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
             {!generating && (
               <div className="actions" style={{ marginTop: 0 }}>
                 <Button onClick={() => generate(false)} disabled={quotaExhausted}>
-                  Generate prep pack
+                  Make my interview pack
                 </Button>
               </div>
             )}
             <p className="prepCost">
-              Uses 1 tailor credit · saved to this application, so opening it again is free.
-              {usage && !usage.unlimited && remaining !== null && ` ${remaining} of ${usage.dailyLimit} tailors left today.`}
+              Counts as 1 tailored CV · saved with this application, so opening it again is free.
+              {usage && !usage.unlimited && remaining !== null && ` ${remaining} of ${usage.dailyLimit} tailored CVs left today.`}
             </p>
             {quotaExhausted && (
               <StatusText className="msgBelow" role="status">
-                You&apos;ve used today&apos;s {usage?.dailyLimit} tailors — come back tomorrow, or add your own key in Settings.
+                You have reached today&apos;s limit of {usage?.dailyLimit}. You can make an interview pack tomorrow.
               </StatusText>
             )}
             {renderError()}
@@ -387,7 +387,7 @@ export default function PrepPage({ params }: { params: Promise<{ id: string }> }
               <div className="prepHeadActions">
                 {confirmRegen ? (
                   <>
-                    <span className="prepCost" style={{ marginTop: 0 }}>Regenerating uses 1 credit and resets your ratings.</span>
+                    <span className="prepCost" style={{ marginTop: 0 }}>Making it again counts as 1 tailored CV and resets your ratings.</span>
                     <Button variant="secondary" onClick={() => { setConfirmRegen(false); generate(true); }} disabled={generating}>
                       Confirm
                     </Button>

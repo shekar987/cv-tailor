@@ -113,7 +113,7 @@ export type CloseReason = (typeof CLOSE_REASONS)[number];
 export const CLOSE_REASON_LABELS: Record<CloseReason, string> = {
   rejected: "Rejected",
   withdrawn: "Withdrawn",
-  ghosted: "Ghosted",
+  ghosted: "No reply",
   declined_by_me: "Declined by me",
   role_closed: "Role closed",
 };

@@ -54,7 +54,7 @@ export default function FirstRunGuide({ facts, cvHref = "/customize#master-cv", 
     setError("");
     const ok = await onChooseRtw(status).catch(() => false);
     setSaving(null);
-    if (!ok) setError("Couldn't save your answer. Check your connection and try again, or answer under Eligibility on Customise.");
+    if (!ok) setError("Couldn't save your answer. Check your connection and try again, or answer under Eligibility on My CV.");
     else setAnswered(true);
   }
 
@@ -73,8 +73,8 @@ export default function FirstRunGuide({ facts, cvHref = "/customize#master-cv", 
             </p>
             <p className="firstRun__detail">
               {state("cv") === "done"
-                ? "Saved. Every tailored CV is built from it, and nothing goes in that it doesn't say."
-                : "Your full CV, once: a PDF, a Word file or pasted text. Every tailored CV is built from it, and nothing goes in that it doesn't say."}
+                ? "Saved. We build every tailored CV from it. We never add anything it does not say."
+                : "Add your main CV once: a PDF, a Word file or pasted text. We build every tailored CV from it. We never add anything it does not say."}
             </p>
             {state("cv") === "current" && cvHref && (
               <div className="firstRun__actions">
@@ -88,15 +88,15 @@ export default function FirstRunGuide({ facts, cvHref = "/customize#master-cv", 
           <span className="firstRun__mark" aria-hidden="true">{rtwState === "done" ? <Icon name="check" /> : "2"}</span>
           <div className="firstRun__body">
             <p className="firstRun__name">
-              Confirm your right to work and sponsorship{rtwState === "done" && <span className="srOnly"> (done)</span>}
+              Answer one question about your right to work{rtwState === "done" && <span className="srOnly"> (done)</span>}
             </p>
             {rtwState === "done" ? (
               <p className="firstRun__detail" data-first-run-rtw-answer={facts.rtwStatus}>
-                Answered: {rtwChoiceLabel(facts.rtwStatus)}. Change it under <Link href="/customize#eligibility">Eligibility on Customise</Link>.
+                Answered: {rtwChoiceLabel(facts.rtwStatus)}. Change it under <Link href="/customize#eligibility">Eligibility on My CV</Link>.
               </p>
             ) : (
               <p className="firstRun__detail">
-                Most UK application forms ask this, usually near the start. It is never worked out from your CV: choose the one that is true for you, or skip it and your form answers stay &ldquo;Not answered&rdquo; until you do.
+                Most UK application forms ask this near the start. We never guess it from your CV. Choose the answer that is true for you. If you skip it, your form answers say &ldquo;Not answered&rdquo; until you choose.
               </p>
             )}
             {rtwState === "current" &&
@@ -122,7 +122,7 @@ export default function FirstRunGuide({ facts, cvHref = "/customize#master-cv", 
                 </>
               ) : (
                 <div className="firstRun__actions">
-                  <Button href="/customize#eligibility" variant="secondary">Answer on Customise</Button>
+                  <Button href="/customize#eligibility" variant="secondary">Answer on My CV</Button>
                 </div>
               ))}
           </div>
@@ -133,7 +133,7 @@ export default function FirstRunGuide({ facts, cvHref = "/customize#master-cv", 
           <div className="firstRun__body">
             <p className="firstRun__name">Paste your first job</p>
             <p className="firstRun__detail">
-              A job description or a link to the posting, on Tailor. A free check runs first and says how well you match before anything is spent.
+              Paste a job description, or a link to the job, on the Tailor page. A free check runs first. It tells you how well you match before you use a tailored CV.
             </p>
             {/* Reachable once there is a CV; the filled button only when it is the step. */}
             {(jobState === "current" || rtwState === "current") && (

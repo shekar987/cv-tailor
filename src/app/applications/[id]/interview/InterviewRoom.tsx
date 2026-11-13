@@ -385,7 +385,7 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
 
       {confirmEnd && (
         <div className="interviewConfirm" role="group" aria-label="End the interview?">
-          <span>{state.answers === 0 ? "Leave before answering anything? Your credit has been used." : "End now and get feedback on the answers you've given?"}</span>
+          <span>{state.answers === 0 ? "Leave before answering anything? This interview has already counted as 1 tailored CV." : "End now and get feedback on the answers you've given?"}</span>
           <Button ref={endRef} onClick={() => { setConfirmEnd(false); endInterview(); }}>{state.answers === 0 ? "Leave" : "End and get feedback"}</Button>
           <Button variant="ghost" onClick={() => setConfirmEnd(false)}>Keep going</Button>
         </div>

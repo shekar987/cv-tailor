@@ -34,18 +34,18 @@ test("terms gained and terms no longer counted are named", () => {
   assert.equal(c.after.matched, 3);
   assert.deepEqual(c.gained, []);
   assert.deepEqual(c.lost, ["Computer Science"]);
-  assert.match(scoreChangeLine(c), /^Before tailoring: 4\/5 in your master CV\. No longer counted: Computer Science \(/);
+  assert.match(scoreChangeLine(c), /^Before tailoring: 4\/5 in your main CV\. No longer counted: Computer Science \(/);
 });
 
 test("an unchanged count says so", () => {
   const c = scoreChange("Python and FastAPI", "Python, FastAPI", ["Python", "FastAPI", "Go"]);
   assert.ok(c);
-  assert.equal(scoreChangeLine(c), "Before tailoring: 2/3 in your master CV. Tailoring did not change which terms are matched.");
+  assert.equal(scoreChangeLine(c), "Before tailoring: 2/3 in your main CV. Tailoring did not change which terms are matched.");
 });
 
 test("a gained term is named", () => {
   const c = scoreChange("Python", "Python on Kubernetes", ["Python", "Kubernetes"]);
-  assert.equal(c && scoreChangeLine(c), "Before tailoring: 1/2 in your master CV. Now matched: Kubernetes.");
+  assert.equal(c && scoreChangeLine(c), "Before tailoring: 1/2 in your main CV. Now matched: Kubernetes.");
 });
 
 test("no line rather than one that contradicts the figure on the card", () => {

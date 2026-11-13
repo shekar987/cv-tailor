@@ -142,7 +142,7 @@ export default function CleanupPanel({
           {result.warnings.length ? ` Check ${result.warnings.length}: ${[...new Set(result.warnings.map((s) => s.reason))].join("; ")}.` : ""}
         </p>
       )}
-      {!plan && !error && <Skeleton lines={4} label="Reading your tracker" />}
+      {!plan && !error && <Skeleton lines={4} label="Reading your applications list" />}
       {plan && (
         <>
           <section className="cleanupSection" data-cleanup-rule="A">

@@ -278,13 +278,13 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
       </div>
     );
     switch (errorType) {
-      case "needs_cv": return notice("Save your master CV first.", "The interviewer's questions are built from it.", "/customize", "Go to Customise →");
-      case "needs_jd": return notice("Add the job description first.", "The interview is built from it. Paste it into this application in the tracker, then come back.", "/applications", "Open the tracker →");
+      case "needs_cv": return notice("Save your main CV first.", "The interviewer's questions are built from it.", "/customize", "Go to My CV →");
+      case "needs_jd": return notice("Add the job description first.", "The interview is built from it. Paste it into this application in Applications, then come back.", "/applications", "Open your applications list →");
       case "needs_migration": return notice("Mock interviews aren't switched on yet.", error);
-      case "needs_keys": return notice("Your 3 free tailors are used up.", "Add your own key to keep going — it takes 2 minutes and the tool stays free.", "/settings", "Add your key in Settings →");
-      case "needs_openrouter_key": return notice("Your Gemini key can't run mock interviews.", "Once your free Claude credits are used, interviews run on an OpenRouter key. Add one in Settings to continue.", "/settings", "Add an OpenRouter key →");
-      case "key_decrypt_failed": return notice("Your API key needs to be re-entered.", "Your saved key can no longer be read. Please go to Settings and replace it.", "/settings", "Go to Settings →");
-      case "user_key_limit": return notice("Your key's daily limit is reached.", "Its free quota resets daily — come back tomorrow to continue.");
+      case "needs_keys": return notice("You have used your 3 free tailored CVs.", "Add your own API key to continue. It is free and takes about 2 minutes.", "/settings", "Add my API key →");
+      case "needs_openrouter_key": return notice("Your Gemini key cannot run a mock interview.", "After your free tailored CVs are used, a mock interview needs an OpenRouter key. Add one in Settings to continue.", "/settings", "Add an OpenRouter key →");
+      case "key_decrypt_failed": return notice("Please enter your API key again.", "Your saved key can no longer be read. Please go to Settings and replace it.", "/settings", "Go to Settings →");
+      case "user_key_limit": return notice("Your API key has reached today's limit.", "Its free quota resets daily — come back tomorrow to continue.");
       default: return <div className="limitNotice" role="alert">{error}</div>;
     }
   }
@@ -302,7 +302,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
         />
         <p className="prepBack">
           <Link href="/applications" className="inlineLink">← Back to applications</Link>
-          {row && <> · <Link href={`/applications/${row.id}/prep`} className="inlineLink">Prep pack</Link></>}
+          {row && <> · <Link href={`/applications/${row.id}/prep`} className="inlineLink">Interview pack</Link></>}
         </p>
 
         {load === "loading" && <Card><Skeleton lines={4} label="Loading the interview room" /></Card>}
@@ -320,8 +320,8 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
         {load === "error" && <Card><StatusText role="alert">{error}</StatusText></Card>}
         {load === "ready" && row && !hasJd && (
           <Card>
-            <EmptyState title="Add the job description first" actions={<Button href="/applications">Open the tracker</Button>}>
-              The interviewer&apos;s questions come from the job description. Paste it into this application in the tracker, then come back.
+            <EmptyState title="Add the job description first" actions={<Button href="/applications">Open your applications list</Button>}>
+              The interviewer&apos;s questions come from the job description. Paste it into this application in Applications, then come back.
             </EmptyState>
           </Card>
         )}
@@ -473,11 +473,11 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                       </p>
                       <div className="actions">
                         <Button onClick={start} disabled={starting || quotaExhausted || errorType === "needs_migration" || !voice} data-interview-start>
-                          {starting ? "Preparing your interviewer…" : "Start interview · uses 1 credit"}
+                          {starting ? "Preparing your interviewer…" : "Start interview · counts as 1 tailored CV"}
                         </Button>
                         {remaining !== null && !usage?.unlimited && <span className="cvHelp">{remaining} left today</span>}
                       </div>
-                      {quotaExhausted && <p className="cvHelp">You&apos;ve used today&apos;s credits. Add your own key in Settings to keep going.</p>}
+                      {quotaExhausted && <p className="cvHelp">You have reached today&apos;s limit of 3. You can start an interview tomorrow.</p>}
                     </Card>
 
                     {past.length > 0 && (

@@ -30,7 +30,7 @@ function stageHref(key: string): string {
 export default function PipelineChart({ funnel }: { funnel: Funnel }) {
   const router = useRouter();
   const data = funnelChartData(funnel);
-  if (data.links.length === 0) return <p className="cvHelp">Nothing has moved past Applied yet, so there is nothing to map.</p>;
+  if (data.links.length === 0) return <p className="cvHelp">Nothing has moved past Applied yet, so there is nothing to show.</p>;
 
   function NodeShape(props: NodeProps) {
     const { x, y, width, height, payload } = props;
@@ -41,7 +41,7 @@ export default function PipelineChart({ funnel }: { funnel: Funnel }) {
         className="pipeNode"
         role="link"
         tabIndex={0}
-        aria-label={`${payload.name}: ${payload.total}. Show on the tracker.`}
+        aria-label={`${payload.name}: ${payload.total}. Show on Applications.`}
         onClick={go}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } }}
         data-pipe-node={payload.key}
@@ -90,14 +90,14 @@ export default function PipelineChart({ funnel }: { funnel: Funnel }) {
         </ResponsiveContainer>
       </div>
       <p className="cvHelp">
-        Select a stage to see those applications on the tracker. Stages have been recorded only since 3 November 2026, so an earlier rejection counts at Applied whatever stage it reached, and an earlier row shows only its current stage. The share who went further is out of those with an outcome from that stage; someone still there is not counted.
+        Select a stage to see those applications. Stages are recorded from 3 November 2026. An earlier rejection counts at Applied, and an earlier application shows only its current stage. The share that went further counts only applications with a result from that stage.
         {funnel.excluded > 0 ? ` ${funnel.excluded} unsent or withdrawn ${funnel.excluded === 1 ? "application is" : "applications are"} left out of the share at the stage they stopped at, though every stage they reached still counts.` : ""}
       </p>
       <details className="pipeTableWrap">
         <summary className="inlineLink">As a table</summary>
         <table className="pipeTable" data-pipe-table>
           <thead>
-            <tr><th scope="col">Stage</th><th scope="col">Reached</th><th scope="col">Here now</th><th scope="col">Rejected here</th><th scope="col">Ghosted here</th><th scope="col">Went further, of those decided</th></tr>
+            <tr><th scope="col">Stage</th><th scope="col">Reached</th><th scope="col">Here now</th><th scope="col">Rejected here</th><th scope="col">No reply here</th><th scope="col">Went further, of those with a result</th></tr>
           </thead>
           <tbody>
             {funnel.nodes.map((n) => (
@@ -107,7 +107,7 @@ export default function PipelineChart({ funnel }: { funnel: Funnel }) {
                 <td>{n.here}</td>
                 <td>{n.rejected}</td>
                 <td>{n.ghosted}</td>
-                <td>{n.key === "accepted" ? "" : n.tooFew ? "Too few to judge" : `${Math.round((n.furtherRate ?? 0) * 100)}%`}</td>
+                <td>{n.key === "accepted" ? "" : n.tooFew ? "Not enough results yet" : `${Math.round((n.furtherRate ?? 0) * 100)}%`}</td>
               </tr>
             ))}
           </tbody>

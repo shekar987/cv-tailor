@@ -345,7 +345,7 @@ export function checkCompanyRules({ company, role, jdText, rules, rows, today }:
       const status = submitted(before.status)!;
       const when = isDateKey(before.date_applied) ? ` on ${dayMonthYear(before.date_applied)}` : "";
       const phrase = status === "rejected" ? `rejected for this role${when}` : `already applied for this role${when} (${STATUS_LABELS[status]})`;
-      hit("review", "same_role_before", phrase, `Your tracker: ${String(before.company_name)}, ${String(before.role ?? "")}${when}, ${STATUS_LABELS[status]}.`);
+      hit("review", "same_role_before", phrase, `your applications list: ${String(before.company_name)}, ${String(before.role ?? "")}${when}, ${STATUS_LABELS[status]}.`);
     }
   }
   return hits;

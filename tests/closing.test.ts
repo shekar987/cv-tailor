@@ -466,7 +466,7 @@ test("a pending outcome is an ending, a real date and a short source, or nothing
 
 test("the banner says what, when and where from", () => {
   assert.equal(pendingLine({ outcome: "rejected", date: "2026-11-02", source: "gmail" }), "Rejected on 2 Nov (from Gmail).");
-  assert.equal(pendingLine({ outcome: "ghosted", date: "2026-11-04", source: "sweep" }), "Ghosted on 4 Nov (from a sweep).");
+  assert.equal(pendingLine({ outcome: "ghosted", date: "2026-11-04", source: "sweep" }), "No reply on 4 Nov (from a sweep).");
   assert.equal(pendingLine({ outcome: "withdrawn", date: "2026-10-21", source: "" }), "Withdrawn on 21 Oct.");
 });
 

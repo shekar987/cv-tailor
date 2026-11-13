@@ -51,7 +51,7 @@ function SlotHelper({ item, events, windows, now, tz, onBook }: { item: PlanItem
             ? "No free time in the next two weeks. Add your free times in the Week view."
             : offered.every((o) => Date.parse(o.starts_at) <= now)
               ? "Every slot they offered has passed."
-              : "None of the slots still open is free: each clashes with something on your plan or falls too close to it."}
+              : "None of the slots still open is free: each clashes with something on your schedule or falls too close to it."}
         </p>
       ) : (
         <>
@@ -139,7 +139,7 @@ export default function EventCard({
         {event.contact_name && <p className="planCardMeta">With {event.contact_name}</p>}
         {event.prep_notes && <p className="planCardNotes">{event.prep_notes}</p>}
         {application?.prep_generated_at && (
-          <p className="planCardMeta"><Link href={`/applications/${application.id}/prep`} className="inlineLink">Prep pack</Link></p>
+          <p className="planCardMeta"><Link href={`/applications/${application.id}/prep`} className="inlineLink">Interview pack</Link></p>
         )}
 
         {toBook && showSlots && <SlotHelper item={item} events={events} windows={windows} now={now} tz={tz} onBook={actions.onBook} />}

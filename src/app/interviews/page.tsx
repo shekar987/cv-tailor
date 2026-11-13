@@ -18,7 +18,7 @@ import { formatDate } from "@/lib/formatDate";
 // each line links back to that row's prep or interview page. Two free reads,
 // no model call.
 
-const PAGE_TAGLINE = "Every mock interview and every prep pack, across all your applications.";
+const PAGE_TAGLINE = "Every mock interview and every interview pack, across all your applications.";
 
 type InterviewRow = {
   id: string;
@@ -89,9 +89,8 @@ export default function InterviewsPage() {
           {loading ? (
             <Skeleton lines={3} label="Loading your interviews" />
           ) : !interviews || interviews.length === 0 ? (
-            <EmptyState title="No mock interviews yet" actions={<Button href="/applications">Open the tracker</Button>}>
-              Each tracker row has an Interview button: pick the UK round, and an interviewer built from that job and your CV asks
-              the questions out loud. One tailor credit each.
+            <EmptyState title="No mock interviews yet" actions={<Button href="/applications">Open your applications list</Button>}>
+              Each application has an Interview button. Pick the UK round, and an interviewer built from that job and your CV asks the questions out loud. Each interview counts as 1 tailored CV.
             </EmptyState>
           ) : (
             <ul className="interviewPast" data-interview-rows>
@@ -119,13 +118,12 @@ export default function InterviewsPage() {
         </Card>
 
         <Card variant="ruled" data-prep-list>
-          <SectionHeading folio={2}>Prep packs</SectionHeading>
+          <SectionHeading folio={2}>Interview packs</SectionHeading>
           {packs === null && !error ? (
-            <Skeleton lines={3} label="Loading your prep packs" />
+            <Skeleton lines={3} label="Loading your interview packs" />
           ) : !packs || packs.length === 0 ? (
-            <EmptyState title="No prep packs yet" actions={<Button href="/applications">Open the tracker</Button>}>
-              Each tracker row has a Prep button: the likely questions for that job with answers built only from your CV, each line
-              traced back to it.
+            <EmptyState title="No interview packs yet" actions={<Button href="/applications">Open your applications list</Button>}>
+              Each application has a Prep button: the likely questions for that job with answers built only from your CV, each line traced back to it.
             </EmptyState>
           ) : (
             <ul className="interviewPast" data-prep-rows>

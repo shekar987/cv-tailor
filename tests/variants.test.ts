@@ -18,7 +18,7 @@ test("productionLeadSkills: only production-level registry skills lead; the rest
     { skill: "Kubernetes", reason: "learning" },
     { skill: "Terraform", reason: "unregistered" },
   ]);
-  assert.equal(leadSkillsNotice(r.dropped), "Only production-level skills can lead. Skipped: Spring Boot (project-level), Kubernetes (still being learned), Terraform (not on your claims registry).");
+  assert.equal(leadSkillsNotice(r.dropped), "Only production-level skills can be shown first. Skipped: Spring Boot (project-level), Kubernetes (still being learned), Terraform (not in your skill levels list).");
   // No registry: nothing to check against, nothing skipped.
   assert.deepEqual(productionLeadSkills(["Java"], null), { kept: ["Java"], dropped: [] });
   assert.equal(leadSkillsNotice([]), "");

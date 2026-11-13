@@ -279,7 +279,7 @@ export default function PrepPackView({ pack, ratings, onRewrite, rewriting }: { 
         <p className="prepSources" data-prep-check={pack.check ? "checked" : "unchecked"}>
           Built from {sources.join(" · ")}.{" "}
           {pack.check
-            ? `${pack.check.sentences} sentence${pack.check.sentences === 1 ? "" : "s"} checked against your master CV — ${pack.check.flagged} marked as not from it${
+            ? `${pack.check.sentences} sentence${pack.check.sentences === 1 ? "" : "s"} checked against your main CV. ${pack.check.flagged} marked as not from it${
                 pack.check.removed > 0 ? `, ${pack.check.removed} company claim${pack.check.removed === 1 ? "" : "s"} removed because the job description and your research don't state ${pack.check.removed === 1 ? "it" : "them"}` : ""
               }.`
             : "Generated before sentence checks existed — regenerate to check it against your CV."}

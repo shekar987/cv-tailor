@@ -343,8 +343,8 @@ test("gateLine: Knockout with the quoted sentence, Long shot, Clear, Not checked
   assert.equal(k.label, "Knockout");
   assert.equal(k.detail, "Knockout: We cannot offer visa sponsorship for this role.");
   const soft = summarizeGates(compareGates(detectGates("- 5+ years of experience."), profile({ yearsExperience: 4 })), "long_shot");
-  assert.equal(gateLine(soft).label, "Long shot");
-  assert.match(gateLine(soft).detail, /^Long shot: 5\+ years/);
+  assert.equal(gateLine(soft).label, "Low chance");
+  assert.match(gateLine(soft).detail, /^Low chance: 5\+ years/);
   const clear = summarizeGates(compareGates(detectGates("- Must hold a full UK driving licence."), profile({ yearsExperience: 4 })), "apply");
   assert.equal(gateLine(clear).label, "Clear");
   assert.match(gateLine(clear).detail, /1 condition to check yourself/);
