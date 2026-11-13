@@ -396,7 +396,7 @@ const FIT_COMPONENT_META: { key: string; label: string; weight: number }[] = [
 // phrase ("Not specified", "Unknown", "N/A") instead of an empty string.
 // Treat those as absent everywhere — a filename, the gate card, or a tracker
 // row must never carry "Not_specified" as if it were a company.
-const PLACEHOLDER_RE = /^(not\s+(specified|mentioned|provided|stated|available|found|given|applicable)|unspecified|unknown( company| role)?|n\/?a|none|-+)$/i;
+const PLACEHOLDER_RE = /^(not\s+(specified|mentioned|provided|stated|available|found|given|applicable)|unspecified|unknown( company| role)?|n\/?a|none|null|undefined|nan|-+)$/i;
 function realValue(text: string | undefined): string {
   const t = (text || "").trim();
   return PLACEHOLDER_RE.test(t) ? "" : t;

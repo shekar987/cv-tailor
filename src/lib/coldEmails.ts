@@ -123,6 +123,9 @@ export function readColdEmails(body: unknown, today: string): { rows: { index: n
     const notes = typeof r.notes === "string" ? r.notes.replace(CONTROL_RE, "").trim() : "";
     const checks: [boolean, string][] = [
       [!company, "company_name is required."],
+      // What a script sends when a value is missing (as lib/applicationFields isPlaceholderName).
+      [/^(?:undefined|null|nan|\[object object\])$/i.test(company), `company_name was sent as "${company}": send the real company name.`],
+      [/^(?:undefined|null|nan|\[object object\])$/i.test(role), `role was sent as "${role}": send the real job title, or leave it out.`],
       [company.length > MAX_COMPANY_CHARS, `company_name is too long (max ${MAX_COMPANY_CHARS} characters).`],
       [!email || email.length > MAX_EMAIL_CHARS || !isValidEmail(email), "contact_email is not an email address."],
       [role.length > MAX_ROLE_CHARS, `role is too long (max ${MAX_ROLE_CHARS} characters).`],

@@ -70,13 +70,25 @@ export function readForce(value: unknown): boolean {
   return typeof value === "string" && /^(1|true|yes)$/i.test(value.trim());
 }
 
-/** How the row was made: by hand (the default) or a cold email. A tailored row comes from /app with its CV. */
-export function readLogSource(value: unknown): { source: "manual" | "cold-email" } | { error: string } {
+// How a logged row may say it was made. Not where the job was found: that is a note.
+export const LOG_SOURCES = ["manual", "cold-email"] as const;
+export type LogSource = (typeof LOG_SOURCES)[number];
+
+/**
+ * How the row was made: by hand (the default) or a cold email. A tailored row comes from /app
+ * with its CV. A refusal names the values allowed and what was sent (13 Nov 2026, Chunk 26: a
+ * sweep sent "linkedin" and "aiapply" here and had to guess), with `allowed` for a caller
+ * that reads fields.
+ */
+export function readLogSource(value: unknown): { source: LogSource } | { error: string; field: "source"; allowed: readonly LogSource[] } {
   const text = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (!text || text === "manual") return { source: "manual" };
   if (text === "cold-email" || text === "cold_email") return { source: "cold-email" };
-  if (text === "tailored") return { error: "A tailored row is saved from /app (Applied), with the CV it was tailored into. Log this one as manual." };
-  return { error: `source must be "manual" or "cold-email" (where you applied belongs in append_note).` };
+  const refuse = (error: string) => ({ error, field: "source" as const, allowed: LOG_SOURCES });
+  if (text === "tailored") return refuse(`source "tailored" is only for a CV made on the Tailor page, which saves its own application. Allowed here: "manual" or "cold-email". Send "manual", or leave source out.`);
+  return refuse(
+    `source "${text.slice(0, 40)}" is not allowed. Allowed values: "manual" (the default: leave source out) or "cold-email". source says how the application was made, not where the job was found: put the job board or the agent's name in append_note or logged_by.`
+  );
 }
 
 export type LoggedRow = { id: string; company_name: string; role: string; status: string; date_applied: string | null; created_at?: string | null; sent_cv_name?: string | null };

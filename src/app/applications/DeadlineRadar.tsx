@@ -1,7 +1,7 @@
 "use client";
 // The deadline radar on /applications (10 Nov 2026, Chunk 21; lib/deadlines): a red strip at
-// the top, "Due in the next 48 hours", each item saying what to do and which inbox the email
-// went to. The same list is GET /api/applications?due=48h. DeadlineEditor is the row's Edit
+// the top, "Do these today" (what is due in the next 48 hours, numbered, soonest first), each
+// item saying what to do and which inbox the email went to. The same list is GET /api/applications?due=48h. DeadlineEditor is the row's Edit
 // panel fields that feed it: the deadline, what is due, and the address applied from.
 //
 // No next/* or @/ imports, so a test can render it under node:test.
@@ -25,15 +25,20 @@ export function DeadlineRadar({
   if (items.length === 0) return null;
   return (
     <section className="dueRadar" aria-labelledby="dueRadarTitle" data-due-radar={items.length}>
+      {/* "Do these today" (13 Nov 2026, Chunk 26): the old title, "Due in the next 48 hours", gave a
+          list with no order to work through. The items are numbered, soonest first (lib/deadlines
+          dueWithin sorts them), and the line under the title says what the list holds. */}
       <h2 className="dueRadar__title" id="dueRadarTitle">
-        <Icon name="alert" /> Due in the next {hours} hours <span className="dueRadar__count">{items.length}</span>
+        <Icon name="alert" /> Do these today <span className="dueRadar__count">{items.length}</span>
       </h2>
-      <ul className="dueRadar__list">
-        {items.map((item) => {
+      <p className="dueRadar__sub">Due in the next {hours} hours. The soonest is first.</p>
+      <ol className="dueRadar__list" role="list">
+        {items.map((item, index) => {
           const key = `${item.id}:${item.kind}`;
           const action = item.action.includes(item.company_name) ? item.action : `${item.company_name}: ${item.action}`;
           return (
             <li key={key} className={`dueRadar__item${item.overdue ? " dueRadar__item--overdue" : ""}`} data-due-item={item.kind} data-due-id={item.id}>
+              <span className="dueRadar__n" aria-hidden="true">{index + 1}.</span>
               <span className="dueRadar__when">{item.when}</span>
               <span className="dueRadar__action">{action}</span>
               <span className="dueRadar__buttons">
@@ -49,7 +54,7 @@ export function DeadlineRadar({
             </li>
           );
         })}
-      </ul>
+      </ol>
     </section>
   );
 }
