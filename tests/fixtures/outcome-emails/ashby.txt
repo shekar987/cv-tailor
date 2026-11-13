@@ -1,0 +1,15 @@
+From: Quillstone Hiring Team <no-reply@ashbyhq.com>
+Subject: Your application to Quillstone
+Date: Thu, 12 Nov 2026 16:41:07 +0000
+To: alex.tester@example.com
+
+Hi Alex,
+
+Thank you for your interest in Quillstone and for applying for the Graduate Software Engineer role.
+
+After reviewing your application, we have decided not to progress it to the next stage. We received a high number of applications and this was a hard decision.
+
+We encourage you to apply again for future roles.
+
+Best wishes,
+The Quillstone Talent Team

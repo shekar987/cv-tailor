@@ -71,7 +71,25 @@ export type Editable = {
   deadline_note?: string | null;
 } & ReferralFields;
 
-export type Validation = { fields: Editable } | { error: string };
+// `field`: which field was wrong, for a caller that reads fields rather than prose.
+export type Validation = { fields: Editable } | { error: string; field?: string };
+
+// What a script sends when its variable was never set (13 Nov 2026, Chunk 26): two sweep
+// helpers with the same name ran in one browser tab, and the API saved an application for
+// company "undefined", role "undefined". These are never a real company or role.
+const PLACEHOLDER_NAME_RE = /^(?:undefined|null|nan|\[object object\])$/i;
+
+export function isPlaceholderName(value: string): boolean {
+  return PLACEHOLDER_NAME_RE.test(value.trim());
+}
+
+function placeholderError(field: "company_name" | "role", value: string): { error: string; field: string } {
+  const label = field === "company_name" ? "The company name" : "The role";
+  return {
+    error: `${label} was sent as "${value.trim()}". That is what a script sends when a value is missing, so nothing was saved. Send the real ${field === "company_name" ? "company name" : "job title"} in ${field}.`,
+    field,
+  };
+}
 
 // The fields a user can edit inline. On create (partial = false) every
 // required field must be present; on update (partial = true) absent keys are
@@ -109,17 +127,19 @@ export function validateEditable(body: Record<string, unknown>, partial: boolean
 
   if (!partial || "company_name" in body) {
     const company = typeof body.company_name === "string" ? body.company_name.trim() : "";
-    if (!company) return { error: "Company name is required." };
+    if (!company) return { error: "Company name is required. Send it as company_name.", field: "company_name" };
+    if (isPlaceholderName(company)) return placeholderError("company_name", company);
     if (company.length > MAX_COMPANY) {
-      return { error: `Company name is too long (max ${MAX_COMPANY} characters).` };
+      return { error: `Company name is too long (max ${MAX_COMPANY} characters).`, field: "company_name" };
     }
     fields.company_name = company;
   }
 
   if (!partial || "role" in body) {
     const role = typeof body.role === "string" ? body.role.trim() : "";
-    if (!role) return { error: "Role is required." };
-    if (role.length > MAX_ROLE) return { error: `Role is too long (max ${MAX_ROLE} characters).` };
+    if (!role) return { error: "Role is required. Send the job title as role.", field: "role" };
+    if (isPlaceholderName(role)) return placeholderError("role", role);
+    if (role.length > MAX_ROLE) return { error: `Role is too long (max ${MAX_ROLE} characters).`, field: "role" };
     fields.role = role;
   }
 

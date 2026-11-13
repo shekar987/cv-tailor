@@ -58,7 +58,9 @@ export const TAB_LABELS: Record<TabKey, string> = {
   assessment: "Assessment",
   offer: "Offer",
   won: "Won",
-  closed: "Closed",
+  // "Rejected / closed" (13 Nov 2026, Chunk 26): "Closed" alone did not tell a first-time user
+  // that this is where a rejection goes. It also holds withdrawn and no-reply applications.
+  closed: "Rejected / closed",
 };
 // These three are tabs only while they hold something.
 const WHEN_FULL: ReadonlySet<TabKey> = new Set<TabKey>(["assessment", "offer", "won"]);
@@ -258,6 +260,19 @@ export function isDataToFix(row: AttentionRow): boolean {
 }
 
 export type AttentionCounts = { dueSoon: number; dueSoonRows: number; followups: number; statusToFix: number; attachmentsToFix: number; dataToFix: number };
+
+/**
+ * The "to fix" card's words: what is wrong, and only that (13 Nov 2026, Chunk 26). "0 with the
+ * wrong status" beside the real count was noise, and one kind of problem needs no breakdown.
+ */
+export function fixLabel(counts: Pick<AttentionCounts, "statusToFix" | "attachmentsToFix">): string {
+  const status = counts.statusToFix > 0;
+  const files = counts.attachmentsToFix > 0;
+  if (status && files) return `Applications to fix · ${counts.statusToFix} with the wrong status, ${counts.attachmentsToFix} with no job description or CV`;
+  if (files) return "Applications with no job description or CV";
+  if (status) return "Applications with the wrong status";
+  return "Applications to fix";
+}
 
 export function attentionCounts(
   rows: readonly AttentionRow[],

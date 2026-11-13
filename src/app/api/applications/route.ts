@@ -470,7 +470,7 @@ async function createApplication(req: NextRequest) {
 
     const validated = validateEditable(body, false);
     if ("error" in validated) {
-      return NextResponse.json({ error: validated.error }, { status: 400 });
+      return NextResponse.json(validated, { status: 400 });
     }
     const { fields } = validated;
     if (followupTooEarly(fields.date_applied, fields.followup_date ?? null)) {
@@ -763,7 +763,7 @@ async function appendToApplication(req: NextRequest) {
     }
     if (!isUuid(body.id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
     const cleaned = cleanNoteLine(body.append_note);
-    if ("error" in cleaned) return NextResponse.json({ error: cleaned.error }, { status: 400 });
+    if ("error" in cleaned) return NextResponse.json(cleaned, { status: 400 });
     const { line } = cleaned;
 
     const appended = await appendNote(supabase, userId, body.id, line);
@@ -855,7 +855,7 @@ async function updateApplication(req: NextRequest) {
 
     const validated = validateEditable(body, true);
     if ("error" in validated) {
-      return NextResponse.json({ error: validated.error }, { status: 400 });
+      return NextResponse.json(validated, { status: 400 });
     }
     const { fields } = validated;
     const otherChanges = Object.keys(fields).length > 0 || "formatStyle" in body;
@@ -1060,6 +1060,14 @@ async function updateApplication(req: NextRequest) {
         followup = null;
         followupCleared = { followup_date: null, notes: fields.notes };
       }
+      // A confirmed close that adds a line ("Log outcome", Chunk 26): the line joins this one
+      // write, on the version just read. Appended after it, the line would be the "next change"
+      // that clears the Undo this close stores (the trigger of migration 20261105120000), so a
+      // rejection logged on the wrong row could not be undone, and its line would stay there.
+      if (notesWrite.mode === "append" && fields.undo_snapshot && !("notes" in fields) && typeof existing.updated_at === "string") {
+        composedFrom ??= existing.updated_at;
+        fields.notes = (existing.notes as string | null) || null;
+      }
     }
     if (followupTooEarly(dateApplied, followup)) {
       return NextResponse.json({ error: FOLLOWUP_ERROR }, { status: 400 });
@@ -1098,6 +1106,8 @@ async function updateApplication(req: NextRequest) {
         if (merged.length > MAX_NOTES) return full();
         fields.notes = merged;
         appendInWrite = true;
+        // Undo of this close takes its line back too (lib/closing undoWrite).
+        if (fields.undo_snapshot) fields.undo_snapshot = { ...fields.undo_snapshot, note: stamped };
         if (followupCleared) followupCleared = { ...followupCleared, notes: merged };
         if (reportNotes !== undefined) reportNotes = merged;
       } else {
@@ -1212,7 +1222,10 @@ async function updateApplication(req: NextRequest) {
         ? await closeOnConfirmation(supabase, userId, id)
         : null;
     // What the company said about applying again, in the line this write appended.
-    const companyRules = appendedNotes !== undefined && notesWrite.mode === "append" ? await rulesFromNote(supabase, userId, id, notesWrite.line) : [];
+    // Not for a line written with a confirmed close ("Log outcome"): Undo takes that close and its
+    // line back, but could not take back a rule, so a rejection logged on the wrong application
+    // would leave its company blocked. The Notes panel offers the rule from the line instead.
+    const companyRules = appendedNotes !== undefined && notesWrite.mode === "append" && !fields.undo_snapshot ? await rulesFromNote(supabase, userId, id, notesWrite.line) : [];
     const warning = [closeWarning, noteWarning].filter(Boolean).join(" ");
     return NextResponse.json({
       ok: true,

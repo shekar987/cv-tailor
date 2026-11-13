@@ -31,7 +31,7 @@ import StageTabs, { type TabChoice } from "./StageTabs";
 import ClosedSection, { type ClosedRow } from "./ClosedSection";
 import WinsView from "./WinsView";
 import MoveToClosedDialog, { closeBody, type CloseChoice } from "@/components/MoveToClosedDialog";
-import { CONFIRMATION_MESSAGE, HIGHEST_STAGE_LABELS, UNDO_WINDOW_MS, activePending, closedRows, highestStage, isAsking, isClosed, isEnding, isMoveBack, isStepBack, liveOrder, needsConfirmation, normalizePendingOutcome, pendingBanner, pendingLine, reachedScreening, removableStages, removeStageLabel, removedStageNote, reasonForStatus, reopenTarget, stageSummary, type CloseReason, type PendingOutcome, type StageTab } from "@/lib/closing";
+import { CLOSE_REASON_LABELS, CONFIRMATION_MESSAGE, HIGHEST_STAGE_LABELS, UNDO_WINDOW_MS, activePending, closedAtFromDate, closedRows, statusForReason, highestStage, isAsking, isClosed, isEnding, isMoveBack, isStepBack, liveOrder, needsConfirmation, normalizePendingOutcome, pendingBanner, pendingLine, reachedScreening, removableStages, removeStageLabel, removedStageNote, reasonForStatus, reopenTarget, stageSummary, type CloseReason, type PendingOutcome, type StageTab } from "@/lib/closing";
 import RowMenu, { type RowMenuItem } from "./RowMenu";
 import NextStepCell from "./NextStepCell";
 import EventForm, { type EventFormMode } from "../app/next/EventForm";
@@ -76,6 +76,8 @@ import {
 import type { TrackerCounts } from "@/lib/trackerCounts";
 import { followupsDueToday, isFollowupDueToday } from "@/lib/followupsDue";
 import CleanupPanel from "./CleanupPanel";
+import LogOutcomePanel, { type OutcomeChoice } from "./LogOutcomePanel";
+import { nextStepAfterOutcome } from "@/lib/outcomeEmail";
 import { trackedFetch, whenNoWrites, writeSeq, writesInFlight } from "@/lib/writeTracker";
 import type { TabKey } from "@/lib/applicationStage";
 import AppHeader from "@/components/ui/AppHeader";
@@ -743,6 +745,9 @@ export default function ApplicationsPage() {
   const [isOwner, setIsOwner] = useState(false);
   // The tracker clean-up's dry run (owner only, lib/trackerCleanup).
   const [cleanupOpen, setCleanupOpen] = useState(false);
+  // "Log outcome" (Chunk 26): paste an outcome email or search, then one click on the application.
+  const [outcomeOpen, setOutcomeOpen] = useState(false);
+  const outcomeButton = useRef<HTMLButtonElement>(null);
   const [styleFilter, setStyleFilter] = useState<"all" | RowStyle>("all");
   const [sortKey, setSortKey] = useState<SortKey>("date_applied");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -1482,6 +1487,44 @@ export default function ApplicationsPage() {
     setClosing(null);
     setStageRefresh((n) => n + 1);
     showToast({ message: "Moved to Closed", undo: () => undoClose(row.id) }, UNDO_WINDOW_MS);
+  }
+
+  // "Log outcome" (lib/outcomeEmail): the user's click on a named application, so it is their
+  // word, sent the way the Move to Closed dialog sends it (closeBody). One request ends the
+  // application, dates it, confirms an outcome a sweep reported, and adds the line to the top of
+  // the notes; nothing in the notes is replaced. Undo takes the close and its line back together.
+  async function logOutcome(id: string, choice: OutcomeChoice): Promise<string | null> {
+    const row = rowsRef.current.find((r) => r.id === id);
+    if (!row) return "That application is no longer in your list.";
+    const closedAt = closedAtFromDate(choice.date);
+    if (!closedAt) return "Enter a real date.";
+    const status = statusForReason(choice.reason);
+    if (row.status === status) return `${row.company_name} is already ${CLOSE_REASON_LABELS[choice.reason]}. Nothing was changed.`;
+    const save = () =>
+      patchRow(
+        id,
+        { status, stages_reached: stagesAfterMove(row.stages_reached, status), closed_at: closedAt, close_reason: choice.reason, pending_outcome: null },
+        { ...closeBody({ status, close_reason: choice.reason, closed_at: closedAt, lesson: row.lesson ?? null }), append_note: choice.note }
+      );
+    let message = await save();
+    // The notes changed in the moment between the read and the write: nothing landed, so once more.
+    if (message === STALE_NOTES) message = await save();
+    if (message) return message === STALE_NOTES ? "This application changed while it was being saved, so nothing was saved. Try again." : message;
+    setActionError("");
+    setStageRefresh((n) => n + 1);
+    showToast(
+      {
+        message: `${row.company_name}: ${CLOSE_REASON_LABELS[choice.reason]} saved`,
+        undo: async () => {
+          await undoClose(id);
+          // A Notes panel open on this application had the line added to its draft: out it comes,
+          // or the next save would write back what the Undo just removed.
+          setNotesDraft((d) => (d?.id === id ? { ...d, text: d.text.split("\n").filter((l) => !l.trim().endsWith(choice.note)).join("\n") } : d));
+        },
+      },
+      UNDO_WINDOW_MS
+    );
+    return null;
   }
 
   // Restored from what the close stored on the server. The history stays as it is.
@@ -2769,7 +2812,7 @@ export default function ApplicationsPage() {
   // The page's own filters reach the Closed section too; the summary above stays all time.
   const closedHere = stageTabNow ? closedRows(rows.filter((r) => (styleFilter === "all" || rowStyle(r.format_style) === styleFilter) && (!bounds || inPeriod(r, bounds.from, bounds.to))), stageTabNow) : [];
   const noFilters = periodFilter === "all" && styleFilter === "all";
-  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "saved" ? "just saved" : attention === "radar" ? `due in the next ${DUE_WINDOW_HOURS} hours` : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due this week" : attention === "today" ? "follow-ups due today" : attention === "fix" ? "data to fix" : attention === "referrals" ? "referral asks" : attention === "cold" ? "cold emails missing a follow-up date" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
+  const viewLabel = !attention && searchTerm ? "across every tab" : attention === "saved" ? "just saved" : attention === "radar" ? `due in the next ${DUE_WINDOW_HOURS} hours` : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due this week" : attention === "today" ? "follow-ups due today" : attention === "fix" ? "applications to fix" : attention === "referrals" ? "referral asks" : attention === "cold" ? "cold emails missing a follow-up date" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
   const viewTotal = !attention && searchTerm ? rows.length : attention === "saved" ? (savedRow ? 1 : 0) : attention === "radar" ? radarIds.size : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "today" ? dueTodayNumbers.total : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : attention === "cold" ? coldNoFollowup : tabNow === "all" ? rows.length : counts[tabNow];
   const elsewhere = !attention && !searchTerm && tabNow !== "all" && tabNow !== "assessment" ? countedElsewhere(rows, byApp, tabNow) : 0;
   const activeFilters = (styleFilter !== "all" ? 1 : 0) + (includePast ? 1 : 0) + (listSort !== "next" ? 1 : 0);
@@ -2792,10 +2835,40 @@ export default function ApplicationsPage() {
                   Clean-up
                 </Button>
               )}
+              {hasRows && (
+                <Button ref={outcomeButton} variant="secondary" onClick={() => setOutcomeOpen((o) => !o)} disabled={sessionExpired} aria-expanded={outcomeOpen} data-apps-outcome>
+                  Log outcome
+                </Button>
+              )}
               <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired} data-apps-add>+ Add application</Button>
             </>
           }
         />
+
+        {/* Right under the title, so it is on screen on a phone too. Matching needs every row. */}
+        {outcomeOpen && hasRows && (
+          <LogOutcomePanel
+            rows={rows}
+            ready={fullLoaded}
+            today={todayLocal()}
+            next={nextStepAfterOutcome({ dueSoon: fullLoaded ? radar.length : 0, followupsToday: dueTodayNumbers.total })}
+            onLog={logOutcome}
+            onNext={(kind) => {
+              setOutcomeOpen(false);
+              setWins(false);
+              setSpreadsheet(false);
+              setQuery("");
+              setPeriodFilter("all");
+              setStyleFilter("all");
+              setPanel(null);
+              setAttention(kind === "due" ? "radar" : "today");
+            }}
+            onClose={() => {
+              setOutcomeOpen(false);
+              outcomeButton.current?.focus();
+            }}
+          />
+        )}
 
         {pageError && (
           <p role="alert" className="keyError">

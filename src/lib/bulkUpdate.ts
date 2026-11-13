@@ -53,7 +53,7 @@ export function readBulkBody(body: Record<string, unknown>): BulkRequest | { err
   }
   if ("append_line" in body) {
     const cleaned = cleanNoteLine(body.append_line);
-    if ("error" in cleaned) return { error: cleaned.error.replace("append_note", "append_line") };
+    if ("error" in cleaned) return { error: cleaned.error.replaceAll("append_note", "append_line") };
     patch.append_note = cleaned.line;
   }
   if (Object.keys(patch).length === 0) return { error: "Send at least one of followup_date, status or append_line." };

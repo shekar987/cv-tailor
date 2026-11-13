@@ -1,8 +1,10 @@
 "use client";
 
-// "Move to Closed" (4 Nov 2026, Chunk 15): the reason, the date and an optional lesson. This
-// is the only thing in the app that sends confirmed_by_user: a row that reached screening
-// leaves on the user's word, given here, or not at all. Used by the tracker and What's next.
+// "Move to Closed" (4 Nov 2026, Chunk 15): the reason, the date and an optional lesson. A row
+// that reached screening leaves on the user's word, or not at all, and confirmed_by_user is
+// that word: it is set only by closeBody below. Two things call it, both a user's own click on
+// a named application: this dialog (the tracker and What's next), and since 13 Nov 2026
+// (Chunk 26) the "Log outcome" panel on /applications.
 import { useEffect, useId, useRef, useState } from "react";
 import Button from "@/components/ui/Button";
 import { trapFocusIndex } from "@/lib/confirm";
@@ -11,7 +13,7 @@ import type { Status } from "@/lib/tracker";
 
 export type CloseChoice = { status: Status; close_reason: CloseReason; closed_at: string; lesson: string | null };
 
-/** What goes in the PUT. The one place this flag is set. */
+/** What goes in the PUT. The one place this flag is set: never build it anywhere else. */
 export function closeBody(choice: CloseChoice) {
   return { ...choice, confirmed_by_user: true as const };
 }

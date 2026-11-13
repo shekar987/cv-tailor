@@ -4,7 +4,7 @@
 // the referral block and the two chips: each card is a button that filters the table,
 // and urgency is an icon and words as well as a colour.
 import Icon from "@/components/ui/Icon";
-import type { AttentionCounts, ReferralCard } from "@/lib/applicationStage";
+import { fixLabel, type AttentionCounts, type ReferralCard } from "@/lib/applicationStage";
 import type { DueTodayCount } from "@/lib/followupsDue";
 import { formatDate } from "@/lib/formatDate";
 
@@ -89,7 +89,7 @@ export default function AttentionStrip({
         data-attn="fix"
       >
         <span className="attnNumber">{loading ? <Pending /> : counts.dataToFix}</span>
-        <span className="attnLabel">{loading ? "Applications to fix" : `Applications to fix · ${counts.statusToFix} with the wrong status, ${counts.attachmentsToFix} with no job description or CV`}</span>
+        <span className="attnLabel">{loading ? "Applications to fix" : fixLabel(counts)}</span>
       </button>
       {/* The cold-email count needs every row too: no card until the full list is here. */}
       {!loading && coldNoFollowup > 0 && (

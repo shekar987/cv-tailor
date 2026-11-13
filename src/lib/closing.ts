@@ -352,7 +352,12 @@ export type UndoSnapshot = {
   pending_outcome: PendingOutcome | null;
   followup_date: string | null;
   at: string;
+  // The stamped line this close put in the notes ("Log outcome", Chunk 26): Undo takes it back
+  // with the close, or a rejection logged on the wrong row would stay in that row's notes.
+  note?: string;
 };
+// A stamped appended note: its 17-character stamp and a space, then at most 500 characters.
+const MAX_UNDO_NOTE_CHARS = 600;
 export type ClosingWrite = { status?: Status; closed_at?: string | null; close_reason?: CloseReason | null; lesson?: string | null; pending_outcome?: PendingOutcome | null; undo_snapshot?: UndoSnapshot | null; notes?: string | null };
 export type ClosingCurrent = StageFields & { pending_outcome?: unknown; closed_at?: string | null; close_reason?: unknown; lesson?: string | null; followup_date?: string | null; notes?: string | null };
 export type ClosingRefusal = { status: 400 | 409; error: string; errorType?: "needs_confirmation" | "needs_move_back_confirmation" };
@@ -374,7 +379,17 @@ export function normalizeUndoSnapshot(value: unknown): UndoSnapshot | null {
     pending_outcome: normalizePendingOutcome(o.pending_outcome),
     followup_date: typeof o.followup_date === "string" ? o.followup_date : null,
     at: o.at,
+    ...(typeof o.note === "string" && o.note.trim() && o.note.length <= MAX_UNDO_NOTE_CHARS && !/[\r\n]/.test(o.note) ? { note: o.note } : {}),
   };
+}
+
+/** Takes one whole line out of the notes, the first that is exactly it. Every other line stays as it is. */
+function removeNoteLine(notes: string | null | undefined, line: string): string | null {
+  const lines = (notes ?? "").split(/\r?\n/);
+  const at = lines.findIndex((l) => l.trim() === line.trim());
+  if (at < 0) return notes ?? null;
+  lines.splice(at, 1);
+  return lines.join("\n").trimEnd() || null;
 }
 
 export function undoIsLive(snapshot: UndoSnapshot, nowMs: number): boolean {
@@ -385,6 +400,11 @@ export function undoIsLive(snapshot: UndoSnapshot, nowMs: number): boolean {
 /** What an Undo writes. The history stays as it is: the row just stands where it stood. */
 export function undoWrite(snapshot: UndoSnapshot, current: { followup_date?: string | null; notes?: string | null }) {
   const followupBack = !!snapshot.followup_date && !current.followup_date;
+  let notes = current.notes ?? null;
+  if (followupBack) notes = removeFollowupClearedNote(notes, snapshot.followup_date as string) || null;
+  // The line the close itself added goes with it; a line the notes no longer hold changes nothing.
+  const noteBack = !!snapshot.note && removeNoteLine(notes, snapshot.note) !== notes;
+  if (noteBack) notes = removeNoteLine(notes, snapshot.note as string);
   return {
     status: snapshot.status,
     closed_at: snapshot.closed_at,
@@ -392,7 +412,8 @@ export function undoWrite(snapshot: UndoSnapshot, current: { followup_date?: str
     lesson: snapshot.lesson,
     pending_outcome: snapshot.pending_outcome,
     undo_snapshot: null,
-    ...(followupBack ? { followup_date: snapshot.followup_date, notes: removeFollowupClearedNote(current.notes, snapshot.followup_date as string) || null } : {}),
+    ...(followupBack ? { followup_date: snapshot.followup_date } : {}),
+    ...(followupBack || noteBack ? { notes } : {}),
   };
 }
 

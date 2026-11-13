@@ -143,12 +143,14 @@ async function logApplication(req: NextRequest) {
     const { body } = read;
 
     // The row's fields, by the same rules as POST /api/applications (lib/applicationFields).
+    // Each refusal carries its own detail beside the sentence: `field`, and `allowed` or `max`
+    // (Chunk 26), so a script never has to guess what would have been taken.
     const validated = validateEditable(body, false);
-    if ("error" in validated) return NextResponse.json({ error: validated.error }, { status: 400 });
+    if ("error" in validated) return NextResponse.json(validated, { status: 400 });
     const { fields } = validated;
-    if (followupTooEarly(fields.date_applied, fields.followup_date ?? null)) return NextResponse.json({ error: FOLLOWUP_ERROR }, { status: 400 });
+    if (followupTooEarly(fields.date_applied, fields.followup_date ?? null)) return NextResponse.json({ error: FOLLOWUP_ERROR, field: "followup_date" }, { status: 400 });
     const source = readLogSource(body.source);
-    if ("error" in source) return NextResponse.json({ error: source.error }, { status: 400 });
+    if ("error" in source) return NextResponse.json(source, { status: 400 });
     const logged = readLoggedBy(body.logged_by);
     if ("error" in logged) return NextResponse.json({ error: logged.error }, { status: 400 });
     const jobDescription = (body.job_description ?? "").trim();
@@ -156,7 +158,7 @@ async function logApplication(req: NextRequest) {
     let notes: string | null = null;
     if (body.append_note !== undefined && body.append_note.trim() !== "") {
       const cleaned = cleanNoteLine(body.append_note);
-      if ("error" in cleaned) return NextResponse.json({ error: cleaned.error }, { status: 400 });
+      if ("error" in cleaned) return NextResponse.json(cleaned, { status: 400 });
       notes = stampNoteLine(cleaned.line, Date.now());
     }
 

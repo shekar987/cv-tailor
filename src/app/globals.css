@@ -4068,14 +4068,17 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 .dueRadar { margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--danger-border); border-radius: var(--radius-md); background: var(--danger-dim); }
 .dueRadar__title { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--danger); }
 .dueRadar__count { padding: 0 var(--space-2); border: 1px solid var(--danger-border); border-radius: var(--radius-pill); font-size: var(--text-xs); color: var(--text); }
+.dueRadar__sub { margin: 0 0 var(--space-2); font-size: var(--fs-sm); color: var(--muted); }
 .dueRadar__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
-.dueRadar__item { display: grid; grid-template-columns: minmax(150px, max-content) 1fr auto; align-items: baseline; gap: var(--space-3); font-size: var(--text-sm); }
+.dueRadar__item { display: grid; grid-template-columns: 1.75em minmax(150px, max-content) 1fr auto; align-items: baseline; gap: var(--space-3); font-size: var(--text-sm); }
+.dueRadar__n { color: var(--muted); font-variant-numeric: tabular-nums; }
 .dueRadar__when { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dueRadar__item--overdue .dueRadar__when { color: var(--danger); font-weight: 600; }
 .dueRadar__action { color: var(--text); min-width: 0; overflow-wrap: anywhere; }
 .dueRadar__buttons { display: flex; gap: var(--space-2); }
 @media (max-width: 640px) {
-  .dueRadar__item { grid-template-columns: 1fr; gap: var(--space-1); }
+  .dueRadar__item { grid-template-columns: 1.75em 1fr; gap: var(--space-1) var(--space-2); }
+  .dueRadar__item > :not(.dueRadar__n) { grid-column: 2; }
 }
 
 /* A row's next deadline and the inbox it used, in the Edit panel. */
@@ -4403,4 +4406,42 @@ button.inlineLink { margin-block: -8px; }
   /* The badges get a line of their own; its bottom padding holds the tap area of "Add JD
      to check" (button.inlineLink reaches 44px with negative margins), so it stays out of Role. */
   .appsTable td[data-label="Company Name"] > .rowFlags { flex-basis: 100%; padding: 0 0 var(--space-3); }
+}
+
+/* "Log outcome" on /applications (Chunk 26): paste an email or search, then one click. */
+.outcomePanel { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-5); }
+.outcomeHead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.outcomeWays { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); gap: var(--space-3) var(--space-5); align-items: start; }
+.outcomeWay { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.outcomeWay .cvHelp { margin: 0; }
+.outcomeText { width: 100%; min-height: 120px; resize: vertical; }
+.outcomeSearch { width: 100%; }
+.outcomeRead { margin: 0; font-size: var(--fs-base); color: var(--text); }
+.outcomeRead[data-outcome-read="unknown"], .outcomeRead[data-outcome-read="invitation"] { color: var(--amber-bright); }
+.outcomeFields { display: grid; grid-template-columns: minmax(160px, 220px) minmax(150px, 190px) minmax(0, 1fr); gap: var(--space-3); align-items: end; }
+.outcomeField { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.outcomeField .textInput { width: 100%; }
+.outcomeListTitle { margin: var(--space-2) 0 0; font-size: var(--fs-base); font-weight: 600; color: var(--text); }
+.outcomeList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.outcomeItem { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-4); padding: var(--space-3) 0; border-top: 1px solid var(--border); }
+.outcomeItem__what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.outcomeItem__name { font-size: var(--fs-base); color: var(--text); overflow-wrap: anywhere; }
+.outcomeItem__meta { font-size: var(--fs-sm); color: var(--muted); }
+.outcomeItem__note { font-size: var(--fs-sm); color: var(--amber-bright); }
+.outcomeItem[data-outcome-already] .outcomeItem__note { color: var(--muted); }
+.outcomeItem .cta { flex: 0 0 auto; }
+.outcomeEmpty { margin: 0; font-size: var(--fs-base); color: var(--amber-bright); }
+.outcomeDone { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); border: 1px solid var(--success-border); border-radius: var(--r-md); background: var(--success-dim); }
+.outcomeDone__line { margin: 0; font-size: var(--fs-base); color: var(--text); }
+.outcomeDone__next { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); font-size: var(--fs-base); color: var(--text); }
+.outcomeDone__nextLabel { font-weight: 600; }
+@media (max-width: 900px) {
+  .outcomeWays { grid-template-columns: 1fr; }
+  .outcomeFields { grid-template-columns: 1fr 1fr; }
+  .outcomeField--wide { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .outcomeText { min-height: 96px; }
+  .outcomeItem { flex-direction: column; align-items: stretch; }
+  .outcomeItem .cta { width: 100%; }
 }

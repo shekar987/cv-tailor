@@ -55,10 +55,20 @@ export function isRecentDuplicate(notes: string | null | undefined, line: string
 }
 
 /** One line of text, whitespace folded, within the cap. */
-export function cleanNoteLine(raw: unknown): { line: string } | { error: string } {
+// The refusal says the limit and what was sent (13 Nov 2026, Chunk 26): a sweep that got a
+// 400 for a long note lost time guessing the cap. `max` and `length` are for a caller that
+// reads fields rather than prose.
+export function cleanNoteLine(raw: unknown): { line: string } | { error: string; field: "append_note"; max: number; length?: number } {
   const line = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
-  if (!line) return { error: "append_note must be some text." };
-  if (line.length > MAX_APPENDED_NOTE) return { error: `The note is too long (max ${MAX_APPENDED_NOTE} characters).` };
+  if (!line) return { error: `append_note must be some text (one line, up to ${MAX_APPENDED_NOTE} characters).`, field: "append_note", max: MAX_APPENDED_NOTE };
+  if (line.length > MAX_APPENDED_NOTE) {
+    return {
+      error: `The note is too long: ${line.length} characters, and the limit for one append_note is ${MAX_APPENDED_NOTE}. Shorten it, or send the rest as a second note.`,
+      field: "append_note",
+      max: MAX_APPENDED_NOTE,
+      length: line.length,
+    };
+  }
   return { line };
 }
 
@@ -81,7 +91,7 @@ export function decideNotesWrite(body: Record<string, unknown>): NotesWrite {
   if (appending && replacing) return { refuse: { status: 400, body: { error: "Send notes or append_note, not both." } } };
   if (appending) {
     const cleaned = cleanNoteLine(body.append_note);
-    return "error" in cleaned ? { refuse: { status: 400, body: { error: cleaned.error } } } : { mode: "append", line: cleaned.line };
+    return "error" in cleaned ? { refuse: { status: 400, body: { ...cleaned } } } : { mode: "append", line: cleaned.line };
   }
   if (replacing) {
     const version = body.if_updated_at;

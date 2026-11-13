@@ -162,7 +162,8 @@ try {
   check("no tab reads as selected while a card filters", (await page.locator('[role="tab"][aria-selected="true"]').count()) === 0);
   await card("fix").click();
   const fix = await card("fix").innerText();
-  check("Data to fix says both numbers", /1 with the wrong status/.test(fix), fix.replace(/\s+/g, " "));
+  // lib/applicationStage fixLabel (Chunk 26): only what is wrong is named; both kinds get their numbers.
+  check("the fix card says what is wrong", /with the wrong status/.test(fix) && !/\b0 with\b/.test(fix), fix.replace(/\s+/g, " "));
   check("and its list holds the unsent row", (await companies()).includes("Made Up Unsent"), (await companies()).join(","));
   check("the reviewed move is still there", (await page.locator('[data-bulk-ready]').count()) === 1);
   await card("fix").click();
@@ -194,7 +195,7 @@ try {
   await tab("closed");
   const breakdown = await page.locator("[data-closed-breakdown]").innerText();
   check("Closed breaks down into rejected and withdrawn", /1 rejected · 1 withdrawn · 0 no reply/.test(breakdown), breakdown);
-  check("Showing X of Y in the tab", /Showing 2 of 2 in Closed/.test(await page.locator("[data-apps-count]").innerText()));
+  check("Showing X of Y in the tab", /Showing 2 of 2 in Rejected \/ closed/.test(await page.locator("[data-apps-count]").innerText()));
 
   // ── Toolbar ──────────────────────────────────────────────────────────────
   await tab("applied");
@@ -232,7 +233,8 @@ try {
   check("and the mock interview", items.includes("Mock interview"), items.join(" | "));
   await menu("Made Up Sales").locator('[data-menu-item="match-status"]').click();
   await page.waitForTimeout(600);
-  check("Update status writes it, once, by your click", (await api(`/api/applications?id=${sales}`, "GET")).application?.status === "Assessment");
+  const salesStatus = (await api(`/api/applications?id=${sales}`, "GET")).application?.status;
+  check("Update status writes it, once, by your click", salesStatus === "Assessment", `${salesStatus} · ${(await page.locator("[role=alert], [role=dialog]").allInnerTexts()).join(" | ").slice(0, 200)}`);
   await menu("Made Up Loop").locator("[data-row-menu]").click();
   await menu("Made Up Loop").locator('[data-menu-item="edit-row"]').click();
   await page.locator("[data-edit-panel]").waitFor();
