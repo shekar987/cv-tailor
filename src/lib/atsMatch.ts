@@ -228,6 +228,66 @@ function allWithinWindow(terms: string[], cv: CvIndex): boolean {
   });
 }
 
+// ── "Automated tests" (12 Nov 2026) ─────────────────────────────────────────
+// "automated" / "automation" are filler beside most nouns ("deployment
+// automation" is about deployment), which is why they sit in GENERIC_TERMS.
+// Beside "test" they are the claim itself. Read as filler, "Automated tests"
+// was matched by the word "test" alone, so "Manual testing of releases",
+// "usability testing sessions" and "A/B testing" each scored it as present:
+// an over-match, on the number the product promises is honest.
+//
+// A term that pairs an automation word with a test word now also needs the CV
+// to show AUTOMATED testing, one of two ways:
+//   - an automation word right beside a test word ("test automation",
+//     "automated regression tests", "tests are automated"): at most one word
+//     between, so "automated deployments; manual testing" is not it;
+//   - a kind of test, or a tool, that is automated by its nature: a unit or
+//     integration test, an end-to-end test, a test suite or harness, test
+//     coverage, test-driven development, or a named test framework.
+// Left out on purpose, because each is often done by hand: regression,
+// smoke, acceptance, exploratory, performance and load testing. Every other
+// keyword, automation ones included ("CI/CD automation"), reads as before.
+const AUTOMATION_SET = new Set(["automated", "automation", "automating", "automate"].map(fold));
+const TEST_TOKEN = fold("test");
+const AUTOMATED_BY_NATURE = [
+  "unit test", "integration test", "end to end test", "e2e test", "test suite", "test harness",
+  "test coverage", "test driven", "testing library", "tdd",
+  "pytest", "unittest", "jest", "vitest", "mocha", "jasmine", "karma", "junit", "testng", "nunit",
+  "xunit", "rspec", "phpunit", "cypress", "playwright", "selenium", "webdriver", "puppeteer",
+  "appium", "cucumber", "testcontainers",
+].map((p) => ` ${foldedTokens(canonicalize(p)).join(" ")} `);
+// How many words may stand between an automation word and a test word. Grammatical
+// filler ("the", "of", "and") is not counted: "automated the regression tests".
+const WORDS_BETWEEN_AUTOMATION_AND_TEST = 1;
+
+function pairsAutomationWithTest(tokens: readonly string[]): boolean {
+  return tokens.includes(TEST_TOKEN) && tokens.some((t) => AUTOMATION_SET.has(t));
+}
+
+// The phrase somewhere it is not called manual ("manual test suites in a spreadsheet").
+function namedAndNotManual(padded: string, phrase: string): boolean {
+  for (let i = padded.indexOf(phrase); i >= 0; i = padded.indexOf(phrase, i + 1)) {
+    if (!padded.slice(0, i).endsWith(" manual")) return true;
+  }
+  return false;
+}
+
+function showsAutomatedTesting(cv: CvIndex): boolean {
+  if (AUTOMATED_BY_NATURE.some((p) => namedAndNotManual(cv.padded, p))) return true;
+  const tests = cv.positions.get(TEST_TOKEN);
+  if (!tests) return false;
+  const words = cv.padded.trim().split(" ");
+  for (const word of AUTOMATION_SET) {
+    for (const at of cv.positions.get(word) ?? []) {
+      for (const t of tests) {
+        const between = words.slice(Math.min(at, t) + 1, Math.max(at, t)).filter((w) => w.length > 1 && !STOP_SET.has(w));
+        if (between.length <= WORDS_BETWEEN_AUTOMATION_AND_TEST) return true;
+      }
+    }
+  }
+  return false;
+}
+
 // One alternative of a keyword ("Scrum" in "Agile/Scrum"). Already canonical.
 function matchAlternative(alt: string, cv: CvIndex): boolean {
   const tokens = meaningfulTokens(alt);
@@ -239,6 +299,15 @@ function matchAlternative(alt: string, cv: CvIndex): boolean {
   //    Padded containment, so "java" cannot match inside "javascript".
   const phrase = foldedTokens(alt).join(" ");
   if (phrase && cv.padded.includes(` ${phrase} `)) return true;
+
+  // "Automated tests": the test word alone is not it (see above). The CV must show
+  // automated testing, which a tool's name does without the word "test" ("Selenium, Cypress"),
+  // plus whatever else the term names ("Automated UI testing" still needs the UI).
+  if (pairsAutomationWithTest(tokens)) {
+    if (!showsAutomatedTesting(cv)) return false;
+    const rest = tokens.filter((t) => t !== TEST_TOKEN && !GENERIC_SET.has(t) && !QUALIFIER_SET.has(t));
+    return rest.length === 0 || allWithinWindow(rest, cv);
+  }
 
   // 2. The phrase's SPECIFIC terms, ignoring structural filler and vendor
   //    prefixes, must ALL be present, close together.

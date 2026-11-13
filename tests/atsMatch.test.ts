@@ -155,3 +155,73 @@ test("accents fold to the base letter on both sides: Zürich ↔ Zurich, São Pa
   const back = matchAtsKeywords("Based in Zurich; Sao Paulo rollout next.", ["Zürich", "São Paulo"]);
   assert.equal(back.matched, 2);
 });
+
+// 12 Nov 2026: "automated" was read as filler, so "Automated tests" was matched by the word
+// "test" alone. The five rows the owner signed off: two that are automated tests, three that
+// are not.
+test("'Automated tests' needs automated testing, not any mention of a test", () => {
+  assert.ok(hit("Wrote the integration test suite that cut regressions to zero", "Automated tests"));
+  assert.ok(hit("Unit tests in pytest for every service", "Automated tests"));
+  assert.ok(!hit("Manual testing of releases before launch", "Automated tests"));
+  assert.ok(!hit("Ran usability testing sessions with 12 customers", "Automated tests"));
+  assert.ok(!hit("Led A/B testing of the checkout page", "Automated tests"));
+});
+
+test("automated testing: the same rule for every spelling of the term", () => {
+  for (const term of ["Automated tests", "Automated testing", "Test automation", "Automation testing"]) {
+    assert.ok(!hit("Manual testing of releases before launch", term), `${term} from manual testing`);
+    assert.ok(!hit("Tested the release by hand with the support team", term), `${term} from testing by hand`);
+    assert.ok(hit("Built test automation in Playwright for the checkout flow", term), `${term} from test automation`);
+    assert.ok(hit("Automated the regression tests, saving two days a release", term), `${term} from automated tests`);
+    assert.ok(hit("Wrote unit tests for the billing API", term), `${term} from unit tests`);
+  }
+  // The exact words are always a match.
+  assert.ok(hit("Automated testing, code review", "Automated testing"));
+  // Whatever else the term names is still needed, as for every term: here, a suite.
+  assert.ok(hit("Wrote the integration test suite", "Automated test suites"));
+  assert.ok(!hit("Built test automation in Playwright", "Automated test suites"));
+  assert.ok(!hit("Manual test suites in a spreadsheet", "Automated test suites"));
+});
+
+test("automated testing: an automation word must stand beside the test word", () => {
+  assert.ok(hit("Our tests are automated and run on every commit", "Automated tests"));
+  assert.ok(hit("Manual and automated testing of each release", "Automated tests"));
+  // Automation of something else, with testing by hand in the same line, is not it.
+  assert.ok(!hit("Automated deployments to AWS; manual testing of each release", "Automated tests"));
+  assert.ok(!hit("Workflow automation for the sales team. Usability testing with 12 customers.", "Automated testing"));
+});
+
+test("automated testing: tests and tools that are automated by nature count; ones often done by hand do not", () => {
+  for (const cv of [
+    "Integration tests against a real Postgres",
+    "End-to-end tests for the signup flow",
+    "Raised test coverage from 40% to 85%",
+    "Practised test-driven development",
+    "Jest and React Testing Library",
+    "Selenium, Cypress",
+    "JUnit 5",
+  ]) assert.ok(hit(cv, "Automated tests"), cv);
+  for (const cv of [
+    "Regression testing before each release",
+    "Smoke testing in staging",
+    "User acceptance testing with the client",
+    "Load testing with 5,000 users",
+    "Penetration testing of the public API",
+  ]) assert.ok(!hit(cv, "Automated tests"), cv);
+});
+
+test("automated testing: no other keyword moves", () => {
+  // A term with a test word and no automation word reads as before.
+  assert.ok(hit("Manual testing of releases before launch", "Testing"));
+  assert.ok(hit("Ran usability testing sessions", "Usability testing"));
+  assert.ok(hit("Wrote unit tests", "Unit testing"));
+  // An automation term with no test word reads as before: "automation" is still filler there.
+  assert.ok(hit("Built a data pipeline in Airflow", "Automated data pipelines"));
+  assert.ok(hit("Infrastructure as code with Terraform", "Infrastructure automation"));
+  assert.ok(!hit("Wrote unit tests", "CI/CD automation"));
+  // A list keeps its other options: "Selenium" in the CV still answers this one.
+  assert.ok(hit("Selenium", "Test automation (Selenium, Cypress)"));
+  // And both halves of an "and" are still needed.
+  assert.ok(!hit("Unit tests in pytest", "Automated testing and Kubernetes"));
+  assert.ok(hit("Unit tests in pytest, deployed on Kubernetes", "Automated testing and Kubernetes"));
+});
