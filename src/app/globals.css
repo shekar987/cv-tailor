@@ -295,11 +295,14 @@ body {
   .resultsRail { position: sticky; top: var(--space-16); }
   .resultsRail .scoreCard { margin: 0; }
 }
-/* After a result the filled button is "Applied — save to tracker"; both
-   downloads are outlined and identical. The edit hint and the right-to-work
-   copy block sit under the document (flex order), so the paper comes first. */
-.cvActions .dlBtn { background: transparent; color: var(--text); border-color: var(--border-strong); }
-.cvActions .dlBtn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--muted); }
+/* After a result the filled button is "Download CV" (Chunk 28: a new user
+   downloads first, then applies, then saves; until then it was "I applied").
+   "I applied" and the letter's download are outlined; while the claims check
+   holds the downloads, "Fix it" is the filled one and Download CV is outlined
+   too. The edit hint and the right-to-work copy block sit under the document
+   (flex order), so the paper comes first. */
+.cvActions .dlBtn:not(.dlBtn--primary) { background: transparent; color: var(--text); border-color: var(--border-strong); }
+.cvActions .dlBtn:not(.dlBtn--primary):hover:not(:disabled) { background: var(--surface-3); border-color: var(--muted); }
 .cvDocWrap { display: flex; flex-direction: column; }
 .cvDocWrap > .editHint { order: 9; margin-top: var(--space-3); }
 .cvDocWrap > .rtwForms { order: 10; margin-top: var(--space-4); }

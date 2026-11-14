@@ -91,9 +91,10 @@ type CvPreviewProps = {
   // defeats the memo that keeps inline edits alive.
   fixClaimsAvailable?: boolean;
   fixingClaims?: boolean;
-  // "Applied — save to tracker" beside Download: the one filled action after
-  // a result. Plain values only, for the same reason as Fix it — the page
-  // handles the click on its wrapper ([data-applied]).
+  // "I applied. Save to Applications" beside Download CV, outlined since Chunk 28
+  // (Download CV is the filled action: a new user downloads first). Plain values
+  // only, for the same reason as Fix it — the page handles the click on its
+  // wrapper ([data-applied]).
   appliedLabel?: string;
   appliedDisabled?: boolean;
   appliedTitle?: string;
@@ -711,7 +712,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
   return (
     <div className="cvDocWrap">
       <div className="cvActions">
-        <DownloadButton label="Download CV" onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason={downloadsDisabledReason || "Fix the flagged claims first"} />
+        <DownloadButton label="Download CV" primary={!(downloadsDisabled && fixClaimsAvailable)} onPdf={downloadPdf} onWord={downloadWord} busy={busy} disabled={downloadsDisabled} disabledReason={downloadsDisabledReason || "Fix the flagged claims first"} />
         {downloadsDisabled && fixClaimsAvailable && (
           <Button type="button" data-fix-claims disabled={fixingClaims} aria-busy={fixingClaims || undefined}>
             {fixingClaims ? "Fixing…" : "Fix it"}
@@ -723,7 +724,7 @@ const CvPreview = React.forwardRef<CvPreviewHandle, CvPreviewProps>(function CvP
           </Button>
         ) : (
           appliedLabel && (
-            <Button type="button" data-applied disabled={appliedDisabled} title={appliedTitle}>
+            <Button type="button" variant="secondary" data-applied disabled={appliedDisabled} title={appliedTitle}>
               {appliedLabel}
             </Button>
           )

@@ -108,10 +108,10 @@ async function readMasterCv(supabase: Supabase): Promise<string | NextResponse> 
   const { data, error } = await supabase.from("master_cvs").select("text").maybeSingle();
   if (error) {
     console.error("interview: master CV read error:", error.message);
-    return NextResponse.json({ error: "Could not load your master CV" }, { status: 500 });
+    return NextResponse.json({ error: "Could not load your main CV" }, { status: 500 });
   }
   const cv = typeof data?.text === "string" ? data.text.trim() : "";
-  if (!cv) return NextResponse.json({ error: "Save your master CV in Customise first — the interview is built from it.", errorType: "needs_cv" }, { status: 400 });
+  if (!cv) return NextResponse.json({ error: "Save your main CV on My CV first. The interview is built from it.", errorType: "needs_cv" }, { status: 400 });
   if (cv.length > MAX_CV_CHARS) return NextResponse.json({ error: CV_TOO_LONG }, { status: 400 });
   return cv;
 }

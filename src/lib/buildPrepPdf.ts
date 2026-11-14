@@ -92,7 +92,7 @@ export function buildPrepPdf(pack: PrepPack): Uint8Array {
   paragraph(
     doc,
     cursor,
-    `${stamp ? `Generated ${stamp}. ` : ""}Every answer below is built from your master CV and checked sentence by sentence. "[traced]" marks a citation found verbatim in it; "[not traced]" means check the line before you rely on it; "[not from your CV — rephrase]" marks a sentence the check could not trace to your CV.${
+    `${stamp ? `Generated ${stamp}. ` : ""}Every answer below is built from your main CV and checked sentence by sentence. "[traced]" marks a citation found verbatim in it; "[not traced]" means check the line before you rely on it; "[not from your CV — rephrase]" marks a sentence the check could not trace to your CV.${
       pack.check
         ? ` ${pack.check.sentences} sentences checked, ${pack.check.flagged} marked${pack.check.removed ? `, ${pack.check.removed} company claims removed` : ""}.`
         : " This pack was generated before sentence checks existed."

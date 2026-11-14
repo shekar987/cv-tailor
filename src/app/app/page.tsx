@@ -57,7 +57,8 @@ import { fallbackNotice } from "@/lib/fallbackRoute";
 import { postingAgeDays } from "@/lib/postingAge";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
 import { writeJustSaved } from "@/lib/justSaved";
-import { scoreChange, scoreChangeLine } from "@/lib/scoreChange";
+import { scoreChange, scoreChangeLine, scoreCardCopy, splitMisses } from "@/lib/scoreChange";
+import { researchButtonLabel } from "@/lib/routingText";
 import { salaryFromJd, buildAppliedNotes, localIsoDate, addDays } from "@/lib/applicationSnapshot";
 import { bandFor, parseCoverage, combineWithFit, reconcileAtsScore, type VisibilityBand, type CombinedVerdict } from "@/lib/visibilityVerdict";
 import { MAX_JD_CHARS, JD_TOO_LONG, MAX_APPLIED_NOTES_CHARS, JD_PARTIAL_NOTICE } from "@/lib/limits";
@@ -302,6 +303,17 @@ const READ_LABEL: Record<GateRead, string> = {
   skip: "Likely to be rejected automatically",
 };
 const VERDICT_RANK: Record<GateVerdict["verdict"], number> = { hard: 0, soft: 1, pass: 2, unknown: 3 };
+
+// A line of the score card with every "main CV" as a link to the page that
+// holds it (My CV, /customize), so "not in your main CV" is one click from the fix.
+function MainCvText({ text }: { text: string }) {
+  const parts = text.split(/(main CV)/);
+  return (
+    <>
+      {parts.map((p, i) => (p === "main CV" ? <Link key={i} href="/customize" className="inlineLink" data-main-cv-link>main CV</Link> : p))}
+    </>
+  );
+}
 
 function formatDay(iso: string): string {
   return formatDate(iso) || iso;
@@ -2077,6 +2089,13 @@ export default function Home() {
     return combineWithFit(visibilityBand, sameCompany && total !== null ? { total, tier: fit?.tier ?? "low" } : null);
   })();
 
+  // The card's sentence and its lists (lib/scoreChange, Chunk 28): "Improved from
+  // 7/15 to 9/15" when tailoring raised the count, and the Missing list split so
+  // it never shows a term the free check did not list as missing.
+  const edits = Array.isArray(result?.atsScore?.recommendations) ? result.atsScore.recommendations : [];
+  const cardCopy = verdict ? scoreCardCopy(verdict.band, verdict.label, beforeAfter, edits.length > 0) : null;
+  const missSplit = splitMisses(Array.isArray(result?.atsScore?.misses) ? result.atsScore.misses : [], beforeAfter);
+
   return (
     <main className="page">
       <div className="container container--ruled">
@@ -2376,6 +2395,11 @@ export default function Home() {
                     : "Your CV has fewer than 10 of this job's key words. Tailoring can help by showing related skills you really have. A gap this big can also mean the job is not a good match."}
                   {" "}The same {preCheck.total} terms. We count them the same way as the score after tailoring, but here we count them in your main CV. After tailoring, the score card shows both numbers.
                 </p>
+                {preCheck.missedKeywords.length > 0 && (
+                  <p className="gateNote" data-precheck-missing>
+                    Not in your main CV by name: {preCheck.missedKeywords.join(", ")}.
+                  </p>
+                )}
                 {gateExtras?.required && gateExtras.required.total > 0 && (
                   <>
                     <div className="gateLabel">Required skills in your CV</div>
@@ -2591,7 +2615,7 @@ export default function Home() {
                   spellCheck={false}
                 />
                 <Button variant="secondary" onClick={() => handleResearch()} disabled={researchLoading || loading}>
-                  {researchLoading ? "Researching…" : "Research company"}
+                  {researchLoading ? "Researching…" : researchButtonLabel(usage)}
                 </Button>
               </div>
             </FormField>
@@ -3817,12 +3841,12 @@ export default function Home() {
                   <div className="scoreValue">{result.atsScore.keyword_coverage}</div>
                   {beforeAfter && (
                     <p className="scoreBefore" data-score-before={`${beforeAfter.before.matched}/${beforeAfter.before.total}`}>
-                      {scoreChangeLine(beforeAfter)}
+                      <MainCvText text={scoreChangeLine(beforeAfter)} />
                     </p>
                   )}
                   {verdict && (
-                    <div className="scoreVerdict" data-band={verdict.band} data-visibility-verdict>
-                      {verdict.label}
+                    <div className="scoreVerdict" data-band={verdict.band} data-visibility-verdict data-improved={cardCopy?.improved ? "" : undefined}>
+                      {cardCopy?.headline ?? verdict.label}
                     </div>
                   )}
                   {verdict?.fitNote && (
@@ -3853,11 +3877,11 @@ export default function Home() {
                     </div>
                   )}
 
-                  {Array.isArray(result.atsScore.misses) && result.atsScore.misses.length > 0 && (
-                    <div className="atsGroup">
-                      <div className="atsGroupLabel misses">Missing ({result.atsScore.misses.length})</div>
+                  {missSplit.missing.length > 0 && (
+                    <div className="atsGroup" data-score-missing>
+                      <div className="atsGroupLabel misses">Missing ({missSplit.missing.length})</div>
                       <ul className="atsList">
-                        {result.atsScore.misses.map((m, i) => {
+                        {missSplit.missing.map((m, i) => {
                           const gap = gapFor(normalizeGapCheck(result.gapCheck), m, masterCvText);
                           return (
                             <li key={i} data-miss-class={gap?.class}>
@@ -3865,10 +3889,10 @@ export default function Home() {
                               <span>
                                 {m}
                                 {gap?.class === "rename" && gap.line && (
-                                  <span className="fitEvidence" style={{ display: "block" }}>Your CV may show this as &ldquo;{gap.line}&rdquo;. If it is the same work, you can name it that way in your main CV.</span>
+                                  <span className="fitEvidence" style={{ display: "block" }}>Your CV may show this as &ldquo;{gap.line}&rdquo;. If it is the same work, you can name it that way in your <Link href="/customize" className="inlineLink" data-main-cv-link>main CV</Link>.</span>
                                 )}
                                 {gap?.class === "core" && (
-                                  <span className="fitEvidence" style={{ display: "block" }}>{gap.learning ? "Being learnt: never claimed." : "Not in your main CV at all."}</span>
+                                  <span className="fitEvidence" style={{ display: "block" }}>{gap.learning ? "Being learnt: never claimed." : <MainCvText text="Not in your main CV at all." />}</span>
                                 )}
                               </span>
                             </li>
@@ -3878,14 +3902,28 @@ export default function Home() {
                     </div>
                   )}
 
+                  {missSplit.leftOut.length > 0 && (
+                    <div className="atsGroup" data-score-left-out>
+                      <div className="atsGroupLabel recs">In your main CV, but not in this tailored CV ({missSplit.leftOut.length})</div>
+                      <ul className="atsList">
+                        {missSplit.leftOut.map((t, i) => (
+                          <li key={i}><Badge variant="dot" tone="rec">→</Badge>{t}</li>
+                        ))}
+                      </ul>
+                      <p className="scoreNote">
+                        The free check found {missSplit.leftOut.length === 1 ? "this term" : "these terms"} in your <Link href="/customize" className="inlineLink" data-main-cv-link>main CV</Link>. This score reads only the tailored summary, skills, experience and projects. {missSplit.leftOut.length === 1 ? "The term is" : "The terms are"} in another section (for example Education), or in a line this CV left out. You can add {missSplit.leftOut.length === 1 ? "it" : "them"} in the preview. The number above does not change when you edit the preview.
+                      </p>
+                    </div>
+                  )}
+
                   {Array.isArray(result.atsScore.recommendations) && result.atsScore.recommendations.length > 0 && (
-                    <div className="atsGroup">
+                    <div className="atsGroup" data-score-edits>
                       <div className="atsGroupLabel recs">
-                        {verdict?.band === "weak" ? "Fix first" : verdict?.band === "borderline" ? "Fix before sending" : "Optional edits"}
+                        {cardCopy?.editsHeading ?? (verdict?.band === "weak" ? "Fix first" : verdict?.band === "borderline" ? "Fix before sending" : "Optional edits")}
                       </div>
                       <ul className="atsList">
                         {result.atsScore.recommendations.map((r, i) => (
-                          <li key={i}><Badge variant="dot" tone="rec">→</Badge>{r}</li>
+                          <li key={i}><Badge variant="dot" tone="rec">→</Badge><span><MainCvText text={r} /></span></li>
                         ))}
                       </ul>
                     </div>
@@ -3896,7 +3934,7 @@ export default function Home() {
                       <div className="atsGroupLabel misses">We could not confirm these from your CV ({result.atsScore.needs_evidence.length})</div>
                       <ul className="atsList">
                         {result.atsScore.needs_evidence.map((n, i) => (
-                          <li key={i}><Badge variant="dot" tone="miss">?</Badge>{n.note}</li>
+                          <li key={i}><Badge variant="dot" tone="miss">?</Badge><span><MainCvText text={n.note} /></span></li>
                         ))}
                       </ul>
                     </div>

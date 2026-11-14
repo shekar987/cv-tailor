@@ -55,13 +55,21 @@ export function parseCoverage(s: unknown): { matched: number; total: number } | 
 // dropped rather than shown beside "Do not send".
 const OUT_OF_BAND_PRAISE = /\b(strong|competitive|submittable|ready to send|good to go|well[- ]positioned|impressive|excellent)\b/i;
 
+// The scoring prompt calls the user's own CV the "master CV", and the model
+// repeats the phrase in its annotations and edits. The screen's one name for
+// it is "main CV" (Chunk 25), so the model's words are renamed where they are
+// taken in. Display text only: no term, count or band reads these lines.
+export function plainNames(text: string): string {
+  return text.replace(/\bmaster (CV|cv|résumé|resume)\b/g, "main $1").replace(/\bMaster (CV|cv|résumé|resume)\b/g, "Main $1");
+}
+
 function cleanEdits(raw: unknown, band: VisibilityBand): string[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
   const out: string[] = [];
   for (const item of raw) {
     if (typeof item !== "string") continue;
-    const text = item.trim().replace(/\s+/g, " ");
+    const text = plainNames(item.trim().replace(/\s+/g, " "));
     if (!text) continue;
     if (band !== "ready" && OUT_OF_BAND_PRAISE.test(text)) continue;
     const key = text.toLowerCase();
@@ -167,9 +175,9 @@ export function reconcileAtsScore(
   // matching filed the same entry under several of them (duplicate hits).
   const entryFor = (list: string[], kw: string) => list.find((e) => e.trim().toLowerCase().startsWith(kw.toLowerCase()));
 
-  const hits = coverage.matchedKeywords.map((kw) => entryFor(modelHits, kw) ?? kw);
-  const misses = coverage.missedKeywords.map(
-    (kw) => entryFor(modelMisses, kw) ?? `${kw} — not present in the tailored text`
+  const hits = coverage.matchedKeywords.map((kw) => plainNames(entryFor(modelHits, kw) ?? kw));
+  const misses = coverage.missedKeywords.map((kw) =>
+    plainNames(entryFor(modelMisses, kw) ?? `${kw} — not present in the tailored text`)
   );
 
   const band = bandFor(coverage.matched, coverage.total);
