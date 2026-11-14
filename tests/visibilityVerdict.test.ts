@@ -147,7 +147,8 @@ test("annotations attach by term prefix only; counts and figures in edits are sy
   assert.deepEqual(out.hits, ["term1 — skills line", "term2"]);
   assert.deepEqual(out.misses, ["term3 — not present in the tailored text", "term4 — you never mention it"]);
   assert.equal(out.keyword_coverage, "2/4");
-  assert.deepEqual(out.recommendations, ["You have 2 of 4 covered; surface term3 from the master CV (2/4)."]);
+  // The model says "master CV"; the screen's name for it is "main CV" (plainNames, Chunk 28).
+  assert.deepEqual(out.recommendations, ["You have 2 of 4 covered; surface term3 from the main CV (2/4)."]);
 });
 
 test("both figures come from the matcher: the required-skill line carries its own denominator and misses", () => {

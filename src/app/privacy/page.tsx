@@ -29,7 +29,7 @@ export default function PrivacyPage() {
           Supabase. We never see your password.
         </li>
         <li>
-          <strong>Your master CV</strong> as you pasted or uploaded it, the profile extracted from it (name, contact details,
+          <strong>Your main CV</strong> as you pasted or uploaded it, the profile extracted from it (name, contact details,
           education, projects), your eligibility answers (right to work, location, years, degree, availability), the claims
           registry (which skills you hold at production, project or learning level), your positioning variants, project links,
           document preferences and project pool.

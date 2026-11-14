@@ -67,3 +67,23 @@ export function describeRouting(
     detail: "Add your own API key below to keep tailoring.",
   };
 }
+
+// The "Research company" button on the Tailor page (14 Nov 2026, Chunk 28).
+// Company research counts as 1 tailored CV, and that was said only in the
+// paragraph above a plain button; a new user has 3 in total. The button now
+// carries the cost and what is left, in the order the route spends them
+// (lib/llmRouting): today's limit first, then the free ones, then the user's
+// own key (the daily limit still applies). The smaller of the two counts is
+// the one named, because it is the one that runs out first. An unlimited
+// account has no count; a usage that could not be read still names the cost.
+export const RESEARCH_BUTTON = "Research company";
+
+export function researchButtonLabel(usage: UsageLike | null | undefined): string {
+  if (!usage) return `${RESEARCH_BUTTON} (uses 1 tailored CV)`;
+  if (usage.unlimited) return RESEARCH_BUTTON;
+  const dailyLeft = Math.max(usage.dailyLimit - usage.dailyUsed, 0);
+  const freeLeft = Math.max(usage.claudeLimit - usage.claudeUsed, 0);
+  if (dailyLeft === 0) return `${RESEARCH_BUTTON} (none left today)`;
+  if (freeLeft > 0 && freeLeft <= dailyLeft) return `${RESEARCH_BUTTON} (uses 1 of your ${freeLeft} free)`;
+  return `${RESEARCH_BUTTON} (uses 1 of today's ${dailyLeft})`;
+}

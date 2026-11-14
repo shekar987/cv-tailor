@@ -201,12 +201,18 @@ try {
     await page.locator("#jd").waitFor({ timeout: 60000 });
     await page.locator(".usageRow").waitFor({ timeout: 30000 });
     const usageBefore = await page.locator(".usageRow").innerText();
+    // Chunk 28: the Research company button says what it costs and what is left.
+    const researchBtn = await page.locator("button", { hasText: /^Research company/ }).first().innerText();
+    check("the Research company button names its cost (uses 1 of your 3 free)", researchBtn.trim() === "Research company (uses 1 of your 3 free)", researchBtn);
     await page.locator("#jd").fill(JD);
     await page.locator("button", { hasText: /^Check this job/ }).first().click();
     const cont = page.locator("button", { hasText: /^Tailor my CV|Tailor anyway/ }).first();
     await cont.waitFor({ timeout: 60000 });
     const preCheckNote = await page.locator(".gateNote", { hasText: /count them the same way/ }).first().innerText().catch(() => "");
     check("the pre-check says it is the same measure as the score", /same \d+ terms\. We count them the same way as the score after tailoring/.test(preCheckNote), preCheckNote.slice(0, 160));
+    const preMissingText = await page.locator("[data-precheck-missing]").innerText().catch(() => "");
+    const preMissing = preMissingText.replace(/^Not in your main CV by name:\s*/, "").replace(/\.$/, "").split(/,\s*/).filter(Boolean);
+    check("the free check lists the key words it did not find", /^Not in your main CV by name: /.test(preMissingText), preMissingText.slice(0, 160));
     await cont.click();
     await page.locator('[role="dialog"] button', { hasText: /Tailor anyway/ }).first().click({ timeout: 4000 }).catch(() => {});
     await page.locator("[data-game-done]").click({ timeout: 180000 });
@@ -217,6 +223,42 @@ try {
     const before = page.locator("[data-score-before]");
     check("the score card shows the master CV's figure before tailoring", (await before.count()) === 1 && /^Before tailoring: \d+\/6 in your main CV\./.test(await before.innerText()), await before.innerText().catch(() => ""));
     check("…and names what moved", /Computer Science/.test(await before.innerText().catch(() => "")), await before.innerText().catch(() => ""));
+
+    // Chunk 28: Download CV is the filled button, "I applied" is outlined, in that order.
+    const bar = await page.locator(".cvDocWrap > .cvActions").first().evaluate((el) => {
+      const dl = el.querySelector(".dlBtn"), ap = el.querySelector("button[data-applied]");
+      const filled = (b) => { const c = getComputedStyle(b).backgroundColor; return !/rgba?\(0, 0, 0, 0\)|transparent/.test(c); };
+      return {
+        dlText: dl?.textContent?.trim() ?? "", apText: ap?.textContent?.trim() ?? "",
+        dlFilled: !!dl && filled(dl), apFilled: !!ap && filled(ap),
+        dlFirst: !!dl && !!ap && !!(dl.compareDocumentPosition(ap) & Node.DOCUMENT_POSITION_FOLLOWING),
+        filledCount: [...el.querySelectorAll("button, a")].filter(filled).length,
+      };
+    });
+    check("Download CV is the filled button on the result", /^Download CV/.test(bar.dlText) && bar.dlFilled && bar.filledCount === 1, JSON.stringify(bar));
+    check('"I applied. Save to Applications" is outlined and comes after it', bar.apText === "I applied. Save to Applications" && !bar.apFilled && bar.dlFirst, JSON.stringify(bar));
+    const letterDl = await page.locator(".clWrap .dlBtn").first().evaluate((b) => getComputedStyle(b).backgroundColor).catch(() => "");
+    check("the letter's download stays outlined", /rgba?\(0, 0, 0, 0\)|transparent/.test(letterDl), letterDl);
+
+    // The card's sentence follows the two figures, and its Missing list agrees with the free check.
+    const card = await page.locator(".scoreCard").first().evaluate((el) => ({
+      after: el.querySelector(".scoreValue")?.textContent?.trim() ?? "",
+      before: el.querySelector("[data-score-before]")?.getAttribute("data-score-before") ?? "",
+      verdict: el.querySelector("[data-visibility-verdict]")?.textContent?.trim() ?? "",
+      improved: el.querySelector("[data-visibility-verdict]")?.hasAttribute("data-improved") ?? false,
+      missing: [...el.querySelectorAll("[data-score-missing] li")].map((li) => li.textContent?.replace(/^\s*✕\s*/, "").trim() ?? ""),
+      leftOut: [...el.querySelectorAll("[data-score-left-out] li")].map((li) => li.textContent?.replace(/^\s*→\s*/, "").trim() ?? ""),
+      links: [...el.querySelectorAll("a[data-main-cv-link]")].map((a) => a.getAttribute("href")),
+      text: el.textContent ?? "",
+    }));
+    const [a1, b1] = [Number(card.after.split("/")[0]), Number(card.before.split("/")[0])];
+    check("the card says 'Improved from …' only when tailoring raised the score", a1 > b1 ? card.improved && card.verdict.startsWith(`Improved from ${card.before} to ${card.after}`) : !card.improved && !/^Improved/.test(card.verdict), `${card.before} → ${card.after}: ${card.verdict}`);
+    const notListed = card.missing.filter((line) => !preMissing.some((t) => line.toLowerCase().startsWith(t.toLowerCase())));
+    check("the result's Missing list holds no key word the free check did not list", preMissing.length > 0 && notListed.length === 0, `free check: ${preMissing.join(", ")} | new: ${notListed.join(" | ")}`);
+    check("a key word the main CV has and this CV left out is listed apart, with the reason", card.leftOut.includes("Computer Science") && /In your main CV, but not in this tailored CV \(\d+\)/.test(card.text), card.leftOut.join(", "));
+    check("the card never says 'master CV', and 'main CV' links to My CV", !/master CV/i.test(card.text) && card.links.length > 0 && card.links.every((h) => h === "/customize"), card.links.join(", "));
+    await page.locator(".resultsRail").first().screenshot({ path: path.join(SHOTS, "score-card-1280.png") }).catch(() => {});
+    await page.locator(".cvDocWrap > .cvActions").first().screenshot({ path: path.join(SHOTS, "result-buttons-1280.png") }).catch(() => {});
 
     // Applied — save to tracker.
     await page.locator("button[data-applied]").first().click();

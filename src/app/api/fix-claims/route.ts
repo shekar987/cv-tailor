@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
 
     const cv = boundedString(body.cvText, MAX_CV_CHARS);
     if (cv === null) return NextResponse.json({ error: CV_TOO_LONG }, { status: 400 });
-    if (!cv.trim()) return NextResponse.json({ error: "Your master CV is needed to check the claims against." }, { status: 400 });
+    if (!cv.trim()) return NextResponse.json({ error: "Your main CV is needed to check the claims against." }, { status: 400 });
     const jd = boundedString(body.jobDescription, MAX_JD_CHARS);
     if (jd === null) return NextResponse.json({ error: JD_TOO_LONG }, { status: 400 });
     const pool = boundedString(body.projectsPool, MAX_POOL_CHARS);

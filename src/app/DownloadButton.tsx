@@ -14,6 +14,7 @@ export default function DownloadButton({
   disabled = false,
   disabledReason,
   label = "Download",
+  primary = false,
 }: {
   onPdf: () => void;
   onWord: () => void;
@@ -24,6 +25,9 @@ export default function DownloadButton({
   disabledReason?: string;
   // "Download CV" / "Download letter": the two buttons on one page must not read the same.
   label?: string;
+  // The page's one filled button (the CV's download on the Tailor result:
+  // a new user downloads first, then applies, then saves). Outlined otherwise.
+  primary?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -59,7 +63,7 @@ export default function DownloadButton({
       <Button
         ref={triggerRef}
         type="button"
-        className="dlBtn"
+        className={primary ? "dlBtn dlBtn--primary" : "dlBtn"}
         onClick={() => setOpen((o) => !o)}
         disabled={busy || disabled}
         title={disabled && !busy ? disabledReason : undefined}

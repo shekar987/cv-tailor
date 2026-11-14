@@ -168,19 +168,19 @@ export async function POST(req: NextRequest) {
         const second = await supabase.from("master_cvs").select("text").maybeSingle();
         if (second.error) {
           console.error("prep: master CV read error:", second.error.message);
-          return NextResponse.json({ error: "Could not load your master CV" }, { status: 500 });
+          return NextResponse.json({ error: "Could not load your main CV" }, { status: 500 });
         }
         cvRow = (second.data as { text?: unknown } | null) ?? null;
       } else if (first.error) {
         console.error("prep: master CV read error:", first.error.message);
-        return NextResponse.json({ error: "Could not load your master CV" }, { status: 500 });
+        return NextResponse.json({ error: "Could not load your main CV" }, { status: 500 });
       } else cvRow = (first.data as { text?: unknown; projects_pool?: unknown } | null) ?? null;
     }
     const cv = typeof cvRow?.text === "string" ? cvRow.text.trim() : "";
     const pool = typeof cvRow?.projects_pool === "string" ? cvRow.projects_pool.trim() : "";
     if (!cv) {
       return NextResponse.json(
-        { error: "Save your master CV in Customise first — every answer is built from it.", errorType: "needs_cv" },
+        { error: "Save your main CV on My CV first. Every answer is built from it.", errorType: "needs_cv" },
         { status: 400 }
       );
     }

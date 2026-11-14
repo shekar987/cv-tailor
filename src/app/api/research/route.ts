@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Please paste the company's website URL." }, { status: 400 });
     }
     if (!cv) {
-      return NextResponse.json({ error: "No CV text provided — save your master CV first." }, { status: 400 });
+      return NextResponse.json({ error: "No CV text was sent. Save your main CV on My CV first." }, { status: 400 });
     }
     if (cv.length > MAX_CV_CHARS) {
       return NextResponse.json({ error: CV_TOO_LONG }, { status: 400 });
