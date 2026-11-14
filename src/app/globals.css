@@ -4445,3 +4445,38 @@ button.inlineLink { margin-block: -8px; }
   .outcomeItem { flex-direction: column; align-items: stretch; }
   .outcomeItem .cta { width: 100%; }
 }
+
+/* "Today (n)" on /applications (Chunk 27, lib/todaySection): the red strip and the attention
+   cards in one section whose header is the disclosure. Folded on a phone, open on a wider
+   screen. Folded, it keeps its count, its warning icon and one line naming what is due soonest. */
+.todayFold { margin: 0 0 var(--space-4); }
+.todayFold__heading { margin: 0; font: inherit; }
+.todayFold__head { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 36px; padding: 0; font: inherit; font-size: var(--fs-base); font-weight: 600; color: var(--text); text-align: left; background: none; border: 0; border-bottom: 1px solid var(--border-card); border-radius: 0; cursor: pointer; }
+.todayFold__head:hover .todayFold__action { color: var(--text); }
+.todayFold__head:active .todayFold__action { color: var(--amber-bright); }
+.todayFold__head:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-sm); }
+.todayFold__head svg { flex: none; }
+.todayFold[data-tone="red"] .todayFold__head svg { color: var(--danger); }
+.todayFold__count { padding: 0 var(--space-2); border: 1px solid var(--border-strong); border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+.todayFold[data-tone="red"] .todayFold__count { border-color: var(--danger-border); }
+.todayFold__action { margin-left: auto; font-size: var(--fs-sm); font-weight: 500; color: var(--text-subtle); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.todayFold__hint { margin: var(--space-2) 0 0; font-size: var(--fs-sm); color: var(--text-subtle); overflow-wrap: anywhere; }
+.todayFold__body { padding-top: var(--space-3); }
+.todayFold__body > :last-child { margin-bottom: 0; }
+@media (pointer: coarse) {
+  .todayFold__head { min-height: 44px; }
+}
+/* A phone's Applications page (Chunk 27): the two main buttons, the search box and the tabs come
+   straight after the title. The tab row wraps, so every tab is on screen and no label is cut
+   (it used to scroll, and showed "To submit 1" as "it 1" with the last tab off the edge). */
+.appsMainActions { display: flex; gap: var(--space-2); width: 100%; }
+.appsMainActions > * { flex: 1 1 0; min-width: 0; justify-content: center; white-space: nowrap; }
+@media (max-width: 640px) {
+  .pageHeadRow > .pageHeadActions { width: 100%; }
+  .appsBar--phone { flex-direction: column; align-items: stretch; flex-wrap: nowrap; }
+  .appsBar--phone .stageTabs { flex-wrap: wrap; overflow-x: visible; width: 100%; }
+  .appsBar--phone .stageTab { flex: 1 1 auto; justify-content: center; }
+  .appsBar--phone .appsTools--more { justify-content: flex-start; }
+  /* Export and Clean-up sit beside the filters here, at the filters' size. */
+  .appsBar--phone .appsTools--more .cta { padding: 0 var(--space-3); font-size: var(--text-sm); font-weight: 500; }
+}

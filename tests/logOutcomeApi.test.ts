@@ -173,9 +173,9 @@ test("the note for an outcome picked by hand, and the next step after one", () =
 
 test("the tab that holds rejections says so, and the fix card names only what is wrong", () => {
   assert.equal(TAB_LABELS.closed, "Rejected / closed");
-  assert.equal(fixLabel({ statusToFix: 0, attachmentsToFix: 11 }), "Applications with no job description or CV");
+  assert.equal(fixLabel({ statusToFix: 0, attachmentsToFix: 11 }), "Applications missing a job description or CV");
   assert.equal(fixLabel({ statusToFix: 2, attachmentsToFix: 0 }), "Applications with the wrong status");
-  assert.equal(fixLabel({ statusToFix: 2, attachmentsToFix: 11 }), "Applications to fix · 2 with the wrong status, 11 with no job description or CV");
+  assert.equal(fixLabel({ statusToFix: 2, attachmentsToFix: 11 }), "Applications to fix · 2 with the wrong status, 11 missing a job description or CV");
   assert.equal(fixLabel({ statusToFix: 0, attachmentsToFix: 0 }), "Applications to fix");
   for (const label of [fixLabel({ statusToFix: 0, attachmentsToFix: 11 }), fixLabel({ statusToFix: 2, attachmentsToFix: 11 })]) assert.ok(!/\bJD\b|\bdata\b/i.test(label), label);
 });

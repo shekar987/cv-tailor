@@ -77,6 +77,9 @@ import type { TrackerCounts } from "@/lib/trackerCounts";
 import { followupsDueToday, isFollowupDueToday } from "@/lib/followupsDue";
 import CleanupPanel from "./CleanupPanel";
 import LogOutcomePanel, { type OutcomeChoice } from "./LogOutcomePanel";
+import TodaySection from "./TodaySection";
+import { todayCount, todayHint, todayOpen } from "@/lib/todaySection";
+import { usePhone } from "@/components/usePhone";
 import { nextStepAfterOutcome } from "@/lib/outcomeEmail";
 import { trackedFetch, whenNoWrites, writeSeq, writesInFlight } from "@/lib/writeTracker";
 import type { TabKey } from "@/lib/applicationStage";
@@ -410,6 +413,10 @@ function StyleTile({ insights }: { insights: Insights }) {
 function InsightsSummary({ insights, withoutJd, withoutCv, lanes, showStyle }: { insights: Insights; withoutJd: number; withoutCv: number; lanes: Lane[]; showStyle: boolean }) {
   const open = insights.counted - insights.decided;
   const unscored = insights.counted - insights.scored;
+  // The tab is "Rejected / closed" and holds withdrawn applications too, which the rate leaves
+  // out. The tile uses the tab's word and the tab's number, and says which are not counted
+  // (14 Nov 2026, Chunk 27: the tab said "Closed 9" and this tile "9 rejected").
+  const withdrawn = Math.max(0, insights.total - insights.counted - insights.readyToSubmit);
   return (
     <div className="statGrid" data-insights-summary>
       <LaneTile lanes={lanes} />
@@ -427,7 +434,8 @@ function InsightsSummary({ insights, withoutJd, withoutCv, lanes, showStyle }: {
         <span className="statTile__value">{open}</span>
         <span className="statTile__label">Still waiting</span>
         <span className="statTile__sub">
-          {insights.rejected} rejected · {insights.progressed} progressed
+          <span data-stat-closed={insights.rejected + withdrawn}>{insights.rejected + withdrawn} rejected / closed</span>
+          {withdrawn > 0 ? ` (${withdrawn} withdrawn, not counted)` : ""} · {insights.progressed} progressed
           {insights.readyToSubmit > 0 ? ` · ${insights.readyToSubmit} ready to submit, not counted` : ""}
         </span>
       </div>
@@ -440,7 +448,7 @@ function InsightsSummary({ insights, withoutJd, withoutCv, lanes, showStyle }: {
         <span className="statTile__sub">
           {insights.scored === 0
             ? "kept from the next tailored CV you save"
-            : `${insights.gated > 0 ? `${insights.gated} with an eligibility read` : "no eligibility reads yet"}${unscored > 0 ? `; ${unscored} count in the rate only` : ""}`}
+            : `${insights.gated > 0 ? `${insights.gated} also ${insights.gated === 1 ? "has" : "have"} the free check's advice saved` : "None has the free check's advice saved yet"}${unscored > 0 ? `. ${unscored} ${unscored === 1 ? "has" : "have"} no score` : ""}`}
         </span>
       </div>
       {withoutJd + withoutCv > 0 && (
@@ -747,6 +755,9 @@ export default function ApplicationsPage() {
   const [cleanupOpen, setCleanupOpen] = useState(false);
   // "Log outcome" (Chunk 26): paste an outcome email or search, then one click on the application.
   const [outcomeOpen, setOutcomeOpen] = useState(false);
+  // "Today (n)": folded on a phone, open on a wider screen, until the user chooses (lib/todaySection).
+  const phone = usePhone();
+  const [todayChoice, setTodayChoice] = useState<boolean | null>(null);
   const outcomeButton = useRef<HTMLButtonElement>(null);
   const [styleFilter, setStyleFilter] = useState<"all" | RowStyle>("all");
   const [sortKey, setSortKey] = useState<SortKey>("date_applied");
@@ -1096,6 +1107,11 @@ export default function ApplicationsPage() {
   // Due in the next 48 hours (lib/deadlines): the red strip, the same list as GET ?due=48h.
   const radar = useMemo(() => dueWithin(rows as unknown as DueRow[], clock, DUE_WINDOW_HOURS, tz, events), [rows, clock, tz, events]);
   const radarIds = useMemo(() => new Set(radar.map((d) => d.id)), [radar]);
+  // The number beside "Today": the 48-hour list, plus the follow-ups due today it does not hold.
+  const todayTotal = useMemo(() => {
+    const today = localIsoDate(new Date(clock));
+    return todayCount(radar, rows.filter((r) => isFollowupDueToday(r, today)).map((r) => r.id));
+  }, [radar, rows, clock]);
   const tabNow: TabChoice = tab ?? defaultTab(counts);
   useEffect(() => {
     // Pins the default once, when the rows and events are known.
@@ -2817,6 +2833,169 @@ export default function ApplicationsPage() {
   const elsewhere = !attention && !searchTerm && tabNow !== "all" && tabNow !== "assessment" ? countedElsewhere(rows, byApp, tabNow) : 0;
   const activeFilters = (styleFilter !== "all" ? 1 : 0) + (includePast ? 1 : 0) + (listSort !== "next" ? 1 : 0);
 
+  // The page's buttons. On a phone the two that matter sit side by side under the title, and
+  // Export and Clean-up move down beside the filters (Chunk 27).
+  const exportBtn = hasRows && visible.length > 0 && !winsOpen && (
+    <Button variant="ghost" onClick={exportCsv} disabled={exporting} title={`Export these ${visible.length} applications as a CSV`} data-apps-export>
+      {exporting ? "Exporting…" : "Export"}
+    </Button>
+  );
+  const cleanupBtn = isOwner && hasRows && (
+    <Button variant="ghost" onClick={() => setCleanupOpen((o) => !o)} aria-expanded={cleanupOpen} data-apps-cleanup>
+      Clean-up
+    </Button>
+  );
+  const outcomeBtn = hasRows && (
+    <Button ref={outcomeButton} variant="secondary" onClick={() => setOutcomeOpen((o) => !o)} disabled={sessionExpired} aria-expanded={outcomeOpen} data-apps-outcome>
+      Log outcome
+    </Button>
+  );
+  const addBtn = <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired} data-apps-add>+ Add application</Button>;
+  // The page's bar in pieces, because a phone orders them differently (Chunk 27): the search box,
+  // then the tabs, then the two filters; a wider screen has the tabs beside all three tools.
+  const stageTabsEl = (
+    <StageTabs
+      tabs={tabs}
+      counts={counts}
+      total={rows.length}
+      wins={rows.filter(reachedScreening).length}
+      selected={winsOpen ? "wins" : attention || searchTerm ? null : tabNow}
+      panelId={winsOpen || (!sheetMode && visible.length > 0) ? "appsPanelRegion" : undefined}
+      onSelect={(next) => {
+        setWins(next === "wins");
+        if (next !== "wins") setTab(next);
+        setTabPicked(true);
+        setAttention(null);
+        setQuery("");
+        setPanel(null);
+      }}
+    />
+  );
+  const searchEl = (
+    <div className="appsSearchWrap">
+      <input
+        type="search"
+        className="appsSearch"
+        placeholder="Search company or role"
+        aria-label="Search applications by company, role or date applied"
+        value={query}
+        maxLength={MAX_SEARCH_CHARS}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Escape") setQuery(""); }}
+        data-apps-search
+      />
+      {query && (
+        <button type="button" className="appsSearchClear" onClick={() => setQuery("")} aria-label="Clear search" data-apps-search-clear>×</button>
+      )}
+    </div>
+  );
+  const filterEls = (
+    <>
+      <select className="appsToolSelect" aria-label="Period applied in" value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value as Period)} data-apps-period>
+        {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+      </select>
+      <div className="appsFilters" ref={filtersRef}>
+        <button
+          type="button"
+          className="appsToolBtn"
+          aria-expanded={filtersOpen}
+          aria-haspopup="dialog"
+          onClick={() => setFiltersOpen((v) => !v)}
+          onKeyDown={(e) => { if (e.key === "Escape") setFiltersOpen(false); }}
+          data-apps-filters
+        >
+          Filters{activeFilters > 0 ? ` (${activeFilters})` : ""}
+        </button>
+        {filtersOpen && (
+          <div className="appsFiltersPanel" role="dialog" aria-label="Filters" onKeyDown={(e) => { if (e.key === "Escape") setFiltersOpen(false); }} data-apps-filters-panel>
+            {isOwner && (
+              <label className="appsFilterField">
+                <span className="label">CV style</span>
+                <select className="appsToolSelect" value={styleFilter} onChange={(e) => setStyleFilter(e.target.value as "all" | RowStyle)} data-style-filter={styleFilter}>
+                  <option value="all">Any</option>
+                  {ROW_STYLES.map((k) => <option key={k} value={k}>{ROW_STYLE_LABELS[k]}</option>)}
+                </select>
+              </label>
+            )}
+            <label className="appsFilterField">
+              <span className="label">Sort by</span>
+              <select className="appsToolSelect" value={listSort} onChange={(e) => setListSort(e.target.value as typeof listSort)} disabled={spreadsheet} data-apps-sort>
+                <option value="next">Next step</option>
+                <option value="company">Company</option>
+                <option value="contact">Last contact</option>
+                <option value="applied">Date applied</option>
+              </select>
+            </label>
+            <label className="planRadio">
+              <input type="checkbox" checked={includePast} onChange={(e) => setIncludePast(e.target.checked)} data-include-past />
+              Include past stages
+            </label>
+          </div>
+        )}
+      </div>
+    </>
+  );
+  const appsBar = !hasRows ? null : phone ? (
+    <div className="appsBar appsBar--phone" data-apps-bar="phone">
+      <div className="appsTools">{searchEl}</div>
+      {stageTabsEl}
+      <div className="appsTools appsTools--more">
+        {filterEls}
+        {exportBtn}
+        {cleanupBtn}
+      </div>
+    </div>
+  ) : (
+    <div className="appsBar" data-apps-bar="wide">
+      {stageTabsEl}
+      <div className="appsTools">
+        {searchEl}
+        {filterEls}
+      </div>
+    </div>
+  );
+  // "Today (n)" (lib/todaySection): the red strip and the cards in one section. The strip counts
+  // what is due across every row, so like the cards it waits for the full list: a count from the
+  // first page alone would understate it.
+  const todayShown = todayOpen(todayChoice, phone);
+  const todaySection = !hasRows ? null : (
+    <TodaySection
+      count={todayTotal}
+      loading={!fullLoaded}
+      urgent={fullLoaded && radar.length > 0}
+      icon={<Icon name="alert" />}
+      hint={todayHint(fullLoaded ? radar : [], dueTodayNumbers)}
+      open={todayShown}
+      onToggle={() => setTodayChoice(!todayShown)}
+    >
+      <DeadlineRadar items={fullLoaded ? radar : []} hours={DUE_WINDOW_HOURS} busyKey={radarBusy} onOpen={openDue} onDone={(item) => void doneDue(item)} />
+      <AttentionStrip
+        counts={attentionNumbers}
+        dueToday={dueTodayNumbers}
+        coldNoFollowup={coldNoFollowup}
+        loading={!fullLoaded}
+        dueLabel={`Due by ${tomorrowName} night`}
+        referral={referral}
+        active={attention === "reopen" || attention === "radar" || attention === "saved" ? null : attention}
+        onFilter={(next) => {
+          setAttention((current) => (current === next ? null : next));
+          setPanel(null);
+        }}
+        onOpenReferral={(id) => {
+          const row = rowsRef.current.find((r) => r.id === id);
+          if (!row) return;
+          // It may be on any tab: the referral view holds it, with its Notes panel open.
+          setAttention("referrals");
+          setSpreadsheet(false);
+          setQuery("");
+          setPeriodFilter("all");
+          setStyleFilter("all");
+          if (!(panel?.id === id && panel.kind === "notes")) togglePanel(row, "notes");
+        }}
+      />
+    </TodaySection>
+  );
+
   return (
     <main className="page">
       <div className="container appsContainer">
@@ -2824,24 +3003,19 @@ export default function ApplicationsPage() {
           title="Applications"
           tagline={stageTabNow ? <span data-stage-summary>{stageSummary(rows, stageTabNow, counts[stageTabNow]).text}</span> : summary}
           actions={
-            <>
-              {hasRows && visible.length > 0 && !winsOpen && (
-                <Button variant="ghost" onClick={exportCsv} disabled={exporting} title={`Export these ${visible.length} applications as a CSV`} data-apps-export>
-                  {exporting ? "Exporting…" : "Export"}
-                </Button>
-              )}
-              {isOwner && hasRows && (
-                <Button variant="ghost" onClick={() => setCleanupOpen((o) => !o)} aria-expanded={cleanupOpen} data-apps-cleanup>
-                  Clean-up
-                </Button>
-              )}
-              {hasRows && (
-                <Button ref={outcomeButton} variant="secondary" onClick={() => setOutcomeOpen((o) => !o)} disabled={sessionExpired} aria-expanded={outcomeOpen} data-apps-outcome>
-                  Log outcome
-                </Button>
-              )}
-              <Button onClick={startNewRow} disabled={newRow !== null || sessionExpired} data-apps-add>+ Add application</Button>
-            </>
+            phone ? (
+              <div className="appsMainActions" data-apps-main-actions>
+                {addBtn}
+                {outcomeBtn}
+              </div>
+            ) : (
+              <>
+                {exportBtn}
+                {cleanupBtn}
+                {outcomeBtn}
+                {addBtn}
+              </>
+            )
           }
         />
 
@@ -2881,9 +3055,10 @@ export default function ApplicationsPage() {
             )}
           </p>
         )}
-        {/* The strip counts what is due across every row, so like the attention cards it waits for
-            the full list: a count from the first page alone would understate it. */}
-        <DeadlineRadar items={fullLoaded ? radar : []} hours={DUE_WINDOW_HOURS} busyKey={radarBusy} onOpen={openDue} onDone={(item) => void doneDue(item)} />
+        {/* On a phone the search box and the tabs come straight after the title (Chunk 27), and
+            what is due sits folded under them: "Today (n)". On a wider screen it stays on top, open. */}
+        {phone && appsBar}
+        {todaySection}
 
         {/* The application /app saved last (lib/justSaved), its CV and letter one click away.
             Gone once the full list says the row no longer exists. */}
@@ -2919,113 +3094,7 @@ export default function ApplicationsPage() {
           </div>
         )}
 
-        {hasRows && (
-          <AttentionStrip
-            counts={attentionNumbers}
-            dueToday={dueTodayNumbers}
-            coldNoFollowup={coldNoFollowup}
-            loading={!fullLoaded}
-            dueLabel={`Due by ${tomorrowName} night`}
-            referral={referral}
-            active={attention === "reopen" || attention === "radar" || attention === "saved" ? null : attention}
-            onFilter={(next) => {
-              setAttention((current) => (current === next ? null : next));
-              setPanel(null);
-            }}
-            onOpenReferral={(id) => {
-              const row = rowsRef.current.find((r) => r.id === id);
-              if (!row) return;
-              // It may be on any tab: the referral view holds it, with its Notes panel open.
-              setAttention("referrals");
-              setSpreadsheet(false);
-              setQuery("");
-              setPeriodFilter("all");
-              setStyleFilter("all");
-              if (!(panel?.id === id && panel.kind === "notes")) togglePanel(row, "notes");
-            }}
-          />
-        )}
-
-        {hasRows && (
-          <div className="appsBar">
-            <StageTabs
-              tabs={tabs}
-              counts={counts}
-              total={rows.length}
-              wins={rows.filter(reachedScreening).length}
-              selected={winsOpen ? "wins" : attention || searchTerm ? null : tabNow}
-              panelId={winsOpen || (!sheetMode && visible.length > 0) ? "appsPanelRegion" : undefined}
-              onSelect={(next) => {
-                setWins(next === "wins");
-                if (next !== "wins") setTab(next);
-                setTabPicked(true);
-                setAttention(null);
-                setQuery("");
-                setPanel(null);
-              }}
-            />
-            <div className="appsTools">
-              <div className="appsSearchWrap">
-                <input
-                  type="search"
-                  className="appsSearch"
-                  placeholder="Search company or role"
-                  aria-label="Search applications by company, role or date applied"
-                  value={query}
-                  maxLength={MAX_SEARCH_CHARS}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Escape") setQuery(""); }}
-                  data-apps-search
-                />
-                {query && (
-                  <button type="button" className="appsSearchClear" onClick={() => setQuery("")} aria-label="Clear search" data-apps-search-clear>×</button>
-                )}
-              </div>
-              <select className="appsToolSelect" aria-label="Period applied in" value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value as Period)} data-apps-period>
-                {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-              </select>
-              <div className="appsFilters" ref={filtersRef}>
-                <button
-                  type="button"
-                  className="appsToolBtn"
-                  aria-expanded={filtersOpen}
-                  aria-haspopup="dialog"
-                  onClick={() => setFiltersOpen((v) => !v)}
-                  onKeyDown={(e) => { if (e.key === "Escape") setFiltersOpen(false); }}
-                  data-apps-filters
-                >
-                  Filters{activeFilters > 0 ? ` (${activeFilters})` : ""}
-                </button>
-                {filtersOpen && (
-                  <div className="appsFiltersPanel" role="dialog" aria-label="Filters" onKeyDown={(e) => { if (e.key === "Escape") setFiltersOpen(false); }} data-apps-filters-panel>
-                    {isOwner && (
-                      <label className="appsFilterField">
-                        <span className="label">CV style</span>
-                        <select className="appsToolSelect" value={styleFilter} onChange={(e) => setStyleFilter(e.target.value as "all" | RowStyle)} data-style-filter={styleFilter}>
-                          <option value="all">Any</option>
-                          {ROW_STYLES.map((k) => <option key={k} value={k}>{ROW_STYLE_LABELS[k]}</option>)}
-                        </select>
-                      </label>
-                    )}
-                    <label className="appsFilterField">
-                      <span className="label">Sort by</span>
-                      <select className="appsToolSelect" value={listSort} onChange={(e) => setListSort(e.target.value as typeof listSort)} disabled={spreadsheet} data-apps-sort>
-                        <option value="next">Next step</option>
-                        <option value="company">Company</option>
-                        <option value="contact">Last contact</option>
-                        <option value="applied">Date applied</option>
-                      </select>
-                    </label>
-                    <label className="planRadio">
-                      <input type="checkbox" checked={includePast} onChange={(e) => setIncludePast(e.target.checked)} data-include-past />
-                      Include past stages
-                    </label>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        {!phone && appsBar}
 
         {(flash || actionError) && (
           <div className="appsStatusLine">

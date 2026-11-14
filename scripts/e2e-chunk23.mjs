@@ -56,14 +56,21 @@ try {
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(`${BASE}/applications`, { waitUntil: "load" });
+    // On a phone the strip and the cards sit inside the folded "Today (n)" section (Chunk 27).
+    await page.locator("[data-today-toggle]").waitFor({ timeout: 30000 });
+    if ((await page.locator("[data-today-toggle]").getAttribute("aria-expanded")) === "false") await page.locator("[data-today-toggle]").click();
     const card = page.locator('[data-attn="today"]');
     await card.waitFor({ timeout: 20000 });
     // The full list in: the data-to-fix card shows a number, not the placeholder.
     await page.waitForFunction(() => !document.querySelector(".attnPending"), null, { timeout: 20000 });
     const number = (await card.locator(".attnNumber").innerText()).trim();
     check(`${w}: the card counts the rows due today or earlier`, number === String(DUE.length), `${number}`);
-    check(`${w}: and splits today from overdue`, (await card.locator(".attnDetail").innerText()).trim() === "2 dated today · 6 overdue");
-    check(`${w}: its label says what it is`, (await card.locator(".attnLabel").innerText()).trim() === "Follow-ups due today");
+    // One label that says which are due today and which are late, with the oldest date (Chunk 27).
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const oldest = `${+day(-3).slice(8)} ${MONTHS[+day(-3).slice(5, 7) - 1]}`;
+    const label = (await card.locator(".attnLabel").innerText()).trim();
+    check(`${w}: its label splits today from overdue, with the oldest date`, label === `Follow-ups due: 2 today, 6 overdue (oldest due ${oldest})`, label);
+    check(`${w}: in one line, with no second line under it`, (await card.locator(".attnDetail").count()) === 0);
     await card.click();
     await page.waitForFunction(() => document.querySelector('[data-attn="today"]')?.getAttribute("aria-pressed") === "true");
     const shown = (await page.locator("[data-stage-row]").evaluateAll((els) => els.map((e) => e.getAttribute("data-stage-row")))).sort();

@@ -5,7 +5,7 @@
 // and urgency is an icon and words as well as a colour.
 import Icon from "@/components/ui/Icon";
 import { fixLabel, type AttentionCounts, type ReferralCard } from "@/lib/applicationStage";
-import type { DueTodayCount } from "@/lib/followupsDue";
+import { dueTodayLabel, type DueTodayCount } from "@/lib/followupsDue";
 import { formatDate } from "@/lib/formatDate";
 
 export type AttentionFilter = "due" | "today" | "followups" | "fix" | "referrals" | "cold";
@@ -66,8 +66,9 @@ export default function AttentionStrip({
         data-due-earlier={dueToday.earlier}
       >
         <span className="attnNumber">{dueToday.total}</span>
-        <span className="attnLabel">Follow-ups due today</span>
-        {dueToday.earlier > 0 && <span className="attnDetail">{dueToday.today} dated today · {dueToday.earlier} overdue</span>}
+        {/* One label that says which it is (lib/followupsDue dueTodayLabel, Chunk 27): "Follow-up overdue
+            (due 9 Nov)" under a 1, never "1 Follow-ups due today" over "0 dated today · 1 overdue". */}
+        <span className="attnLabel" data-due-label>{dueTodayLabel(dueToday)}</span>
       </button>
       <button
         type="button"

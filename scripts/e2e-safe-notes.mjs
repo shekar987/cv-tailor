@@ -249,6 +249,11 @@ try {
   deadlineOn = true;
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${BASE}/applications`, { waitUntil: "load" });
+  await page.waitForFunction(() => document.querySelector("[data-today-count]"), null, { timeout: 30000 });
+  check("on a phone the strip is folded under Today, which names what is due", !(await page.locator("[data-due-radar]").isVisible()) && /^Soonest: /.test((await page.locator("[data-today-hint]").innerText()).trim()), await page.locator("[data-today-hint]").innerText().catch(() => ""));
+  // On a phone the strip and the cards sit inside the folded "Today (n)" section (Chunk 27).
+  await page.locator("[data-today-toggle]").waitFor({ timeout: 30000 });
+  if ((await page.locator("[data-today-toggle]").getAttribute("aria-expanded")) === "false") await page.locator("[data-today-toggle]").click();
   await page.locator("[data-due-radar]").waitFor({ timeout: 30000 });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check("the strip fits a phone with no sideways scroll", overflow <= 0, `${overflow}px`);
