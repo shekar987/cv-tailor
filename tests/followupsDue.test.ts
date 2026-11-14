@@ -48,8 +48,8 @@ test("the count splits today from overdue", () => {
     row("2026-11-09", "screening", REJECTED),
     row("2026-11-19", "applied"),
   ];
-  assert.deepEqual(followupsDueToday(rows, TODAY), { total: 5, today: 2, earlier: 3 });
-  assert.deepEqual(followupsDueToday([], TODAY), { total: 0, today: 0, earlier: 0 });
+  assert.deepEqual(followupsDueToday(rows, TODAY), { total: 5, today: 2, earlier: 3, oldest: "2026-11-09" });
+  assert.deepEqual(followupsDueToday([], TODAY), { total: 0, today: 0, earlier: 0, oldest: null });
 });
 
 test("the counts route answers the same number the page counts", () => {
@@ -59,7 +59,7 @@ test("the counts route answers the same number the page counts", () => {
     { id: "c", status: "saved", followup_date: "2026-11-01" },
     { id: "d", status: "Interview", followup_date: "2026-11-10" },
   ];
-  assert.deepEqual(trackerCounts(rows, [], TODAY).followups_due_today, { total: 2, today: 1, earlier: 1 });
+  assert.deepEqual(trackerCounts(rows, [], TODAY).followups_due_today, { total: 2, today: 1, earlier: 1, oldest: "2026-11-10" });
 });
 
 test("the lite list's due_by keeps exactly those statuses, in every stored spelling, and leaves a pending ending out", () => {

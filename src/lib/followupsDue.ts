@@ -17,6 +17,7 @@
 //
 // Relative .ts imports only, so it runs under node:test.
 import { activePending, isEnding } from "./closing.ts";
+import { formatDate } from "./formatDate.ts";
 import { LIVE_STATUSES, isFollowupDue, type Status } from "./tracker.ts";
 
 /** The statuses a follow-up can be due on: sent and still live. */
@@ -44,15 +45,42 @@ export type DueTodayCount = {
   today: number;
   /** Of those, the ones dated before today. */
   earlier: number;
+  /** The earliest follow-up date among the overdue ones (YYYY-MM-DD), or null when none is overdue. */
+  oldest: string | null;
 };
 
 export function followupsDueToday(rows: readonly DueRow[], today: string): DueTodayCount {
   let total = 0;
   let exact = 0;
+  let oldest: string | null = null;
   for (const r of rows) {
     if (!isFollowupDueToday(r, today)) continue;
     total++;
     if (r.followup_date === today) exact++;
+    else if (!oldest || r.followup_date! < oldest) oldest = r.followup_date!;
   }
-  return { total, today: exact, earlier: total - exact };
+  return { total, today: exact, earlier: total - exact, oldest };
+}
+
+/**
+ * The card's words under its number (14 Nov 2026, Chunk 27). "1 Follow-ups due today" over
+ * "0 dated today · 1 overdue" read as a contradiction: nothing was due today, one was late.
+ * So the label says which it is, in the singular for one, with the date the late one was due:
+ * "1" + "Follow-up overdue (due 9 Nov)". `oldest` may be missing (a count from an older
+ * server answer): the date is then left out, never guessed.
+ */
+export function dueTodayLabel(count: Pick<DueTodayCount, "total" | "today" | "earlier"> & { oldest?: string | null }): string {
+  const day = count.oldest ? formatDate(count.oldest, { year: false }) : "";
+  if (count.earlier <= 0) return count.today === 1 ? "Follow-up due today" : "Follow-ups due today";
+  if (count.today <= 0) {
+    if (count.earlier === 1) return `Follow-up overdue${day ? ` (due ${day})` : ""}`;
+    return `Follow-ups overdue${day ? ` (oldest due ${day})` : ""}`;
+  }
+  return `Follow-ups due: ${count.today} today, ${count.earlier} overdue${day ? ` (${count.earlier === 1 ? "due" : "oldest due"} ${day})` : ""}`;
+}
+
+/** The same as one sentence with its number: "1 follow-up overdue (due 9 Nov)". */
+export function dueTodaySentence(count: Pick<DueTodayCount, "total" | "today" | "earlier"> & { oldest?: string | null }): string {
+  const label = dueTodayLabel(count);
+  return `${count.total} ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
 }

@@ -82,6 +82,9 @@ try {
     // ── The labels ─────────────────────────────────────────────────────────
     const closedTab = page.locator('[data-stage-tab="closed"]');
     check(`${w}: the tab that holds rejections says so, with its count`, /^Rejected \/ closed\s+\d+$/.test((await closedTab.innerText()).replace(/\s+/g, " ").trim()), await closedTab.innerText());
+    // On a phone the strip and the cards sit inside the folded "Today (n)" section (Chunk 27).
+    await page.locator("[data-today-toggle]").waitFor({ timeout: 30000 });
+    if ((await page.locator("[data-today-toggle]").getAttribute("aria-expanded")) === "false") await page.locator("[data-today-toggle]").click();
     const radar = page.locator("[data-due-radar]");
     await radar.waitFor({ timeout: 20000 });
     const radarText = await radar.innerText();
@@ -90,7 +93,7 @@ try {
     check(`${w}: its items are numbered, the soonest first`, items.length >= 2 && items[0].startsWith("1.") && /Made Up Sooner Test/.test(items[0]) && items[1].startsWith("2."), items.slice(0, 2).join(" | "));
     check(`${w}: it is an ordered list`, (await radar.locator("ol > li").count()) === items.length);
     const fix = (await page.locator('[data-attn="fix"] .attnLabel').innerText()).trim();
-    check(`${w}: the fix card says what is wrong in plain words`, fix === "Applications with no job description or CV", fix);
+    check(`${w}: the fix card says what is wrong in plain words`, fix === "Applications missing a job description or CV", fix);
     const outcomeBtn = page.locator("[data-apps-outcome]");
     check(`${w}: "Log outcome" sits beside "+ Add application", outlined`, (await outcomeBtn.innerText()).trim() === "Log outcome" && /secondary/.test(await outcomeBtn.getAttribute("class")) && (await page.locator("[data-apps-add]").count()) > 0);
     const a = await outcomeBtn.boundingBox(), b = await page.locator("[data-apps-add]").first().boundingBox();

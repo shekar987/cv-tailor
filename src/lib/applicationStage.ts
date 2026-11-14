@@ -264,12 +264,14 @@ export type AttentionCounts = { dueSoon: number; dueSoonRows: number; followups:
 /**
  * The "to fix" card's words: what is wrong, and only that (13 Nov 2026, Chunk 26). "0 with the
  * wrong status" beside the real count was noise, and one kind of problem needs no breakdown.
+ * Under its number the card reads "11" + "Applications missing a job description or CV"
+ * (14 Nov 2026, Chunk 27: "missing", the word the owner asked for).
  */
 export function fixLabel(counts: Pick<AttentionCounts, "statusToFix" | "attachmentsToFix">): string {
   const status = counts.statusToFix > 0;
   const files = counts.attachmentsToFix > 0;
-  if (status && files) return `Applications to fix · ${counts.statusToFix} with the wrong status, ${counts.attachmentsToFix} with no job description or CV`;
-  if (files) return "Applications with no job description or CV";
+  if (status && files) return `Applications to fix · ${counts.statusToFix} with the wrong status, ${counts.attachmentsToFix} missing a job description or CV`;
+  if (files) return "Applications missing a job description or CV";
   if (status) return "Applications with the wrong status";
   return "Applications to fix";
 }
