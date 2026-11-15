@@ -4386,6 +4386,18 @@ button.inlineLink { margin-block: -8px; }
   .firstRun__mark { width: 28px; height: 28px; }
 }
 
+/* My CV's "Is this right?" (Chunk 29): what was read from the CV, before it is trusted. */
+.detailsConfirm { margin: var(--space-4) 0; }
+.detailsConfirm__list { margin: var(--space-3) 0; display: grid; gap: var(--space-2); }
+.detailsConfirm__row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--space-3); }
+.detailsConfirm__row dt { font-size: var(--fs-sm); color: var(--text-subtle); font-weight: 600; }
+.detailsConfirm__row dd { margin: 0; font-size: var(--fs-sm); color: var(--text); overflow-wrap: anywhere; }
+.detailsConfirm__row dd[data-empty] { color: var(--muted); font-style: italic; }
+.detailsConfirmed { margin: var(--space-3) 0; }
+@media (max-width: 640px) {
+  .detailsConfirm__row { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+
 /* ── Saved results and their documents (Chunk 24) ─────────────────────────── */
 /* /app's score card: the master CV's figure before tailoring, beside the one after. */
 .scoreBefore { margin-top: var(--space-2); font-size: var(--fs-sm); color: var(--text-subtle); line-height: var(--leading-snug); }

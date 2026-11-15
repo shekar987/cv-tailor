@@ -21,9 +21,11 @@ test("the steps come in order: CV, right to work, first job, then none", () => {
   assert.equal(firstRunStep(facts({})), "cv");
   // A right-to-work answer given before the CV still leaves the CV first.
   assert.equal(firstRunStep(facts({ rtwStatus: "full" })), "cv");
-  assert.equal(firstRunStep(facts({ hasCv: true })), "rtw");
-  assert.equal(firstRunStep(facts({ hasCv: true, rtwStatus: "time_limited" })), "job");
-  assert.equal(firstRunStep(facts({ hasCv: true, rtwStatus: "needs_sponsorship", applicationCount: 1 })), null);
+  // Chunk 29: step 1 is the CV saved AND its details confirmed.
+  assert.equal(firstRunStep(facts({ hasCv: true })), "cv");
+  assert.equal(firstRunStep(facts({ hasCv: true, detailsConfirmed: true })), "rtw");
+  assert.equal(firstRunStep(facts({ hasCv: true, detailsConfirmed: true, rtwStatus: "time_limited" })), "job");
+  assert.equal(firstRunStep(facts({ hasCv: true, detailsConfirmed: true, rtwStatus: "needs_sponsorship", applicationCount: 1 })), null);
 });
 
 test("the whole guide only for an account with no application; a banner only for a missing CV", () => {

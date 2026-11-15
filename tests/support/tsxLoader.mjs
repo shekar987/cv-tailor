@@ -9,6 +9,11 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 registerHooks({
+  // A component that links with next/link (components/FirstRunGuide): Node's ESM resolver
+  // needs the file name next's package does not export. Only that one specifier.
+  resolve(specifier, context, nextResolve) {
+    return nextResolve(specifier === "next/link" ? "next/link.js" : specifier, context);
+  },
   load(url, context, nextLoad) {
     if (!url.startsWith("file:") || !url.endsWith(".tsx")) return nextLoad(url, context);
     const source = readFileSync(fileURLToPath(url), "utf8");

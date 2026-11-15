@@ -39,9 +39,13 @@ export default function AppHeader({
   title,
   tagline,
   actions,
+  currentHref,
 }: {
   title?: string;
   tagline?: React.ReactNode;
+  // Which nav link is the current page: by default the address's own; null marks none
+  // (Schedule while it is a new account's "Get started" page, Chunk 29).
+  currentHref?: string | null;
   // The page's own buttons, right of the title (Applications).
   actions?: React.ReactNode;
 }) {
@@ -106,7 +110,8 @@ export default function AppHeader({
   }
 
   // /app/next is its own section, not a page of Tailor.
-  const isCurrent = (href: string) => pathname === href || (href !== "/app" && pathname.startsWith(`${href}/`));
+  const isCurrent = (href: string) =>
+    currentHref === null ? false : currentHref !== undefined ? currentHref === href : pathname === href || (href !== "/app" && pathname.startsWith(`${href}/`));
   const signOutLabel = signingOut ? "Signing out…" : "Sign out";
 
   return (

@@ -71,6 +71,8 @@ export async function POST(req: NextRequest) {
     // Valid JSON is not the same as the right shape: coerce every field to
     // what the preview and download routes assume before it is stored.
     const profile = normalizeProfile(raw);
+    // A fresh read is never confirmed: the user sees it first (Chunk 29).
+    delete profile.detailsConfirmedAt;
     // A project title's bracketed qualifier the model dropped ("(personal
     // portfolio project modelled on a real-world brief)") comes back from
     // the CV's own line (lib/extractionCheck); reported for the page.

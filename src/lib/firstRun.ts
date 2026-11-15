@@ -13,6 +13,10 @@ export type RtwStatus = "full" | "time_limited" | "needs_sponsorship" | "unknown
 export type FirstRunFacts = {
   // A master CV with text is saved (master_cvs.text not empty).
   hasCv: boolean;
+  // The user pressed "Yes, these are right" on the details read from that CV
+  // (Profile.detailsConfirmedAt, Chunk 29). A fresh read of the CV clears it.
+  // Absent from an older server: read as not confirmed.
+  detailsConfirmed?: boolean;
   rtwStatus: RtwStatus;
   // Every tracker row the account holds, any status.
   applicationCount: number;
@@ -20,9 +24,9 @@ export type FirstRunFacts = {
 
 export type FirstRunStep = "cv" | "rtw" | "job";
 
-/** The step a user is on, or null once all three are done. */
+/** The step a user is on, or null once all three are done. Step 1 is the CV saved AND its details confirmed. */
 export function firstRunStep(f: FirstRunFacts): FirstRunStep | null {
-  if (!f.hasCv) return "cv";
+  if (!f.hasCv || !f.detailsConfirmed) return "cv";
   if (f.rtwStatus === "unknown") return "rtw";
   if (f.applicationCount === 0) return "job";
   return null;
@@ -41,6 +45,28 @@ export function firstRunMode(f: FirstRunFacts | null): "guide" | "banner" | null
   if (firstRunStep(f) === null) return null;
   if (f.applicationCount === 0) return "guide";
   return f.hasCv ? null : "banner";
+}
+
+/**
+ * Each step's own state (Chunk 29): done by its own fact, so an answer given
+ * out of order ticks at once (right to work answered before the CV), and the
+ * current step is firstRunStep's.
+ */
+export function stepState(f: FirstRunFacts, s: FirstRunStep): "done" | "current" | "next" {
+  const done = s === "cv" ? f.hasCv && !!f.detailsConfirmed : s === "rtw" ? f.rtwStatus !== "unknown" : f.applicationCount > 0;
+  if (done) return "done";
+  return firstRunStep(f) === s ? "current" : "next";
+}
+
+/** The page title a first-run account sees on Schedule: "Get started" until step 1 is done. */
+export function firstRunTitle(f: FirstRunFacts | null): "Get started" | null {
+  return firstRunMode(f) === "guide" && f && firstRunStep(f) === "cv" ? "Get started" : null;
+}
+
+/** A stored confirmation time, or null: only a real ISO instant counts. */
+export function readConfirmedAt(v: unknown): string | null {
+  if (typeof v !== "string" || v.length > 40 || !/^\d{4}-\d{2}-\d{2}T/.test(v)) return null;
+  return Number.isFinite(Date.parse(v)) ? v : null;
 }
 
 /** What Next's calendar, Clashes and Pipeline would show for an account with nothing in them. */

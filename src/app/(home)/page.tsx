@@ -326,12 +326,12 @@ export default function Landing() {
               </div>
               <div>
                 <dt>The daily limit</dt>
-                <dd>3 tailored CVs a day. The limit is the same on the free ones and on your own API key.</dd>
+                <dd>3 tailored CVs a day. The limit is the same on the free ones and on your own free AI account.</dd>
               </div>
               <div>
-                <dt>After that: your own free API key</dt>
+                <dt>After that: a free AI account</dt>
                 <dd>
-                  Add your own free API key in Settings and keep tailoring at no cost. Settings shows how to get one from OpenRouter, a service with free AI models. One honest note: OpenRouter&apos;s free models may train on what you send. Settings says how to check that in your OpenRouter account.
+                  Connect a free AI account in about 2 minutes and keep tailoring at no cost. Settings shows each step. The account is with OpenRouter, a service with free AI models. One honest note: OpenRouter&apos;s free models may train on what you send. Settings says how to check that in your OpenRouter account.
                 </dd>
               </div>
             </dl>
