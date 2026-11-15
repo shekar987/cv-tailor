@@ -8,6 +8,7 @@ import { signedIn, unauthorized } from "@/lib/routeAuth";
 import { readApplicationPages, type OrderableQuery } from "@/lib/applicationRows";
 import { activeApplications, activeEvents, buildFunnel, type PlanApplication, type PlanEvent } from "@/lib/plan";
 import { normalizeStatus } from "@/lib/tracker";
+import { readConfirmedAt } from "@/lib/firstRun";
 import { isMissingPlanSchema, PLAN_MIGRATION_HINT } from "@/lib/planSchema";
 
 const APPLICATION_COLUMNS =
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ applications: read.rows.map((a) => ({ ...a, status: normalizeStatus(a.status) ?? a.status })) });
     }
 
-    const [rows, eventsRead, windowsRead, cvRead, rtwRead] = await Promise.all([
+    const [rows, eventsRead, windowsRead, cvRead, rtwRead, detailsRead] = await Promise.all([
       readApplicationPages<PlanApplication>(() => supabase.from("applications").select(APPLICATION_COLUMNS) as unknown as OrderableQuery),
       supabase.from("application_events").select("*").in("status", ["scheduled", "to_book"]).order("created_at", { ascending: true }).limit(1000),
       supabase.from("availability_windows").select("*").limit(500),
@@ -43,6 +44,8 @@ export async function GET(req: NextRequest) {
       // A count, never the CV's text; the answer as stored, never inferred.
       supabase.from("master_cvs").select("user_id", { count: "exact", head: true }).neq("text", ""),
       supabase.from("user_settings").select("rtw:eligibility->rightToWork->>status").maybeSingle(),
+      // Whether the details read from that CV were confirmed (Chunk 29): one field of the profile, never the profile.
+      supabase.from("cv_profiles").select("confirmed:data->>detailsConfirmedAt").maybeSingle(),
     ]);
     if (isMissingPlanSchema(rows.error) || isMissingPlanSchema(eventsRead.error) || isMissingPlanSchema(windowsRead.error)) return needsMigration();
     const failure = rows.error ?? eventsRead.error ?? windowsRead.error;
@@ -56,10 +59,11 @@ export async function GET(req: NextRequest) {
     // rather than ask for a CV the user has saved.
     const rtw = (rtwRead.data as { rtw?: unknown } | null)?.rtw;
     const firstRun =
-      cvRead.error || (rtwRead.error && !isMissingTable(rtwRead.error.code))
+      cvRead.error || detailsRead.error || (rtwRead.error && !isMissingTable(rtwRead.error.code))
         ? null
         : {
             hasCv: (cvRead.count ?? 0) > 0,
+            detailsConfirmed: readConfirmedAt((detailsRead.data as { confirmed?: unknown } | null)?.confirmed) !== null,
             rtwStatus: rtw === "full" || rtw === "time_limited" || rtw === "needs_sponsorship" ? rtw : "unknown",
             applicationCount: applications.length,
           };

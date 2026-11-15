@@ -2531,7 +2531,7 @@ export default function Home() {
               <div className="limitNotice" role="alert" data-provider-credit>
                 <div className="limitNotice__title">{errorStep === "pre-check" ? "The free check" : "Tailoring"} is temporarily unavailable.</div>
                 <div className="limitNotice__body">
-                  Our free AI service is not available right now. This is not a problem with your account, and it did not use one of your tailored CVs. Add your own free API key and {errorStep === "pre-check" ? "the free check and tailoring run" : "tailoring runs"} on your key instead, straight away.
+                  Our free AI service is not available right now. This is not a problem with your account, and it did not use one of your tailored CVs. Connect your own free AI account in Settings (you paste in its API key once) and {errorStep === "pre-check" ? "the free check and tailoring run" : "tailoring runs"} on it instead, straight away.
                 </div>
                 <Button href="/settings" className="limitNotice__cta">
                   Add my API key →

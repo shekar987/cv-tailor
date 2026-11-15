@@ -29,7 +29,7 @@ import WeekView from "./WeekView";
 import { formatDate } from "@/lib/formatDate";
 import FirstRunGuide from "@/components/FirstRunGuide";
 import { FirstRunBannerView } from "@/components/FirstRunBanner";
-import { firstRunMode, planRailIsEmpty, showsStagesCaveat, withRightToWork, type FirstRunFacts, type RtwStatus } from "@/lib/firstRun";
+import { firstRunMode, firstRunTitle, planRailIsEmpty, showsStagesCaveat, withRightToWork, type FirstRunFacts, type RtwStatus } from "@/lib/firstRun";
 import { getUserSettings, saveEligibility } from "@/lib/cvStore";
 import { EMPTY_ELIGIBILITY } from "@/lib/knockouts";
 import { createClient } from "@/lib/supabase/client";
@@ -470,11 +470,17 @@ export default function NextPage() {
   const appCount = typeof data?.applicationCount === "number" ? data.applicationCount : null;
   const railEmpty = appCount !== null && planRailIsEmpty(appCount, events.length);
   const guideAlone = runMode === "guide" && events.length === 0;
+  // A new account lands here (lib/safeNext's fallback): until step 1 is done the page is
+  // "Get started", not an empty Schedule, and the nav marks nothing as the current page
+  // (Chunk 29). While the plan loads the title waits rather than show the wrong one.
+  const startTitle = firstRunTitle(firstRun);
+  const pageTitle = load === "loading" ? undefined : startTitle ?? "Schedule";
+  const pageTagline = load === "loading" ? undefined : startTitle ? "Do these once. After that you only paste a job." : "Every screening, interview, assessment and deadline, most urgent first.";
 
   return (
     <main className="page">
       <div className="container">
-        <AppHeader title="Schedule" tagline="Every screening, interview, assessment and deadline, most urgent first." />
+        <AppHeader title={pageTitle} tagline={pageTagline} currentHref={startTitle || load === "loading" ? null : undefined} />
         <p className="srOnly" aria-live="polite" data-next-live>{liveText}</p>
 
         {load === "loading" && (

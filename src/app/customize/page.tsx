@@ -21,6 +21,8 @@ import {
   type Profile,
 } from "@/lib/cvStore";
 import FirstRunGuide from "@/components/FirstRunGuide";
+// The right-to-work select inside Eligibility: what /customize#eligibility-rtw opens.
+const RTW_QUESTION_ID = "eligibility-rtw";
 import { forgetSavedCv } from "@/components/FirstRunBanner";
 import { firstRunMode, withRightToWork, type FirstRunFacts } from "@/lib/firstRun";
 import { loadWorkspace, saveWorkspace } from "@/lib/workspace";
@@ -172,13 +174,15 @@ const NAV_GROUPS: { group: string; items: { id: string; icon: IconName; label: s
     group: "Your CV",
     items: [
       { id: "master-cv", icon: "document", label: "Main CV", always: true },
+      // Straight under the CV (Chunk 29): the right-to-work question a new user is asked
+      // in step 2 lives here, and nowhere else on the page.
+      { id: "eligibility", icon: "shield", label: "Eligibility" },
       { id: "your-details", icon: "user", label: "Your details", always: true },
     ],
   },
   {
     group: "Tailoring",
     items: [
-      { id: "eligibility", icon: "shield", label: "Eligibility" },
       { id: "claims", icon: "verified", label: "Skill levels" },
       { id: "variants", icon: "target", label: "Headlines" },
     ],
@@ -188,7 +192,7 @@ const NAV_GROUPS: { group: string; items: { id: string; icon: IconName; label: s
     items: [
       { id: "section-order", icon: "list", label: "Section order" },
       { id: "cv-length", icon: "document", label: "CV length" },
-      { id: "right-to-work", icon: "globe", label: "Right to Work" },
+      { id: "right-to-work", icon: "globe", label: "Right to work on the CV" },
       { id: "project-links", icon: "link", label: "Project links" },
       { id: "advanced", icon: "sliders", label: "Project list" },
     ],
@@ -387,6 +391,24 @@ export default function CustomizePage() {
     // Scrolling to the header is safe before the expansion paints: a section
     // grows downward, so its own top doesn't move.
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  // The right-to-work question (Chunk 29): the first-run guide's "Change your answer" and
+  // a link to /customize#eligibility-rtw open Eligibility and put focus on the one select.
+  // The body paints after the open, so the focus waits two frames.
+  function openRtwQuestion() {
+    setOpenSections((prev) => (prev.has("eligibility") ? prev : new Set(prev).add("eligibility")));
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const el = document.getElementById(RTW_QUESTION_ID);
+        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        el?.focus({ preventScroll: true });
+      })
+    );
+  }
+  // Step 1's "Check your details": Your details is always open; focus lands on the confirm.
+  function checkDetails() {
+    document.getElementById("your-details")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    document.getElementById("details-confirm")?.focus({ preventScroll: true });
   }
   const [retiredDraft, setRetiredDraft] = useState("");
   // Preferences are written whole, so a write starts from the latest of what is stored,
@@ -649,7 +671,8 @@ export default function CustomizePage() {
         // A link to one section ("/customize#eligibility", from the first-run guide): open it
         // and scroll there, as the section nav does. Master CV and Your details are always open.
         const hash = decodeURIComponent(window.location.hash.slice(1));
-        if (hash && Object.prototype.hasOwnProperty.call(FOLIO, hash)) {
+        if (hash === RTW_QUESTION_ID) openRtwQuestion();
+        else if (hash && Object.prototype.hasOwnProperty.call(FOLIO, hash)) {
           if (hash !== "master-cv" && hash !== "your-details") setOpenSections((prev) => (prev.has(hash) ? prev : new Set(prev).add(hash)));
           requestAnimationFrame(() => document.getElementById(hash)?.scrollIntoView({ block: "start" }));
         }
@@ -867,6 +890,26 @@ export default function CustomizePage() {
       {rtwRemoveError && <StatusText as="span" role="alert">{rtwRemoveError}</StatusText>}
     </div>
   ) : null;
+
+  // "Yes, these are right" (Chunk 29): the details read from the CV are trusted only once
+  // the user has seen them. A pending typed edit is saved with it (its timer would
+  // otherwise write the profile without the confirmation a moment later).
+  const [confirmingDetails, setConfirmingDetails] = useState(false);
+  async function confirmDetails() {
+    if (!profile || confirmingDetails) return;
+    if (profileSaveTimer.current) clearTimeout(profileSaveTimer.current);
+    setTypingField(null);
+    setConfirmingDetails(true);
+    const updated: Profile = { ...profile, detailsConfirmedAt: new Date().toISOString() };
+    const ok = await saveProfile(updated);
+    setConfirmingDetails(false);
+    if (!ok) {
+      setProfileError("Couldn't save your confirmation. Check your connection and try again.");
+      return;
+    }
+    setProfileError("");
+    setProfile(updated);
+  }
 
   async function handleSaveEligibility() {
     setEligMsg("");
@@ -1191,7 +1234,7 @@ export default function CustomizePage() {
   // would be refused anyway (lib/cvStore).
   const firstRunFacts: FirstRunFacts | null =
     masterCvText && eligLoaded && applicationCount !== null && !settingsReadFailed && !settingsMissing
-      ? { hasCv: true, rtwStatus: savedElig.rightToWork.status, applicationCount }
+      ? { hasCv: true, detailsConfirmed: !!profile?.detailsConfirmedAt, rtwStatus: savedElig.rightToWork.status, applicationCount }
       : null;
   const claimsTotal = claims?.skills.length ?? 0;
   const claimsUnconfirmed = countUnconfirmed(claims);
@@ -1320,130 +1363,16 @@ export default function CustomizePage() {
               </div>
             </div>
             {firstRunFacts && firstRunMode(firstRunFacts) === "guide" && (
-              <FirstRunGuide facts={firstRunFacts} cvHref={null} onChooseRtw={chooseRightToWork} busy={eligSaving} />
+              <FirstRunGuide
+                facts={firstRunFacts}
+                cvHref={null}
+                onCheckDetails={checkDetails}
+                onChooseRtw={chooseRightToWork}
+                onOpenRtw={openRtwQuestion}
+                busy={eligSaving}
+              />
             )}
             </>
-          )}
-        </Card>
-
-        <Card id="your-details">
-          <SectionHeading folio={FOLIO["your-details"]}>
-            Your details {extracting && <span className="cvSavedMeta">(reading your CV…)</span>}
-          </SectionHeading>
-          {profileError && <p role="alert" className="keyError">{profileError}</p>}
-          {profileLoading ? (
-            <Skeleton lines={2} label="Loading your details" />
-          ) : profile ? (
-            <>
-              <p className="cvHelp">We read these from your CV. Check that they are right. They appear at the top of every tailored CV.</p>
-              <div className="profileGrid">
-                <label>Name<Input value={profile.name} onChange={(e) => updateProfileField("name", e.target.value)} /></label>
-                <label>
-                  Tagline
-                  <Input value={profile.tagline} onChange={(e) => updateProfileField("tagline", e.target.value)} />
-                  {taglineRoles(profile.tagline).length >= 2 && (
-                    <span className="fitEvidence" data-warn data-tagline-roles>
-                      This names {taglineRoles(profile.tagline).length} roles ({taglineRoles(profile.tagline).join(" / ")}). A headline with two job titles is weaker than a headline with one. Keep one here, and add the other under Headlines below.
-                    </span>
-                  )}
-                </label>
-                <label>Location<Input value={profile.location} onChange={(e) => updateProfileField("location", e.target.value)} /></label>
-                <label>Phone<Input value={profile.phone} onChange={(e) => updateProfileField("phone", e.target.value)} aria-invalid={!!contactError("phone")} />{contactError("phone")}</label>
-                <label>Email<Input value={profile.email} onChange={(e) => updateProfileField("email", e.target.value)} aria-invalid={!!contactError("email")} />{contactError("email")}</label>
-                <label>LinkedIn<Input value={profile.linkedin} onChange={(e) => updateProfileField("linkedin", e.target.value)} aria-invalid={!!contactError("linkedin")} />{contactError("linkedin")}</label>
-                <label>GitHub<Input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} aria-invalid={!!contactError("github")} />{contactError("github")}</label>
-                <label>Website<Input value={profile.website} onChange={(e) => updateProfileField("website", e.target.value)} aria-invalid={!!contactError("website")} />{contactError("website")}</label>
-              </div>
-
-              {contactFixNote && (
-                <StatusText className="msgBelow" role="status" data-contact-fixed>{contactFixNote}</StatusText>
-              )}
-
-              {extractionIssues.map((f) => (
-                <StatusText key={f.section} className="msgBelow" role="alert" data-extraction-flag={f.section}>
-                  Your CV&apos;s {f.label} section seems to list {f.expected} entries, but {f.got}{" "}
-                  {f.got === 1 ? "was" : "were"} were read. Check the list below. If something is missing, press Read my CV again.
-                </StatusText>
-              ))}
-
-              {(profile.projects.length > 0 ||
-                profile.education.length > 0 ||
-                profile.certifications.length > 0 ||
-                (profile.extraSections?.length ?? 0) > 0) && (
-                <div className="extractSummary">
-                  <div className="extractLabel">Also read from your CV</div>
-                  <dl className="extractGrid">
-                    {profile.projects.length > 0 && (
-                      <div className="extractRow">
-                        <dt>Projects ({profile.projects.length})</dt>
-                        <dd>
-                          {profile.projects
-                            .map((pr) => splitTrailingDate(pr.name || "").title || pr.name)
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </dd>
-                      </div>
-                    )}
-                    {profile.education.length > 0 && (
-                      <div className="extractRow">
-                        <dt>Education ({profile.education.length})</dt>
-                        <dd>
-                          {profile.education
-                            .map((e) => [e.degree, e.institution].filter(Boolean).join(" — "))
-                            .join(" · ")}
-                        </dd>
-                      </div>
-                    )}
-                    {profile.certifications.length > 0 && (
-                      <div className="extractRow">
-                        <dt>Certifications ({profile.certifications.length})</dt>
-                        <dd>{profile.certifications.join(" · ")}</dd>
-                      </div>
-                    )}
-                    {(profile.extraSections?.length ?? 0) > 0 && (
-                      <div className="extractRow">
-                        <dt>Extra sections</dt>
-                        <dd>{(profile.extraSections ?? []).map((s) => s.title).join(" · ")}</dd>
-                      </div>
-                    )}
-                  </dl>
-                  <p className="cvHelp cvHelpTight">
-                    This list shows what we read from your CV. To change the wording, edit the tailored CV preview.
-                  </p>
-                </div>
-              )}
-            </>
-          ) : masterCvText ? (
-            <p className="cvHelp">
-              Your CV is saved, but we have not read your details from it yet. Press Read my CV again below.
-            </p>
-          ) : (
-            <p className="cvHelp">
-              No details yet. Add your main CV above and we read them from it automatically.
-            </p>
-          )}
-          {!profileLoading && masterCvText && (
-            <div className="actions">
-              {confirmReextract ? (
-                <>
-                  <StatusText as="span">We will read your CV again. This takes a few seconds. Continue?</StatusText>
-                  <Button variant="secondary" onClick={handleReextract} disabled={reextracting}>
-                    Yes, read it again
-                  </Button>
-                  <Button variant="ghost" onClick={() => setConfirmReextract(false)} disabled={reextracting}>
-                    Cancel
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  variant="secondary"
-                  onClick={() => setConfirmReextract(true)}
-                  disabled={reextracting || extracting || editingCv}
-                >
-                  {reextracting ? "Reading your CV…" : "Read my CV again"}
-                </Button>
-              )}
-            </div>
           )}
         </Card>
 
@@ -1514,6 +1443,7 @@ export default function CustomizePage() {
                 <label>
                   Right to work
                   <select
+                    id={RTW_QUESTION_ID}
                     className="appsSelect"
                     value={eligibility.rightToWork.status}
                     onChange={(e) => {
@@ -1803,6 +1733,181 @@ export default function CustomizePage() {
             </>
           )}
         </CollapsibleSection>
+
+        <Card id="your-details">
+          <SectionHeading folio={FOLIO["your-details"]}>
+            Your details {extracting && <span className="cvSavedMeta">(reading your CV…)</span>}
+          </SectionHeading>
+          {profileError && <p role="alert" className="keyError">{profileError}</p>}
+          {profileLoading ? (
+            <Skeleton lines={2} label="Loading your details" />
+          ) : profile ? (
+            <>
+              <p className="cvHelp">We read these from your CV. Check that they are right. They appear at the top of every tailored CV.</p>
+              {profile.detailsConfirmedAt ? (
+                <p className="cvSavedMeta detailsConfirmed" data-details-confirmed>
+                  ✓ You confirmed these on {formatDate(profile.detailsConfirmedAt)}.
+                  {firstRunFacts && firstRunMode(firstRunFacts) === "guide" && firstRunFacts.rtwStatus === "unknown" && (
+                    <>
+                      {" "}Next:{" "}
+                      <button
+                        type="button"
+                        className="inlineLink"
+                        onClick={() => {
+                          document.getElementById("first-run")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                          document.querySelector<HTMLElement>("[data-first-run-rtw]")?.focus({ preventScroll: true });
+                        }}
+                        data-details-next
+                      >
+                        answer the right-to-work question
+                      </button>
+                      .
+                    </>
+                  )}
+                </p>
+              ) : (
+                <div className="limitNotice detailsConfirm" role="region" aria-labelledby="details-confirm-title" data-details-confirm>
+                  <div className="limitNotice__title" id="details-confirm-title">Is this right?</div>
+                  <div className="limitNotice__body">
+                    This is what we read from your CV. Application forms and every tailored CV use it, so check each line. Fix anything wrong in the boxes below, then confirm.
+                  </div>
+                  <dl className="detailsConfirm__list">
+                    {([
+                      ["Name", profile.name],
+                      ["Email", profile.email],
+                      ["Phone", profile.phone],
+                      ["Location", profile.location],
+                      [
+                        "Education",
+                        profile.education
+                          .map((e) => [e.degree, e.institution, e.dates].filter(Boolean).join(", "))
+                          .filter(Boolean)
+                          .join(" · "),
+                      ],
+                    ] as const).map(([label, value]) => (
+                      <div key={label} className="detailsConfirm__row">
+                        <dt>{label}</dt>
+                        <dd data-empty={value ? undefined : ""}>{value || "Not found in your CV"}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <div className="limitNotice__cta">
+                    <Button id="details-confirm" onClick={confirmDetails} disabled={confirmingDetails || typingField !== null}>
+                      {confirmingDetails ? "Saving…" : "Yes, these are right"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <div className="profileGrid">
+                <label>Name<Input value={profile.name} onChange={(e) => updateProfileField("name", e.target.value)} /></label>
+                <label>
+                  Tagline
+                  <Input value={profile.tagline} onChange={(e) => updateProfileField("tagline", e.target.value)} />
+                  {taglineRoles(profile.tagline).length >= 2 && (
+                    <span className="fitEvidence" data-warn data-tagline-roles>
+                      This names {taglineRoles(profile.tagline).length} roles ({taglineRoles(profile.tagline).join(" / ")}). A headline with two job titles is weaker than a headline with one. Keep one here, and add the other under Headlines below.
+                    </span>
+                  )}
+                </label>
+                <label>Location<Input value={profile.location} onChange={(e) => updateProfileField("location", e.target.value)} /></label>
+                <label>Phone<Input value={profile.phone} onChange={(e) => updateProfileField("phone", e.target.value)} aria-invalid={!!contactError("phone")} />{contactError("phone")}</label>
+                <label>Email<Input value={profile.email} onChange={(e) => updateProfileField("email", e.target.value)} aria-invalid={!!contactError("email")} />{contactError("email")}</label>
+                <label>LinkedIn<Input value={profile.linkedin} onChange={(e) => updateProfileField("linkedin", e.target.value)} aria-invalid={!!contactError("linkedin")} />{contactError("linkedin")}</label>
+                <label>GitHub<Input value={profile.github} onChange={(e) => updateProfileField("github", e.target.value)} aria-invalid={!!contactError("github")} />{contactError("github")}</label>
+                <label>Website<Input value={profile.website} onChange={(e) => updateProfileField("website", e.target.value)} aria-invalid={!!contactError("website")} />{contactError("website")}</label>
+              </div>
+
+              {contactFixNote && (
+                <StatusText className="msgBelow" role="status" data-contact-fixed>{contactFixNote}</StatusText>
+              )}
+
+              {extractionIssues.map((f) => (
+                <StatusText key={f.section} className="msgBelow" role="alert" data-extraction-flag={f.section}>
+                  Your CV&apos;s {f.label} section seems to list {f.expected} entries, but {f.got}{" "}
+                  {f.got === 1 ? "was" : "were"} were read. Check the list below. If something is missing, press Read my CV again.
+                </StatusText>
+              ))}
+
+              {(profile.projects.length > 0 ||
+                profile.education.length > 0 ||
+                profile.certifications.length > 0 ||
+                (profile.extraSections?.length ?? 0) > 0) && (
+                <div className="extractSummary">
+                  <div className="extractLabel">Also read from your CV</div>
+                  <dl className="extractGrid">
+                    {profile.projects.length > 0 && (
+                      <div className="extractRow">
+                        <dt>Projects ({profile.projects.length})</dt>
+                        <dd>
+                          {profile.projects
+                            .map((pr) => splitTrailingDate(pr.name || "").title || pr.name)
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </dd>
+                      </div>
+                    )}
+                    {profile.education.length > 0 && (
+                      <div className="extractRow">
+                        <dt>Education ({profile.education.length})</dt>
+                        <dd>
+                          {profile.education
+                            .map((e) => [e.degree, e.institution].filter(Boolean).join(" — "))
+                            .join(" · ")}
+                        </dd>
+                      </div>
+                    )}
+                    {profile.certifications.length > 0 && (
+                      <div className="extractRow">
+                        <dt>Certifications ({profile.certifications.length})</dt>
+                        <dd>{profile.certifications.join(" · ")}</dd>
+                      </div>
+                    )}
+                    {(profile.extraSections?.length ?? 0) > 0 && (
+                      <div className="extractRow">
+                        <dt>Extra sections</dt>
+                        <dd>{(profile.extraSections ?? []).map((s) => s.title).join(" · ")}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  <p className="cvHelp cvHelpTight">
+                    This list shows what we read from your CV. To change the wording, edit the tailored CV preview.
+                  </p>
+                </div>
+              )}
+            </>
+          ) : masterCvText ? (
+            <p className="cvHelp">
+              Your CV is saved, but we have not read your details from it yet. Press Read my CV again below.
+            </p>
+          ) : (
+            <p className="cvHelp">
+              No details yet. Add your main CV above and we read them from it automatically.
+            </p>
+          )}
+          {!profileLoading && masterCvText && (
+            <div className="actions">
+              {confirmReextract ? (
+                <>
+                  <StatusText as="span">We will read your CV again. This takes a few seconds. Continue?</StatusText>
+                  <Button variant="secondary" onClick={handleReextract} disabled={reextracting}>
+                    Yes, read it again
+                  </Button>
+                  <Button variant="ghost" onClick={() => setConfirmReextract(false)} disabled={reextracting}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="secondary"
+                  onClick={() => setConfirmReextract(true)}
+                  disabled={reextracting || extracting || editingCv}
+                >
+                  {reextracting ? "Reading your CV…" : "Read my CV again"}
+                </Button>
+              )}
+            </div>
+          )}
+        </Card>
 
         {/* Claims registry — what each skill can honestly be called. Seeded on
             extraction, so it only exists once a CV is saved. */}
@@ -2177,13 +2282,13 @@ export default function CustomizePage() {
           id="right-to-work"
           folio={FOLIO["right-to-work"]}
           icon="globe"
-          title="Right to Work"
+          title="Right to work on the CV"
           open={openSections.has("right-to-work")}
           onToggle={toggleSection}
           summary={prefs.includeRightToWorkOnCv ? "Shown on the CV" : "Off the CV — offered for forms"}
         >
           <p className="cvHelp">
-            Off by default. A reviewer who sees your immigration status first may judge you on it, and the application form asks the same question in a better place. The wording comes from your Eligibility answers above, never from your CV&apos;s text. You get it as a block to copy into forms, beside the download buttons. It closes the cover letter only when this is on. Turn it on only when a job asks for it on the CV itself.
+            Off by default. A reviewer who sees your immigration status first may judge you on it, and the application form asks the same question in a better place. This is only about the CV document: your answer itself is the right-to-work question under Eligibility. The wording comes from your Eligibility answers, never from your CV&apos;s text. You get it as a block to copy into forms, beside the download buttons. It closes the cover letter only when this is on. Turn it on only when a job asks for it on the CV itself.
           </p>
           {profile && profile.rightToWork.length > 0 && (
             <p className="fitEvidence">Your CV says: {profile.rightToWork.join(" · ")}</p>

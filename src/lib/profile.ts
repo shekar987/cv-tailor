@@ -8,6 +8,7 @@
 // every field the type the renderers assume. Project positions are preserved
 // (never filtered) because tailored bullets are keyed by project index.
 import { CAREERSET_TOOL_GROUPS } from "./formatStyles/ids.ts";
+import { readConfirmedAt } from "./firstRun.ts";
 
 export type Education = { degree: string; dates: string; institution: string; note: string };
 export type ProjectLink = { label: string; url: string; text: string };
@@ -21,6 +22,10 @@ export type Profile = {
   // Pass-through sections not covered by the named fields (e.g. RECOGNITIONS,
   // AWARDS, PUBLICATIONS). Never tailored — rendered verbatim after Right to Work.
   extraSections?: ExtraSection[];
+  // When the user pressed "Yes, these are right" on the details read from the
+  // CV (Chunk 29). A fresh read writes a new profile without it, so the user
+  // sees the new read before it is trusted again; a hand edit keeps it.
+  detailsConfirmedAt?: string;
 };
 
 // A skills block's group labels ("Languages & Frameworks:", "Technical
@@ -188,5 +193,6 @@ export function normalizeProfile(input: unknown): Profile {
     projects,
     rightToWork: strList(p.rightToWork, 10, 300),
     extraSections,
+    ...(readConfirmedAt(p.detailsConfirmedAt) ? { detailsConfirmedAt: readConfirmedAt(p.detailsConfirmedAt) as string } : {}),
   };
 }

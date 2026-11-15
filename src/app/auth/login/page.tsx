@@ -9,6 +9,7 @@ import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import StatusText from '@/components/ui/StatusText'
 import Wordmark from '@/components/ui/Wordmark'
+import { SIGN_IN_INTRO, SIGN_UP_INTRO } from '@/lib/authCopy'
 
 type Mode = 'login' | 'signup'
 
@@ -218,9 +219,7 @@ export default function LoginPage() {
         <Wordmark href="/" className="authWordmark authWordmarkLink" />
         <h1 className="authTitle">{mode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
         <p className="authMuted">
-          {mode === 'login'
-            ? 'Sign in to open your CV and your applications.'
-            : 'Free to start. You get 3 free tailored CVs in total. After that, add your own free API key and keep going at no cost. We show you how.'}
+          {mode === 'login' ? SIGN_IN_INTRO : SIGN_UP_INTRO}
         </p>
 
         {/* Mode toggle */}

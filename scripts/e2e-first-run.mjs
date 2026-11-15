@@ -5,9 +5,13 @@
 //   1. A brand-new account (signed in through the login form) lands on What's next and sees
 //      one first step, "Upload your CV"; no calendar, Clashes, Pipeline or 3 Nov caveat; the
 //      banner on other pages; Eligibility "Not set" (the walkthrough's Step 0.1).
-//   2. Upload → Save (1 click) → right to work, an explicit choice (2) → "Paste your first job"
-//      (3) → the Tailor box with the CV saved, at 1280 and at 390. Only the right-to-work
-//      answer is stored: the licences box Customise prefills from the CV is not.
+//   2. Upload → Save (1 click) → "Is this right?" on the details read (2, Chunk 29) → right to
+//      work, an explicit choice (3) → "Paste your first job" (4) → the Tailor box with the CV
+//      saved, at 1280 and at 390. Only the right-to-work answer is stored: the licences box
+//      Customise prefills from the CV is not. Chunk 29 also: the page is "Get started" with no
+//      nav link current, the sign-up line says no "API key", step 3's "Tailor page" is a link,
+//      Eligibility is 02 and section 08 is "Right to work on the CV", and #eligibility-rtw
+//      opens the one question.
 //   3. A real tailor through the mock: the usage chip moves (3 → 2), the score card shows the
 //      master CV's figure before tailoring; after "Applied — save to tracker" the CV, the letter
 //      and the form answers stay; the CV downloads and a form answer copies; a reload keeps
@@ -128,6 +132,11 @@ try {
     firstRun[width] = acc;
     const { ctx, page } = await openContext(width, acc, { signedIn: false });
     await page.goto(`${BASE}/auth/login`, { waitUntil: "load" });
+    await page.locator(".authToggle button", { hasText: /create/i }).click();
+    const signUpLine = await page.locator(".authMuted").first().innerText();
+    check(`${width}: the sign-up line says "a free AI account", never "API key"`, /free AI account/.test(signUpLine) && !/API key/i.test(await page.locator("main").innerText()), signUpLine);
+    await page.screenshot({ path: path.join(SHOTS, `sign-up-${width}.png`), fullPage: true });
+    await page.locator(".authToggle button", { hasText: /sign in/i }).click();
     await page.locator('input[type="email"]').fill(acc.email);
     await page.locator("#password").fill(acc.password);
     await page.locator('button[type="submit"]').click();
@@ -135,6 +144,11 @@ try {
     const guide = page.locator("[data-first-run]");
     await guide.waitFor({ timeout: 60000 });
     check(`${width}: sign-in lands on What's next with the first step current`, (await guide.getAttribute("data-first-run-step")) === "cv");
+    check(`${width}: the page is "Get started", not an empty Schedule`, (await page.locator("h1.pageTitle").innerText()) === "Get started");
+    check(`${width}: no nav link is marked as the current page`, (await page.locator('#appBarNav [aria-current="page"]').count()) === 0);
+    const tailorLink = page.locator("[data-first-run-tailor-link]");
+    check(`${width}: step 3's "Tailor page" is a link to /app`, (await tailorLink.count()) === 1 && (await tailorLink.getAttribute("href")) === "/app" && (await tailorLink.isVisible()));
+    check(`${width}: step 2 can be answered on the card already`, (await page.locator("[data-first-run-rtw]").count()) === 3);
     check(`${width}: the one filled button is "Upload your CV"`, JSON.stringify(await filledButtons(page)) === JSON.stringify(["Upload your CV"]), JSON.stringify(await filledButtons(page)));
     check(`${width}: no "New event" or "Add an interview or deadline" button`, (await page.locator("[data-new-event]").count()) === 0 && (await page.getByText("Add an interview or deadline").count()) === 0);
     check(`${width}: no empty calendar, Clashes or Pipeline`, (await page.locator("[data-mini-calendar], [data-conflicts], [data-funnel]").count()) === 0);
@@ -156,6 +170,10 @@ try {
     // textContent: a phone hides a folded section's summary line, which is still what it says.
     const eligSummary = (await page.locator("#eligibility").textContent().catch(() => "")) ?? "";
     check(`${width}: Eligibility starts "Not set" (nothing defaulted)`, /Not set/.test(eligSummary), eligSummary.slice(0, 80));
+    const order = await page.evaluate(() => [...document.querySelectorAll(".cstMain > [id]")].map((e) => e.id).slice(0, 3));
+    check(`${width}: Eligibility sits straight under Main CV`, JSON.stringify(order) === JSON.stringify(["master-cv", "eligibility", "your-details"]), JSON.stringify(order));
+    const s08 = (await page.locator("#right-to-work").textContent()) ?? "";
+    check(`${width}: section 08 is "Right to work on the CV"`, /Right to work on the CV/.test(s08) && /08/.test(s08));
     const file = path.join(SHOTS, `cv-${width}.txt`);
     fs.writeFileSync(file, CV);
     await page.locator('input[type="file"]').setInputFiles(file);
@@ -164,9 +182,21 @@ try {
     let clicks = 0;
     const click = async (locator) => { clicks++; await locator.click(); };
     await click(page.locator("button", { hasText: /^Save my CV$/ }));
+    // "Is this right?": the details read from the CV, shown before anything uses them.
+    const confirmBox = page.locator("[data-details-confirm]");
+    await confirmBox.waitFor({ timeout: 60000 });
+    check(`${width}: after the save, step 1 waits for the details check`, (await page.locator("[data-first-run]").getAttribute("data-first-run-step")) === "cv");
+    const shown = await confirmBox.innerText();
+    check(`${width}: the check shows name, email, phone, location and education`, ["Alex Tester", "alex.tester@example.com", "07700 900123", "London", "BSc Computer Science"].every((t) => shown.includes(t)), shown.replace(/\s+/g, " ").slice(0, 160));
+    await page.screenshot({ path: path.join(SHOTS, `customize-confirm-${width}.png`), fullPage: true });
+    await click(page.locator("#details-confirm"));
+    await page.locator("[data-details-confirmed]").waitFor({ timeout: 30000 });
     const rtwChoice = page.locator('[data-first-run-rtw="time_limited"]');
     await rtwChoice.waitFor({ timeout: 60000 });
-    check(`${width}: after the save, the next step is right to work`, (await page.locator("[data-first-run]").getAttribute("data-first-run-step")) === "rtw");
+    check(`${width}: after the check, the next step is right to work`, (await page.locator("[data-first-run]").getAttribute("data-first-run-step")) === "rtw");
+    check(`${width}: the check says what is next`, (await page.locator("[data-details-next]").count()) === 1);
+    const confirmedRow = await adminRest(`cv_profiles?user_id=eq.${acc.id}&select=data`);
+    check(`${width}: the confirmation is stored with the profile`, typeof confirmedRow.body?.[0]?.data?.detailsConfirmedAt === "string");
     check(`${width}: three answers, none chosen for you`, (await page.locator("[data-first-run-rtw]").count()) === 3);
     await page.screenshot({ path: path.join(SHOTS, `customize-guide-${width}.png`), fullPage: true });
     if (width === 1280) {
@@ -179,7 +209,7 @@ try {
     }
     await page.waitForURL(/\/app$/, { timeout: 30000 });
     await page.locator("#jd").waitFor({ timeout: 60000 });
-    check(`${width}: the Tailor box, with the CV saved, in ${clicks} clicks after the upload (at most 3)`, clicks <= 3 && (await page.locator("#jd").isVisible()));
+    check(`${width}: the Tailor box, with the CV saved, in ${clicks} clicks after the upload (at most 4)`, clicks <= 4 && (await page.locator("#jd").isVisible()));
     const stored = await adminRest(`user_settings?user_id=eq.${acc.id}&select=eligibility`);
     const elig = stored.body?.[0]?.eligibility ?? null;
     if (width === 1280) {
@@ -190,6 +220,17 @@ try {
     const cvRow = await adminRest(`master_cvs?user_id=eq.${acc.id}&select=text`);
     check(`${width}: the CV is saved`, /Northwind Labs/.test(cvRow.body?.[0]?.text ?? ""));
     check(`${width}: nothing overflows on Tailor`, await noOverflow(page));
+    // Back on Schedule: step 1 ticked, step 2 ticked where answered, the title is Schedule again.
+    await page.goto(`${BASE}/app/next`, { waitUntil: "load" });
+    await page.locator("[data-first-run]").waitFor({ timeout: 60000 });
+    const states = await page.locator("[data-first-run] [data-step]").evaluateAll((els) => els.map((e) => e.getAttribute("data-state")));
+    check(`${width}: the card ticks itself`, JSON.stringify(states) === JSON.stringify(width === 1280 ? ["done", "done", "current"] : ["done", "current", "next"]), JSON.stringify(states));
+    check(`${width}: past step 1 the page is Schedule again`, (await page.locator("h1.pageTitle").innerText()) === "Schedule");
+    await page.screenshot({ path: path.join(SHOTS, `next-after-${width}.png`), fullPage: true });
+    // The one question, by link.
+    await page.goto(`${BASE}/customize#eligibility-rtw`, { waitUntil: "load" });
+    await page.waitForFunction(() => document.activeElement?.id === "eligibility-rtw", null, { timeout: 30000 }).catch(() => {});
+    check(`${width}: #eligibility-rtw opens Eligibility on the right-to-work question`, await page.evaluate(() => document.activeElement?.id === "eligibility-rtw" && !!document.getElementById("eligibility-rtw")?.offsetParent));
     await ctx.close();
   }
 
