@@ -16,6 +16,7 @@ import type { InterviewFeedback } from "@/lib/mockInterview";
 import { detectCaps, suggestedVoice, type Caps, type VoiceChoice } from "@/lib/interview/capabilities";
 import { loadKokoroVoice, loadBrowserVoices, pickBrowserVoice, browserVoice, silentVoice, type InterviewVoice } from "@/lib/interview/voice";
 import AvatarStage, { type AvatarHandle } from "./AvatarStage";
+import CallStage, { type CallState } from "./CallStage";
 import InterviewRoom, { type StartedInterview } from "./InterviewRoom";
 import FeedbackView from "./FeedbackView";
 import { normalizeStatus } from "@/lib/tracker";
@@ -29,6 +30,13 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const SESSION_EXPIRED = "Your session has expired — sign in again to continue.";
 // The natural voice must say a line at least this fast, or the conversation stalls.
 const MIN_REALTIME = 1.2;
+// Chunk 30: the interviewer view. The call tile is the default; the 3D avatar
+// is opt-in, so the default page never downloads TalkingHead, three or a .glb.
+type InterviewView = "call" | "3d";
+const VIEW_KEY = "cvtailor:interview:view";
+function initials(name: string): string {
+  return name.split(" ").map((p) => p[0] ?? "").join("").slice(0, 2).toUpperCase();
+}
 
 type Row = { id: string; company_name: string; role: string; status: string; job_description: string | null };
 type Past = { id: string; type: string; status: string; created_at: string; readout: { band: string; label: string } | null };
@@ -73,6 +81,24 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
   const [speaking, setSpeaking] = useState(false);
   const [mic, setMic] = useState<{ state: "idle" | "testing" | "ok" | "blocked"; level: number }>({ state: "idle", level: 0 });
   const avatarRef = useRef<AvatarHandle>(null);
+  // Chunk 30: the call tile is the default interviewer view; its state and levels.
+  const [view, setView] = useState<InterviewView>("call");
+  const [stageState, setStageState] = useState<CallState>("idle");
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [micLevel, setMicLevel] = useState(0);
+  const [roomCaption, setRoomCaption] = useState("");
+  const [selfView, setSelfView] = useState(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const selfStreamRef = useRef<MediaStream | null>(null);
+  const selfVideoRef = useRef<HTMLVideoElement>(null);
+  // An AudioContext of our own for the call tile's natural voice, which (unlike
+  // the 3D path) has no TalkingHead to borrow one from. Created on a gesture.
+  const ensureAudioCtx = useCallback(() => {
+    if (!audioCtxRef.current && typeof window !== "undefined" && "AudioContext" in window) {
+      audioCtxRef.current = new AudioContext();
+    }
+    return audioCtxRef.current;
+  }, []);
 
   const persona = PERSONAS[ROUNDS[type].persona];
   const getHead = useCallback((): TalkingHead | null => avatarRef.current?.head ?? null, []);
@@ -140,15 +166,71 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
     if (voiceChoice === "kokoro") kokoroVoice?.setSpeaker?.(persona.kokoroVoice);
   }, [voiceChoice, kokoroVoice, persona.kokoroVoice]);
 
+  // ── The interviewer view (Chunk 30) ────────────────────────────────────────
+  // Remembered across visits. Read after mounting (the server has no storage
+  // and the first paint must match it); the set is deferred past the effect body.
+  useEffect(() => {
+    let live = true;
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(VIEW_KEY); } catch { /* storage blocked: the default stands */ }
+    if (saved === "3d" || saved === "call") {
+      const v: InterviewView = saved;
+      queueMicrotask(() => { if (live) setView(v); });
+    }
+    return () => { live = false; };
+  }, []);
+  const chooseView = useCallback((v: InterviewView) => {
+    setView(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* ignore */ }
+    // The natural voice is tied to the AudioContext it was loaded on (the
+    // head's in 3D, ours on the call tile), so a view switch drops it to
+    // reload on the right one.
+    setKokoroVoice(null);
+    setKokoro({ state: "idle" });
+    if (v !== "3d") setHeadReady(false);
+  }, []);
+
+  // ── The self-view camera (Chunk 30) ─────────────────────────────────────────
+  const stopSelfView = useCallback(() => {
+    selfStreamRef.current?.getTracks().forEach((t) => t.stop());
+    selfStreamRef.current = null;
+    setSelfView(false);
+  }, []);
+  const toggleSelfView = useCallback(async () => {
+    if (selfView || selfStreamRef.current) { stopSelfView(); return; }
+    try {
+      // No camera permission is asked until this toggle is switched on.
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      selfStreamRef.current = stream;
+      setSelfView(true);
+    } catch {
+      // Refused: hide the tile, no error.
+      setSelfView(false);
+    }
+  }, [selfView, stopSelfView]);
+  // Attach the live stream once the tile is in the DOM.
+  useEffect(() => {
+    const v = selfVideoRef.current;
+    if (view === "call" && selfView && v && selfStreamRef.current) {
+      v.srcObject = selfStreamRef.current;
+      v.play?.().catch(() => {});
+    }
+  }, [view, selfView, phase]);
+  // Stop the camera when the page unmounts.
+  useEffect(() => () => { selfStreamRef.current?.getTracks().forEach((t) => t.stop()); }, []);
+
   async function loadNatural() {
-    const head = getHead();
-    if (!head || !caps) return;
+    if (!caps) return;
+    // The natural voice needs an AudioContext: the 3D head's, or our own on the
+    // call tile (so it never waits for a head that isn't loaded there).
+    const audioCtx = getHead()?.audioCtx ?? ensureAudioCtx();
+    if (!audioCtx) return;
     setKokoro({ state: "loading", pct: 0 });
     try {
       const { voice: v, realtimeFactor } = await loadKokoroVoice({
         voice: persona.kokoroVoice,
         voices: Object.values(PERSONAS).map((p) => p.kokoroVoice),
-        audioCtx: head.audioCtx,
+        audioCtx,
         fp16: caps.shaderF16,
         onProgress: (pct) => setKokoro({ state: "loading", pct }),
       });
@@ -202,8 +284,13 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
   async function sample() {
     const v = voice;
     if (!v) return;
+    // A gesture: wake our audio so the call-tile natural voice can play.
+    await (getHead()?.audioCtx ?? ensureAudioCtx())?.resume().catch(() => {});
     v.stop(getHead());
-    await v.speak(`Hi, I'm ${persona.firstName}. I'll be interviewing you today.`, getHead());
+    const line = `Hi, I'm ${persona.firstName}. I'll be interviewing you today.`;
+    setStageState("speaking");
+    await v.speak(line, getHead(), undefined, setAudioLevel);
+    setStageState("idle");
   }
 
   async function start() {
@@ -212,8 +299,9 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
     setError("");
     setErrorType(null);
     try {
-      // Browsers only let audio play after a click: wake the avatar's audio now.
-      await getHead()?.audioCtx.resume().catch(() => {});
+      // Browsers only let audio play after a click: wake the audio now (the 3D
+      // head's, or our own on the call tile).
+      await (getHead()?.audioCtx ?? ensureAudioCtx())?.resume().catch(() => {});
       const res = await fetch("/api/interview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -267,6 +355,10 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
   const remaining = usage ? Math.max(0, usage.dailyLimit - usage.dailyUsed) : null;
   const hasJd = !!row?.job_description?.trim();
   const round = ROUNDS[type];
+  // The call tile shows the live interviewer line in the room, the round
+  // summary while setting up.
+  const callCaption = phase === "room" ? roomCaption : round.summary;
+  const selfShown = view === "call" && selfView;
 
   function renderError() {
     if (!error) return null;
@@ -334,28 +426,53 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
 
             <div className={`interviewLayout${phase === "room" ? " interviewLayout--room" : ""}`} hidden={phase === "feedback"}>
               <div className="interviewLayout__stage">
-                <AvatarStage
-                  ref={avatarRef}
-                  url={persona.avatar}
-                  gender={persona.gender}
-                  name={persona.name}
-                  role={round.interviewerRole}
-                  reducedMotion={!!caps?.reducedMotion}
-                  speaking={speaking}
-                  onLoading={() => {
-                    setHeadReady(false);
-                    setAvatar({ state: "loading", pct: 0 });
-                  }}
-                  onProgress={(pct) => setAvatar((a) => (a.state === "loading" ? { state: "loading", pct } : a))}
-                  onReady={() => {
-                    setHeadReady(true);
-                    setAvatar({ state: "ready", pct: 100 });
-                  }}
-                  onFailed={() => {
-                    setHeadReady(false);
-                    setAvatar({ state: "failed", pct: 0 });
-                  }}
-                />
+                {view === "3d" ? (
+                  // The 3D avatar is mounted only when chosen, so the default
+                  // page never downloads TalkingHead, three or a .glb (its heavy
+                  // modules load inside AvatarStage's own effect on mount).
+                  <AvatarStage
+                    ref={avatarRef}
+                    url={persona.avatar}
+                    gender={persona.gender}
+                    name={persona.name}
+                    role={round.interviewerRole}
+                    reducedMotion={!!caps?.reducedMotion}
+                    speaking={speaking}
+                    onLoading={() => {
+                      setHeadReady(false);
+                      setAvatar({ state: "loading", pct: 0 });
+                    }}
+                    onProgress={(pct) => setAvatar((a) => (a.state === "loading" ? { state: "loading", pct } : a))}
+                    onReady={() => {
+                      setHeadReady(true);
+                      setAvatar({ state: "ready", pct: 100 });
+                    }}
+                    onFailed={() => {
+                      setHeadReady(false);
+                      setAvatar({ state: "failed", pct: 0 });
+                    }}
+                  />
+                ) : (
+                  <div className="callTiles" data-self={selfShown ? "true" : "false"}>
+                    <CallStage
+                      name={persona.name}
+                      role={round.interviewerRole}
+                      initials={initials(persona.name)}
+                      accent={persona.id === "daniel" ? "teal" : "amber"}
+                      state={stageState}
+                      captionText={callCaption}
+                      audioLevel={audioLevel}
+                      micLevel={micLevel}
+                      reducedMotion={!!caps?.reducedMotion}
+                    />
+                    {selfShown && (
+                      <div className="callSelf">
+                        <video ref={selfVideoRef} muted playsInline autoPlay />
+                        <span className="callSelf__note">Your camera stays on this device</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="interviewLayout__side">
@@ -370,19 +487,25 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                     onSpeakingChange={setSpeaking}
                     onFinished={onFinished}
                     onLeave={() => { setPhase("setup"); setStarted(null); }}
+                    onStageState={setStageState}
+                    onAudioLevel={setAudioLevel}
+                    onMicLevel={view === "call" ? setMicLevel : undefined}
+                    onCaption={view === "call" ? setRoomCaption : undefined}
                   />
                 )}
 
                 {phase === "setup" && (
                   <>
                     <Card variant="ruled">
-                      <p className="fitEvidence" role="status" data-avatar-progress={avatar.state} hidden={avatar.state === "ready"}>
-                        {avatar.state === "loading"
-                          ? `Loading the 3D interviewer${avatar.pct ? ` · ${avatar.pct}%` : "…"} — choose the round and voice meanwhile; nothing waits for it.`
-                          : avatar.state === "ready"
-                            ? `${persona.name} is ready.`
-                            : "The 3D interviewer couldn't load on this device — the interview runs the same with the voice and captions."}
-                      </p>
+                      {view === "3d" && (
+                        <p className="fitEvidence" role="status" data-avatar-progress={avatar.state} hidden={avatar.state === "ready"}>
+                          {avatar.state === "loading"
+                            ? `Loading the 3D interviewer${avatar.pct ? ` · ${avatar.pct}%` : "…"} — choose the round and voice meanwhile; nothing waits for it.`
+                            : avatar.state === "ready"
+                              ? `${persona.name} is ready.`
+                              : "The 3D interviewer couldn't load on this device — the interview runs the same with the voice and captions."}
+                        </p>
+                      )}
                       <fieldset className="interviewRounds">
                         <legend className="label">Choose the round</legend>
                         {INTERVIEW_TYPES.map((t, i) => {
@@ -406,6 +529,18 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                     <Card variant="ruled">
                       <div className="label">Voice and microphone</div>
                       <div className="interviewSetting">
+                        <span className="interviewSetting__name">Interviewer view</span>
+                        <div className="interviewSetting__options" role="radiogroup" aria-label="Interviewer view">
+                          <label><input type="radio" name="view" checked={view === "call"} onChange={() => chooseView("call")} /> Call tile (default)</label>
+                          <label><input type="radio" name="view" checked={view === "3d"} onChange={() => chooseView("3d")} /> 3D avatar (beta)</label>
+                        </div>
+                      </div>
+                      <div className="interviewSetting">
+                        <span className="interviewSetting__name">Your camera</span>
+                        <label className="interviewSetting__options"><input type="checkbox" checked={selfView} onChange={() => void toggleSelfView()} /> Show my camera, like a real call</label>
+                        <p className="fitEvidence">Local preview only — your camera stays on this device. Nothing is recorded, uploaded or analysed.</p>
+                      </div>
+                      <div className="interviewSetting">
                         <span className="interviewSetting__name">{persona.firstName}&apos;s voice</span>
                         <div className="interviewSetting__options" role="radiogroup" aria-label="Interviewer voice">
                           <label><input type="radio" name="voice" checked={voiceChoice === "browser"} onChange={() => setVoiceChoice("browser")} /> Your browser&apos;s British voice (instant)</label>
@@ -422,7 +557,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                                   Downloads about 160–330 MB once, then it&apos;s cached. A quick speed test decides whether this device can keep up.
                                   {kokoroPending && ` Until it is loaded, ${persona.firstName} uses your browser's British voice — you can start now.`}
                                 </span>
-                                <Button variant="secondary" onClick={loadNatural} disabled={!headReady}>Load the natural voice</Button>
+                                <Button variant="secondary" onClick={loadNatural} disabled={view === "3d" && !headReady}>Load the natural voice</Button>
                               </>
                             )}
                           </div>
@@ -460,7 +595,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                         )}
                         <p className="fitEvidence">
                           {answerMode === "voice"
-                            ? "Chrome and Edge send your voice to Google or Microsoft to turn it into text; Jobhuntz never receives or stores audio, only the text. Typing sends nothing extra."
+                            ? "Jobhuntz never receives or stores your audio, only the text of your answers. Voice answers use your browser's speech recognition, which may send audio to your browser's provider (Google for Chrome, Apple for Safari). Type your answers if you'd rather not."
                             : "Your typed answers are saved with this interview so you can review them."}
                         </p>
                       </div>

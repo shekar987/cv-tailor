@@ -25,6 +25,8 @@ export type StartedInterview = {
 
 type Line = { who: "interviewer" | "you"; text: string };
 
+type CallState = "idle" | "speaking" | "listening" | "thinking";
+
 type Props = {
   interview: StartedInterview;
   voice: InterviewVoice;
@@ -34,6 +36,15 @@ type Props = {
   onSpeakingChange: (speaking: boolean) => void;
   onFinished: (feedback: InterviewFeedback, questions: unknown[]) => void;
   onLeave: () => void;
+  // Chunk 30: the call tile's state and levels. Optional so the 3D path is
+  // unchanged. onMicLevel is passed only on the call tile, so the meter's mic
+  // stream is never opened behind the 3D avatar.
+  onStageState?: (state: CallState) => void;
+  onAudioLevel?: (level: number) => void;
+  onMicLevel?: (level: number) => void;
+  // On the call tile the interviewer's line is shown in the tile, so the room
+  // reports it up and renders its own caption only to screen readers.
+  onCaption?: (text: string) => void;
 };
 
 const TURN_TIMEOUT_MS = 25_000;
@@ -43,7 +54,7 @@ function isTypingTarget(el: EventTarget | null): boolean {
   return !!t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.tagName === "SELECT" || t.isContentEditable);
 }
 
-export default function InterviewRoom({ interview, voice, getHead, typedOnly, silenceWindowMs, onSpeakingChange, onFinished, onLeave }: Props) {
+export default function InterviewRoom({ interview, voice, getHead, typedOnly, silenceWindowMs, onSpeakingChange, onFinished, onLeave, onStageState, onAudioLevel, onMicLevel, onCaption }: Props) {
   // The page mounts one room per interview (keyed by its id), so the opening
   // line is the reducer's first state.
   const [state, dispatch] = useReducer(flow, interview, (iv) =>
@@ -88,6 +99,18 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
     };
   }, [typing]);
 
+  // The interviewer's current line, up to the call tile (Chunk 30).
+  useEffect(() => {
+    onCaption?.(caption || state.say);
+  }, [caption, state.say, onCaption]);
+
+  // The call tile's state follows the room's phase (Chunk 30).
+  useEffect(() => {
+    if (!onStageState) return;
+    const map: Record<string, CallState> = { speaking: "speaking", listening: "listening", thinking: "thinking", finishing: "thinking" };
+    onStageState(map[state.phase] ?? "idle");
+  }, [state.phase, onStageState]);
+
   // speaking: microphone off, say the line, then listen.
   useEffect(() => {
     onSpeakingChange(state.phase === "speaking");
@@ -95,14 +118,14 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
     let cancelled = false;
     listenerRef.current?.abort();
     const head = getHead();
-    void voice.speak(state.say, head, (c) => { if (!cancelled) setCaption(c); }).then(() => {
+    void voice.speak(state.say, head, (c) => { if (!cancelled) setCaption(c); }, onAudioLevel).then(() => {
       if (!cancelled) dispatch({ type: "SPEECH_ENDED" });
     });
     if (upcomingRef.current) voice.prefetch?.(upcomingRef.current.text);
     return () => {
       cancelled = true;
     };
-  }, [state.phase, state.say, voice, getHead, onSpeakingChange]);
+  }, [state.phase, state.say, voice, getHead, onSpeakingChange, onAudioLevel]);
 
   // listening: recognition on, the countdown watches the silence.
   useEffect(() => {
@@ -129,6 +152,45 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
       setCountdown(null);
     };
   }, [state.phase, typing, silenceWindowMs]);
+
+  // The call tile's mic meter (Chunk 30): a small analyser on the mic while
+  // you answer out loud. onMicLevel is passed only on the call tile, so no mic
+  // stream is opened in 3D mode. Permission is already granted (you're speaking
+  // your answers); if it is refused the meter is simply absent.
+  useEffect(() => {
+    if (!onMicLevel) return;
+    if (state.phase !== "listening" || typing) { onMicLevel(0); return; }
+    let cancelled = false;
+    let raf = 0;
+    let stream: MediaStream | null = null;
+    let ctx: AudioContext | null = null;
+    (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        ctx = new AudioContext();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+        const data = new Uint8Array(analyser.fftSize);
+        const tick = () => {
+          analyser.getByteTimeDomainData(data);
+          let sum = 0;
+          for (const v of data) sum += ((v - 128) / 128) ** 2;
+          onMicLevel(Math.min(1, Math.sqrt(sum / data.length) * 4));
+          raf = requestAnimationFrame(tick);
+        };
+        tick();
+      } catch { /* mic blocked: no meter, no error */ }
+    })();
+    return () => {
+      cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
+      stream?.getTracks().forEach((t) => t.stop());
+      void ctx?.close().catch(() => {});
+      onMicLevel(0);
+    };
+  }, [state.phase, typing, onMicLevel]);
 
   // thinking: send the answer, speak the reply.
   const sendTurn = useCallback(async (answer: string): Promise<void> => {
@@ -322,9 +384,14 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
         </span>
       </div>
 
-      <div className="interviewCaption" aria-live="polite" aria-atomic="true">
-        <span className="interviewCaption__who">{interview.persona.firstName}:</span> {caption || state.say}
-      </div>
+      {onCaption ? (
+        // The call tile shows the caption; here it is for screen readers only.
+        <span className="srOnly" aria-live="polite" aria-atomic="true">{interview.persona.firstName}: {caption || state.say}</span>
+      ) : (
+        <div className="interviewCaption" aria-live="polite" aria-atomic="true">
+          <span className="interviewCaption__who">{interview.persona.firstName}:</span> {caption || state.say}
+        </div>
+      )}
 
       {state.phase === "listening" && !typing && (
         <div className="interviewAnswer" data-listening="true">
