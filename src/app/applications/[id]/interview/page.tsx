@@ -14,6 +14,7 @@ import StatusText from "@/components/ui/StatusText";
 import { INTERVIEW_TYPES, ROUNDS, PERSONAS, type InterviewType } from "@/lib/interviewTypes";
 import type { InterviewFeedback } from "@/lib/mockInterview";
 import { detectCaps, suggestedVoice, type Caps, type VoiceChoice } from "@/lib/interview/capabilities";
+import { clampPause, PAUSE_DEFAULT_MS, PAUSE_MIN_MS, PAUSE_MAX_MS, PAUSE_STEP_MS } from "@/lib/interview/turnTaking";
 import { loadKokoroVoice, loadBrowserVoices, pickBrowserVoice, browserVoice, silentVoice, type InterviewVoice } from "@/lib/interview/voice";
 import AvatarStage, { type AvatarHandle } from "./AvatarStage";
 import CallStage, { type CallState } from "./CallStage";
@@ -34,6 +35,8 @@ const MIN_REALTIME = 1.2;
 // is opt-in, so the default page never downloads TalkingHead, three or a .glb.
 type InterviewView = "call" | "3d";
 const VIEW_KEY = "cvtailor:interview:view";
+const PAUSE_KEY = "cvtailor:interview:pause-ms";
+const BARGE_KEY = "cvtailor:interview:barge-in";
 function initials(name: string): string {
   return name.split(" ").map((p) => p[0] ?? "").join("").slice(0, 2).toUpperCase();
 }
@@ -64,7 +67,10 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
   // and voice can be chosen while it loads (the stage alone showed it).
   const [avatar, setAvatar] = useState<{ state: "loading" | "ready" | "failed"; pct: number }>({ state: "loading", pct: 0 });
   const [answerMode, setAnswerMode] = useState<"voice" | "typed">("voice");
-  const [silenceMs, setSilenceMs] = useState(3000);
+  // Chunk 31: the pause that ends a spoken answer (1-3 s) and voice barge-in,
+  // both remembered on this device.
+  const [silenceMs, setSilenceMs] = useState(PAUSE_DEFAULT_MS);
+  const [bargeIn, setBargeIn] = useState(true);
   const [phase, setPhase] = useState<"setup" | "room" | "feedback">("setup");
   const [started, setStarted] = useState<StartedInterview | null>(null);
   // The voice the room started with. The natural voice can finish its
@@ -178,6 +184,26 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
       queueMicrotask(() => { if (live) setView(v); });
     }
     return () => { live = false; };
+  }, []);
+  useEffect(() => {
+    let live = true;
+    let pause: string | null = null, barge: string | null = null;
+    try { pause = localStorage.getItem(PAUSE_KEY); barge = localStorage.getItem(BARGE_KEY); } catch { /* storage blocked */ }
+    queueMicrotask(() => {
+      if (!live) return;
+      if (pause !== null) setSilenceMs(clampPause(Number(pause)));
+      if (barge === "off") setBargeIn(false);
+    });
+    return () => { live = false; };
+  }, []);
+  const choosePause = useCallback((ms: number) => {
+    const v = clampPause(ms);
+    setSilenceMs(v);
+    try { localStorage.setItem(PAUSE_KEY, String(v)); } catch { /* ignore */ }
+  }, []);
+  const chooseBargeIn = useCallback((on: boolean) => {
+    setBargeIn(on);
+    try { localStorage.setItem(BARGE_KEY, on ? "on" : "off"); } catch { /* ignore */ }
   }, []);
   const chooseView = useCallback((v: InterviewView) => {
     setView(v);
@@ -483,7 +509,8 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                     voice={roomVoice ?? voice ?? silentVoice}
                     getHead={getHead}
                     typedOnly={answerMode === "typed"}
-                    silenceWindowMs={silenceMs}
+                    pauseMs={silenceMs}
+                    bargeIn={bargeIn}
                     onSpeakingChange={setSpeaking}
                     onFinished={onFinished}
                     onLeave={() => { setPhase("setup"); setStarted(null); }}
@@ -583,14 +610,23 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                             )}
                             {mic.state === "ok" && <span role="status">{mic.level > 0.05 ? "Heard you." : "Very quiet — check your microphone."}</span>}
                             {mic.state === "blocked" && <span role="status">The microphone is blocked. Allow it in the address bar, or type your answers.</span>}
-                            <label className="interviewSetting__inline">
-                              Send after a pause of{" "}
-                              <select value={silenceMs} onChange={(e) => setSilenceMs(Number(e.target.value))}>
-                                <option value={2000}>2 seconds</option>
-                                <option value={3000}>3 seconds</option>
-                                <option value={5000}>5 seconds</option>
-                              </select>
+                            <label className="interviewSetting__inline interviewPause">
+                              Send my answer after a pause of <strong>{(silenceMs / 1000).toFixed(1)} s</strong>
+                              <input
+                                type="range"
+                                min={PAUSE_MIN_MS}
+                                max={PAUSE_MAX_MS}
+                                step={PAUSE_STEP_MS}
+                                value={silenceMs}
+                                onChange={(e) => choosePause(Number(e.target.value))}
+                                aria-valuetext={`${(silenceMs / 1000).toFixed(1)} seconds`}
+                              />
                             </label>
+                            <span className="fitEvidence">Then a 1.5 s &ldquo;Finishing…&rdquo; ring; keep talking to carry on. Pause longer when you think out loud.</span>
+                            <label className="interviewSetting__inline">
+                              <input type="checkbox" checked={bargeIn} onChange={(e) => chooseBargeIn(e.target.checked)} /> Stop {persona.firstName} when I start talking
+                            </label>
+                            {bargeIn && <span className="fitEvidence">If {persona.firstName} stops mid-sentence on laptop speakers, use headphones or switch this off.</span>}
                           </div>
                         )}
                         <p className="fitEvidence">

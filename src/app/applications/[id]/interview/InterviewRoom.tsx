@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { TalkingHead } from "@/vendor/talkinghead/talkinghead.mjs";
 import Button from "@/components/ui/Button";
-import { flow, initialFlow, answerText, silenceDecision, type FlowQuestion } from "@/lib/interviewFlow";
+import { flow, initialFlow, answerText, type FlowQuestion } from "@/lib/interviewFlow";
+import { endOfTurn, createVad, createBargeIn, BARGE_IN_MIN_LEVEL } from "@/lib/interview/turnTaking";
 import { wordCount, isRepeatRequest, isThinkingRequest } from "@/lib/speechText";
 import { createListener, recognitionSupported, type Listener } from "@/lib/interview/listen";
 import type { InterviewVoice } from "@/lib/interview/voice";
@@ -32,7 +33,10 @@ type Props = {
   voice: InterviewVoice;
   getHead: () => TalkingHead | null;
   typedOnly: boolean;
-  silenceWindowMs: number;
+  // Chunk 31: how long a pause ends a spoken answer (1-3 s), and whether
+  // speaking over the interviewer stops it.
+  pauseMs: number;
+  bargeIn: boolean;
   onSpeakingChange: (speaking: boolean) => void;
   onFinished: (feedback: InterviewFeedback, questions: unknown[]) => void;
   onLeave: () => void;
@@ -54,7 +58,7 @@ function isTypingTarget(el: EventTarget | null): boolean {
   return !!t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.tagName === "SELECT" || t.isContentEditable);
 }
 
-export default function InterviewRoom({ interview, voice, getHead, typedOnly, silenceWindowMs, onSpeakingChange, onFinished, onLeave, onStageState, onAudioLevel, onMicLevel, onCaption }: Props) {
+export default function InterviewRoom({ interview, voice, getHead, typedOnly, pauseMs, bargeIn, onSpeakingChange, onFinished, onLeave, onStageState, onAudioLevel, onMicLevel, onCaption }: Props) {
   // The page mounts one room per interview (keyed by its id), so the opening
   // line is the reducer's first state.
   const [state, dispatch] = useReducer(flow, interview, (iv) =>
@@ -77,6 +81,12 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
   const stateRef = useRef(state);
   const answerTextRef = useRef("");
   const submitRef = useRef<(answer: string) => void>(() => {});
+  // Chunk 31: the hands-free microphone monitor's view of the room.
+  const lastVoiceAtRef = useRef<number | null>(null);
+  const interruptRef = useRef<() => void>(() => {});
+  const bargeInRef = useRef(bargeIn);
+  const onMicLevelRef = useRef(onMicLevel);
+  const [handsFree, setHandsFree] = useState<"pending" | "on" | "off">("pending");
 
   // One recognizer for the whole interview.
   useEffect(() => {
@@ -140,57 +150,82 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
     l?.start();
     const timer = setInterval(() => {
       if (!l) return;
-      const silent = performance.now() - l.lastHeardAt();
-      const d = silenceDecision(silent, wordCount(answerTextRef.current), silenceWindowMs);
+      // The last sign of speech: a recognition result, or the microphone
+      // monitor hearing a voice (sooner than words come back), whichever is
+      // later. A thinking pause shorter than the setting never sends.
+      const lastSign = Math.max(l.lastHeardAt(), lastVoiceAtRef.current ?? 0);
+      const d = endOfTurn(performance.now() - lastSign, wordCount(answerTextRef.current), pauseMs);
       if (d.action === "submit") {
         setCountdown(null);
         submitRef.current(answerTextRef.current);
-      } else setCountdown(d.action === "countdown" ? d.progress : null);
-    }, 150);
+      } else setCountdown(d.action === "finishing" ? d.progress : null);
+    }, 100);
     return () => {
       clearInterval(timer);
       setCountdown(null);
     };
-  }, [state.phase, typing, silenceWindowMs]);
+  }, [state.phase, typing, pauseMs]);
 
-  // The call tile's mic meter (Chunk 30): a small analyser on the mic while
-  // you answer out loud. onMicLevel is passed only on the call tile, so no mic
-  // stream is opened in 3D mode. Permission is already granted (you're speaking
-  // your answers); if it is refused the meter is simply absent.
+  // The microphone monitor (Chunk 31; it also drives Chunk 30's meter). One
+  // stream for the whole spoken interview, with echo cancellation, read every
+  // frame: an energy VAD keeps a turn alive while you talk (lib/interview
+  // turnTaking), and ~250 ms of clear speech while the interviewer talks stops
+  // it (barge-in). Nothing is recorded or sent: only a level is computed.
+  // If the microphone or Web Audio is unavailable, the manual flow stands.
   useEffect(() => {
-    if (!onMicLevel) return;
-    if (state.phase !== "listening" || typing) { onMicLevel(0); return; }
+    if (typing) return;
     let cancelled = false;
     let raf = 0;
     let stream: MediaStream | null = null;
     let ctx: AudioContext | null = null;
+    const vad = createVad();
+    const gate = createBargeIn();
+    let lastPhase = "";
     (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         ctx = new AudioContext();
+        if (ctx.state === "suspended") await ctx.resume().catch(() => {});
         const analyser = ctx.createAnalyser();
-        analyser.fftSize = 512;
+        analyser.fftSize = 1024;
         ctx.createMediaStreamSource(stream).connect(analyser);
-        const data = new Uint8Array(analyser.fftSize);
+        const data = new Float32Array(analyser.fftSize);
+        setHandsFree("on");
         const tick = () => {
-          analyser.getByteTimeDomainData(data);
+          analyser.getFloatTimeDomainData(data);
           let sum = 0;
-          for (const v of data) sum += ((v - 128) / 128) ** 2;
-          onMicLevel(Math.min(1, Math.sqrt(sum / data.length) * 4));
+          for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+          const rms = Math.sqrt(sum / data.length);
+          const now = performance.now();
+          const speech = vad.update(rms, now);
+          const phase = stateRef.current.phase;
+          if (phase !== lastPhase) { gate.reset(); lastPhase = phase; }
+          if (phase === "listening") {
+            lastVoiceAtRef.current = vad.lastVoiceAt();
+            onMicLevelRef.current?.(Math.min(1, rms * 4));
+          } else if (phase === "speaking") {
+            onMicLevelRef.current?.(0);
+            // Stricter than the VAD alone: the interviewer's own voice can leak
+            // past echo cancellation on laptop speakers.
+            if (bargeInRef.current && gate.update(speech && rms >= BARGE_IN_MIN_LEVEL, now)) interruptRef.current();
+          }
           raf = requestAnimationFrame(tick);
         };
         tick();
-      } catch { /* mic blocked: no meter, no error */ }
+      } catch {
+        if (!cancelled) setHandsFree("off");
+      }
     })();
     return () => {
       cancelled = true;
       if (raf) cancelAnimationFrame(raf);
       stream?.getTracks().forEach((t) => t.stop());
       void ctx?.close().catch(() => {});
-      onMicLevel(0);
+      onMicLevelRef.current?.(0);
+      lastVoiceAtRef.current = null;
     };
-  }, [state.phase, typing, onMicLevel]);
+  }, [typing]);
 
   // thinking: send the answer, speak the reply.
   const sendTurn = useCallback(async (answer: string): Promise<void> => {
@@ -267,6 +302,8 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
     stateRef.current = state;
     answerTextRef.current = typing ? typed : answerText(state);
     submitRef.current = submitAnswer;
+    bargeInRef.current = bargeIn;
+    onMicLevelRef.current = onMicLevel;
   });
 
   // finishing: ask for the feedback.
@@ -303,6 +340,7 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
     voice.stop(getHead());
     dispatch({ type: "INTERRUPT" });
   }, [voice, getHead]);
+  useEffect(() => { interruptRef.current = interrupt; }, [interrupt]);
 
   const togglePause = useCallback(() => {
     const p = stateRef.current.phase;
@@ -398,12 +436,15 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
           <div className="interviewAnswer__label">
             You
             {countdown !== null && (
-              <span className="interviewCountdown" role="timer" aria-label="Sending your answer when this fills">
-                <span className="interviewCountdown__fill" style={{ transform: `scaleX(${countdown})` }} />
+              <span className="interviewFinishing" role="timer" aria-label="Sending your answer when this fills. Keep talking to continue.">
+                <span className="interviewCountdown" aria-hidden="true">
+                  <span className="interviewCountdown__fill" style={{ transform: `scaleX(${countdown})` }} />
+                </span>
+                <span className="interviewFinishing__text">Finishing… keep talking to continue</span>
               </span>
             )}
           </div>
-          <p className="interviewAnswer__text">{live || <span className="interviewAnswer__hint">Start speaking when you&apos;re ready. When you pause, your answer is sent after a short countdown.</span>}</p>
+          <p className="interviewAnswer__text">{live || <span className="interviewAnswer__hint">Start speaking when you&apos;re ready. When you stop talking, your answer is sent after a short &ldquo;Finishing…&rdquo; ring; keep talking to carry on.</span>}</p>
         </div>
       )}
 
@@ -426,6 +467,9 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
 
       {state.error && <p className="limitNotice" role="alert">{state.error}</p>}
       {notice && <p className="interviewNotice" role="status">{notice}</p>}
+      {!typing && handsFree === "off" && (
+        <p className="interviewNotice" role="status" data-hands-free="off">Hands-free mode is off on this device (the microphone level can&apos;t be read), so finish each answer with the button or Enter.</p>
+      )}
 
       <div className="interviewControls">
         {state.phase === "listening" && (
@@ -458,7 +502,7 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, si
         </div>
       )}
 
-      <p className="interviewKeys">Keys: Enter or Space finish your answer · Esc skip or end · R repeat · P pause{typing ? "" : " · T type"}</p>
+      <p className="interviewKeys">{!typing && handsFree === "on" ? `Hands-free: stop talking to send${bargeIn ? `, speak to interrupt ${interview.persona.firstName}` : ""}. ` : ""}Keys: Enter or Space finish your answer · Esc skip or end · R repeat · P pause{typing ? "" : " · T type"}</p>
 
       <details className="interviewTranscript">
         <summary>Transcript so far</summary>
