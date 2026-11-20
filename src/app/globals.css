@@ -3504,6 +3504,14 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
   --interview-backdrop: radial-gradient(120% 90% at 50% 20%, #3A3530 0%, #24211E 55%, #171513 100%);
   --interview-glow: var(--amber-border);
   --interview-caption: var(--surface-glass);
+  /* Chunk 30: the call tile tells Emma and Daniel apart by an accent colour on
+     the rings and the chip dot, not by a face. Emma is warm amber, Daniel a
+     cool teal clearly different on the dark backdrop. The app is dark only, so
+     these are the one (dark) set. */
+  --persona-amber: #F5C16C;
+  --persona-amber-soft: rgba(245, 193, 108, 0.16);
+  --persona-teal: #5AD1D6;
+  --persona-teal-soft: rgba(90, 209, 214, 0.16);
 }
 
 .interviewLayout {
@@ -3602,6 +3610,130 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .interviewStage__name { font-weight: 600; font-size: var(--text-sm); }
 .interviewStage__role { color: var(--muted); font-size: var(--text-xs); }
 
+/* ── The call tile (Chunk 30): the default interviewer stage. A video-call tile
+   with a monogram and reactive rings, not a 3D head. ──────────────────────── */
+.callStageWrap { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.callStage {
+  --persona-accent: var(--persona-amber);
+  --persona-accent-soft: var(--persona-amber-soft);
+  --audio-level: 0;
+  position: relative;
+  aspect-ratio: 4 / 5;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-card);
+  background: var(--interview-backdrop);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+.callStage[data-accent="teal"] { --persona-accent: var(--persona-teal); --persona-accent-soft: var(--persona-teal-soft); }
+.callStage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  /* The glow takes the interviewer's accent, so Emma (amber) and Daniel (teal)
+     read as two people across the whole tile, not only the rings. */
+  background: radial-gradient(circle at 50% 38%, var(--persona-accent-soft), transparent 70%);
+  pointer-events: none;
+}
+
+.callStage__chip {
+  position: relative;
+  z-index: 1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--surface-glass);
+  border: 1px solid var(--border-card);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+.callStage__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.callStage[data-state="speaking"] .callStage__dot { background: var(--persona-accent); }
+.callStage[data-state="listening"] .callStage__dot { background: var(--success); }
+.callStage[data-state="thinking"] .callStage__dot { background: var(--amber-bright); }
+
+.callStage__center { position: relative; z-index: 1; display: grid; place-items: center; }
+.callStage__rings { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.callStage__ring { position: absolute; border-radius: 50%; border: 1px solid var(--persona-accent); }
+.callStage__ring--inner { width: 108px; height: 108px; opacity: 0.4; }
+.callStage__ring--outer { width: 128px; height: 128px; opacity: 0.15; }
+.callStage__dashed { position: absolute; width: 132px; height: 132px; opacity: 0; }
+.callStage__dashed circle { fill: none; stroke: var(--persona-accent); stroke-width: 2; stroke-dasharray: 12 24; stroke-linecap: round; }
+.callStage__monogram {
+  position: relative;
+  z-index: 1;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--border-card);
+  color: var(--persona-accent);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Motion only on the animated build; reduced motion omits the class entirely. */
+.callStage--animated .callStage__ring { transition: transform 300ms ease-out, opacity 300ms ease-out; }
+.callStage--animated[data-state="speaking"] .callStage__ring--inner { transform: scale(calc(1 + var(--audio-level) * 0.28)); transition: transform var(--duration) var(--ease); }
+.callStage--animated[data-state="speaking"] .callStage__ring--outer { animation: callOuterPulse 1400ms cubic-bezier(0.22, 1, 0.36, 1) infinite; }
+.callStage--animated[data-state="listening"] .callStage__ring { transform: scale(1); }
+.callStage[data-state="thinking"] .callStage__ring--outer { opacity: 0; }
+.callStage[data-state="thinking"] .callStage__dashed { opacity: 0.6; }
+.callStage--animated[data-state="thinking"] .callStage__dashed { animation: callDashSpin 2.4s linear infinite; transform-origin: center; }
+@keyframes callOuterPulse { 0%, 100% { opacity: 0.15; } 50% { opacity: 0.45; } }
+@keyframes callDashSpin { to { transform: rotate(360deg); } }
+/* Reduced motion: no scale, no rotation; speaking is a static 2px accent ring. */
+.callStage[data-reduced-motion="true"][data-state="speaking"] .callStage__ring--inner { border-width: 2px; opacity: 0.6; }
+
+.callStage__foot { position: relative; z-index: 1; align-self: end; display: grid; gap: var(--space-3); }
+.callStage__caption {
+  margin: 0;
+  max-height: calc(1.5em * 3);
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  text-wrap: balance;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 0.9em);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 0.9em);
+}
+.callStage__caption:empty { display: none; }
+.callStage__nameplate { display: grid; gap: 1px; }
+.callStage__name { font-size: 15px; font-weight: 600; color: var(--text); }
+.callStage__role { font-size: 13px; color: var(--muted); }
+
+.callMeter { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-xs); color: var(--muted); }
+.callMeter__label { white-space: nowrap; }
+.callMeter__segments { display: flex; gap: 3px; flex: 1; }
+.callMeter__seg { flex: 1; height: 10px; border-radius: 2px; background: var(--surface-3); transition: background var(--duration-fast) linear; }
+.callMeter__seg[data-on="true"] { background: var(--success); }
+
+/* The call layout (Chunk 30): the interviewer tile and, when switched on, the
+   user's own camera. Side by side in the room on a wide screen, a corner
+   thumbnail on a phone. Local preview only — never recorded or uploaded. */
+.callTiles { position: relative; display: grid; gap: var(--space-3); min-width: 0; }
+.interviewLayout--room .callTiles[data-self="true"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.callSelf { position: relative; aspect-ratio: 4 / 5; border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border-card); background: #0b0b0d; box-shadow: var(--shadow-md); }
+.callSelf video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+.callSelf__note { position: absolute; left: var(--space-2); bottom: var(--space-2); padding: 2px var(--space-2); border-radius: var(--radius-sm); background: var(--surface-glass); border: 1px solid var(--border); font-size: var(--text-xs); color: var(--text-subtle); }
+@media (max-width: 640px) {
+  .interviewLayout--room .callTiles[data-self="true"] { grid-template-columns: 1fr; }
+  .callTiles[data-self="true"] .callSelf { position: absolute; right: var(--space-2); bottom: var(--space-2); width: 96px; aspect-ratio: 3 / 4; z-index: 3; }
+  .callSelf__note { font-size: 9px; padding: 1px 4px; }
+}
+
 .interviewRounds { border: 0; margin: var(--space-2) 0 0; padding: 0; display: grid; }
 .interviewRounds legend { margin-bottom: var(--space-2); }
 .interviewRound {
@@ -3634,6 +3766,8 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .interviewSetting__options input { accent-color: var(--amber); margin-right: 6px; }
 .interviewSetting__detail { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; font-size: var(--text-sm); color: var(--text-subtle); }
 .interviewSetting__inline { display: inline-flex; gap: var(--space-2); align-items: center; }
+.interviewPause { flex-wrap: wrap; }
+.interviewPause input[type="range"] { width: 180px; accent-color: var(--amber); }
 .interviewMeter { position: relative; width: 120px; height: 8px; border-radius: var(--radius-pill); background: var(--surface-3); overflow: hidden; }
 .interviewMeter__fill { position: absolute; inset: 0; background: var(--success); transform-origin: left center; transition: transform var(--duration-fast) linear; }
 
@@ -3668,6 +3802,9 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .interviewTyped { width: 100%; resize: vertical; }
 .interviewCountdown { position: relative; flex: 1; max-width: 160px; height: 6px; border-radius: var(--radius-pill); background: var(--surface-3); overflow: hidden; }
 .interviewCountdown__fill { position: absolute; inset: 0; background: var(--amber); transform-origin: left center; transition: transform var(--duration) linear; }
+/* Chunk 31: the "Finishing…" ring under a spoken answer: the bar plus words, so a thinking pause is visible and can be rescued by talking. */
+.interviewFinishing { display: inline-flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0; }
+.interviewFinishing__text { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
 
 .interviewControls { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .interviewConfirm { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; padding: var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--amber-border); background: var(--amber-dim); font-size: var(--text-sm); }
@@ -3707,6 +3844,28 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
   .interviewStage { aspect-ratio: 4 / 5; }
   .interviewLayout--room .interviewStage { aspect-ratio: 1 / 1; }
   .interviewControls { position: sticky; bottom: 0; padding: var(--space-2) 0; background: var(--bg); }
+
+  /* The call tile on a phone. On setup it is a compact ~72px card above the
+     round picker: the rings and name on one row, the caption hidden. In the
+     room it is a 16:10 stage so captions and controls fit without scrolling. */
+  .interviewLayout:not(.interviewLayout--room) .callStage {
+    aspect-ratio: auto;
+    min-height: 72px;
+    grid-template-rows: auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+  }
+  .interviewLayout:not(.interviewLayout--room) .callStage__center { order: 1; }
+  .interviewLayout:not(.interviewLayout--room) .callStage__foot { order: 2; align-self: center; gap: 0; }
+  .interviewLayout:not(.interviewLayout--room) .callStage__chip { order: 3; justify-self: end; }
+  .interviewLayout:not(.interviewLayout--room) .callStage__caption { display: none; }
+  .interviewLayout:not(.interviewLayout--room) .callStage__monogram { width: 46px; height: 46px; font-size: 17px; }
+  .interviewLayout:not(.interviewLayout--room) .callStage__ring--inner { width: 56px; height: 56px; }
+  .interviewLayout:not(.interviewLayout--room) .callStage__ring--outer { width: 66px; height: 66px; }
+  .interviewLayout:not(.interviewLayout--room) .callStage__dashed { width: 68px; height: 68px; }
+  .interviewLayout--room .callStage { aspect-ratio: 16 / 10; max-height: 220px; }
 }
 
 /* ── What's next (/app/next, Chunk 11) ───────────────────────────────────────── */

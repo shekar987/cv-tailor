@@ -10,14 +10,17 @@
 
 import type { TalkingHead } from "@/vendor/talkinghead/talkinghead.mjs";
 import { speakable, splitSentences } from "@/lib/speechText";
+import { decayedLevel, rmsOfSamples, SPEAKING_FLOOR } from "@/lib/interview/audioLevel";
 
 export type VoiceKind = "kokoro" | "browser" | "silent";
 
 export interface InterviewVoice {
   kind: VoiceKind;
   label: string;
-  // Resolves when the line has been spoken (or stopped).
-  speak(text: string, head: TalkingHead | null, onCaption?: (caption: string) => void): Promise<void>;
+  // Resolves when the line has been spoken (or stopped). `onLevel` publishes
+  // the interviewer's audio level (0..1) while speaking, for the call-tile ring
+  // (Chunk 30); 0 is published when the line ends or is stopped.
+  speak(text: string, head: TalkingHead | null, onCaption?: (caption: string) => void, onLevel?: (level: number) => void): Promise<void>;
   // Synthesise ahead of time (Kokoro only), e.g. the next planned question.
   prefetch?(text: string): void;
   // Kokoro only: switch to another British voice (Emma's, Daniel's).
@@ -93,6 +96,45 @@ export async function loadKokoroVoice(opts: {
   };
   let stopped = false;
 
+  // When there is no 3D head (the call tile), we play the AudioBuffers
+  // ourselves through an AnalyserNode so the ring reacts to the real audio
+  // (the one path that can give a true RMS — the browser voice cannot).
+  const analyser = opts.audioCtx.createAnalyser();
+  analyser.fftSize = 512;
+  analyser.connect(opts.audioCtx.destination);
+  const timeData = new Float32Array(analyser.fftSize);
+  let playing: AudioBufferSourceNode[] = [];
+
+  async function playOurselves(messages: HeadTtsMessage[], onLevel?: (level: number) => void): Promise<void> {
+    await opts.audioCtx.resume().catch(() => {});
+    if (stopped) return;
+    const sources: AudioBufferSourceNode[] = [];
+    let when = opts.audioCtx.currentTime + 0.02;
+    for (const m of messages) {
+      const buf = m.data.audio;
+      if (!buf) continue;
+      const src = opts.audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(analyser);
+      src.start(when);
+      when += buf.duration;
+      sources.push(src);
+    }
+    playing = sources;
+    if (!sources.length) { onLevel?.(0); return; }
+    let raf = 0;
+    const pump = () => {
+      analyser.getFloatTimeDomainData(timeData);
+      onLevel?.(rmsOfSamples(timeData));
+      raf = requestAnimationFrame(pump);
+    };
+    if (onLevel) raf = requestAnimationFrame(pump);
+    await new Promise<void>((resolve) => { sources[sources.length - 1].onended = () => resolve(); });
+    if (raf) cancelAnimationFrame(raf);
+    onLevel?.(0);
+    playing = [];
+  }
+
   const voice: InterviewVoice = {
     kind: "kokoro",
     label: "Natural British voice",
@@ -103,18 +145,26 @@ export async function loadKokoroVoice(opts: {
     prefetch(text) {
       void render(text).catch(() => cache.delete(speakable(text)));
     },
-    async speak(text, head, onCaption) {
+    async speak(text, head, onCaption, onLevel) {
       stopped = false;
       onCaption?.(text);
       const messages = await render(text);
       cache.delete(speakable(text));
-      if (stopped || !head) return;
-      for (const m of messages) head.speakAudio(m.data);
-      await new Promise<void>((resolve) => { void head.speakMarker(resolve); });
+      if (stopped) return;
+      // With a 3D head, feed it the exact visemes for lip-sync (unchanged);
+      // without one, play the audio ourselves and drive the ring.
+      if (head) {
+        for (const m of messages) head.speakAudio(m.data);
+        await new Promise<void>((resolve) => { void head.speakMarker(resolve); });
+        return;
+      }
+      await playOurselves(messages, onLevel);
     },
     stop(head) {
       stopped = true;
       head?.stopSpeaking();
+      for (const s of playing) { try { s.stop(); } catch { /* already stopped */ } }
+      playing = [];
     },
   };
   return { voice, realtimeFactor };
@@ -168,31 +218,48 @@ export function browserVoice(voice: SpeechSynthesisVoice | null): InterviewVoice
   return {
     kind: "browser",
     label: voice ? voice.name.replace(/\s*-\s*English.*$/i, "").replace(/^Microsoft\s+/i, "") : "Browser voice",
-    async speak(text, head, onCaption) {
+    async speak(text, head, onCaption, onLevel) {
       cancelled = false;
       onCaption?.(text);
-      for (const sentence of splitSentences(speakable(text))) {
-        if (cancelled) return;
-        await new Promise<void>((resolve) => {
-          const u = new SpeechSynthesisUtterance(sentence);
-          if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = "en-GB";
-          u.rate = 1;
-          let started = false;
-          const lips = () => {
-            if (started || !head) return;
-            started = true;
-            const timing = estimateWordTimings(sentence);
-            const ctx = head.audioCtx;
-            const silent = ctx.createBuffer(1, Math.max(1, Math.ceil((timing.total / 1000) * ctx.sampleRate)), ctx.sampleRate);
-            head.speakAudio({ audio: silent, words: timing.words, wtimes: timing.wtimes, wdurations: timing.wdurations });
-          };
-          u.onstart = lips;
-          u.onend = () => { head?.stopSpeaking(); resolve(); };
-          u.onerror = () => { head?.stopSpeaking(); resolve(); };
-          window.speechSynthesis.speak(u);
-          // Some voices never fire onstart: move the lips anyway.
-          setTimeout(lips, 400);
-        });
+      // The browser voice plays through the OS and can't be read by an
+      // AnalyserNode, so the ring is driven from word-start boundary events:
+      // each word bumps the level, which decays towards a floor (lib/audioLevel).
+      let lastBump = 0;
+      let raf = 0;
+      const pump = () => {
+        if (cancelled) { onLevel?.(0); return; }
+        onLevel?.(lastBump ? decayedLevel(performance.now() - lastBump) : SPEAKING_FLOOR);
+        raf = requestAnimationFrame(pump);
+      };
+      if (onLevel) { onLevel(SPEAKING_FLOOR); raf = requestAnimationFrame(pump); }
+      try {
+        for (const sentence of splitSentences(speakable(text))) {
+          if (cancelled) return;
+          await new Promise<void>((resolve) => {
+            const u = new SpeechSynthesisUtterance(sentence);
+            if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = "en-GB";
+            u.rate = 1;
+            let started = false;
+            const lips = () => {
+              if (started || !head) return;
+              started = true;
+              const timing = estimateWordTimings(sentence);
+              const ctx = head.audioCtx;
+              const silent = ctx.createBuffer(1, Math.max(1, Math.ceil((timing.total / 1000) * ctx.sampleRate)), ctx.sampleRate);
+              head.speakAudio({ audio: silent, words: timing.words, wtimes: timing.wtimes, wdurations: timing.wdurations });
+            };
+            u.onstart = lips;
+            u.onboundary = () => { lastBump = performance.now(); };
+            u.onend = () => { head?.stopSpeaking(); resolve(); };
+            u.onerror = () => { head?.stopSpeaking(); resolve(); };
+            window.speechSynthesis.speak(u);
+            // Some voices never fire onstart: move the lips anyway.
+            setTimeout(lips, 400);
+          });
+        }
+      } finally {
+        if (raf) cancelAnimationFrame(raf);
+        onLevel?.(0);
       }
     },
     stop(head) {
@@ -206,8 +273,9 @@ export function browserVoice(voice: SpeechSynthesisVoice | null): InterviewVoice
 export const silentVoice: InterviewVoice = {
   kind: "silent",
   label: "Captions only",
-  async speak(text, _head, onCaption) {
+  async speak(text, _head, onCaption, onLevel) {
     onCaption?.(text);
+    onLevel?.(0);
   },
   stop() {},
 };
