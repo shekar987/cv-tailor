@@ -81,6 +81,8 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
   const [feedback, setFeedback] = useState<InterviewFeedback | null>(null);
   const [questions, setQuestions] = useState<{ id: string; text: string; intent?: string }[]>([]);
   const [feedbackRound, setFeedbackRound] = useState<InterviewType>("screening");
+  // The interview whose feedback is shown, so "Retry this answer" can re-score.
+  const [feedbackId, setFeedbackId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const [errorType, setErrorType] = useState<string | null>(null);
@@ -355,6 +357,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
     setFeedback(fb);
     setQuestions(Array.isArray(qs) ? (qs as { id: string; text: string; intent?: string }[]) : []);
     setFeedbackRound((started?.type as InterviewType) ?? type);
+    setFeedbackId(started?.id ?? null);
     setPhase("feedback");
     fetch(`/api/interview?applicationId=${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => { if (Array.isArray(d.interviews)) setPast(d.interviews); }).catch(() => {});
   }, [id, started, type]);
@@ -366,6 +369,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
     setFeedback(data.interview.feedback);
     setQuestions(data.interview.questions ?? []);
     setFeedbackRound(p.type as InterviewType);
+    setFeedbackId(p.id);
     setPhase("feedback");
   }
 
@@ -447,7 +451,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
         {load === "ready" && row && hasJd && (
           <>
             {phase === "feedback" && feedback && (
-              <FeedbackView feedback={feedback} questions={questions} roundLabel={ROUNDS[feedbackRound].label} onAgain={() => { setPhase("setup"); setStarted(null); }} />
+              <FeedbackView feedback={feedback} questions={questions} roundLabel={ROUNDS[feedbackRound].label} interviewId={feedbackId ?? undefined} onAgain={() => { setPhase("setup"); setStarted(null); }} />
             )}
 
             <div className={`interviewLayout${phase === "room" ? " interviewLayout--room" : ""}`} hidden={phase === "feedback"}>

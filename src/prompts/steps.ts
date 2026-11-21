@@ -589,18 +589,19 @@ export const interviewTurnPrompt = (persona: { name: string; role: string; probe
 ${ABSOLUTE_RULES}
 ${INTERVIEWER_RULES}
 
-You will receive JSON: { phase ("questions" or "close"), question { text, intent, strongAnswer, rubric }, answer, earlier_on_this_question, last_exchanges, cv_they_sent, probe_allowed, unsupported_figures (figures in the answer that the candidate's CV doesn't show), word_count, we_heavy (the answer says "we" far more than "I"), company_sources (only at the close: the job description and research) }.
+You will receive JSON: { phase ("questions" or "close"), question { text, intent, strongAnswer, rubric }, answer, earlier_on_this_question, last_exchanges, cv_they_sent, probe_allowed, star_gaps (the STAR parts still missing from this answer: "action" = what they did themselves, "result" = the outcome), probes_used (follow-ups already asked on this question), unsupported_figures (figures in the answer that the candidate's CV doesn't show), word_count, we_heavy (the answer says "we" far more than "I"), company_sources (only at the close: the job description and research) }.
 
 When phase is "questions":
 - reaction: at most 12 words acknowledging the answer naturally and neutrally ("Thanks, that's clear.", "Okay, understood.", "Right, thank you."). No praise, no summary of their answer.
-- move: "probe" only when probe_allowed is true AND the answer lacked something this question needs: no specific example, no personal actions (we_heavy), no result or outcome, stayed vague, didn't answer what was asked, or stated one of unsupported_figures (ask where that figure comes from, neutrally). Otherwise "next". ${persona.probeStyle}
-- probe: when move is "probe", ONE follow-up question, at most 25 words. Never invent details about their work; ask about what they said.
+- move: "probe" when probe_allowed is true AND the answer is still incomplete — use star_gaps as the guide, and also probe when it has no specific example, stayed vague, didn't answer what was asked, or stated one of unsupported_figures (ask where that figure comes from, neutrally). Otherwise "next". A real UK competency interviewer keeps probing until the evidence is clear, so follow up again on a still-thin answer rather than moving on; stop once the answer is complete. ${persona.probeStyle}
+- probe: when move is "probe", ONE follow-up question, at most 25 words, aimed at the FIRST item in star_gaps ("action" → ask what they did personally; "result" → ask what the outcome was). Never invent details about their work; ask about what they said.
+- missing: the STAR parts this answer still lacks, as an array drawn from ["situation","action","result"], or [] when the answer is complete.
 - candidate_asked: "clarify" when the answer is really the candidate asking what the question means; then clarification is a one- or two-sentence rephrasing of the SAME question. Otherwise "none".
 
 When phase is "close", the candidate is asking you a question about the role or company:
 - answer_to_candidate: two or three sentences answering it ONLY from company_sources. If the sources don't say, answer "" (the system will defer honestly). Never invent pay, benefits, team size, tools or plans.
 
-Output ONLY JSON: {"reaction":"...","move":"probe|next","probe":"...","candidate_asked":"clarify|none","clarification":"...","answer_to_candidate":"..."}`;
+Output ONLY JSON: {"reaction":"...","move":"probe|next","probe":"...","missing":["result"],"candidate_asked":"clarify|none","clarification":"...","answer_to_candidate":"..."}`;
 
 // Once, at the end: checks on each answer with quotes from the answer. No
 // score — lib/mockInterview computes the readout.
@@ -619,13 +620,16 @@ For each answer, judge four checks. Each is { "pass": true|false, "quote": "..."
 - ownActions: it says what the candidate did personally ("I …"), not only what a team did.
 - result: it states an outcome or result.
 
+Also judge relevance to this job's requirements (the question's intent and strongAnswer say what a strong answer shows):
+- relevance: { "level": "missing"|"partly"|"clear", "quote": "..." } — "clear" when the answer clearly addresses what this question tests, with the exact words FROM THE ANSWER as the quote (a quote not found in the answer is discarded).
+
 Then:
-- tryInstead: at most 40 words, addressed to the candidate as "you", a better way to answer using ONLY facts from the MASTER CV (the same employer or project the fact belongs to; exact figures only, or none). Never suggest a claim the CV doesn't support.
+- tryInstead: at most 45 words, addressed to the candidate as "you", a stronger version of THEIR answer that is tighter and STAR-complete, using ONLY facts the candidate already gave in their answer or that appear in the MASTER CV (the same employer or project the fact belongs to; exact figures only, or none). Never invent a figure or a claim. If the answer gave no result, write the exact sentence "Add your real result here." in its place rather than making one up.
 - cvLine: ONE line copied verbatim from the MASTER CV that would have strengthened the answer, or "".
 
 No overall score, no praise, no grade.
 
-Output ONLY JSON: {"answers":[{"id":"q1","answered":{"pass":true,"quote":"..."},"example":{"pass":false,"quote":""},"ownActions":{"pass":true,"quote":"..."},"result":{"pass":false,"quote":""},"tryInstead":"...","cvLine":"..."}]}`;
+Output ONLY JSON: {"answers":[{"id":"q1","answered":{"pass":true,"quote":"..."},"example":{"pass":false,"quote":""},"ownActions":{"pass":true,"quote":"..."},"result":{"pass":false,"quote":""},"relevance":{"level":"partly","quote":"..."},"tryInstead":"...","cvLine":"..."}]}`;
 
 // Stage 3 cold outreach — owner-only for now (/api/extras gates on
 // profiles.is_unlimited). Speculative when no jd_analysis is supplied.

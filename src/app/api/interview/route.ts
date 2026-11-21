@@ -40,6 +40,9 @@ import {
   answersByQuestion,
   reconcileFeedback,
   codeOnlyFeedback,
+  maxProbes,
+  starGaps,
+  scoreOneAnswer,
   type InterviewPlan,
   type PlannedQuestion,
   type TranscriptEntry,
@@ -281,6 +284,7 @@ export async function POST(req: NextRequest) {
     if (body.action === "start") return await start(supabase, userId, body);
     if (body.action === "turn") return await turn(supabase, userId, body);
     if (body.action === "finish") return await finish(supabase, userId, body);
+    if (body.action === "retry") return await retry(supabase, userId, body);
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
     if (error instanceof ProviderRateLimitError) {
@@ -417,6 +421,8 @@ async function turn(supabase: Supabase, userId: string, body: Record<string, unk
   if (!answer) return NextResponse.json({ error: "Say or type an answer first." }, { status: 400 });
   const mode = body.mode === "typed" ? "typed" : "voice";
   const seconds = typeof body.seconds === "number" && body.seconds >= 0 && body.seconds < 3600 ? Math.round(body.seconds) : undefined;
+  // Chunk 32: the longest silent pause inside a spoken answer (from the client's VAD).
+  const pauseMs = typeof body.pauseMs === "number" && body.pauseMs >= 0 && body.pauseMs < 600_000 ? Math.round(body.pauseMs) : undefined;
 
   const row = await readInterview(supabase, userId, id);
   if (row instanceof NextResponse) return row;
@@ -452,6 +458,10 @@ async function turn(supabase: Supabase, userId: string, body: Record<string, unk
     const metrics = answerMetrics(answer, seconds ?? null, cv);
     const lastExchanges = transcript.slice(-4).map(({ who, text }) => ({ who, text: text.slice(0, 600) }));
     const onThisQuestion = q ? transcript.filter((e) => e.questionId === q.id).map(({ who, kind, text }) => ({ who, kind, text: text.slice(0, 800) })) : [];
+    // Chunk 32: adaptive probing — follow up while the STAR evidence is thin,
+    // up to maxProbes for this round, never on a complete answer or logistics.
+    const gaps = q ? starGaps(answer, q.rubric, metrics) : [];
+    const probeAllowed = !!q && state.phase !== "close" && state.probesOnCurrent < maxProbes(q.rubric) && !isLogistics(q.rubric) && gaps.length > 0;
     try {
       const raw = await callOnPath(supabase, userId, row.llm_path, body.provider, {
         system: interviewTurnPrompt({ name: personaFor(row.type).name, role: ROUNDS[row.type].interviewerRole, probeStyle: ROUNDS[row.type].probeStyle }),
@@ -462,7 +472,9 @@ async function turn(supabase: Supabase, userId: string, body: Record<string, unk
           earlier_on_this_question: onThisQuestion,
           last_exchanges: lastExchanges,
           cv_they_sent: cvTheySent(app).slice(0, 3_000),
-          probe_allowed: !!q && !state.probed && !isLogistics(q.rubric),
+          probe_allowed: probeAllowed,
+          star_gaps: gaps,
+          probes_used: state.probesOnCurrent,
           unsupported_figures: metrics.figuresNotInCv,
           word_count: metrics.words,
           we_heavy: metrics.weCount >= 3 && metrics.weCount > metrics.iCount * 2,
@@ -482,7 +494,7 @@ async function turn(supabase: Supabase, userId: string, body: Record<string, unk
     modelOut = { reaction: STOCK_ACKS[state.answers % STOCK_ACKS.length], move: "next" as const, probe: "", clarify: false, clarification: "", answerToCandidate: "" };
   }
 
-  const { entries, reply } = decideTurn(plan, transcript, answer, modelOut, { cvText: cv, companySources }, { mode, ...(seconds !== undefined ? { seconds } : {}) });
+  const { entries, reply } = decideTurn(plan, transcript, answer, modelOut, { cvText: cv, companySources }, { mode, ...(seconds !== undefined ? { seconds } : {}), ...(pauseMs !== undefined ? { pauseMs } : {}) });
   const next = [...transcript, ...entries];
   const { data: updated, error: updateError } = await supabase
     .from("mock_interviews")
@@ -555,4 +567,49 @@ async function finish(supabase: Supabase, userId: string, body: Record<string, u
     .eq("user_id", userId);
   if (writeError) console.error("interview: feedback write error:", writeError.message);
   return NextResponse.json({ feedback, questions: plan.questions, ...(writeError ? { warning: "Your feedback is shown but couldn't be saved." } : {}) });
+}
+
+// ── retry one answer ──────────────────────────────────────────────────────────
+// "Retry this answer" (Chunk 32): re-score ONE question's answer so the user
+// can see a before/after. Not metered (like Fix it / Swap) — one model call on
+// the interview's own wallet path, burst-limited at the POST entry. Nothing is
+// stored: the before/after lives in the page while it's open.
+async function retry(supabase: Supabase, userId: string, body: Record<string, unknown>) {
+  const id = typeof body.interviewId === "string" ? body.interviewId : "";
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "Interview not found" }, { status: 404 });
+  const questionId = typeof body.questionId === "string" ? body.questionId : "";
+  const answer = typeof body.answer === "string" ? body.answer.replace(/\s+/g, " ").trim().slice(0, MAX_ANSWER_CHARS) : "";
+  if (!answer) return NextResponse.json({ error: "Say or type an answer first." }, { status: 400 });
+  const seconds = typeof body.seconds === "number" && body.seconds >= 0 && body.seconds < 3600 ? Math.round(body.seconds) : null;
+  const pauseSeconds = typeof body.pauseMs === "number" && body.pauseMs >= 0 && body.pauseMs < 600_000 ? Math.round(body.pauseMs) / 1000 : null;
+
+  const row = await readInterview(supabase, userId, id);
+  if (row instanceof NextResponse) return row;
+  if (!row) return NextResponse.json({ error: "Interview not found" }, { status: 404 });
+  const plan = planFromRow(row.plan);
+  if (!plan || !isInterviewType(row.type)) return NextResponse.json({ error: "Interview not found" }, { status: 404 });
+  const question = plan.questions.find((q) => q.id === questionId);
+  if (!question) return NextResponse.json({ error: "That question isn't in this interview." }, { status: 404 });
+  if (isLogistics(question.rubric)) return NextResponse.json({ error: "This question can't be retried." }, { status: 400 });
+
+  const cv = await readMasterCv(supabase);
+  if (cv instanceof NextResponse) return cv;
+
+  let modelRaw: unknown = null;
+  try {
+    modelRaw = await callOnPath(supabase, userId, row.llm_path, body.provider, {
+      system: interviewFeedbackPrompt(cv),
+      userInput: JSON.stringify({
+        round: ROUNDS[row.type].label,
+        answers: [{ id: question.id, question: question.text, rubric: question.rubric, intent: question.intent, strongAnswer: question.strongAnswer, answer }],
+      }),
+      expectJson: true,
+      maxTokens: 1500,
+    });
+  } catch (err) {
+    console.warn("interview: retry model failed, code-only:", err instanceof Error ? err.message : "unknown");
+  }
+  const scored = scoreOneAnswer(question, { text: answer, seconds, pauseSeconds }, cv, modelRaw);
+  if (!scored) return NextResponse.json({ error: "Couldn't score that answer. Try again." }, { status: 500 });
+  return NextResponse.json({ answer: scored, ...(modelRaw ? {} : { degraded: true }) });
 }

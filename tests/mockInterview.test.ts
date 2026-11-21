@@ -18,6 +18,10 @@ import {
   reconcileFeedback,
   readout,
   answerMetrics,
+  starGaps,
+  scoreOneAnswer,
+  paceFlag,
+  lengthFlag,
   DEFERRAL,
   type TranscriptEntry,
   type TurnModelOut,
@@ -120,16 +124,41 @@ function play(type: "screening" | "competency" = "competency") {
 }
 const model = (o: Partial<TurnModelOut>): TurnModelOut => ({ reaction: "", move: "next", probe: "", clarify: false, clarification: "", answerToCandidate: "", ...o });
 
-test("turn: one follow-up per question, then the next question; praise is scrubbed", () => {
-  const { plan, transcript } = play();
+// A competency transcript sitting on a STAR question (q1 is the fixed
+// background opener; the stock questions are STAR).
+function onStar() {
+  const { plan } = normalizePlan({}, "competency", ctx);
+  const star = plan.questions.find((q) => q.rubric === "star")!;
+  const transcript: TranscriptEntry[] = [{ who: "interviewer", kind: "opening", questionId: star.id, text: `Let's begin. ${star.text}` }];
+  return { plan, transcript, star };
+}
+
+test("turn: adaptive probing keeps following up while the STAR answer is thin, then moves on; praise is scrubbed", () => {
+  const { plan, transcript } = onStar();
+  // First answer: no example, no result — probe (and praise is scrubbed).
   const a1 = decideTurn(plan, transcript, "I have worked on web apps.", model({ reaction: "Great answer! Thanks.", move: "probe", probe: "Which project was that, and what did you build yourself?" }), turnCtx);
   assert.equal(a1.reply.kind, "probe");
   assert.equal(a1.reply.say, "Thanks. Which project was that, and what did you build yourself?");
   transcript.push(...a1.entries);
-  const a2 = decideTurn(plan, transcript, "At Northgate Systems I built the REST APIs.", model({ move: "probe", probe: "And what was the result?" }), turnCtx);
-  assert.equal(a2.reply.kind, "next", "a second probe on the same question is refused");
-  assert.equal(a2.reply.question!.id, "q2");
-  assert.equal(a2.reply.say, `Thank you. ${plan.questions[1].text}`);
+  // Still no result: adaptive probing follows up AGAIN (the old one-probe rule
+  // would have moved on here).
+  const a2 = decideTurn(plan, transcript, "At Northgate Systems I built the REST APIs myself.", model({ move: "probe", probe: "And what was the result?" }), turnCtx);
+  assert.equal(a2.reply.kind, "probe", "a second probe is allowed while the result is still missing");
+  transcript.push(...a2.entries);
+  // Now the answer has a personal action and a result (a figure): no gap, so
+  // the interviewer moves on even though the model said probe.
+  const a3 = decideTurn(plan, transcript, "I cut page load time by 20% with code splitting.", model({ move: "probe", probe: "Anything else?" }), turnCtx);
+  assert.equal(a3.reply.kind, "next", "a complete answer is never probed");
+});
+
+test("turn: at most three probes on one STAR question, even when it stays incomplete", () => {
+  const { plan, transcript } = onStar();
+  for (let i = 0; i < 4; i++) {
+    const r = decideTurn(plan, transcript, "We did some work on it.", model({ move: "probe", probe: "What did you do yourself, and what was the result?" }), turnCtx);
+    transcript.push(...r.entries);
+    if (i < 3) assert.equal(r.reply.kind, "probe", `probe ${i + 1}`);
+    else assert.equal(r.reply.kind, "next", "the fourth follow-up is refused — three is the cap");
+  }
 });
 
 test("turn: a question inside the reaction is dropped, so each turn asks one question (live run, 30 Sep)", () => {
@@ -162,9 +191,11 @@ test("live competency run (30 Sep): wrong-kind questions dropped, one-question p
 
 test("turn: a follow-up with an invented figure or an unlawful topic is refused; a failed model still advances", () => {
   const { plan, transcript } = play();
-  const bad = decideTurn(plan, transcript, "I improved performance a lot.", model({ move: "probe", probe: "You said you cut load time by 45% — how?" }), turnCtx);
+  // The answer has a clear gap (team-only, no result), so a probe is warranted —
+  // what decides it here is whether the probe's figure is supported.
+  const bad = decideTurn(plan, transcript, "We worked on performance.", model({ move: "probe", probe: "You said you cut load time by 45% — how?" }), turnCtx);
   assert.equal(bad.reply.kind, "next");
-  const ok = decideTurn(plan, transcript, "I cut page load time with code splitting.", model({ move: "probe", probe: "Your CV says 20% — how did you measure that?" }), turnCtx);
+  const ok = decideTurn(plan, transcript, "We worked on performance.", model({ move: "probe", probe: "Your CV says 20% — how did you measure that?" }), turnCtx);
   assert.equal(ok.reply.kind, "probe");
   const unlawful = decideTurn(plan, transcript, "I worked late to finish it.", model({ move: "probe", probe: "Do you have children at home?" }), turnCtx);
   assert.equal(unlawful.reply.kind, "next");
@@ -262,6 +293,92 @@ test("readout: fixed labels from counts; 3 of 12 can never read 'Ready'; an earl
   assert.notEqual(low.label, "Ready for this stage");
   assert.equal(readout([mk([true, true, true, true]), mk([true, true, true, false]), mk([true, true, true, true])], 5).band, "ready");
   assert.equal(readout([mk([true, true, true, true])], 6).band, "incomplete");
+});
+
+// ── Chunk 32: adaptive probing, rubric rows, stronger version, delivery ───────
+
+test("starGaps: a complete STAR answer has no gaps; team-only or no-result answers do", () => {
+  assert.deepEqual(starGaps("At Northgate I built the API and cut load time by 20%.", "star"), []);
+  assert.deepEqual(starGaps("We built the whole thing together as a team on the project.", "star").sort(), ["action", "result"]);
+  assert.deepEqual(starGaps("I improved the whole process a great deal over the year.", "star"), [], "an 'I' with a result word reads as complete");
+  assert.deepEqual(starGaps("We did lots of things but I personally owned the rollout plan end to end.", "star"), ["result"], "action is clear, the result isn't");
+  assert.deepEqual(starGaps("Anything at all here.", "logistics_rtw"), [], "logistics answers are never probed");
+});
+
+test("rubric rows: Situation/Action/Result/Relevance scored Missing/Partly/Clear from verified checks", () => {
+  const { plan } = normalizePlan({}, "competency", ctx);
+  const star = plan.questions.find((q) => q.rubric === "star")!;
+
+  const good = "At Northgate Systems I rebuilt the checkout. I wrote the FastAPI endpoints myself and cut page load time by 20%.";
+  const fbGood = reconcileFeedback(
+    { answers: [{ id: star.id, answered: { pass: true, quote: "I rebuilt the checkout" }, example: { pass: true, quote: "At Northgate Systems I rebuilt the checkout" }, ownActions: { pass: true, quote: "I wrote the FastAPI endpoints myself" }, result: { pass: true, quote: "cut page load time by 20%" }, relevance: { level: "clear", quote: "I wrote the FastAPI endpoints myself" } }] },
+    plan,
+    [{ who: "candidate", kind: "answer", questionId: star.id, text: good, seconds: 60 }],
+    CV
+  );
+  const rowsGood = Object.fromEntries((fbGood.answers[0].rubricRows ?? []).map((r) => [r.key, r.level]));
+  assert.deepEqual([rowsGood.situation, rowsGood.action, rowsGood.result, rowsGood.relevance], ["clear", "clear", "clear", "clear"]);
+
+  // Team-only, no figure, and a relevance quote that isn't in the answer.
+  const weak = "We rebuilt the checkout and it went okay for the team.";
+  const fbWeak = reconcileFeedback(
+    { answers: [{ id: star.id, answered: { pass: true, quote: "We rebuilt the checkout" }, example: { pass: false, quote: "" }, ownActions: { pass: false, quote: "" }, result: { pass: false, quote: "" }, relevance: { level: "clear", quote: "this phrase is not in the answer" } }] },
+    plan,
+    [{ who: "candidate", kind: "answer", questionId: star.id, text: weak, seconds: 20 }],
+    CV
+  );
+  const rowsWeak = Object.fromEntries((fbWeak.answers[0].rubricRows ?? []).map((r) => [r.key, r.level]));
+  assert.deepEqual([rowsWeak.situation, rowsWeak.action, rowsWeak.result], ["partly", "missing", "missing"]);
+  assert.equal(rowsWeak.relevance, "partly", "a relevance quote not found in the answer can't read 'clear'");
+});
+
+test("stronger version: the result placeholder is never flagged; an untraced claim is, an answer-supported one isn't", () => {
+  const { plan } = normalizePlan({}, "competency", ctx);
+  const star = plan.questions.find((q) => q.rubric === "star")!;
+  const answer = "At Northgate Systems I built the REST APIs in FastAPI for the checkout.";
+  const fb = reconcileFeedback(
+    { answers: [{ id: star.id, tryInstead: "You built the REST APIs in FastAPI for the checkout yourself. You led the migration to Kubernetes for the platform team. Add your real result here." }] },
+    plan,
+    [{ who: "candidate", kind: "answer", questionId: star.id, text: answer, seconds: 40 }],
+    CV
+  );
+  const a = fb.answers[0];
+  const sents = a.strongerSentences ?? [];
+  assert.equal(sents.length, 3);
+  assert.equal(sents[0].traced, true, "restating the candidate's own answer is traced");
+  assert.equal(sents[1].traced, false, "a claim in neither the answer nor the CV is flagged");
+  assert.equal(sents[2].placeholder, true);
+  assert.equal(sents[2].traced, true, "the honest result placeholder is never a 'not from your CV' flag");
+  assert.deepEqual(a.tryInsteadFlags, ["You led the migration to Kubernetes for the platform team."]);
+});
+
+test("delivery metrics: wpm, pace and length flags, and the longest pause carried through", () => {
+  const m = answerMetrics(("word ".repeat(100)).trim(), 60, CV, 3.2);
+  assert.equal(m.wpm, 100);
+  assert.equal(paceFlag(m.wpm), "slow");
+  assert.equal(paceFlag(200), "fast");
+  assert.equal(m.pauseSeconds, 3.2);
+  assert.equal(answerMetrics("hi there", 5, CV).wpm, null, "too short to judge pace");
+  assert.equal(lengthFlag("star", 30), "short");
+  assert.equal(lengthFlag("star", 200), "long");
+  assert.equal(lengthFlag("star", 90), null);
+  assert.equal(lengthFlag("logistics_rtw", 10), null);
+});
+
+test("scoreOneAnswer: one answer re-scored exactly like the finish review (Retry)", () => {
+  const { plan } = normalizePlan({}, "competency", ctx);
+  const star = plan.questions.find((q) => q.rubric === "star")!;
+  const scored = scoreOneAnswer(
+    star,
+    { text: "At Northgate Systems I built the REST APIs in FastAPI and cut load time by 20%.", seconds: 50, pauseSeconds: 2 },
+    CV,
+    { id: star.id, answered: { pass: true, quote: "I built the REST APIs in FastAPI" }, example: { pass: true, quote: "At Northgate Systems I built the REST APIs" }, ownActions: { pass: true, quote: "I built the REST APIs in FastAPI" }, result: { pass: true, quote: "cut load time by 20%" }, relevance: { level: "clear", quote: "I built the REST APIs in FastAPI" }, tryInstead: "", cvLine: "Built REST APIs in FastAPI serving 3,000 users." }
+  );
+  assert.ok(scored);
+  assert.equal(scored!.rubric, "star");
+  assert.ok(scored!.rubricRows && scored!.rubricRows.length === 4);
+  assert.equal(scored!.metrics.pauseSeconds, 2);
+  assert.equal(scored!.cvLine, "Built REST APIs in FastAPI serving 3,000 users.");
 });
 
 test("speech text: British numbers, money, per cent, acronyms and years", () => {

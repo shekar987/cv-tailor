@@ -3829,6 +3829,41 @@ a.appsActionBtn.primary:hover { color: var(--amber-bright); border-color: var(--
 .interviewQuote { color: var(--muted); }
 .interviewTry, .interviewCvLine { margin: var(--space-3) 0 0; font-size: var(--text-sm); line-height: var(--leading-snug); }
 .interviewCvLine { color: var(--text-subtle); }
+
+/* Chunk 32: per-answer STAR rubric rows (Missing / Partly / Clear). */
+.interviewRubric { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: 1px; background: var(--border); border: 1px solid var(--border-card); border-radius: var(--radius-md); overflow: hidden; }
+.interviewRubric__row { display: grid; grid-template-columns: minmax(0, auto) max-content; gap: var(--space-2) var(--space-3); align-items: baseline; padding: var(--space-2) var(--space-3); background: var(--surface); }
+.interviewRubric__label { font-size: var(--text-sm); font-weight: 600; }
+.interviewRubric__level { justify-self: end; font-size: var(--text-xs); font-weight: 600; padding: 1px var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--border); white-space: nowrap; }
+.interviewRubric__level[data-level="clear"] { color: var(--success); background: var(--success-dim); border-color: var(--success-border); }
+.interviewRubric__level[data-level="partly"] { color: var(--amber-bright); background: var(--amber-dim); border-color: var(--amber-border); }
+.interviewRubric__level[data-level="missing"] { color: var(--danger); background: var(--danger-dim); border-color: var(--danger-border); }
+.interviewRubric__quote { grid-column: 1 / -1; font-size: var(--text-sm); color: var(--muted); line-height: var(--leading-snug); }
+
+/* Delivery stats per answer. */
+.interviewStats { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.interviewStats li { display: grid; gap: 1px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-card); border-radius: var(--radius-sm); min-width: 76px; }
+.interviewStats li[data-flag="warn"] { border-color: var(--amber-border); background: var(--amber-dim); }
+.interviewStats__v { font-size: var(--text-md); font-weight: 300; letter-spacing: -0.01em; }
+.interviewStats__k { font-size: var(--text-xs); color: var(--text-subtle); }
+.interviewStats li[data-flag="warn"] .interviewStats__k { color: var(--amber-bright); }
+
+/* The "stronger version" rewrite, sentence by sentence with traced badges. */
+.interviewStronger { margin: var(--space-3) 0 0; }
+.interviewStronger__head { font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-2); }
+.interviewStronger__body { font-size: var(--text-sm); line-height: var(--leading-relaxed); }
+.interviewStronger__sentence { display: inline; }
+.interviewStronger__sentence[data-placeholder="true"] em { color: var(--amber-bright); font-style: italic; }
+.interviewStronger__badge { display: inline-block; margin-left: 4px; vertical-align: baseline; }
+
+/* Retry this answer: the editor and the before/after rubric. */
+.interviewAnswerCard__actions { margin-top: var(--space-3); display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.interviewRetry { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-card); display: grid; gap: var(--space-2); }
+.interviewRetry__q { font-weight: 600; font-size: var(--text-sm); line-height: var(--leading-snug); }
+.interviewBeforeAfter { display: grid; gap: var(--space-3); }
+.interviewBeforeAfter__cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); align-items: start; }
+@media (max-width: 640px) { .interviewBeforeAfter__cols { grid-template-columns: minmax(0, 1fr); } }
+
 .interviewPast { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; }
 .interviewPast li { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; font-size: var(--text-sm); padding: var(--space-3) 0; border-top: 1px solid var(--border-card); }
 .interviewPast li > .inlineLink { margin-left: auto; }

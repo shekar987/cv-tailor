@@ -83,6 +83,11 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, pa
   const submitRef = useRef<(answer: string) => void>(() => {});
   // Chunk 31: the hands-free microphone monitor's view of the room.
   const lastVoiceAtRef = useRef<number | null>(null);
+  // Chunk 32: the longest silent pause WITHIN the current answer (a gap that
+  // ended when the candidate spoke again — the trailing silence that sends the
+  // answer is not counted). Reset at the start of each answer, sent with it.
+  const maxPauseMsRef = useRef(0);
+  const prevVoiceAtRef = useRef(0);
   const interruptRef = useRef<() => void>(() => {});
   const bargeInRef = useRef(bargeIn);
   const onMicLevelRef = useRef(onMicLevel);
@@ -200,9 +205,23 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, pa
           const now = performance.now();
           const speech = vad.update(rms, now);
           const phase = stateRef.current.phase;
-          if (phase !== lastPhase) { gate.reset(); lastPhase = phase; }
+          if (phase !== lastPhase) {
+            gate.reset();
+            // A fresh answer starts: forget the previous one's pauses.
+            if (phase === "listening") { maxPauseMsRef.current = 0; prevVoiceAtRef.current = 0; }
+            lastPhase = phase;
+          }
           if (phase === "listening") {
-            lastVoiceAtRef.current = vad.lastVoiceAt();
+            const voiceAt = vad.lastVoiceAt() ?? 0;
+            lastVoiceAtRef.current = voiceAt;
+            // When speech resumes after a gap, that gap was an internal pause.
+            if (voiceAt > 0 && voiceAt !== prevVoiceAtRef.current) {
+              if (prevVoiceAtRef.current > 0) {
+                const gap = voiceAt - prevVoiceAtRef.current;
+                if (gap > maxPauseMsRef.current) maxPauseMsRef.current = gap;
+              }
+              prevVoiceAtRef.current = voiceAt;
+            }
             onMicLevelRef.current?.(Math.min(1, rms * 4));
           } else if (phase === "speaking") {
             onMicLevelRef.current?.(0);
@@ -231,6 +250,9 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, pa
   const sendTurn = useCallback(async (answer: string): Promise<void> => {
     listenerRef.current?.stop();
     const seconds = Math.round((performance.now() - answerStartRef.current) / 1000);
+    // The longest internal pause measured for this spoken answer (0 if typed or
+    // unmeasured); sent so the feedback can report it.
+    const pauseMs = typing ? 0 : Math.round(maxPauseMsRef.current);
     let waitedForLimit = false;
     for (let attempt = 0; attempt < 3; attempt++) {
     const ctrl = new AbortController();
@@ -240,7 +262,7 @@ export default function InterviewRoom({ interview, voice, getHead, typedOnly, pa
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: ctrl.signal,
-        body: JSON.stringify({ action: "turn", interviewId: interview.id, answerIndex: stateRef.current.answers, answer, mode: typing ? "typed" : "voice", seconds }),
+        body: JSON.stringify({ action: "turn", interviewId: interview.id, answerIndex: stateRef.current.answers, answer, mode: typing ? "typed" : "voice", seconds, ...(pauseMs > 0 ? { pauseMs } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       // Answering quickly can meet the per-minute limit: wait it out once.

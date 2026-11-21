@@ -70,6 +70,9 @@ export type TranscriptEntry = {
   text: string;
   mode?: "voice" | "typed";
   seconds?: number;
+  // The longest silent pause inside a spoken answer, in milliseconds (Chunk
+  // 31's VAD, measured client-side). Absent for typed answers and older rows.
+  pauseMs?: number;
 };
 
 const INTERVIEWER_KINDS = new Set<EntryKind>(["opening", "question", "probe", "clarify", "close", "answer_candidate", "goodbye"]);
@@ -230,6 +233,7 @@ export function transcriptFromRow(value: unknown): TranscriptEntry[] {
       text: str(o.text, MAX_ANSWER_CHARS),
       ...(o.mode === "voice" || o.mode === "typed" ? { mode: o.mode } : {}),
       ...(typeof o.seconds === "number" && o.seconds >= 0 && o.seconds < 3600 ? { seconds: Math.round(o.seconds) } : {}),
+      ...(typeof o.pauseMs === "number" && o.pauseMs >= 0 && o.pauseMs < 600_000 ? { pauseMs: Math.round(o.pauseMs) } : {}),
     });
   }
   return out;
@@ -241,6 +245,10 @@ export type InterviewState = {
   phase: "questions" | "close" | "done";
   current: PlannedQuestion | null;
   probed: boolean;
+  // How many follow-ups the interviewer has already asked on the current
+  // question (adaptive probing keeps going while the STAR evidence is thin,
+  // up to maxProbes). `probed` stays as "probed at least once".
+  probesOnCurrent: number;
   answers: number;
   candidateQuestions: number;
   asked: number;
@@ -250,6 +258,7 @@ export function interviewState(plan: InterviewPlan, transcript: TranscriptEntry[
   let phase: InterviewState["phase"] = "questions";
   let currentId: string | null = null;
   const probed = new Set<string>();
+  const probeCounts = new Map<string, number>();
   const asked = new Set<string>();
   let answers = 0;
   let candidateQuestions = 0;
@@ -261,12 +270,60 @@ export function interviewState(plan: InterviewPlan, transcript: TranscriptEntry[
     }
     if (e.kind === "question" || e.kind === "opening") {
       if (e.questionId) { currentId = e.questionId; asked.add(e.questionId); }
-    } else if (e.kind === "probe" && e.questionId) probed.add(e.questionId);
-    else if (e.kind === "close") phase = "close";
+    } else if (e.kind === "probe" && e.questionId) {
+      probed.add(e.questionId);
+      probeCounts.set(e.questionId, (probeCounts.get(e.questionId) ?? 0) + 1);
+    } else if (e.kind === "close") phase = "close";
     else if (e.kind === "goodbye") phase = "done";
   }
   const current = plan.questions.find((q) => q.id === currentId) ?? null;
-  return { phase, current, probed: current ? probed.has(current.id) : false, answers, candidateQuestions, asked: asked.size };
+  return {
+    phase,
+    current,
+    probed: current ? probed.has(current.id) : false,
+    probesOnCurrent: current ? (probeCounts.get(current.id) ?? 0) : 0,
+    answers,
+    candidateQuestions,
+    asked: asked.size,
+  };
+}
+
+// ── Adaptive probing (Chunk 32) ──────────────────────────────────────────────
+// A real UK competency interviewer keeps probing until the STAR evidence is
+// clear, so one forced probe (the old rule) felt robotic after a complete
+// answer. These decide, in code, whether another follow-up is warranted: a
+// STAR/technical question may be probed up to MAX_PROBES_STAR times, but ONLY
+// while a required STAR part is still missing; a complete answer draws none.
+// Lighter rounds keep the single clarifying probe they always had.
+export const MAX_PROBES_STAR = 3;
+export const MAX_PROBES_LIGHT = 1;
+export function maxProbes(rubric: Rubric): number {
+  if (isLogistics(rubric)) return 0;
+  return rubric === "star" || rubric === "technical" ? MAX_PROBES_STAR : MAX_PROBES_LIGHT;
+}
+
+export type StarPart = "action" | "result";
+// A sign that the answer actually states an outcome (so Result isn't missing).
+const RESULT_WORDS = /\b(?:result(?:ed|ing)?|outcome|impact(?:ed|ful)?|reduc(?:e|ed|ing|tion)|increas(?:e|ed|ing)|improv(?:e|ed|ing|ement)|sav(?:e|ed|ing)|deliver(?:ed|ing|y)|achiev(?:e|ed|ing|ement)|grew|grow(?:th|ing)|boost(?:ed|ing)?|led to|so that|as a result|which meant|ended up|went from|shipp(?:ed|ing)|launch(?:ed|ing)|per cent|percent)\b/i;
+
+// Which STAR parts the answer is still missing, limited to the parts this
+// rubric actually requires (CHECKS_FOR). Deterministic — a complete answer
+// returns [], so adaptive probing stops on its own.
+export function starGaps(answer: string, rubric: Rubric, metrics?: AnswerMetrics): StarPart[] {
+  if (isLogistics(rubric)) return [];
+  const req = CHECKS_FOR[rubric] as readonly (CheckKey)[];
+  const iCount = metrics ? metrics.iCount : (answer.match(/\b(?:I|I'm|I've|I'd|my|me)\b/g) ?? []).length;
+  const weCount = metrics ? metrics.weCount : (answer.match(/\b(?:we|we're|we've|our|us)\b/gi) ?? []).length;
+  const gaps: StarPart[] = [];
+  if (req.includes("ownActions")) {
+    // No personal "I", or "we" dominating with little "I": the Action is unclear.
+    if (iCount === 0 || (weCount >= 3 && weCount > iCount * 2)) gaps.push("action");
+  }
+  if (req.includes("result")) {
+    const hasNumber = digitsIn(answer).length > 0;
+    if (!hasNumber && !RESULT_WORDS.test(answer)) gaps.push("result");
+  }
+  return gaps;
 }
 
 // The opening entries: the code-written greeting and the first question.
@@ -372,7 +429,7 @@ export function decideTurn(
   answer: string,
   model: TurnModelOut | null,
   ctx: TurnContext,
-  meta: { mode?: "voice" | "typed"; seconds?: number } = {}
+  meta: { mode?: "voice" | "typed"; seconds?: number; pauseMs?: number } = {}
 ): { entries: TranscriptEntry[]; reply: TurnReply } {
   const state = interviewState(plan, transcript);
   const text = str(answer, MAX_ANSWER_CHARS);
@@ -417,7 +474,13 @@ export function decideTurn(
 
   const nearCap = state.answers + 1 >= MAX_ANSWERS - MAX_CANDIDATE_QUESTIONS;
   const probe = model ? firstQuestion(model.probe) : "";
-  if (model?.move === "probe" && !state.probed && !isLogistics(q.rubric) && !nearCap && usableLine(probe, sources, true)) {
+  // Adaptive probing: keep following up while a required STAR part is still
+  // missing, up to maxProbes for this round. A STAR/technical question needs a
+  // real gap (so a complete answer is never probed); lighter rounds trust the
+  // model's single clarifying probe.
+  const deepReq = CHECKS_FOR[q.rubric].some((k) => k === "ownActions" || k === "result");
+  const gapGate = deepReq ? starGaps(text, q.rubric).length > 0 : true;
+  if (model?.move === "probe" && state.probesOnCurrent < maxProbes(q.rubric) && !isLogistics(q.rubric) && !nearCap && gapGate && usableLine(probe, sources, true)) {
     const line = join(reaction, probe);
     return { entries: [candidate("answer"), say("probe", line, q.id)], reply: { kind: "probe", say: line, question: q, upcoming: null, done: false } };
   }
@@ -471,19 +534,61 @@ const LOGISTICS_CLEAR: Partial<Record<Rubric, RegExp>> = {
 };
 
 export type Check = { key: CheckKey | "clear"; pass: boolean; quote: string };
-export type AnswerMetrics = { words: number; seconds: number | null; fillers: number; fillerWords: string[]; iCount: number; weCount: number; figuresNotInCv: string[] };
+export type AnswerMetrics = {
+  words: number;
+  seconds: number | null;
+  // Words per minute, null when the answer is too short to judge pace (under 10 s).
+  wpm: number | null;
+  // The longest silent pause inside the answer, in seconds, when the client
+  // measured it (Chunk 31's VAD); null otherwise.
+  pauseSeconds: number | null;
+  fillers: number;
+  fillerWords: string[];
+  iCount: number;
+  weCount: number;
+  figuresNotInCv: string[];
+};
+
+// Per-answer STAR rubric (Chunk 32): each part scored Missing / Partly / Clear
+// with the exact phrase from the answer. Derived in code from the verified
+// checks and the delivery metrics (never a grade the model writes) plus the
+// model's quote-verified Relevance judgement.
+export const RUBRIC_ROWS = ["situation", "action", "result", "relevance"] as const;
+export type RubricRowKey = (typeof RUBRIC_ROWS)[number];
+export type RubricLevel = "missing" | "partly" | "clear";
+export type RubricRow = { key: RubricRowKey; level: RubricLevel; quote: string };
+export const RUBRIC_ROW_LABELS: Record<RubricRowKey, string> = {
+  situation: "Situation and task",
+  action: "What you did (your part)",
+  result: "Result",
+  relevance: "Relevance to this job",
+};
+export const RUBRIC_LEVEL_LABELS: Record<RubricLevel, string> = { missing: "Missing", partly: "Partly", clear: "Clear" };
+
+// One sentence of the "stronger version" rewrite, with whether it traces to
+// the candidate's own answer or their master CV (Chunk 32). An untraced
+// sentence is shown but marked "not from your CV"; a result the answer lacked
+// is the honest placeholder, never an invented figure.
+export type StrongerSentence = { text: string; traced: boolean; placeholder: boolean };
+
 export type AnswerFeedback = {
   questionId: string;
   question: string;
   rubric: Rubric;
   answer: string;
   checks: Check[];
+  // The STAR rubric rows for a competency/STAR answer; absent for other
+  // question kinds and for feedback stored before Chunk 32.
+  rubricRows?: RubricRow[];
   metrics: AnswerMetrics;
   tryInstead: string;
   // The sentences of tryInstead that neither trace to a CV line nor are made
   // of the CV's words (30 Sep; the same rule as the prep pack's check) — the
   // view marks them "Not from your CV". Absent on feedback stored before.
   tryInsteadFlags?: string[];
+  // The same rewrite, sentence by sentence, with a "traced" flag each (Chunk
+  // 32). Absent on feedback stored before.
+  strongerSentences?: StrongerSentence[];
   cvLine: string;
 };
 export type InterviewFeedback = {
@@ -493,15 +598,20 @@ export type InterviewFeedback = {
   readout: Readout;
 };
 
-export function answerMetrics(text: string, seconds: number | null, cvText: string): AnswerMetrics {
+export function answerMetrics(text: string, seconds: number | null, cvText: string, pauseSeconds: number | null = null): AnswerMetrics {
   const fillers = countFillers(text);
   const cvDigits = new Set(digitsIn(cvText));
   // Figures as spoken ("40%", "3,000 users") whose numbers the CV never has.
   const spoken = text.match(/[£$€]?\d[\d,.]*\s?(?:%|k\b|m\b|x\b)?/g) ?? [];
   const notInCv = spoken.filter((f) => digitsIn(f).some((d) => !cvDigits.has(d))).map((f) => f.trim());
+  const words = wordCount(text);
+  // Pace needs a few seconds to mean anything: a two-word answer isn't "slow".
+  const wpm = seconds != null && seconds >= 10 && words > 0 ? Math.round((words / seconds) * 60) : null;
   return {
-    words: wordCount(text),
+    words,
     seconds,
+    wpm,
+    pauseSeconds: pauseSeconds != null && pauseSeconds >= 0 ? Math.round(pauseSeconds * 10) / 10 : null,
     fillers: fillers.count,
     fillerWords: fillers.found,
     iCount: (text.match(/\b(?:I|I'm|I've|I'd|my|me)\b/g) ?? []).length,
@@ -510,16 +620,39 @@ export function answerMetrics(text: string, seconds: number | null, cvText: stri
   };
 }
 
+// Pace is healthy at roughly 110–170 wpm; outside that is a delivery flag.
+export const WPM_MIN = 110;
+export const WPM_MAX = 170;
+export function paceFlag(wpm: number | null): "slow" | "fast" | null {
+  if (wpm == null) return null;
+  if (wpm < WPM_MIN) return "slow";
+  if (wpm > WPM_MAX) return "fast";
+  return null;
+}
+// A competency answer wants roughly 45 s to 3 minutes; outside that is a flag.
+export const ANSWER_SHORT_SECONDS = 45;
+export const ANSWER_LONG_SECONDS = 180;
+export function lengthFlag(rubric: Rubric, seconds: number | null): "short" | "long" | null {
+  if (isLogistics(rubric) || seconds == null) return null;
+  if (seconds < ANSWER_SHORT_SECONDS) return "short";
+  if (seconds > ANSWER_LONG_SECONDS) return "long";
+  return null;
+}
+
 // The candidate's words for each question (answer plus any follow-up answer).
-export function answersByQuestion(plan: InterviewPlan, transcript: TranscriptEntry[]): Map<string, { text: string; seconds: number | null }> {
-  const out = new Map<string, { text: string; seconds: number | null }>();
+// seconds sums across the parts; pauseSeconds keeps the longest single pause.
+export type GivenAnswer = { text: string; seconds: number | null; pauseSeconds: number | null };
+export function answersByQuestion(plan: InterviewPlan, transcript: TranscriptEntry[]): Map<string, GivenAnswer> {
+  const out = new Map<string, GivenAnswer>();
   for (const e of transcript) {
     if (e.who !== "candidate" || e.kind !== "answer" || !e.questionId) continue;
     if (!plan.questions.some((q) => q.id === e.questionId)) continue;
-    const cur = out.get(e.questionId) ?? { text: "", seconds: null };
+    const cur = out.get(e.questionId) ?? { text: "", seconds: null, pauseSeconds: null };
+    const pause = e.pauseMs == null ? null : e.pauseMs / 1000;
     out.set(e.questionId, {
       text: join(cur.text, e.text),
       seconds: e.seconds == null ? cur.seconds : (cur.seconds ?? 0) + e.seconds,
+      pauseSeconds: pause == null ? cur.pauseSeconds : Math.max(cur.pauseSeconds ?? 0, pause),
     });
   }
   return out;
@@ -531,20 +664,75 @@ export function answersByQuestion(plan: InterviewPlan, transcript: TranscriptEnt
 const TRY_OVERLAP = 0.5;
 const TRY_MIN_WORDS = 6;
 
+// The honest stand-in for a result the answer never gave: the rewrite leaves
+// this in place of an invented figure. Detected loosely so it is never flagged.
+export const RESULT_PLACEHOLDER = "Add your real result here.";
+const RESULT_PLACEHOLDER_RE = /\badd (?:your|a|the) (?:real |own )?(?:result|figure|number|outcome|metric|measure)\b/i;
+export const isResultPlaceholder = (s: string): boolean => RESULT_PLACEHOLDER_RE.test(s);
+
+// The STAR rubric row for one answer (Chunk 32), derived from the verified
+// checks and the delivery metrics — never a grade the model writes. A level is
+// "clear" only when the evidence is really there (a result needs a figure or
+// an outcome word; an action needs a personal "I").
+function readRelevance(raw: unknown, inAnswer: (t: string) => boolean): { level: RubricLevel; quote: string } {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const asked: RubricLevel = o.level === "clear" ? "clear" : o.level === "missing" ? "missing" : "partly";
+  const quote = str(o.quote, 300);
+  const found = !!quote && inAnswer(quote);
+  // "Clear" needs a findable quote from the answer; otherwise cap at "partly".
+  const level: RubricLevel = asked === "clear" && !found ? "partly" : asked;
+  return { level, quote: found ? quote : "" };
+}
+
+function rubricRowsFor(checks: Check[], metrics: AnswerMetrics, answerText: string, relevance: { level: RubricLevel; quote: string }, answered: boolean): RubricRow[] {
+  const byKey = new Map(checks.map((c) => [c.key, c] as const));
+  const example = byKey.get("example");
+  const own = byKey.get("ownActions");
+  const result = byKey.get("result");
+  const hasNumber = digitsIn(answerText).length > 0;
+
+  const situation: RubricRow = example?.pass
+    ? { key: "situation", level: "clear", quote: example.quote }
+    : answered
+      ? { key: "situation", level: "partly", quote: "" }
+      : { key: "situation", level: "missing", quote: "" };
+
+  const action: RubricRow = own?.pass
+    ? { key: "action", level: "clear", quote: own.quote }
+    : metrics.iCount > 0
+      ? { key: "action", level: "partly", quote: "" }
+      : { key: "action", level: "missing", quote: "" };
+
+  const resultRow: RubricRow = result?.pass && hasNumber
+    ? { key: "result", level: "clear", quote: result.quote }
+    : result?.pass || hasNumber || RESULT_WORDS.test(answerText)
+      ? { key: "result", level: "partly", quote: result?.pass ? result.quote : "" }
+      : { key: "result", level: "missing", quote: "" };
+
+  // Relevance can't read "clear" when the answer didn't address the question.
+  const relLevel: RubricLevel = relevance.level === "clear" && !answered ? "partly" : relevance.level;
+  const relevanceRow: RubricRow = { key: "relevance", level: relLevel, quote: relevance.quote };
+
+  return [situation, action, resultRow, relevanceRow];
+}
+
 // Model feedback, reconciled: a pass needs a quote found in the answer; the
-// suggested wording keeps only figures the CV has, and each of its sentences
-// is marked when the CV does not support it; the CV line must be in it.
+// suggested wording keeps only figures the CV has, each of its sentences is
+// marked when neither the CV nor the answer supports it; the CV line must be
+// in it. STAR answers also carry the four Missing/Partly/Clear rubric rows.
 export function reconcileFeedback(raw: unknown, plan: InterviewPlan, transcript: TranscriptEntry[], cvText: string, partial = false): InterviewFeedback {
   const byQ = answersByQuestion(plan, transcript);
   const rawList = raw && typeof raw === "object" && Array.isArray((raw as { answers?: unknown }).answers) ? ((raw as { answers: unknown[] }).answers) : [];
   const modelById = new Map<string, Record<string, unknown>>();
   for (const a of rawList) if (a && typeof a === "object" && typeof (a as { id?: unknown }).id === "string") modelById.set((a as { id: string }).id, a as Record<string, unknown>);
   const inCv = makeLineTracer(cvText);
+  const cvLines = cvText.split("\n").filter((l) => l.trim());
   const answers: AnswerFeedback[] = [];
   for (const q of plan.questions) {
     const given = byQ.get(q.id);
     if (!given) continue;
     const inAnswer = makeLineTracer(given.text);
+    const answerLines = given.text.split(/(?<=[.!?])\s+/).filter((l) => l.trim());
     const m = modelById.get(q.id) ?? {};
     let checks: Check[];
     if (isLogistics(q.rubric)) {
@@ -559,26 +747,73 @@ export function reconcileFeedback(raw: unknown, plan: InterviewPlan, transcript:
         return { key, pass, quote: pass ? quote : "" };
       });
     }
+    const metrics = answerMetrics(given.text, given.seconds, cvText, given.pauseSeconds);
+
     const trySentences = str(m.tryInstead, 400)
       .split(/(?<=[.!?])\s+/)
-      .filter((s) => s && numbersSupported(s, [cvText]));
+      .filter((s) => s && (isResultPlaceholder(s) || numbersSupported(s, [cvText, given.text])));
     const tryInstead = trySentences.join(" ");
-    const cvLines = cvText.split("\n").filter((l) => l.trim());
-    const tryInsteadFlags = trySentences.filter((s) => s.split(/\s+/).length >= TRY_MIN_WORDS && !inCv(s) && contentOverlap(s, cvLines) < TRY_OVERLAP);
+    // A sentence is "traced" when the candidate's own answer or their CV
+    // supports it (verbatim, a long run, or half its content words), or it is
+    // the honest result placeholder. Short sentences are too brief to judge.
+    const strongerSentences: StrongerSentence[] = trySentences.map((s) => {
+      const placeholder = isResultPlaceholder(s);
+      const traced =
+        placeholder ||
+        s.split(/\s+/).length < TRY_MIN_WORDS ||
+        inCv(s) ||
+        inAnswer(s) ||
+        contentOverlap(s, cvLines) >= TRY_OVERLAP ||
+        contentOverlap(s, answerLines) >= TRY_OVERLAP;
+      return { text: s, traced, placeholder };
+    });
+    const tryInsteadFlags = strongerSentences.filter((s) => !s.traced).map((s) => s.text);
+
     const cvLine = str(m.cvLine, 300);
+    const answeredOk = checks.some((c) => c.key === "answered" && c.pass);
+    const rubricRows = q.rubric === "star"
+      ? rubricRowsFor(checks, metrics, given.text, readRelevance(m.relevance, inAnswer), answeredOk)
+      : undefined;
     answers.push({
       questionId: q.id,
       question: q.text,
       rubric: q.rubric,
       answer: given.text,
       checks,
-      metrics: answerMetrics(given.text, given.seconds, cvText),
+      ...(rubricRows ? { rubricRows } : {}),
+      metrics,
       tryInstead,
       tryInsteadFlags,
+      strongerSentences,
       cvLine: cvLine && inCv(cvLine) ? cvLine : "",
     });
   }
   return { version: 1, partial, answers, readout: readout(answers, plan.questions.length) };
+}
+
+// Score a single answer again (the "Retry this answer" button, Chunk 32):
+// build a one-question plan and reuse reconcileFeedback, so the retry is
+// checked exactly like the finish review. `modelRaw` is the finish model's
+// output for this one answer (or null for the code-only path).
+export function scoreOneAnswer(
+  question: PlannedQuestion,
+  given: { text: string; seconds: number | null; pauseSeconds: number | null },
+  cvText: string,
+  modelRaw: unknown
+): AnswerFeedback | null {
+  const plan: InterviewPlan = { version: 1, type: "competency", company: "", role: "", firstName: "", opening: "", questions: [question] };
+  const transcript: TranscriptEntry[] = [{
+    who: "candidate",
+    kind: "answer",
+    questionId: question.id,
+    text: given.text,
+    ...(given.seconds != null ? { seconds: given.seconds } : {}),
+    ...(given.pauseSeconds != null ? { pauseMs: Math.round(given.pauseSeconds * 1000) } : {}),
+  }];
+  const answers = modelRaw && typeof modelRaw === "object" && (modelRaw as { id?: unknown }).id
+    ? [modelRaw]
+    : [{ ...(modelRaw && typeof modelRaw === "object" ? modelRaw : {}), id: question.id }];
+  return reconcileFeedback({ answers }, plan, transcript, cvText).answers[0] ?? null;
 }
 
 // ── Readout ──────────────────────────────────────────────────────────────────
@@ -602,6 +837,7 @@ const ADVICE: Record<string, string> = {
   fillers: "Cut filler words (um, you know, sort of). A short pause sounds more confident.",
   short: "Develop short answers into one to two minutes with an example.",
   long: "Keep answers under about three minutes: stop once you've given the result.",
+  pace: "Aim for about 120 to 150 words a minute: too fast is hard to follow, too slow loses the room.",
 };
 
 export function readout(answers: AnswerFeedback[], plannedQuestions: number): Readout {
@@ -614,6 +850,7 @@ export function readout(answers: AnswerFeedback[], plannedQuestions: number): Re
     for (const c of a.checks) if (!c.pass) bump(c.key);
     if (a.metrics.figuresNotInCv.length) bump("figures");
     if (a.metrics.words > 0 && a.metrics.fillers / a.metrics.words > 0.03) bump("fillers");
+    if (paceFlag(a.metrics.wpm)) bump("pace");
     if (!isLogistics(a.rubric) && a.metrics.words < 40) bump("short");
     if (a.metrics.words > 450) bump("long");
   }
