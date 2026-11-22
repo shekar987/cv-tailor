@@ -48,8 +48,8 @@ import { dayKey } from "@/lib/planTime";
 import { eventMs, feedbackRequest, type AvailabilityWindow, type PlanEvent } from "@/lib/plan";
 import { snoozeUntil } from "@/lib/actionCentre";
 import {
-  STAGE_LABELS, TAB_LABELS, attentionCounts, countedElsewhere, defaultTab, deriveStage, eventsByApplication, isDataToFix, isDueSoon, nextStepFor,
-  dueSoonCutoff, primaryAction, reachedTab, referralCard, roleLine, stageEvent, statusForNewRow, statusToMatch, tabCounts, tabForStatus, tabOfStage, visibleTabs,
+  STAGE_LABELS, TAB_LABELS, attentionCounts, defaultTab, deriveStage, eventsByApplication, isDataToFix, isDueSoon, nextStepFor,
+  dueSoonCutoff, primaryAction, reachedTab, referralCard, roleLine, stageEvent, statusForNewRow, statusToMatch, tabCounts, tabForStatus, tabOfRow, visibleTabs,
 } from "@/lib/applicationStage";
 import {
   STATUSES,
@@ -744,6 +744,9 @@ export default function ApplicationsPage() {
   const [confirm, confirmDialog] = useConfirm();
   // On a stage tab: the dated table, or the full sheet with its panels.
   const [spreadsheet, setSpreadsheet] = useState(false);
+  // On a phone the sheet is a card: the secondary fields (CV, JD, notes…) fold behind
+  // "More" so Company, Role and Status are never pushed off the screen (Chunk JH-2).
+  const [expandedRows, setExpandedRows] = useState<ReadonlySet<string>>(new Set());
   const [includePast, setIncludePast] = useState(false);
   // Opening a row in the sheet searches for it, so it is on the sheet's first page.
   const [stageRefresh, setStageRefresh] = useState(0);
@@ -1070,8 +1073,8 @@ export default function ApplicationsPage() {
   }, [stageRefresh]);
   // Until the full list is in, the tabs count from the server (every row); after, from the rows.
   const counts = useMemo(
-    () => (!fullLoaded && serverCounts ? serverCounts.counts : tabCounts(rows, byApp)),
-    [fullLoaded, serverCounts, rows, byApp]
+    () => (!fullLoaded && serverCounts ? serverCounts.counts : tabCounts(rows)),
+    [fullLoaded, serverCounts, rows]
   );
   const attentionAll = useMemo(() => attentionCounts(rows, events, todayLocal(), clock, tz), [rows, events, clock, tz]);
   const coldNoFollowup = useMemo(() => rows.filter(coldEmailNeedsFollowup).length, [rows]);
@@ -1088,7 +1091,7 @@ export default function ApplicationsPage() {
   useEffect(() => {
     if (fullLoaded || !serverCounts || !loaded || tab === null || tab === "all") return;
     const want = Math.min(serverCounts.counts[tab as TabKey] ?? 0, FIRST_PAGE_ROWS);
-    const have = rowsRef.current.filter((r) => tabOfStage(deriveStage(r.status, byApp.get(r.id))) === tab).length;
+    const have = rowsRef.current.filter((r) => tabOfRow(r.status) === tab).length;
     if (have >= want) return;
     let cancelled = false;
     fetchApplications(`?stage=${tab}&limit=${FIRST_PAGE_ROWS}`).then((page) => {
@@ -1125,9 +1128,9 @@ export default function ApplicationsPage() {
     autoTab.current = null;
     const row = rows.find((r) => r.id === justSaved.id);
     if (!row || tab !== guessed) return;
-    const real = tabOfStage(deriveStage(row.status, byApp.get(row.id)));
+    const real = tabOfRow(row.status);
     if (real !== guessed) setTab(real);
-  }, [fullLoaded, eventsSettled, justSaved, rows, byApp, tab]);
+  }, [fullLoaded, eventsSettled, justSaved, rows, tab]);
   const sheetMode = spreadsheet || newRow !== null;
 
   const visible = useMemo(() => {
@@ -1144,7 +1147,7 @@ export default function ApplicationsPage() {
       if (attention === "saved") return r.id === justSaved?.id;
       if (searchTerm) return true;
       if (tabNow === "all") return true;
-      if (tabOfStage(deriveStage(r.status, byApp.get(r.id))) === tabNow) return true;
+      if (tabOfRow(r.status) === tabNow) return true;
       return includePast && !sheetMode && reachedTab(r.stages_reached, tabNow);
     };
     const stageTab = !attention && !searchTerm && !sheetMode && (tabNow === "screening" || tabNow === "interview");
@@ -2365,7 +2368,7 @@ export default function ApplicationsPage() {
   function renderListRow(row: Application) {
     const open = panel?.id === row.id;
     const rowEvents = byApp.get(row.id) ?? [];
-    const stage = deriveStage(row.status, rowEvents);
+    const stage = deriveStage(row.status);
     const step = nextStepFor(rowEvents, clock, tz);
     const banner = pendingBanner(row);
     const action = primaryAction(stage);
@@ -2830,7 +2833,6 @@ export default function ApplicationsPage() {
   const noFilters = periodFilter === "all" && styleFilter === "all";
   const viewLabel = !attention && searchTerm ? "across every tab" : attention === "saved" ? "just saved" : attention === "radar" ? `due in the next ${DUE_WINDOW_HOURS} hours` : attention === "reopen" ? "with new activity" : attention === "due" ? "due soon" : attention === "followups" ? "follow-ups due this week" : attention === "today" ? "follow-ups due today" : attention === "fix" ? "applications to fix" : attention === "referrals" ? "referral asks" : attention === "cold" ? "cold emails missing a follow-up date" : tabNow === "all" ? "all applications" : `in ${TAB_LABELS[tabNow]}`;
   const viewTotal = !attention && searchTerm ? rows.length : attention === "saved" ? (savedRow ? 1 : 0) : attention === "radar" ? radarIds.size : attention === "reopen" ? reopenRows.length : attention === "due" ? attentionNumbers.dueSoonRows : attention === "followups" ? attentionNumbers.followups : attention === "today" ? dueTodayNumbers.total : attention === "fix" ? attentionNumbers.dataToFix : attention === "referrals" ? referralIds.size : attention === "cold" ? coldNoFollowup : tabNow === "all" ? rows.length : counts[tabNow];
-  const elsewhere = !attention && !searchTerm && tabNow !== "all" && tabNow !== "assessment" ? countedElsewhere(rows, byApp, tabNow) : 0;
   const activeFilters = (styleFilter !== "all" ? 1 : 0) + (includePast ? 1 : 0) + (listSort !== "next" ? 1 : 0);
 
   // The page's buttons. On a phone the two that matter sit side by side under the title, and
@@ -3401,9 +3403,10 @@ export default function ApplicationsPage() {
                   const open = panel?.id === row.id;
                   const confirming = confirmDeleteId === row.id;
                   const panelIs = (kind: PanelKind) => open && panel?.kind === kind;
+                  const moreOpen = expandedRows.has(row.id);
                   return (
                     <RowGroup key={row.id}>
-                      <tr className={"appsRow" + (open ? " open" : "") + (flashRowId === row.id ? " flashSave" : "")}>
+                      <tr className={"appsRow" + (open ? " open" : "") + (moreOpen ? " moreOpen" : "") + (flashRowId === row.id ? " flashSave" : "")}>
                         <td data-label="Company Name">
                           {textCell(row, "company_name")}
                           <RowFlags
@@ -3474,12 +3477,17 @@ export default function ApplicationsPage() {
                             ))}
                         </td>
                         <td data-label="JD">
+                          {/* A compact icon button so a long "View job description" can never
+                              spill across the fixed JD column into Status (Chunk JH-2). */}
                           <button
                             type="button"
-                            className={"appsLinkBtn" + (panelIs("jd") ? " active" : "") + (row.has_job_description ? "" : " muted")}
+                            className={"appsIconBtn" + (panelIs("jd") ? " active" : "") + (row.has_job_description ? "" : " muted")}
                             onClick={() => togglePanel(row, "jd")}
+                            aria-label={row.has_job_description ? `Open job description for ${row.company_name}` : `Add job description for ${row.company_name}`}
+                            aria-pressed={panelIs("jd")}
+                            title={row.has_job_description ? "Open job description" : "Add job description"}
                           >
-                            {row.has_job_description ? "View job description" : "Add job description"}
+                            <Icon name="document" />
                           </button>
                         </td>
                         <td data-label="Gate">
@@ -3526,6 +3534,25 @@ export default function ApplicationsPage() {
                             title={row.notes_preview ? `${row.notes_preview}${row.notes_more ? "…" : ""}` : undefined}
                           >
                             {row.notes_preview || (row.notes_more ? "Notes…" : "Add notes")}
+                          </button>
+                        </td>
+                        {/* Phone only (CSS): fold the CV, JD, gate, salary, dates and notes
+                            cells behind one button so the card leads with Company, Role and
+                            Status. Desktop keeps every column. */}
+                        <td className="appsMoreCell">
+                          <button
+                            type="button"
+                            className="appsActionBtn"
+                            aria-expanded={moreOpen}
+                            onClick={() => setExpandedRows((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(row.id)) next.delete(row.id);
+                              else next.add(row.id);
+                              return next;
+                            })}
+                            data-row-more={row.company_name}
+                          >
+                            {moreOpen ? "Less" : "More"}
                           </button>
                         </td>
                         <td className="appsActions">
@@ -3632,11 +3659,6 @@ export default function ApplicationsPage() {
               {!attention && !searchTerm && tabNow === "closed" && (
                 <span className="appsFootNote" data-closed-breakdown>{fmt(rejectedCount)} rejected · {fmt(withdrawnCount)} withdrawn · {fmt(ghostedCount)} no reply</span>
               )}
-              {elsewhere > 0 && (
-                <span className="appsFootNote" data-counted-elsewhere>
-                  {elsewhere} more with the status {tabNow !== "all" ? TAB_LABELS[tabNow] : ""} {elsewhere === 1 ? "is" : "are"} shown under Assessment, because a test is waiting.
-                </span>
-              )}
             </div>
             {!sheetMode && sheet.pages > 1 && (
               <nav className="appsPager" aria-label="Pages of applications" data-apps-pager>
@@ -3739,12 +3761,9 @@ export default function ApplicationsPage() {
           onClose={() => setEventForm(null)}
           onSaved={(message, moved) => {
             setEventForm(null);
-            if (moved?.reportNotes !== undefined) {
-              const notes = moved.reportNotes;
-              setRows((rs) => rs.map((r) => (r.id === moved.id ? { ...r, ...notesListFields(notes) } : r)));
-              rememberText(moved.id, { notes });
-            }
-            if (moved) setRows((rs) => rs.map((r) => (r.id === moved.id ? { ...r, closed_at: null, close_reason: null, status: moved.status, stages_reached: stagesAfterMove(r.stages_reached, moved.status) } : r)));
+            // stageAfterEvent only ever moves a row forward, never reopens a closed one, so the
+            // move is a plain status change the page can mirror.
+            if (moved) setRows((rs) => rs.map((r) => (r.id === moved.id ? { ...r, status: moved.status, stages_reached: stagesAfterMove(r.stages_reached, moved.status) } : r)));
             showFlash(message);
             setStageRefresh((n) => n + 1);
           }}

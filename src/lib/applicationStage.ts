@@ -1,12 +1,14 @@
 // What the Applications page shows and counts (4 Nov 2026, Chunk 13). Pure, so
 // node:test can run it (tests/applicationStage).
 //
-// The stored status lags the work: SalesApe's take-home and QuantumLoopAI's test were
-// both stored as Interview, so the Assessment tab said 0. So the page derives a stage: an
-// open test on a row is what the row is waiting on. It is display only: the stored status
-// is never rewritten here (the sweeps read and write it), and the row's menu offers the
-// one-click update instead. An application that reached an offer or ended keeps its own
-// stage, whatever is still open on it, so every row counts once and the tabs add up.
+// ONE source of truth (Chunk JH-2, 22 Nov 2026). A row's tab is read from its STORED
+// status alone (deriveStage/tabOfRow); events no longer re-derive the tab at display
+// time. The old derive-from-events put "Ready to submit" rows under Assessment whenever
+// a take-home was logged against them (the 21 Nov miscount, Assessment 8 / To submit 0),
+// and it never helped the sweep, which reads the stored column. Instead the stored status
+// is moved when the event is logged (stageAfterEvent, applied in /api/events), so the page
+// and the sweep agree. stageEvent is kept only to point a row's "Open test" button at the
+// test it is waiting on; it never decides a tab.
 import { EVENT_KIND_LABELS, describeTiming, displayZone, eventMs, type EventKind, type PlanEvent } from "./plan.ts";
 import { DEFAULT_TIMEZONE, HOUR_MS, addDays, dayKey, formatWhen, zonedTimeToMs } from "./planTime.ts";
 import { referralAsks, referralSince, type ReferralRow } from "./referrals.ts";
@@ -39,11 +41,30 @@ export function stageEvent<E extends StageEvent>(status: unknown, events: readon
   return tests[0] ?? null;
 }
 
-/** The stage a row shows: its soonest open test, else its stored status. */
-export function deriveStage(status: unknown, events: readonly StageEvent[] = []): StageKey {
-  const stored = normalizeStatus(status) ?? "applied";
-  const test = stageEvent(stored, events);
-  return test ? (test.kind as StageKey) : stored;
+/** The stage a row shows: its stored status, the one source of truth. */
+export function deriveStage(status: unknown): StageKey {
+  return normalizeStatus(status) ?? "applied";
+}
+
+// Which statuses an event of each kind moves a row FORWARD from. An interview moves a row
+// that has not reached Interview; a test (assessment or take-home) moves a row that is out
+// but not yet shortlisted — never a "Ready to submit" row, whose test is a task to finish
+// before applying. Every other kind, and every finished or further-along row, stays put.
+const INTERVIEW_MOVES_FROM: ReadonlySet<Status> = new Set<Status>(["saved", "applied", "screening", "assessment"]);
+const ASSESSMENT_MOVES_FROM: ReadonlySet<Status> = new Set<Status>(["applied", "screening"]);
+
+/**
+ * The stored stage a row should move to when an event of this kind is logged against it,
+ * or null for no move. Forward only; never moves Offer, Won or an ended row, and never a
+ * "Ready to submit" row on a test. Written by /api/events so the tab reads the stored
+ * status alone. Pure, so tests/applicationStage can run every kind and starting stage.
+ */
+export function stageAfterEvent(status: unknown, kind: string): Status | null {
+  const stored = normalizeStatus(status);
+  if (!stored) return null;
+  if (kind === "interview") return INTERVIEW_MOVES_FROM.has(stored) ? "interview" : null;
+  if (kind === "assessment" || kind === "take_home") return ASSESSMENT_MOVES_FROM.has(stored) ? "assessment" : null;
+  return null;
 }
 
 // ── Tabs ────────────────────────────────────────────────────────────────────
@@ -94,9 +115,14 @@ export function eventsByApplication<E extends { application_id: string | null }>
   return out;
 }
 
-export function tabCounts(rows: readonly TabRow[], byApp: ReadonlyMap<string, readonly StageEvent[]>): Record<TabKey, number> {
+/** The tab a row belongs to, from its STORED status alone. */
+export function tabOfRow(status: unknown): TabKey {
+  return tabOfStage(normalizeStatus(status) ?? "applied");
+}
+
+export function tabCounts(rows: readonly TabRow[]): Record<TabKey, number> {
   const counts = Object.fromEntries(TAB_ORDER.map((t) => [t, 0])) as Record<TabKey, number>;
-  for (const r of rows) counts[tabOfStage(deriveStage(r.status, byApp.get(r.id)))] += 1;
+  for (const r of rows) counts[tabOfRow(r.status)] += 1;
   return counts;
 }
 
@@ -142,17 +168,6 @@ export function defaultTab(counts: Record<TabKey, number>): TabKey {
 export function tabForStatus(status: unknown): TabKey | null {
   const stored = normalizeStatus(status);
   return stored ? tabOfStage(stored) : null;
-}
-
-/**
- * Rows whose STORED status is this tab but which count elsewhere, because an open test
- * has overtaken them. The sheet's old numbers stay reachable: 3 here + this = the 8 stored.
- */
-export function countedElsewhere(rows: readonly TabRow[], byApp: ReadonlyMap<string, readonly StageEvent[]>, tab: TabKey): number {
-  return rows.filter((r) => {
-    const stored = normalizeStatus(r.status);
-    return !!stored && tabOfStage(stored) === tab && tabOfStage(deriveStage(stored, byApp.get(r.id))) !== tab;
-  }).length;
 }
 
 /** The stored status a row could be moved to, to match what it shows; null when it already does. */

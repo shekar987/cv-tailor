@@ -86,7 +86,7 @@ test("this week is Monday to Sunday; its earlier days count, last week's and nex
   assert.equal(followupsDueThisWeek([{ followup_date: "2026-11-03", status: "Applied" }, { followup_date: "2026-10-01", status: "Applied" }], today), 1);
 });
 
-test("the counts are the page's: the derived stage per row, every row once, from the open events", () => {
+test("the counts are the page's: one per row, by stored status (Chunk JH-2, one source of truth)", () => {
   const rows = [
     { id: "a", status: "Applied", followup_date: "2026-11-05" },
     { id: "b", status: "Applied", followup_date: "2026-10-20" },
@@ -94,17 +94,11 @@ test("the counts are the page's: the derived stage per row, every row once, from
     { id: "d", status: "Rejected", followup_date: "2026-11-05" },
     { id: "e", status: "Ready to submit", followup_date: null },
   ];
-  const events = [
-    // An open test on an Applied row moves it to Assessment, as on the page.
-    { application_id: "b", status: "scheduled", kind: "assessment", starts_at: null, due_at: "2026-11-10T17:00:00Z" },
-    // A rejected row's events never count (lib/actionCentre actionableEvents).
-    { application_id: "d", status: "scheduled", kind: "interview", starts_at: "2026-11-09T10:00:00Z", due_at: null },
-    { application_id: "c", status: "done", kind: "assessment", starts_at: null, due_at: "2026-11-01T17:00:00Z" },
-  ] as never[];
-  const r = trackerCounts(rows, events, "2026-11-06");
+  // Events no longer re-derive a tab: the stored status is moved when the event is logged.
+  const r = trackerCounts(rows, "2026-11-06");
   assert.equal(r.total, 5);
-  assert.equal(r.counts.applied, 1);
-  assert.equal(r.counts.assessment, 1);
+  assert.equal(r.counts.applied, 2);
+  assert.equal(r.counts.assessment, 0);
   assert.equal(r.counts.screening, 1);
   assert.equal(r.counts.closed, 1);
   assert.equal(r.counts.to_submit, 1);

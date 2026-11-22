@@ -71,7 +71,7 @@ test("the Won tab holds accepted and offer; every other tab one status", () => {
   assert.equal(inStageTab("offer", "accepted"), true);
   assert.equal(inStageTab("offer", "offer"), true);
   assert.equal(inStageTab("accepted", "offer"), false);
-  assert.deepEqual(stageTabValues("accepted"), ["accepted", "offer", "Offer"]);
+  assert.deepEqual(stageTabValues("accepted"), ["accepted", "Accepted", "offer", "Offer"]);
   assert.deepEqual(stageTabValues("screening"), ["screening", "Screening"]);
   assert.deepEqual([...STAGE_TABS], ["screening", "interview", "assessment", "offer", "rejected", "accepted"]);
   assert.equal(isStageTab("applied"), false);
@@ -105,7 +105,11 @@ test("a database on the old CHECK gets the old label; a filter matches both spel
   assert.equal(oldStatusLabel("saved"), "Ready to submit");
   assert.equal(oldStatusLabel("assessment"), null);
   assert.deepEqual(storedStatusValues("screening"), ["screening", "Screening"]);
-  assert.deepEqual(storedStatusValues("ghosted"), ["ghosted"]);
+  // Even a status with no pre-migration label matches both the key and the API's spelling,
+  // so a capitalised stored value is never missed by the filter (Chunk JH-2).
+  assert.deepEqual(storedStatusValues("ghosted"), ["ghosted", "Ghosted"]);
+  assert.deepEqual(storedStatusValues("assessment"), ["assessment", "Assessment"]);
+  assert.deepEqual(storedStatusValues("saved"), ["saved", "Ready to submit"]);
 });
 
 test("active means screening, interview, assessment or offer, and nothing else", () => {

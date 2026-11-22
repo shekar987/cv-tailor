@@ -16,6 +16,7 @@ import {
 import { DEFAULT_TIMEZONE, MINUTE_MS, clockTime, dayKey, formatWhen, zonedTimeToMs } from "@/lib/planTime";
 import { trackedFetch } from "@/lib/writeTracker";
 import { STATUS_LABELS, isActiveStatus, normalizeStatus, statusLabel, type Status } from "@/lib/tracker";
+import { stageAfterEvent } from "@/lib/applicationStage";
 
 export type EventFormMode =
   | { type: "new"; application?: Pick<PlanApplication, "id" | "company_name" | "role" | "status"> | null; preset?: Partial<PlanEvent> }
@@ -25,17 +26,6 @@ type When = "time" | "deadline" | "book";
 type PickerRow = Pick<PlanApplication, "id" | "company_name" | "role" | "status">;
 
 const DEADLINE_KINDS: ReadonlySet<EventKind> = new Set<EventKind>(["assessment", "take_home", "deadline", "offer_deadline", "follow_up", "video", "work_trial", "screening_questions"]);
-// The stage an event proves. A deadline, a follow-up or a networking call proves none.
-const STAGE_FOR_KIND: Partial<Record<EventKind, Status>> = {
-  screening_call: "screening",
-  interview: "interview",
-  assessment: "assessment",
-  take_home: "assessment",
-  offer_deadline: "offer",
-  video: "interview",
-  work_trial: "assessment",
-  screening_questions: "screening",
-};
 const DEFAULT_TITLES: Record<EventKind, string> = { ...EVENT_KIND_LABELS };
 
 export function describeConflict(c: Conflict, tz: string): string {
@@ -68,7 +58,7 @@ export default function EventForm({
   otherEvents: readonly PlanEvent[];
   windows: readonly AvailabilityWindow[];
   onClose: () => void;
-  onSaved: (message: string, moved?: { id: string; status: Status; reportNotes?: string }) => void;
+  onSaved: (message: string, moved?: { id: string; status: Status }) => void;
 }) {
   const existing = mode.type === "edit" ? mode.event : null;
   const seed = existing ?? (mode.type === "new" ? mode.preset : undefined);
@@ -148,7 +138,10 @@ export default function EventForm({
   const clashes = candidate ? conflictsFor(candidate, otherEvents, windows, { tz }) : [];
 
   const inactive = !!application && !isActiveStatus(application.status);
-  const impliedStage = inactive ? STAGE_FOR_KIND[kind] ?? null : null;
+  // The one stage rule (lib/applicationStage): an interview or a test moves the row forward;
+  // a "Ready to submit" row never moves on a test, and other kinds move nothing. Correcting a
+  // date on an existing event proves nothing new, so it is only offered on a new event.
+  const impliedStage = mode.type === "new" && application ? stageAfterEvent(application.status, kind) : null;
   const movesTo = impliedStage && moveIt ? impliedStage : null;
 
   function trapTab(e: React.KeyboardEvent) {
@@ -196,45 +189,30 @@ export default function EventForm({
     const body = payload();
     if (typeof body === "string") { setError(body); return; }
     setSaving(true);
-    let eventWritten = false;
     try {
+      // The server applies the one stage rule when the event is saved (/api/events), so the
+      // tab and the sweep agree. move_stage carries the user's tick; a correction (PUT) never
+      // moves. The response says the new status, or null when nothing moved.
       const res = await trackedFetch("/api/events", {
         method: savedId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(savedId ? { id: savedId, ...body } : { ...body, application_id: application?.id ?? null, ...(seed?.source ? { source: seed.source } : {}) }),
+        body: JSON.stringify(savedId ? { id: savedId, ...body } : { ...body, application_id: application?.id ?? null, move_stage: moveIt, ...(seed?.source ? { source: seed.source } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error || "Could not save that event."); return; }
-      eventWritten = true;
       setSavedId(data.event?.id ?? savedId);
-      let reportNotes: string | undefined;
-      if (movesTo && application) {
-        const moved = await trackedFetch("/api/applications", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          // The user ticked this move, so a closed row reopens, or a row steps back, on their word.
-          body: JSON.stringify({ id: application.id, status: movesTo, confirmed_reopen: true, confirmed_move_back: true }),
-        });
-        if (!moved.ok || moved.status === 202) {
-          const detail = await moved.json().catch(() => ({}));
-          setError(`The event is saved, but ${application.company_name} did not move to ${STATUS_LABELS[movesTo]}, so it stays off your schedule.${detail.error ? ` ${detail.error}` : ""} Saving again will not add a second event.`);
-          return;
-        }
-        // Reopening took the words of a report into the notes: the page must not save over them.
-        const answer = await moved.json().catch(() => ({}));
-        if (typeof answer.reportNotes === "string") reportNotes = answer.reportNotes;
-      }
-      const hidden = inactive && !movesTo;
+      const movedStatus = application ? normalizeStatus(data.movedStatus) : null;
+      const hidden = inactive && !movedStatus;
       const message = existing
         ? "Event updated."
-        : movesTo
-          ? `Event added, and ${application?.company_name} moved to ${STATUS_LABELS[movesTo]}.`
+        : movedStatus
+          ? `Event added, and ${application?.company_name} moved to ${STATUS_LABELS[movedStatus]}.`
           : hidden
             ? `Event saved. It stays off your schedule until ${application?.company_name} reaches Screening or later.`
             : "Event added.";
-      onSaved(message, movesTo && application ? { id: application.id, status: movesTo, reportNotes } : undefined);
+      onSaved(message, movedStatus && application ? { id: application.id, status: movedStatus } : undefined);
     } catch {
-      setError(eventWritten ? "The event is saved, but the application could not be moved: couldn't reach the server. Saving again will not add a second event." : "Couldn't reach the server. Try again.");
+      setError("Couldn't reach the server. Try again.");
     } finally {
       setSaving(false);
     }
@@ -369,10 +347,11 @@ export default function EventForm({
               <li className="cvHelp">You can still save it.</li>
             </ul>
           )}
-          {inactive && application && impliedStage && (
+          {/* The move is always shown and opt-out-able, so a row is never moved silently. */}
+          {application && impliedStage && (
             <label className="planRadio planField--wide" data-event-move>
               <input type="checkbox" checked={moveIt} onChange={(e) => setMoveIt(e.target.checked)} data-event-move-toggle />
-              {application.company_name} is {statusLabel(normalizeStatus(application.status))}. Move it to {STATUS_LABELS[impliedStage]}, so this shows on your schedule.
+              {application.company_name} is {statusLabel(normalizeStatus(application.status))}. Move it to {STATUS_LABELS[impliedStage]}.
             </label>
           )}
           {inactive && application && !movesTo && (

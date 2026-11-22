@@ -40,8 +40,8 @@ test("lite: the search is a quoted, escaped ilike on company or role", () => {
   assert.equal(liteSearchFilter("Smith, Jones (UK)"), 'company_name.ilike."*Smith, Jones (UK)*",role.ilike."*Smith, Jones (UK)*"');
 });
 
-test("lite: due_by leaves closed rows out in every stored spelling (Ghosted never had an old one)", () => {
-  assert.equal(storedInList(["rejected", "withdrawn", "ghosted"]), '("rejected","Rejected","withdrawn","Withdrawn","ghosted")');
+test("lite: due_by leaves closed rows out in every stored spelling (Chunk JH-2: the capitalised form too)", () => {
+  assert.equal(storedInList(["rejected", "withdrawn", "ghosted"]), '("rejected","Rejected","withdrawn","Withdrawn","ghosted","Ghosted")');
 });
 
 test("lite: a row carries seven fields and never a version", () => {

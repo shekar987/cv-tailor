@@ -9,11 +9,9 @@
 // due on Monday is still this week's on Thursday).
 //
 // Relative .ts imports only, so it runs under node:test.
-import { tabCounts, eventsByApplication, type TabKey } from "./applicationStage.ts";
-import { actionableEvents } from "./actionCentre.ts";
+import { tabCounts, type TabKey } from "./applicationStage.ts";
 import { isFollowupDueThisWeek, weekOf } from "./tracker.ts";
 import { followupsDueToday, type DueTodayCount } from "./followupsDue.ts";
-import type { PlanEvent } from "./plan.ts";
 
 export { isFollowupDueThisWeek, weekOf };
 
@@ -31,18 +29,16 @@ export type TrackerCounts = {
 };
 
 /**
- * The counts the page's tabs and tiles show, over every row: the derived stage
- * per row (an open test on an Applied row counts under Assessment), from the
- * same open events the page reads (lib/actionCentre actionableEvents).
+ * The counts the page's tabs and tiles show, over every row: one per row, from its
+ * STORED status alone (lib/applicationStage tabOfRow). Since Chunk JH-2 a row's stage
+ * is moved when its event is logged, so there is no longer a second, event-derived tab.
  */
 export function trackerCounts(
   rows: readonly { id: string; status: unknown; followup_date?: string | null; pending_outcome?: unknown }[],
-  openEvents: readonly Pick<PlanEvent, "application_id" | "status" | "kind" | "starts_at" | "due_at">[],
   today: string
 ): TrackerCounts {
-  const live = actionableEvents(openEvents as PlanEvent[], rows.map((r) => ({ id: r.id, status: String(r.status ?? "") })));
   return {
-    counts: tabCounts(rows, eventsByApplication(live)),
+    counts: tabCounts(rows),
     total: rows.length,
     followups_due_this_week: followupsDueThisWeek(rows.map((r) => ({ followup_date: r.followup_date ?? null, status: r.status })), today),
     followups_due_today: followupsDueToday(rows.map((r) => ({ followup_date: r.followup_date ?? null, status: r.status, pending_outcome: r.pending_outcome })), today),

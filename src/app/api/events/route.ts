@@ -5,10 +5,14 @@
 // GET answers every event, hidden ones too. The plan and the stage tabs read
 // /api/plan, which holds the one rule.
 import { NextRequest, NextResponse } from "next/server";
-import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
+import { signedIn, unauthorized, readJsonBody, invalidBody, type RouteSupabase } from "@/lib/routeAuth";
 import { readEventInput, readEventSource } from "@/lib/plan";
 import { snoozeUntil } from "@/lib/actionCentre";
 import { ACTION_MIGRATION_HINT, isMissingPlanSchema, PLAN_MIGRATION_HINT } from "@/lib/planSchema";
+import { stageAfterEvent } from "@/lib/applicationStage";
+import { MAX_NOTES } from "@/lib/applicationFields";
+import { stampNoteLine } from "@/lib/notesWrite";
+import { apiStatus, normalizeStatus, oldStatusLabel, STATUS_LABELS, type Status } from "@/lib/tracker";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (value: unknown): value is string => typeof value === "string" && UUID_RE.test(value);
@@ -51,15 +55,17 @@ export async function POST(req: NextRequest) {
     if ("error" in read) return NextResponse.json({ error: read.error }, { status: 400 });
 
     let applicationId: string | null = null;
+    let currentStatus: unknown = null;
     if (body.application_id !== undefined && body.application_id !== null && body.application_id !== "") {
       if (!isUuid(body.application_id)) return NextResponse.json({ error: "Application not found" }, { status: 404 });
-      const { data: owned, error: ownedError } = await supabase.from("applications").select("id").eq("id", body.application_id).eq("user_id", userId).maybeSingle();
+      const { data: owned, error: ownedError } = await supabase.from("applications").select("id, status").eq("id", body.application_id).eq("user_id", userId).maybeSingle();
       if (ownedError) {
         console.error("events ownership error:", ownedError.message);
         return NextResponse.json({ error: "Could not save that event" }, { status: 500 });
       }
       if (!owned) return NextResponse.json({ error: "Application not found" }, { status: 404 });
       applicationId = body.application_id;
+      currentStatus = owned.status;
     } else if (read.fields.kind !== "networking") {
       return NextResponse.json({ error: "Pick the application this event belongs to." }, { status: 400 });
     }
@@ -89,10 +95,56 @@ export async function POST(req: NextRequest) {
       console.error("events insert error:", error.message);
       return NextResponse.json({ error: "Could not save that event" }, { status: 500 });
     }
-    return NextResponse.json({ event: data });
+
+    // The one stage rule (lib/applicationStage stageAfterEvent): logging an interview or a
+    // test moves the row forward so the tab, which reads the stored status alone, and the
+    // sweep, which reads the stored column, both agree. A "Ready to submit" row never moves
+    // on a test, and a finished row never moves at all. Skipped when the caller opts out
+    // (the event form's untick) and best-effort: the event is already saved.
+    let movedStatus: string | null = null;
+    if (applicationId && body.move_stage !== false) {
+      movedStatus = await moveStageForEvent(supabase, userId, applicationId, currentStatus, read.fields.kind as string);
+    }
+    return NextResponse.json({ event: data, movedStatus });
   } catch (err) {
     console.error("events POST error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not save that event" }, { status: 500 });
+  }
+}
+
+/**
+ * Move the application's stored status forward when an event of this kind was logged, or
+ * leave it. Returns the new status in the API's spelling, or null when nothing moved.
+ * Best-effort (the event is already saved); a failure is logged, never thrown.
+ */
+async function moveStageForEvent(
+  supabase: RouteSupabase,
+  userId: string,
+  applicationId: string,
+  currentStatus: unknown,
+  kind: string
+): Promise<string | null> {
+  const next = stageAfterEvent(currentStatus, kind);
+  if (!next || normalizeStatus(currentStatus) === next) return null;
+  try {
+    // Write the status key; a database still on the old CHECK takes the old label instead.
+    let { error } = await supabase.from("applications").update({ status: next }).eq("id", applicationId).eq("user_id", userId);
+    if (error?.code === "23514") {
+      const old = oldStatusLabel(next as Status);
+      if (old) ({ error } = await supabase.from("applications").update({ status: old }).eq("id", applicationId).eq("user_id", userId));
+    }
+    if (error) {
+      console.error("events stage move error:", error.code ?? error.message);
+      return null;
+    }
+    // Record why it moved. append_application_note is one UPDATE and refuses rather than
+    // cut the notes; a failure (or a database without the RPC) never undoes the move.
+    const line = stampNoteLine(`Moved to ${STATUS_LABELS[next]} (event: ${kind}).`, Date.now());
+    await supabase.rpc("append_application_note", { p_id: applicationId, p_line: line, p_max: MAX_NOTES });
+    return apiStatus(next);
+  } catch (err) {
+    console.error("events stage move threw:", err instanceof Error ? err.message : "unknown");
+    return null;
   }
 }
 

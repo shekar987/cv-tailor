@@ -9,9 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized } from "@/lib/routeAuth";
 import { readApplicationPages, type OrderableQuery } from "@/lib/applicationRows";
 import { trackerCounts } from "@/lib/trackerCounts";
-import { isMissingPlanSchema } from "@/lib/planSchema";
 import { DEFAULT_TIMEZONE, dayKey } from "@/lib/planTime";
-import type { PlanEvent } from "@/lib/plan";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
@@ -35,22 +33,15 @@ export async function GET(req: NextRequest) {
     // a database without migration 20261104130000 is read without it.
     type CountRow = { id: string; status: string; followup_date: string | null; pending_outcome?: unknown };
     const readRows = (columns: string) => readApplicationPages<CountRow>(() => supabase.from("applications").select(columns) as unknown as OrderableQuery);
-    const [firstRead, eventsRead] = await Promise.all([
-      readRows("id, status, followup_date, pending_outcome"),
-      supabase.from("application_events").select("application_id, status, kind, starts_at, due_at").in("status", ["scheduled", "to_book"]).limit(1000),
-    ]);
+    // The tab counts read the stored status alone (Chunk JH-2), so events are no longer read here.
+    const firstRead = await readRows("id, status, followup_date, pending_outcome");
     const missing = !!firstRead.error && (firstRead.error.code === "42703" || firstRead.error.code === "PGRST204");
     const rowsRead = missing ? await readRows("id, status, followup_date") : firstRead;
     if (rowsRead.error) {
       console.error("applications counts read error:", rowsRead.error.message);
       return NextResponse.json({ error: "Could not count your applications" }, { status: 500 });
     }
-    // Without the plan's tables (migration 20261103120000) every row counts at its stored status, as on the page.
-    if (eventsRead.error && !isMissingPlanSchema(eventsRead.error)) {
-      console.error("applications counts events read error:", eventsRead.error.message);
-    }
-    const events = (eventsRead.error ? [] : eventsRead.data ?? []) as Pick<PlanEvent, "application_id" | "status" | "kind" | "starts_at" | "due_at">[];
-    return NextResponse.json({ today, ...trackerCounts(rowsRead.rows, events, today) });
+    return NextResponse.json({ today, ...trackerCounts(rowsRead.rows, today) });
   } catch (err) {
     console.error("applications counts error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not count your applications" }, { status: 500 });

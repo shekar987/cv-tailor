@@ -59,7 +59,7 @@ test("the counts route answers the same number the page counts", () => {
     { id: "c", status: "saved", followup_date: "2026-11-01" },
     { id: "d", status: "Interview", followup_date: "2026-11-10" },
   ];
-  assert.deepEqual(trackerCounts(rows, [], TODAY).followups_due_today, { total: 2, today: 1, earlier: 1, oldest: "2026-11-10" });
+  assert.deepEqual(trackerCounts(rows, TODAY).followups_due_today, { total: 2, today: 1, earlier: 1, oldest: "2026-11-10" });
 });
 
 test("the lite list's due_by keeps exactly those statuses, in every stored spelling, and leaves a pending ending out", () => {
@@ -68,7 +68,7 @@ test("the lite list's due_by keeps exactly those statuses, in every stored spell
   assert.ok(storedValuesFor(LITE_DUE_STATUSES).includes("Applied") && storedValuesFor(LITE_DUE_STATUSES).includes("applied"));
   assert.equal(
     liteDuePendingFilter(),
-    'pending_outcome.is.null,pending_outcome->>dismissed.eq.true,pending_outcome->>outcome.is.null,pending_outcome->>outcome.not.in.("rejected","Rejected","withdrawn","Withdrawn","ghosted")'
+    'pending_outcome.is.null,pending_outcome->>dismissed.eq.true,pending_outcome->>outcome.is.null,pending_outcome->>outcome.not.in.("rejected","Rejected","withdrawn","Withdrawn","ghosted","Ghosted")'
   );
 });
 

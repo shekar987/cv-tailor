@@ -1,79 +1,64 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  STAGE_LABELS, attentionCounts, countedElsewhere, defaultTab, deriveStage, dueSoonCutoff, stageEvent, eventsByApplication, isDataToFix, nextStepFor, nextStepIcon,
-  primaryAction, reachedTab, reqIdOf, referralCard, roleLine, shortRole, statusForNewRow, statusToMatch, tabCounts, tabForStatus, tabOfStage, urgencyOf, visibleTabs,
+  STAGE_LABELS, attentionCounts, defaultTab, deriveStage, dueSoonCutoff, stageAfterEvent, stageEvent, isDataToFix, nextStepFor, nextStepIcon,
+  primaryAction, reachedTab, reqIdOf, referralCard, roleLine, shortRole, statusForNewRow, statusToMatch, tabCounts, tabForStatus, tabOfRow, urgencyOf, visibleTabs,
 } from "../src/lib/applicationStage.ts";
 import type { PlanEvent } from "../src/lib/plan.ts";
 
 const NOW = Date.parse("2026-11-04T18:30:00Z"); // Wed 4 Nov, 18:30 London
 const ev = (over: Partial<PlanEvent>): PlanEvent => ({ id: "e", application_id: "a", kind: "assessment", title: "A test", status: "scheduled", ...over });
 
-test("a row stored as Interview with an open assessment shows and counts as Assessment", () => {
-  const stage = deriveStage("Interview", [ev({ due_at: "2026-11-05T20:30:00Z" })]);
-  assert.equal(stage, "assessment");
-  assert.equal(tabOfStage(stage), "assessment");
-  const rows = [{ id: "a", status: "Interview" }];
-  const byApp = eventsByApplication([ev({ due_at: "2026-11-05T20:30:00Z" })]);
-  const counts = tabCounts(rows, byApp);
-  assert.equal(counts.assessment, 1);
-  assert.equal(counts.interview, 0);
-});
-
-test("each test kind names the stage, and a plain interview stays Interview", () => {
-  assert.equal(deriveStage("interview", [ev({ kind: "take_home" })]), "take_home");
-  assert.equal(deriveStage("interview", [ev({ kind: "video" })]), "video");
-  assert.equal(deriveStage("interview", [ev({ kind: "work_trial" })]), "work_trial");
-  assert.equal(deriveStage("interview", [ev({ kind: "interview", starts_at: "2026-11-05T08:30:00Z" })]), "interview");
-  assert.equal(deriveStage("interview", [ev({ kind: "deadline" })]), "interview");
-  assert.equal(deriveStage("interview", []), "interview");
+test("a row's tab is its stored status alone, whatever is open on it (one source of truth)", () => {
+  // An open test no longer re-derives the tab; the stored status is moved when the event is
+  // logged (stageAfterEvent), so an Interview row with an open test still reads Interview.
+  assert.equal(deriveStage("Interview"), "interview");
+  assert.equal(tabOfRow("Interview"), "interview");
+  assert.equal(deriveStage("Ready to submit"), "saved");
+  assert.equal(deriveStage("Applied"), "applied");
   assert.equal(deriveStage("interview"), "interview");
+  assert.equal(deriveStage("nonsense"), "applied", "an unreadable status falls back to applied");
   assert.equal(STAGE_LABELS.take_home, "Take-home");
 });
 
-test("a finished event says nothing, and an undated one still counts", () => {
-  for (const status of ["done", "cancelled", "missed"] as const) assert.equal(deriveStage("interview", [ev({ status })]), "interview");
-  assert.equal(deriveStage("screening", [ev({ status: "to_book" })]), "assessment");
-});
-
-test("the soonest test decides, and two due together always read the same", () => {
-  assert.equal(deriveStage("interview", [ev({ kind: "video", due_at: "2026-11-09T10:00:00Z" }), ev({ kind: "assessment", due_at: "2026-11-05T10:00:00Z" })]), "assessment");
-  const at = "2026-11-05T18:40:00Z";
-  assert.equal(deriveStage("interview", [ev({ kind: "assessment", due_at: at }), ev({ kind: "take_home", due_at: at })]), "take_home");
-  assert.equal(deriveStage("interview", [ev({ kind: "take_home", due_at: at }), ev({ kind: "assessment", due_at: at })]), "take_home");
-  assert.equal(deriveStage("interview", [ev({ kind: "assessment", status: "to_book" }), ev({ kind: "video", due_at: at })]), "video", "a date beats no date");
-});
-
-test("an offer or an ending is never overtaken, and every spelling reads", () => {
-  for (const status of ["Offer", "accepted", "Rejected", "withdrawn", "ghosted"]) {
-    assert.notEqual(tabOfStage(deriveStage(status, [ev({ due_at: "2026-11-05T18:40:00Z" })])), "assessment", status);
+test("stageAfterEvent: an interview moves a row that has not reached Interview", () => {
+  // Every spelling reads (case-insensitive), including the stored "Ready to submit".
+  for (const from of ["saved", "applied", "screening", "assessment", "Ready to submit", "Applied", "Screening"]) {
+    assert.equal(stageAfterEvent(from, "interview"), "interview", from);
   }
-  assert.equal(deriveStage("Applied", [ev({})]), "assessment");
-  assert.equal(deriveStage("Ready to submit", [ev({})]), "assessment");
-  assert.equal(deriveStage("Applied", []), "applied");
-  assert.equal(deriveStage("Ready to submit", []), "saved");
+  // Already at or past interview, or finished: no move.
+  for (const from of ["interview", "Interview", "offer", "accepted", "rejected", "withdrawn", "ghosted"]) {
+    assert.equal(stageAfterEvent(from, "interview"), null, from);
+  }
 });
 
-test("every row counts once: the tabs add up to the total", () => {
+test("stageAfterEvent: a test moves only an Applied or Screening row to Assessment", () => {
+  for (const kind of ["assessment", "take_home"]) {
+    assert.equal(stageAfterEvent("applied", kind), "assessment", kind);
+    assert.equal(stageAfterEvent("screening", kind), "assessment", kind);
+    // A "Ready to submit" row stays: the test is a task to finish before applying.
+    assert.equal(stageAfterEvent("saved", kind), null, kind);
+    assert.equal(stageAfterEvent("Ready to submit", kind), null, kind);
+    assert.equal(stageAfterEvent("interview", kind), null, kind);
+    assert.equal(stageAfterEvent("assessment", kind), null, kind);
+    for (const ended of ["offer", "accepted", "rejected", "withdrawn", "ghosted"]) assert.equal(stageAfterEvent(ended, kind), null, `${kind} ${ended}`);
+  }
+});
+
+test("stageAfterEvent: every other kind, and an unreadable status, moves nothing", () => {
+  for (const kind of ["networking", "reminder", "follow_up", "deadline", "video", "work_trial", "screening_call", "screening_questions", "offer_deadline", "mystery"]) {
+    assert.equal(stageAfterEvent("applied", kind), null, kind);
+  }
+  assert.equal(stageAfterEvent(null, "interview"), null);
+  assert.equal(stageAfterEvent("gibberish", "interview"), null);
+});
+
+test("every row counts once, by stored status: the tabs add up to the total", () => {
   const statuses = ["Ready to submit", "Applied", "Applied", "Screening", "Interview", "interview", "assessment", "Offer", "accepted", "Rejected", "Withdrawn", "ghosted"];
   const rows = statuses.map((status, i) => ({ id: `r${i}`, status }));
-  const byApp = eventsByApplication([
-    ev({ application_id: "r4", kind: "take_home" }),
-    ev({ application_id: "r3", kind: "video" }),
-    ev({ application_id: "r9", kind: "assessment" }),
-  ]);
-  const counts = tabCounts(rows, byApp);
+  const counts = tabCounts(rows);
   assert.equal(Object.values(counts).reduce((a, b) => a + b, 0), rows.length);
-  assert.deepEqual(counts, { to_submit: 1, applied: 2, screening: 0, interview: 1, assessment: 3, offer: 1, won: 1, closed: 3 });
-});
-
-test("the stored numbers stay reachable: what a test moved out of each tab", () => {
-  const rows = [{ id: "a", status: "Interview" }, { id: "b", status: "Interview" }, { id: "c", status: "Screening" }];
-  const byApp = eventsByApplication([ev({ application_id: "a" }), ev({ application_id: "c" })]);
-  assert.equal(countedElsewhere(rows, byApp, "interview"), 1);
-  assert.equal(countedElsewhere(rows, byApp, "screening"), 1);
-  assert.equal(countedElsewhere(rows, byApp, "applied"), 0);
-  assert.equal(tabCounts(rows, byApp).interview + countedElsewhere(rows, byApp, "interview"), 2);
+  assert.deepEqual(counts, { to_submit: 1, applied: 2, screening: 1, interview: 2, assessment: 1, offer: 1, won: 1, closed: 3 });
 });
 
 test("the three optional tabs appear only with something in them", () => {
@@ -91,6 +76,17 @@ test("the page opens on Interview, else the furthest stage with something in it"
   assert.equal(tabForStatus("Rejected"), "closed");
   assert.equal(tabForStatus("accepted"), "won");
   assert.equal(tabForStatus("nonsense"), null);
+});
+
+test("the tab logic treats 'interview' and 'Interview' alike (case-insensitive read)", () => {
+  // Shekar's rows hold both spellings (606 lower-case, 951 capitalised on 22 Nov); JH-3
+  // normalises writes. The read side must count and place them together.
+  for (const [lower, upper] of [["interview", "Interview"], ["screening", "Screening"], ["assessment", "Assessment"], ["saved", "Ready to submit"]] as const) {
+    assert.equal(tabOfRow(lower), tabOfRow(upper), `${lower}/${upper}`);
+    assert.equal(tabForStatus(lower), tabForStatus(upper), `${lower}/${upper}`);
+  }
+  const mixed = tabCounts([{ id: "a", status: "interview" }, { id: "b", status: "Interview" }]);
+  assert.equal(mixed.interview, 2, "both spellings count in the same tab");
 });
 
 test("past stages, and where a new row starts", () => {
@@ -169,13 +165,12 @@ test("red is always the warning tile, so urgency is never colour alone", () => {
   assert.equal(nextStepIcon("deadline", "none"), "clock");
 });
 
-test("the button opens the test the stage came from, not the row's next step", () => {
+test("the button opens the open test on the row, not the row's next step", () => {
   const interview = ev({ id: "call", kind: "interview", starts_at: "2026-11-05T10:00:00Z", location_or_link: "https://example.com/zoom" });
   const test = ev({ id: "test", kind: "take_home", due_at: "2026-11-10T10:00:00Z" });
-  assert.equal(deriveStage("interview", [interview, test]), "take_home");
-  assert.equal(stageEvent("interview", [interview, test])?.id, "test");
+  assert.equal(stageEvent("assessment", [interview, test])?.id, "test");
   assert.equal(nextStepFor([interview, test], NOW)?.event.id, "call", "the next step is still the interview");
-  assert.equal(stageEvent("rejected", [test]), null);
+  assert.equal(stageEvent("rejected", [test]), null, "a finished row shows no test button");
 });
 
 test("something overdue is never hidden behind a later item", () => {

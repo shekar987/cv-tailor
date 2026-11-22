@@ -87,9 +87,14 @@ const OLD_STATUS_LABELS: Partial<Record<Status, string>> = {
 export function oldStatusLabel(status: Status): string | null {
   return OLD_STATUS_LABELS[status] ?? null;
 }
+// Every spelling the stored column may hold for this status, so a filter on it is
+// case-insensitive (Chunk JH-2): the lowercase key (606 of the owner's rows on 22 Nov),
+// the API's capitalised spelling (951 rows), and any pre-migration label. normalizeStatus
+// already folds case for reads inside the app; this widens the server `.in()` filter the
+// same way. JH-3 normalises writes so only one spelling remains.
 export function storedStatusValues(status: Status): string[] {
   const old = oldStatusLabel(status);
-  return old ? [status, old] : [status];
+  return [...new Set([status, API_STATUS[status], ...(old ? [old] : [])])];
 }
 
 // Submitted = an application the user actually sent. Everything but the

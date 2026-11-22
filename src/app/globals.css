@@ -2403,6 +2403,35 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .appsTable td { height: 44px; }
 .appsLinkBtn.muted { opacity: 0.55; }
 .appsTable td[data-label="Notes"] { overflow: hidden; }
+/* Chunk JH-2: a long CV or notes label truncates with an ellipsis inside its own cell
+   (the full text is in its title tooltip and one click opens it), so it never spills
+   across its fixed column. The button fills the cell, so clipping it is enough — the
+   Company cell, which wraps its badges on purpose, is left alone. */
+.appsTable .appsLinkBtn { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* The JD link is a compact icon button, so "View job description" can never reach Status. */
+.appsIconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  min-height: 36px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--text-subtle);
+  cursor: pointer;
+  --icon-size: 18px;
+  transition: background var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease);
+}
+.appsIconBtn:hover { background: var(--surface-3); color: var(--amber-bright); }
+.appsIconBtn:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+.appsIconBtn.active { background: var(--surface-3); color: var(--amber); }
+.appsIconBtn.muted { color: var(--muted); }
+/* The status dropdown stays wide enough to read and tap at every width. */
+.appsStatusWrap .appsCellSelect { min-width: 104px; }
+/* The phone-only "More" toggle: no column of its own on desktop. */
+.appsMoreCell { display: none; }
 .appsRow td { transition: background var(--duration-fast) var(--ease); }
 .appsRow:hover td { background: var(--surface-2); }
 .appsRow.open td { background: var(--surface-2); }
@@ -2713,6 +2742,9 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   /* Touch targets: the dense desktop action buttons are too small for thumbs. */
   .appsActionBtn { min-height: 36px; padding: 6px 12px; }
   .appsNotesCell { max-width: none; }
+  /* The card layout turns every td into a flex row; the "More" toggle stays hidden here
+     (640-900px shows all fields) and only appears on a phone (the <640px block below). */
+  .appsTable td.appsMoreCell { display: none; }
   .appsTable tr.appsDetail td {
     display: block;
     background: var(--surface);
@@ -2723,6 +2755,34 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
     margin-bottom: var(--space-3);
   }
   .appsTable tr.appsDetail td::before { content: none; }
+}
+
+/* ── Phone: the sheet card leads with Company, Role, Status; the rest folds ─── */
+@media (max-width: 640px) {
+  /* The "More" toggle gets its own full-width row at the foot of the card. */
+  .appsTable td.appsMoreCell {
+    display: flex;
+    justify-content: flex-start;
+    padding: var(--space-2) 0 0;
+    border-bottom: none;
+  }
+  .appsTable td.appsMoreCell::before { content: none; }
+  .appsTable td.appsMoreCell > .appsActionBtn { flex: 0 0 auto; }
+  /* The secondary fields fold behind "More" (read rows only, never the add-row form). */
+  .appsRow td[data-label="CV"],
+  .appsRow td[data-label="JD"],
+  .appsRow td[data-label="Gate"],
+  .appsRow td[data-label="Salary"],
+  .appsRow td[data-label="Date Applied"],
+  .appsRow td[data-label="Follow-up Date"],
+  .appsRow td[data-label="Notes"] { display: none; }
+  .appsRow.moreOpen td[data-label="CV"],
+  .appsRow.moreOpen td[data-label="JD"],
+  .appsRow.moreOpen td[data-label="Gate"],
+  .appsRow.moreOpen td[data-label="Salary"],
+  .appsRow.moreOpen td[data-label="Date Applied"],
+  .appsRow.moreOpen td[data-label="Follow-up Date"],
+  .appsRow.moreOpen td[data-label="Notes"] { display: flex; }
 }
 
 /* ── Small screens: the header pills and page padding ─────────────────────── */
