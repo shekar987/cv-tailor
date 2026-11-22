@@ -2428,8 +2428,9 @@ button.claimChip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .appsIconBtn:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
 .appsIconBtn.active { background: var(--surface-3); color: var(--amber); }
 .appsIconBtn.muted { color: var(--muted); }
-/* The status dropdown stays wide enough to read and tap at every width. */
-.appsStatusWrap .appsCellSelect { min-width: 104px; }
+/* The status dropdown stays wide enough to read and tap at every width (it fills its
+   column on desktop; the min-width only guards narrower layouts). */
+.appsStatusWrap .appsCellSelect { min-width: 88px; }
 /* The phone-only "More" toggle: no column of its own on desktop. */
 .appsMoreCell { display: none; }
 .appsRow td { transition: background var(--duration-fast) var(--ease); }
