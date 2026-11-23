@@ -18,8 +18,8 @@ import { normalizeStyleCheck } from "@/lib/styleCheck";
 import { REFERRAL_MIGRATION_HINT } from "@/lib/referrals";
 import { triageForUser, withTriage } from "@/lib/applicationTriage";
 import {
-  LITE_COLUMNS, LITE_DUE_STATUSES, MAX_APPLICATIONS, liteDuePendingFilter, afterCursor, encodeCursor, liteSearchFilter, readApplicationPages, readListMode, readLiteQuery,
-  storedValuesFor, toListRow, toLiteRow, toPageRow, type OrderableQuery,
+  LITE_COLUMNS, LITE_DUE_STATUSES, MAX_APPLICATIONS, liteDuePendingFilter, afterCursor, encodeCursor, likePattern, liteSearchFilter, nextAfterFull, nextOffset, readApplicationPages, readListMode, readLiteQuery, readPagingQuery,
+  storedValuesFor, toListRow, toLiteRow, toPageRow, type ListFilters, type OrderableQuery,
 } from "@/lib/applicationRows";
 import {
   FOLLOWUP_ERROR, MAX_NOTES, clampOptional, followupTooEarly, readLoggedBy, resolveSentDate, validateEditable,
@@ -57,6 +57,21 @@ const londonToday = () => dayKey(Date.now(), DEFAULT_TIMEZONE);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value);
+}
+
+// The list GET's status / company / q filters, built as the three PostgREST
+// clauses to apply (Chunk JH-3). Status matching is case-insensitive:
+// storedValuesFor expands a status to every stored spelling ("interview" and
+// "Interview"). Applied inline at each read with `q = q.in(...)` etc. — a
+// generic helper tripped TypeScript's depth limit on the builder type. company
+// is one ilike; q is company-or-role (lib/applicationRows liteSearchFilter).
+type ListClauses = { statusValues: string[] | null; companyPattern: string | null; search: string | null };
+function listClauses(filters: ListFilters): ListClauses {
+  return {
+    statusValues: filters.statuses ? storedValuesFor(filters.statuses) : null,
+    companyPattern: filters.company ? likePattern(filters.company) : null,
+    search: filters.q ? liteSearchFilter(filters.q) : null,
+  };
 }
 
 // The status list lives in lib/tracker (one copy for the sheet, this route,
@@ -435,10 +450,69 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ applications: page.map(toPageRow), nextCursor });
       }
     }
-    for (let rung = 0; rung < listLadder.length; rung++) {
-      const read = await readApplicationPages(
-        () => supabase.from("applications").select(listLadder[rung]) as unknown as OrderableQuery
+    // Offset paging and the full list (Chunk JH-3): status / company / q filters,
+    // `total` (every matching row) and `next`, in the body and as X-Total-Count,
+    // so a sweep can read a tracker of any size and know how many rows exist.
+    // A bare GET or ?all=1 still returns the whole list (the page and /app need
+    // it); ?limit= / ?offset= asks for one page (limit default 200, max 1000).
+    const pagingRead = readPagingQuery(params);
+    if ("error" in pagingRead) return NextResponse.json({ error: pagingRead.error }, { status: 400 });
+    const { paged, limit, offset, filters } = pagingRead.query;
+    const { statusValues, companyPattern, search } = listClauses(filters);
+
+    let countQuery = supabase.from("applications").select("id", { count: "exact", head: true }).eq("user_id", userId);
+    if (statusValues) countQuery = countQuery.in("status", statusValues);
+    if (companyPattern) countQuery = countQuery.ilike("company_name", companyPattern);
+    if (search) countQuery = countQuery.or(search);
+    const { count, error: countError } = await countQuery;
+    if (countError) {
+      console.error("applications count error:", countError.message);
+      return NextResponse.json({ error: "Could not load your applications" }, { status: 500 });
+    }
+    const total = count ?? 0;
+    const totalHeader = { "X-Total-Count": String(total) };
+
+    // One page. ?all=1 reads the whole list whatever limit/offset say.
+    if (paged && params.get("all") !== "1") {
+      let pageRows: Record<string, unknown>[] = [];
+      let pageError: { code?: string; message: string } | null = null;
+      for (let rung = 0; rung < listLadder.length; rung++) {
+        let pageQuery = supabase.from("applications").select(listLadder[rung]).eq("user_id", userId);
+        if (statusValues) pageQuery = pageQuery.in("status", statusValues);
+        if (companyPattern) pageQuery = pageQuery.ilike("company_name", companyPattern);
+        if (search) pageQuery = pageQuery.or(search);
+        const res = await pageQuery
+          .order("date_applied", { ascending: false })
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(offset, offset + limit - 1);
+        if (res.error && isMissingColumn(res.error) && rung < listLadder.length - 1) continue;
+        if (res.error) {
+          pageError = res.error;
+          break;
+        }
+        pageRows = (res.data ?? []) as unknown as Record<string, unknown>[];
+        break;
+      }
+      if (pageError) {
+        console.error("applications page read error:", pageError.message);
+        return NextResponse.json({ error: "Could not load your applications" }, { status: 500 });
+      }
+      return NextResponse.json(
+        { applications: pageRows.map(toListRow), total, next: nextOffset(offset, limit, total), limit, offset },
+        { headers: totalHeader }
       );
+    }
+
+    // The whole list (bare GET or ?all=1), every matching row up to MAX_APPLICATIONS.
+    for (let rung = 0; rung < listLadder.length; rung++) {
+      const read = await readApplicationPages(() => {
+        let q = supabase.from("applications").select(listLadder[rung]).eq("user_id", userId);
+        if (statusValues) q = q.in("status", statusValues);
+        if (companyPattern) q = q.ilike("company_name", companyPattern);
+        if (search) q = q.or(search);
+        return q as unknown as OrderableQuery;
+      });
       rows = read.rows;
       readError = read.error;
       if (!(readError && isMissingColumn(readError) && rung < listLadder.length - 1)) break;
@@ -448,7 +522,10 @@ export async function GET(req: NextRequest) {
       console.error("applications read error:", readError.message);
       return NextResponse.json({ error: "Could not load your applications" }, { status: 500 });
     }
-    return NextResponse.json({ applications: (rows ?? []).map(toListRow) });
+    return NextResponse.json(
+      { applications: (rows ?? []).map(toListRow), total, next: nextAfterFull(rows?.length ?? 0, total) },
+      { headers: totalHeader }
+    );
   } catch (err) {
     console.error("applications GET error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not load your applications" }, { status: 500 });

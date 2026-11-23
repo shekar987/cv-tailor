@@ -224,16 +224,23 @@ export type ListMode =
   | { mode: "page"; statuses: Status[] | null; limit: number; cursor: ListCursor | null }
   | { mode: "error"; error: string };
 
-/** Which list the query string asks for. Nothing, or ?all=1, is the full list. */
+/**
+ * Which list the query string asks for. Nothing, or ?all=1, is the full list.
+ * The cursor page mode is triggered by `stage` or `cursor` only: a bare `limit`
+ * (or `offset`) belongs to the offset paging below (Chunk JH-3), so `?limit=1000`
+ * reads a page of the full list, not 200 cursor rows. The UI's first paint still
+ * reaches here because it sends `?stage=…&limit=…`.
+ */
 export function readListMode(params: URLSearchParams): ListMode {
   if (params.get("all") === "1") return { mode: "all" };
-  // An empty value asks for nothing: only a stage, limit or cursor with something in it is a page.
+  // An empty value asks for nothing: only a stage or cursor with something in it is a page.
   const value = (k: string) => {
     const v = params.get(k);
     return v !== null && v.trim() !== "" ? v.trim() : null;
   };
-  const stage = value("stage"), limitText = value("limit"), cursorText = value("cursor");
-  if (stage === null && limitText === null && cursorText === null) return { mode: "all" };
+  const stage = value("stage"), cursorText = value("cursor");
+  if (stage === null && cursorText === null) return { mode: "all" };
+  const limitText = value("limit");
   let statuses: Status[] | null = null;
   if (stage !== null) {
     statuses = stageStatuses(stage);
@@ -345,9 +352,18 @@ export function readLiteQuery(params: URLSearchParams): { query: LiteQuery } | {
  * wildcard: it has no escape there.
  */
 export function liteSearchFilter(q: string): string {
-  const like = `*${q.replace(/[\\%_]/g, (m) => `\\${m}`)}*`;
-  const quoted = `"${like.replace(/[\\"]/g, (m) => `\\${m}`)}"`;
+  const quoted = `"${likePattern(q).replace(/[\\"]/g, (m) => `\\${m}`)}"`;
   return `company_name.ilike.${quoted},role.ilike.${quoted}`;
+}
+
+/**
+ * The `*value*` pattern for a single `.ilike(column, …)` call, with LIKE's own
+ * wildcards (% _ \) made literal. supabase-js escapes the value for the URL, so
+ * no PostgREST quoting here — unlike liteSearchFilter, which builds an `.or`
+ * string and quotes the whole value itself.
+ */
+export function likePattern(value: string): string {
+  return `*${value.replace(/[\\%_]/g, (m) => `\\${m}`)}*`;
 }
 
 /** A PostgREST `in` list of every stored spelling of these statuses, quoted. */
@@ -386,4 +402,85 @@ export function toLiteRow(row: Record<string, unknown>): LiteRow {
     followup_date: date(row.followup_date),
     updated_at_minute: minuteOf(row.updated_at),
   };
+}
+
+// ── Offset paging for the full list (22 Nov 2026, Chunk JH-3) ────────────────
+// GET /api/applications?limit=&offset= pages the full list in the sheet's shape
+// (toListRow, with the notes preview), so a sweep can read a tracker of any
+// size and KNOW how many rows there are. An API that silently drops rows is
+// worse than one that errors (playbook, 22 Nov): every list GET now answers
+// `total` (every matching row) and `next` (the next offset, or null), in the
+// body and as X-Total-Count.
+//
+// Opt-in: a bare GET, or ?all=1, still returns every row up to MAX_APPLICATIONS
+// (the page and /app read the whole list), now with `total` and `next`
+// alongside. Only ?limit=/?offset= asks for one page. Filters (status, company,
+// q) apply before paging; status is case-insensitive (storedStatusValues
+// matches every stored spelling).
+
+export const PAGING_LIMIT_DEFAULT = 200;
+export const PAGING_LIMIT_MAX = 1000;
+// A company name or search term longer than this is a mistake, not a filter.
+export const LIST_FILTER_MAX = 200;
+
+export type ListFilters = { statuses: Status[] | null; company: string | null; q: string | null };
+export type PagingQuery = { paged: boolean; limit: number; offset: number; filters: ListFilters };
+
+function trimmed(params: URLSearchParams, key: string): string | null {
+  const v = params.get(key);
+  return v !== null && v.trim() !== "" ? v.trim() : null;
+}
+
+/** The status / company / q filters a list GET carries, each checked. Status matching is case-insensitive. */
+export function readListFilters(params: URLSearchParams): { filters: ListFilters } | { error: string } {
+  let statuses: Status[] | null = null;
+  const statusText = trimmed(params, "status");
+  if (statusText !== null) {
+    const read = statusText.split(",").map((s) => s.trim()).filter(Boolean).map((s) => ({ s, status: normalizeStatus(s) }));
+    const unknown = read.find((r) => !r.status);
+    if (unknown) return { error: `Unknown status "${unknown.s.slice(0, 40)}".` };
+    statuses = [...new Set(read.map((r) => r.status as Status))];
+    if (statuses.length === 0) statuses = null;
+  }
+  const company = trimmed(params, "company");
+  if (company !== null && company.length > LIST_FILTER_MAX) return { error: `company is too long (max ${LIST_FILTER_MAX} characters).` };
+  const q = trimmed(params, "q")?.replace(/\s+/g, " ") ?? null;
+  if (q !== null && q.length > LIST_FILTER_MAX) return { error: `q is too long (max ${LIST_FILTER_MAX} characters).` };
+  return { filters: { statuses, company, q } };
+}
+
+/**
+ * Whether a list GET asks for one offset page (a limit or offset is present),
+ * and the checked values: limit defaults to PAGING_LIMIT_DEFAULT and is capped
+ * at PAGING_LIMIT_MAX; offset defaults to 0.
+ */
+export function readPagingQuery(params: URLSearchParams): { query: PagingQuery } | { error: string } {
+  const filtersRead = readListFilters(params);
+  if ("error" in filtersRead) return filtersRead;
+  const limitText = trimmed(params, "limit");
+  const offsetText = trimmed(params, "offset");
+  let limit = PAGING_LIMIT_DEFAULT;
+  if (limitText !== null) {
+    const n = Number(limitText);
+    if (!Number.isInteger(n) || n < 1) return { error: "limit must be a whole number from 1." };
+    limit = Math.min(n, PAGING_LIMIT_MAX);
+  }
+  let offset = 0;
+  if (offsetText !== null) {
+    const n = Number(offsetText);
+    if (!Number.isInteger(n) || n < 0) return { error: "offset must be a whole number from 0." };
+    offset = n;
+  }
+  return { query: { paged: limitText !== null || offsetText !== null, limit, offset, filters: filtersRead.filters } };
+}
+
+/** The offset of the next page, or null once `offset` + `limit` has reached `total`. */
+export function nextOffset(offset: number, limit: number, total: number): number | null {
+  const next = offset + limit;
+  return next < total ? next : null;
+}
+
+/** The offset that ends a full (bare / ?all=1) read, or null when every row was returned. */
+export function nextAfterFull(returned: number, total: number): number | null {
+  return returned < total ? returned : null;
 }

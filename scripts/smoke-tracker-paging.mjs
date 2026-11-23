@@ -94,10 +94,58 @@ try {
   const fullRes = await get("/api/applications");
   const fullMs = Date.now() - t;
   const fullText0 = await fullRes.text();
-  const full0 = JSON.parse(fullText0).applications ?? [];
+  const fullBody0 = JSON.parse(fullText0);
+  const full0 = fullBody0.applications ?? [];
   check("no parameters is still the full list, previews included (the sweeps' contract)", full0.length === 1013 && full0.every((r) => typeof r.notes_preview === "string"), `${full0.length} rows, ${(Buffer.byteLength(fullText0) / 1024).toFixed(0)} KB in ${fullMs} ms`);
+  check("…and it now carries total and next, and an X-Total-Count header (Chunk JH-3)", fullBody0.total === 1013 && fullBody0.next === null && fullRes.headers.get("x-total-count") === "1013", `total ${fullBody0.total}, next ${fullBody0.next}, header ${fullRes.headers.get("x-total-count")}`);
   const all1 = JSON.parse(await (await get("/api/applications?all=1")).text()).applications ?? [];
   check("?all=1 is the same list", all1.length === full0.length && all1.every((r, i) => r.id === full0[i].id && r.notes_preview === full0[i].notes_preview));
+
+  // ── Offset paging (Chunk JH-3): limit / offset, total, next, filters ───────
+  const paged = async (query) => {
+    const res = await get(`/api/applications${query}`);
+    return { res, body: JSON.parse(await res.text()) };
+  };
+  const p1 = await paged("?limit=200");
+  check("?limit=200 is one page of 200 with total 1013 and next 200", p1.res.status === 200 && p1.body.applications.length === 200 && p1.body.total === 1013 && p1.body.next === 200 && p1.res.headers.get("x-total-count") === "1013", `${p1.body.applications?.length} rows, total ${p1.body.total}, next ${p1.body.next}`);
+  const walked = new Set();
+  const sizes = [];
+  for (let off = 0; off < 1013; off += 200) {
+    const page = (await paged(`?limit=200&offset=${off}`)).body;
+    sizes.push(page.applications.length);
+    for (const r of page.applications) walked.add(r.id);
+  }
+  check("the offsets walk 200/200/200/200/200/13 and every row once", sizes.join("/") === "200/200/200/200/200/13" && walked.size === 1013, `${sizes.join("/")}, ${walked.size} rows`);
+  const tail = await paged("?limit=200&offset=1000");
+  check("the last page has next null", tail.body.next === null && tail.body.applications.length === 13, `next ${tail.body.next}, ${tail.body.applications.length} rows`);
+  const big = await paged("?limit=5000");
+  check("limit=5000 is capped at 1000 (total still 1013, next 1000)", big.body.applications.length === 1000 && big.body.total === 1013 && big.body.next === 1000, `${big.body.applications.length} rows`);
+  check("a bad limit/offset is a 400", (await get("/api/applications?limit=0")).status === 400 && (await get("/api/applications?offset=-1")).status === 400);
+
+  // Filters apply before paging; status is case-insensitive (both stored spellings).
+  const twoIds = (await (await fetch(`${SB}/rest/v1/applications?user_id=eq.${uid}&select=id&order=id&limit=2`, { headers: admin })).json()).map((r) => r.id);
+  await fetch(`${SB}/rest/v1/applications?id=eq.${twoIds[0]}`, { method: "PATCH", headers: admin, body: JSON.stringify({ status: "interview" }) });
+  await fetch(`${SB}/rest/v1/applications?id=eq.${twoIds[1]}`, { method: "PATCH", headers: admin, body: JSON.stringify({ status: "Interview" }) });
+  const iv = await paged("?status=Interview&limit=50");
+  check("?status=Interview matches rows stored as 'interview' AND 'Interview'", iv.body.total === 2 && iv.body.applications.length === 2, `total ${iv.body.total}`);
+  const applied = await paged("?status=applied&limit=50");
+  check("?status=applied (lower-case) matches the capitalised 'Applied' rows", applied.body.total === 1011, `total ${applied.body.total}`);
+  const byCompany = await paged("?company=Seedco%200005&limit=50");
+  check("a company filter narrows before paging", byCompany.body.total === 1 && byCompany.body.applications[0]?.company_name === "Seedco 0005", `total ${byCompany.body.total}`);
+
+  // ── RLS: paging and ?all=1 never return another user's rows ────────────────
+  const email2 = `paging2-${Date.now()}@example.com`;
+  const password2 = `Pw-${Math.random().toString(36).slice(2)}-A1!`;
+  const other = await (await fetch(`${SB}/auth/v1/admin/users`, { method: "POST", headers: admin, body: JSON.stringify({ email: email2, password: password2, email_confirm: true }) })).json();
+  try {
+    await fetch(`${SB}/rest/v1/applications`, { method: "POST", headers: { ...admin, Prefer: "return=minimal" }, body: JSON.stringify([{ user_id: other.id, company_name: "OtherUserCo", role: "Engineer", status: "Applied", source: "manual", date_applied: "2026-10-01" }]) });
+    const mine = await paged("?limit=1000");
+    const all = await paged("?all=1");
+    const leaked = [...mine.body.applications, ...all.body.applications].some((r) => r.company_name === "OtherUserCo");
+    check("paging and ?all=1 never return another user's rows (RLS)", !leaked && mine.body.total === 1013 && all.body.total === 1013, `leaked ${leaked}, mine ${mine.body.total}, all ${all.body.total}`);
+  } finally {
+    await fetch(`${SB}/auth/v1/admin/users/${other.id}`, { method: "DELETE", headers: admin });
+  }
   const counts = await (await get(`/api/applications/counts?today=${londonToday}`)).json();
   check("counts: every row, every tab, the follow-ups due this week", counts.total === 1013 && counts.counts?.applied === 1013 && counts.followups_due_this_week === 3, JSON.stringify({ total: counts.total, applied: counts.counts?.applied, week: counts.followups_due_this_week }));
 

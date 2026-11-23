@@ -85,7 +85,7 @@ try {
     check("the detail read agrees", (await a.json(`/api/applications?id=${live}`)).body.application?.notes === second.body.notes);
     check("empty is refused", (await a.json("/api/applications", "PATCH", { id: live, append_note: "   " })).status === 400);
     check("a non-string is refused", (await a.json("/api/applications", "PATCH", { id: live, append_note: 5 })).status === 400);
-    check("over 500 characters is refused", (await a.json("/api/applications", "PATCH", { id: live, append_note: "x".repeat(501) })).status === 400);
+    check("over 1000 characters is refused", (await a.json("/api/applications", "PATCH", { id: live, append_note: "x".repeat(1001) })).status === 400);
     check("a bad id is a 404", (await a.json("/api/applications", "PATCH", { id: "nope", append_note: "x" })).status === 404);
     const full = await row(a, "Full Ltd", "Applied", "y".repeat(9990));
     const refused = await a.json("/api/applications", "PATCH", { id: full, append_note: "This will not fit in the notes" });

@@ -356,8 +356,10 @@ export type UndoSnapshot = {
   // with the close, or a rejection logged on the wrong row would stay in that row's notes.
   note?: string;
 };
-// A stamped appended note: its 17-character stamp and a space, then at most 500 characters.
-const MAX_UNDO_NOTE_CHARS = 600;
+// A stamped appended note: its ~18-character stamp and a space, then at most
+// MAX_APPENDED_NOTE (1,000, raised 22 Nov 2026) characters. Kept wide enough
+// that a long outcome note still rides in an Undo snapshot.
+const MAX_UNDO_NOTE_CHARS = 1100;
 export type ClosingWrite = { status?: Status; closed_at?: string | null; close_reason?: CloseReason | null; lesson?: string | null; pending_outcome?: PendingOutcome | null; undo_snapshot?: UndoSnapshot | null; notes?: string | null };
 export type ClosingCurrent = StageFields & { pending_outcome?: unknown; closed_at?: string | null; close_reason?: unknown; lesson?: string | null; followup_date?: string | null; notes?: string | null };
 export type ClosingRefusal = { status: 400 | 409; error: string; errorType?: "needs_confirmation" | "needs_move_back_confirmation" };

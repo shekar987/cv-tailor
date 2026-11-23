@@ -32,26 +32,27 @@ test("source: a value that is not allowed is refused with the list of allowed va
 });
 
 test("append_note: the refusal states the limit and what was sent", () => {
-  const long = cleanNoteLine("x".repeat(MAX_APPENDED_NOTE + 112));
+  const over = MAX_APPENDED_NOTE + 112;
+  const long = cleanNoteLine("x".repeat(over));
   assert.ok("error" in long);
   assert.equal(long.field, "append_note");
-  assert.equal(long.max, 500);
-  assert.equal(long.length, 612);
-  assert.match(long.error, /612 characters/);
-  assert.match(long.error, /limit for one append_note is 500/);
+  assert.equal(long.max, MAX_APPENDED_NOTE);
+  assert.equal(long.length, over);
+  assert.match(long.error, new RegExp(`${over} characters`));
+  assert.match(long.error, new RegExp(`limit for one append_note is ${MAX_APPENDED_NOTE}`));
   const empty = cleanNoteLine("   ");
   assert.ok("error" in empty);
-  assert.match(empty.error, /up to 500 characters/);
+  assert.match(empty.error, new RegExp(`up to ${MAX_APPENDED_NOTE} characters`));
   assert.deepEqual(cleanNoteLine("x".repeat(MAX_APPENDED_NOTE)), { line: "x".repeat(MAX_APPENDED_NOTE) });
   // The PUT's own refusal carries the same fields, and the bulk route names its own field.
-  const put = decideNotesWrite({ append_note: "y".repeat(501) });
+  const put = decideNotesWrite({ append_note: "y".repeat(MAX_APPENDED_NOTE + 1) });
   assert.ok("refuse" in put);
   assert.equal(put.refuse.status, 400);
-  assert.equal(put.refuse.body.max, 500);
-  assert.equal(put.refuse.body.length, 501);
-  const bulk = readBulkBody({ ids: ["3f2c1a52-6a43-4f0e-9f57-1d2b3c4d5e6f"], append_line: "z".repeat(501) });
+  assert.equal(put.refuse.body.max, MAX_APPENDED_NOTE);
+  assert.equal(put.refuse.body.length, MAX_APPENDED_NOTE + 1);
+  const bulk = readBulkBody({ ids: ["3f2c1a52-6a43-4f0e-9f57-1d2b3c4d5e6f"], append_line: "z".repeat(MAX_APPENDED_NOTE + 1) });
   assert.ok("error" in bulk);
-  assert.match(bulk.error, /limit for one append_line is 500/);
+  assert.match(bulk.error, new RegExp(`limit for one append_line is ${MAX_APPENDED_NOTE}`));
   assert.ok(!bulk.error.includes("append_note"));
 });
 
@@ -150,7 +151,10 @@ test("an undo restores the follow-up and takes back both lines the close wrote",
 test("a stored snapshot's note is bounded: one line, no longer than a stamped note", () => {
   const base = { status: "applied", at: NOW };
   assert.equal(normalizeUndoSnapshot({ ...base, note: "a\nb" })?.note, undefined);
-  assert.equal(normalizeUndoSnapshot({ ...base, note: "x".repeat(601) })?.note, undefined);
+  // The bound follows a stamped note (~18 chars + up to MAX_APPENDED_NOTE 1,000,
+  // raised in Chunk JH-3), so a full outcome note still rides in the undo snapshot.
+  assert.equal(normalizeUndoSnapshot({ ...base, note: "x".repeat(1000) })?.note, "x".repeat(1000));
+  assert.equal(normalizeUndoSnapshot({ ...base, note: "x".repeat(1101) })?.note, undefined);
   assert.equal(normalizeUndoSnapshot({ ...base, note: 7 })?.note, undefined);
   assert.equal(normalizeUndoSnapshot({ ...base, note: "  " })?.note, undefined);
   assert.equal(normalizeUndoSnapshot(base)?.note, undefined);

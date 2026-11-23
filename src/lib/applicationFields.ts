@@ -15,7 +15,7 @@
 import { MAX_JD_CHARS, MAX_NOTES_CHARS, JD_TOO_LONG } from "./limits.ts";
 import { isValidEmail } from "./contactCheck.ts";
 import { MAX_DEADLINE_NOTE, deadlineFromFields } from "./deadlines.ts";
-import { READY_TO_SUBMIT, normalizeStatus, isLastContactFrom, parseContactAt, type Status, type LastContactFrom } from "./tracker.ts";
+import { READY_TO_SUBMIT, normaliseStatus, isLastContactFrom, parseContactAt, type Status, type LastContactFrom } from "./tracker.ts";
 
 // Statuses that end a row without saying it was ever sent: no date is invented for them.
 export const UNDATED_ENDINGS: ReadonlySet<Status> = new Set<Status>(["rejected", "withdrawn", "ghosted"]);
@@ -147,7 +147,7 @@ export function validateEditable(body: Record<string, unknown>, partial: boolean
     if (!partial && body.status === undefined) {
       fields.status = "applied";
     } else {
-      const status = normalizeStatus(body.status);
+      const status = normaliseStatus(body.status);
       if (!status) return { error: "Pick a valid status." };
       fields.status = status;
     }
@@ -274,7 +274,7 @@ export function resolveSentDate(input: {
   patch: string | null | undefined;
   today: string;
 }): { ok: true; set?: string } | { error: string } {
-  const status = normalizeStatus(input.status);
+  const status = normaliseStatus(input.status);
   if (status === READY_TO_SUBMIT) return { ok: true };
   if (input.patch === null && input.stored) return { error: DATE_KEPT };
   const result = input.patch !== undefined ? input.patch : (input.stored ?? null);

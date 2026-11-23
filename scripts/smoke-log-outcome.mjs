@@ -50,9 +50,9 @@ try {
     check("that names the field", r.body.field === "source");
     check("and lists the allowed values", JSON.stringify(r.body.allowed) === '["manual","cold-email"]' && /"manual"/.test(r.body.error) && /"cold-email"/.test(r.body.error), r.body.error);
   }
-  const long = await log({ ...GOOD, append_note: "x".repeat(612) });
+  const long = await log({ ...GOOD, append_note: "x".repeat(1112) });
   check("an append_note over the limit is a 400", long.status === 400, `${long.status}`);
-  check("that states the limit and what was sent", long.body.field === "append_note" && long.body.max === 500 && long.body.length === 612 && /612 characters/.test(long.body.error) && /500/.test(long.body.error), long.body.error);
+  check("that states the limit and what was sent", long.body.field === "append_note" && long.body.max === 1000 && long.body.length === 1112 && /1112 characters/.test(long.body.error) && /1000/.test(long.body.error), long.body.error);
   const undef = await log({ company_name: "undefined", role: "undefined", date_applied: "2026-11-13" });
   check('company "undefined" / role "undefined" is a 400', undef.status === 400 && undef.body.field === "company_name", `${undef.status} ${undef.body.error}`);
   check("with a clear message", /nothing was saved/.test(undef.body.error ?? "") && /company_name/.test(undef.body.error ?? ""));

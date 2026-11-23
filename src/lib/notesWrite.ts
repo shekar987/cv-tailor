@@ -14,7 +14,11 @@
 // notes had in notes_history, so "Restore previous notes" can undo it.
 import { DEFAULT_TIMEZONE, clockTime, dayKey, dayMonthYear } from "./planTime.ts";
 
-export const MAX_APPENDED_NOTE = 500;
+// One appended line's cap, in code (no database constraint on a single line —
+// the database caps the whole notes field at MAX_NOTES_CHARS 10,000). Raised
+// from 500 to 1,000 on 22 Nov 2026 (Chunk JH-3): a sweep hit the old limit
+// three times in one run, retrying each time.
+export const MAX_APPENDED_NOTE = 1000;
 export const STALE_NOTES = "stale_notes";
 // The 409 names append_note FIRST (12 Nov 2026, Chunk 23): on 12 Nov a sweep sent 17
 // notes writes in one batch without if_updated_at, every one refused, because adding a line

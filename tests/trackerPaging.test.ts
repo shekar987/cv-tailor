@@ -28,12 +28,21 @@ test("?stage=Applied&limit=50 is one page of Applied rows, both stored spellings
   assert.deepEqual(stageStatuses("won"), ["accepted"]);
 });
 
-test("a limit is a whole number, capped; the default is 50; a bad stage or limit is refused", () => {
-  const capped = readListMode(q("limit=5000"));
+test("with a stage, limit is a whole number, capped; default 50; a bad stage or limit is refused", () => {
+  // The cursor page mode is reached with a stage (or cursor); its limit is parsed there.
+  const capped = readListMode(q("stage=Applied&limit=5000"));
   assert.equal(capped.mode === "page" && capped.limit, PAGE_LIMIT_MAX);
   const plain = readListMode(q("stage=screening"));
   assert.equal(plain.mode === "page" && plain.limit, PAGE_LIMIT_DEFAULT);
-  for (const bad of ["limit=0", "limit=-3", "limit=1.5", "limit=ten", "stage=nonsense"]) assert.equal(readListMode(q(bad)).mode, "error", bad);
+  for (const bad of ["stage=Applied&limit=0", "stage=Applied&limit=-3", "stage=Applied&limit=1.5", "stage=Applied&limit=ten", "stage=nonsense"]) {
+    assert.equal(readListMode(q(bad)).mode, "error", bad);
+  }
+});
+
+test("Chunk JH-3: a bare limit/offset (no stage, no cursor) is the full list's offset paging, not the cursor page mode", () => {
+  assert.equal(readListMode(q("limit=1000")).mode, "all");
+  assert.equal(readListMode(q("offset=200")).mode, "all");
+  assert.equal(readListMode(q("limit=200&offset=400")).mode, "all");
 });
 
 test("the cursor round-trips, and anything it did not give out is refused before it reaches a filter", () => {

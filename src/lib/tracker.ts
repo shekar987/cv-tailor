@@ -43,6 +43,15 @@ export function normalizeStatus(value: unknown): Status | null {
   return OLD_LABELS[key] ?? null;
 }
 
+// The ONE normaliser every write path runs a status through before storing it
+// (Chunk JH-3, 22 Nov 2026), so only one spelling — the lower-case key — is ever
+// written. Reads still go out in the API's capitalised spelling (apiStatus), so
+// the sweeps' contract is unchanged; this only fixes what is STORED. On a
+// database still on the pre-20261103120000 CHECK (lower-case keys not yet
+// allowed) the write paths fall back to oldStatusLabel. scripts/normalise-status.sql
+// rewrites the legacy capitalised rows (951 on 22 Nov) to match.
+export const normaliseStatus = normalizeStatus;
+
 // What /api/applications answers with, whichever spelling the row is stored in. The
 // owner's sweeps read and write these exact strings, so this list is a contract: the
 // first six never change, whatever the database holds. Pages convert to the keys on load.
