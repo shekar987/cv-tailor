@@ -146,6 +146,8 @@ try {
   } finally {
     await fetch(`${SB}/auth/v1/admin/users/${other.id}`, { method: "DELETE", headers: admin });
   }
+  // Put the two rows back to Applied so the counts check below still sees 1,013.
+  await fetch(`${SB}/rest/v1/applications?id=in.(${twoIds.join(",")})`, { method: "PATCH", headers: admin, body: JSON.stringify({ status: "Applied" }) });
   const counts = await (await get(`/api/applications/counts?today=${londonToday}`)).json();
   check("counts: every row, every tab, the follow-ups due this week", counts.total === 1013 && counts.counts?.applied === 1013 && counts.followups_due_this_week === 3, JSON.stringify({ total: counts.total, applied: counts.counts?.applied, week: counts.followups_due_this_week }));
 
