@@ -32,6 +32,7 @@ const NAV = [
   { href: "/app", label: "Tailor" },
   { href: "/applications", label: "Applications" },
   { href: "/interviews", label: "Interview" },
+  { href: "/agent", label: "Auto-apply" },
   { href: "/customize", label: "My CV" },
 ];
 
