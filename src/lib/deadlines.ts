@@ -43,6 +43,7 @@ export type DueEvent = {
   application_id: string | null;
   title: string;
   status: string;
+  kind?: string | null;
   due_at?: string | null;
   starts_at?: string | null;
   date_only?: boolean | null;
@@ -125,7 +126,16 @@ export function followupAction(row: Pick<DueRow, "company_name" | "status" | "ap
  * Everything due within `hours` of now, overdue first, soonest next. A row can give two
  * items: its deadline and its follow-up.
  */
-export function dueWithin(rows: readonly DueRow[], now: number, hours: number = DUE_WINDOW_HOURS, tz: string = DEFAULT_TIMEZONE, events: readonly DueEvent[] = []): DueItem[] {
+export function dueWithin(
+  rows: readonly DueRow[],
+  now: number,
+  hours: number = DUE_WINDOW_HOURS,
+  tz: string = DEFAULT_TIMEZONE,
+  events: readonly DueEvent[] = [],
+  // Kinds the "Interviews & deadlines" panel owns (lib/interviewsPanel PANEL_KINDS), so a
+  // booked interview or assessment is never listed both there and in "Do these today".
+  excludeKinds: ReadonlySet<string> | null = null
+): DueItem[] {
   const horizon = now + hours * HOUR_MS;
   const earliest = now - OVERDUE_DAYS * DAY_MS;
   const today = dayKey(now, tz);
@@ -135,6 +145,7 @@ export function dueWithin(rows: readonly DueRow[], now: number, hours: number = 
   const byApplication = new Map<string, DueEvent[]>();
   for (const e of events) {
     if (e.status !== "scheduled" || !e.application_id) continue;
+    if (excludeKinds && e.kind && excludeKinds.has(e.kind)) continue;
     byApplication.set(e.application_id, [...(byApplication.get(e.application_id) ?? []), e]);
   }
   for (const row of rows) {
