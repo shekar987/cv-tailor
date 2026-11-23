@@ -55,9 +55,14 @@ export function escapeText(value: string): string {
     .replace(/\r?\n/g, "\\n");
 }
 
+// TextEncoder/TextDecoder work in both Node and the browser (buildIcs runs in the browser
+// on "Add to calendar"), so the builder needs no Buffer and stays universal.
+const ENC = new TextEncoder();
+const DEC = new TextDecoder();
+
 /** Fold a content line to 75 octets, continued with CRLF + a single space (RFC 5545 §3.1). */
 export function foldLine(line: string): string {
-  const bytes = Buffer.from(line, "utf8");
+  const bytes = ENC.encode(line);
   if (bytes.length <= 75) return line;
   const out: string[] = [];
   let start = 0;
@@ -67,7 +72,7 @@ export function foldLine(line: string): string {
     let end = Math.min(start + limit, bytes.length);
     // Don't split a multi-byte UTF-8 sequence: back up off a continuation byte (10xxxxxx).
     while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) end--;
-    out.push(bytes.subarray(start, end).toString("utf8"));
+    out.push(DEC.decode(bytes.subarray(start, end)));
     start = end;
     limit = 74;
   }
