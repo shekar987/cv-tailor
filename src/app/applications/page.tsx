@@ -39,9 +39,11 @@ import { browserTimeZone, copyText, safeHttpUrl } from "../app/next/planUi";
 import { useConfirm } from "@/components/ConfirmDialog";
 import Icon from "@/components/ui/Icon";
 import { DeadlineRadar, DeadlineEditor } from "./DeadlineRadar";
+import InterviewsPanel from "./InterviewsPanel";
 import NotesHistory from "./NotesHistory";
 import CompanyRulesBlock from "./CompanyRulesBlock";
 import { DUE_WINDOW_HOURS, dueWithin, type DueItem, type DueRow } from "@/lib/deadlines";
+import { PANEL_KINDS, upcomingInterviews, type UpcomingItem } from "@/lib/interviewsPanel";
 import { STALE_NOTES, draftKeepsNewLines } from "@/lib/notesWrite";
 import { normalizeRule, type CompanyRule } from "@/lib/companyRules";
 import { dayKey } from "@/lib/planTime";
@@ -75,6 +77,8 @@ import {
 } from "@/lib/tracker";
 import type { TrackerCounts } from "@/lib/trackerCounts";
 import { followupsDueToday, isFollowupDueToday } from "@/lib/followupsDue";
+import { byFollowupPriority } from "@/lib/followupPriority";
+import { closeNoResponseCandidates, closeNoResponseNote } from "@/lib/cadence";
 import CleanupPanel from "./CleanupPanel";
 import LogOutcomePanel, { type OutcomeChoice } from "./LogOutcomePanel";
 import TodaySection from "./TodaySection";
@@ -793,6 +797,9 @@ export default function ApplicationsPage() {
   // The "move rows whose notes say they weren't submitted" offer: null =
   // not shown, "offer" = the one-line notice, "review" = the list + confirm.
   const [bulkReady, setBulkReady] = useState<"offer" | "review" | "dismissed" | "moving">("offer");
+  // "Close as No response" in the Today's-follow-ups view (Chunk JH-1).
+  const [closingNoResponse, setClosingNoResponse] = useState(false);
+  const [closeDismissed, setCloseDismissed] = useState(false);
   const [jdDraft, setJdDraft] = useState("");
   const [jdEditing, setJdEditing] = useState(false);
   // Set only once the user types, so the box otherwise shows the full notes the
@@ -1108,8 +1115,18 @@ export default function ApplicationsPage() {
   const referral = useMemo(() => referralCard(rows), [rows]);
   const referralIds = useMemo(() => new Set(referralAsks(rows).map((r) => r.id)), [rows]);
   // Due in the next 48 hours (lib/deadlines): the red strip, the same list as GET ?due=48h.
-  const radar = useMemo(() => dueWithin(rows as unknown as DueRow[], clock, DUE_WINDOW_HOURS, tz, events), [rows, clock, tz, events]);
+  // The interview / assessment event kinds are left to the Interviews & deadlines panel, so
+  // nothing shows in both (Chunk JH-1).
+  const panelKinds = useMemo(() => new Set(PANEL_KINDS), []);
+  const radar = useMemo(() => dueWithin(rows as unknown as DueRow[], clock, DUE_WINDOW_HOURS, tz, events, panelKinds), [rows, clock, tz, events, panelKinds]);
   const radarIds = useMemo(() => new Set(radar.map((d) => d.id)), [radar]);
+  // The booked interviews / screenings / assessments across every row (lib/interviewsPanel):
+  // read from events, so a booking on a wrong-stage or ended row still appears.
+  const upcoming = useMemo(() => upcomingInterviews(rows, events, clock, tz), [rows, events, clock, tz]);
+  const [movingEvent, setMovingEvent] = useState<string | null>(null);
+  // The ATS-only Applied rows past their third follow-up with no reply (lib/cadence): the
+  // bulk "Close as No response" candidates, offered in the Today's-follow-ups view.
+  const closeCandidates = useMemo(() => closeNoResponseCandidates(rows, localIsoDate(new Date(clock))), [rows, clock]);
   // The number beside "Today": the 48-hour list, plus the follow-ups due today it does not hold.
   const todayTotal = useMemo(() => {
     const today = localIsoDate(new Date(clock));
@@ -1162,6 +1179,9 @@ export default function ApplicationsPage() {
     );
     // The list reads by what is soonest; the spreadsheet by its own columns.
     if (!sheetMode) {
+      // "Today's follow-ups" (Chunk JH-1): the ones that matter — an interview, a human who
+      // replied — lead, so a 300-strong overdue backlog never buries them.
+      if (attention === "today") return byFollowupPriority(filtered).map((r) => r.row);
       const soonest = (r: Application) => Math.min(...(byApp.get(r.id) ?? []).map((e) => eventMs(e) ?? Infinity), Infinity);
       const newest = (a: Application, b: Application) => sortDay(b).localeCompare(sortDay(a)) || b.created_at.localeCompare(a.created_at);
       const list = [...filtered].sort((a, b) => {
@@ -1400,6 +1420,35 @@ export default function ApplicationsPage() {
     setBulkReady("dismissed");
     if (failures.length) setActionError(failures.join(" · "));
     else showFlash(`Moved ${notSubmitted.length} application${notSubmitted.length === 1 ? "" : "s"} to Ready to submit.`);
+  }
+
+  // "Close as No response" (Chunk JH-1): the ATS-only Applied rows past their third
+  // follow-up with no reply (lib/cadence) move to No reply, one confirmed bulk action, with
+  // undo. This is what makes the overdue follow-up backlog — the 344 the dashboard showed —
+  // drop. Never a live or human-replied row: lib/cadence holds the guard.
+  async function bulkCloseNoResponse() {
+    const targets = closeNoResponseCandidates(rowsRef.current, todayLocal());
+    if (targets.length === 0) return;
+    setClosingNoResponse(true);
+    const note = closeNoResponseNote(todayLocal());
+    const closed: string[] = [];
+    const failures: string[] = [];
+    for (const row of targets) {
+      const message = await patchRow(row.id, { status: "ghosted" as Status }, { append_note: note });
+      if (message) failures.push(`${row.company_name}: ${message}`);
+      else closed.push(row.id);
+    }
+    setClosingNoResponse(false);
+    setCloseDismissed(true);
+    if (failures.length) setActionError(failures.join(" · "));
+    if (closed.length) {
+      showToast({
+        message: `Closed ${closed.length} as No reply.`,
+        undo: async () => {
+          for (const id of closed) await patchRow(id, { status: "applied" as Status }, { confirmed_reopen: true });
+        },
+      });
+    }
   }
 
   // ── Cell editing ──────────────────────────────────────────────────────────
@@ -1659,6 +1708,20 @@ export default function ApplicationsPage() {
       setActionError(message ?? "");
       setStageRefresh((n) => n + 1);
     });
+  }
+
+  // "Move to <stage>" on the Interviews & deadlines panel: put the row's stored status
+  // right for a booking it is behind (Chunk JH-1). changeStatus already reopens an ended
+  // row (confirmed_reopen) and asks before a step back, so it is the one mover.
+  async function moveToStage(item: UpcomingItem) {
+    const row = rowsRef.current.find((r) => r.id === item.application_id);
+    if (!row || row.status === item.impliedStatus) return;
+    setMovingEvent(item.event_id);
+    try {
+      await changeStatus(row, item.impliedStatus);
+    } finally {
+      setMovingEvent(null);
+    }
   }
 
   // ── Panels (CV / JD / Notes) ──────────────────────────────────────────────
@@ -3060,6 +3123,10 @@ export default function ApplicationsPage() {
         {/* On a phone the search box and the tabs come straight after the title (Chunk 27), and
             what is due sits folded under them: "Today (n)". On a wider screen it stays on top, open. */}
         {phone && appsBar}
+        {/* Interviews & deadlines (Chunk JH-1): at the very top, always visible, reading events
+            so a booked interview is never missing even when its row is at the wrong stage. It
+            needs every row, so it waits for the full list like the radar below it. */}
+        {hasRows && <InterviewsPanel items={fullLoaded ? upcoming : []} busyId={movingEvent} onMove={(item) => void moveToStage(item)} />}
         {todaySection}
 
         {/* The application /app saved last (lib/justSaved), its CV and letter one click away.
@@ -3156,6 +3223,26 @@ export default function ApplicationsPage() {
                 </div>
               </>
             )}
+          </div>
+        )}
+
+        {/* Today's follow-ups: clear the ATS-only backlog in one confirmed move (Chunk JH-1). */}
+        {attention === "today" && fullLoaded && closeCandidates.length > 0 && !closeDismissed && (
+          <div className="limitNotice" role="status" data-close-no-response={closeCandidates.length}>
+            <p>
+              {closeCandidates.length === 1
+                ? "1 application has had no reply after the full follow-up cadence."
+                : `${closeCandidates.length} applications have had no reply after the full follow-up cadence.`}{" "}
+              Close them as <strong>No reply</strong> to clear the backlog — interviews, screenings and anyone who replied are never touched.
+            </p>
+            <div className="actions">
+              <Button variant="secondary" onClick={bulkCloseNoResponse} disabled={closingNoResponse} data-close-no-response-confirm>
+                {closingNoResponse ? "Closing…" : `Close ${closeCandidates.length} as No reply`}
+              </Button>
+              <button type="button" className="inlineLink" onClick={() => setCloseDismissed(true)} disabled={closingNoResponse}>
+                Not now
+              </button>
+            </div>
           </div>
         )}
 

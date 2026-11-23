@@ -4339,6 +4339,31 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
   .dueRadar__item > :not(.dueRadar__n) { grid-column: 2; }
 }
 
+/* "Interviews & deadlines" (Chunk JH-1): the booked interviews / screenings / assessments at the
+   top of the dashboard, read from events so a wrong-stage booking still shows. Amber, not red —
+   it is information, not a warning; an overdue item turns its time red. */
+.interviewsPanel { margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--amber-border); border-radius: var(--radius-md); background: var(--surface-2); }
+.interviewsPanel__title { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--text); }
+.interviewsPanel__title svg { color: var(--amber); }
+.interviewsPanel__count { padding: 0 var(--space-2); border: 1px solid var(--amber-border); border-radius: var(--radius-pill); font-size: var(--text-xs); color: var(--text); }
+.interviewsPanel__sub { margin: 0 0 var(--space-2); font-size: var(--fs-sm); color: var(--muted); }
+.interviewsPanel__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.interviewsPanel__item { display: grid; grid-template-columns: minmax(96px, max-content) minmax(140px, max-content) 1fr auto; align-items: baseline; gap: var(--space-2) var(--space-3); font-size: var(--text-sm); }
+.interviewsPanel__kind { color: var(--amber); font-weight: 600; white-space: nowrap; }
+.interviewsPanel__when { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.interviewsPanel__left { color: var(--text-subtle); }
+.interviewsPanel__item--overdue .interviewsPanel__when, .interviewsPanel__item--overdue .interviewsPanel__left { color: var(--danger); font-weight: 600; }
+.interviewsPanel__who { color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+.interviewsPanel__role { color: var(--muted); }
+.interviewsPanel__flag { font-size: var(--text-xs); color: var(--danger); white-space: nowrap; }
+.interviewsPanel__buttons { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.interviewsPanel__move { color: var(--amber-ink); background: var(--amber); border-color: var(--amber); }
+.interviewsPanel__move:hover:not(:disabled) { color: var(--amber-ink); background: var(--amber-bright); border-color: var(--amber-bright); }
+@media (max-width: 640px) {
+  .interviewsPanel__item { grid-template-columns: 1fr; gap: var(--space-1); }
+  .interviewsPanel__buttons { justify-content: flex-start; }
+}
+
 /* A row's next deadline and the inbox it used, in the Edit panel. */
 .deadlineEditor { display: flex; flex-direction: column; gap: var(--space-2); }
 .deadlineEditor__fields { display: flex; flex-wrap: wrap; gap: var(--space-3); width: 100%; }
