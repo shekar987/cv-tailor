@@ -11,10 +11,10 @@ import { companyNamesMatch } from "./companyMatch.ts";
 
 export type LetterFixes = { salutation: string | null; signOff: boolean; dateLine: boolean; emDashes?: number };
 
-// At most one em-dash: a parenthetical pair inside a sentence ("workflows —
-// dashboards, forms — across") becomes brackets, the first single dash stays
-// and any later one becomes a comma.
-export function capEmDashes(text: string): { text: string; replaced: number } {
+// At most `max` em-dashes (default 1; pass 0 for styles/checks that ban em-dashes):
+// a parenthetical pair inside a sentence ("workflows — dashboards, forms — across")
+// becomes brackets, the first `max` single dashes stay and any later one becomes a comma.
+export function capEmDashes(text: string, max = 1): { text: string; replaced: number } {
   let replaced = 0;
   let kept = 0;
   const out = text.split("\n").map((line) => {
@@ -24,7 +24,7 @@ export function capEmDashes(text: string): { text: string; replaced: number } {
       return ` (${inner.trim()}) `;
     });
     l = l.replace(/\s*—\s*/g, (m) => {
-      if (kept === 0) {
+      if (kept < max) {
         kept++;
         return m;
       }

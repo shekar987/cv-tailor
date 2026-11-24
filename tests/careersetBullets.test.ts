@@ -4,7 +4,7 @@
 // pins the UKJI path: with UKJI's rules each function is the identity it was.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyBulletStyle, swapBanned, stripTrailingFullStop, openingVerb, overusedVerbs, bannedWordsIn } from "../src/lib/stylePass.ts";
+import { applyBulletStyle, swapBanned, stripTrailingFullStop, openingVerb, overusedVerbs, bannedWordsIn, cappedOpeningVerbs, diversifyProjectOpeningVerbs } from "../src/lib/stylePass.ts";
 import { parseMasterExperience, substitutions } from "../src/lib/bulletIds.ts";
 import { lintBullets, cvWordCount } from "../src/lib/quality.ts";
 import { experienceBudget, projectsBudget, plannedPerProject, styledExperienceCapacity } from "../src/lib/contentBudget.ts";
@@ -202,4 +202,15 @@ test("fitOnePage protects the summary sentence and reads the skills shape; cvWor
   assert.match(String(r.sections.summary), /Available immediately for full-time employment\.$/);
   const n = cvWordCount({ summary: "One two three.", skills: "Technical Tools: Python | Go", experience: "", projects: { "0": ["four five"] } }, { name: "Jane Doe", tagline: "Engineer", email: "j@x.com" });
   assert.equal(n, 3 + 4 + 2 + 2 + 1 + 1, "summary, skills line, project bullet, name, headline, email");
+});
+
+test("cappedOpeningVerbs and diversifyProjectOpeningVerbs clear cross-section verb-cap collisions on generated project bullets", () => {
+  const exp = ["Role | Co | 2022 – 2024", "• Built API services in FastAPI", "• Built CI pipelines with GitHub Actions", "• Designed Postgres schemas", "• Designed Redis caching"].join("\n");
+  assert.deepEqual(cappedOpeningVerbs(exp, 2), ["Built", "Designed"]);
+  assert.deepEqual(cappedOpeningVerbs(exp, null), []);
+  const proj = { "0": ["Built a live CV tailoring SaaS", "Designed an evaluation pipeline", "Built a background worker"] };
+  const r = diversifyProjectOpeningVerbs(exp, proj, 2);
+  assert.equal(r.changed, 3);
+  assert.deepEqual(overusedVerbs([...exp.split("\n").slice(1), ...r.projects["0"]], 2), []);
+  assert.equal(diversifyProjectOpeningVerbs(exp, proj, null).projects, proj, "UKJI untouched");
 });

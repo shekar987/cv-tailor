@@ -225,6 +225,10 @@ test("capEmDashes: one em-dash at most — pairs become brackets, later singles 
   const n = normalizeLetter(letter, { name: "Alex Example" });
   assert.equal(((n.letter as string).match(/—/g) || []).length, 1);
   assert.equal(n.fixes.emDashes, 5);
+  // max = 0 removes every em-dash cleanly (CareerSet).
+  const zero = capEmDashes(letter, 0);
+  assert.equal((zero.text.match(/—/g) || []).length, 0);
+  assert.equal(zero.replaced, 6);
 });
 
 test("template text in the summary or letter is fixed without it, or the sentence goes", () => {

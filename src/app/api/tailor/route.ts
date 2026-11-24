@@ -87,7 +87,7 @@ import { normalizeLetter, capEmDashes, insertBeforeSignoff } from "@/lib/letterF
 import { eligiblePointsBlock, checkInterestLine, tidyNumberedPoints, countNumberedPoints, insertIntoClose, protectedLetterLines, cleanLetterBannedWords } from "@/lib/letterStyle";
 import { reconcileAtsScore, renderBandBlock } from "@/lib/visibilityVerdict";
 import { applyFormatRules, formatRulesFor } from "@/lib/formatRules";
-import { applyBulletStyle, type MasterCvNote, type StylePassReport } from "@/lib/stylePass";
+import { applyBulletStyle, cappedOpeningVerbs, diversifyProjectOpeningVerbs, type MasterCvNote, type StylePassReport } from "@/lib/stylePass";
 import { checkStyle } from "@/lib/styleCheck";
 import { FORMAT_STYLES, normalizeFormatStyle, type FormatStyle } from "@/lib/formatStyles/index";
 
@@ -425,6 +425,12 @@ async function runPipeline(opts: {
   const draftLint = lintBullets({ experience: experienceOut, projects: projectsOut }, company, lintStyle);
   const retried = { experience: false, projects: false };
   if (!fast && countFlags(draftLint) > 0) {
+    const expCappedVerbs = typeof experienceOut === "string" ? cappedOpeningVerbs(experienceOut, style.lint.verbCap) : [];
+    const projectRetryNote =
+      rejectedBulletsBlock(draftLint.projects) +
+      (expCappedVerbs.length > 0 && style.lint.verbCap !== null
+        ? `\nOPENING VERBS ALREADY AT THE CAP (${style.lint.verbCap}) IN WORK EXPERIENCE — DO NOT OPEN ANY PROJECT BULLET WITH THESE: ${expCappedVerbs.join(", ")}.\n`
+        : "");
     const [experienceRetry, projectsRetry] = await Promise.all([
       draftLint.experience.length > 0
         ? callLLM({ provider, apiKeyOverride, system: experiencePrompt(cv, expBudget, claimsBlock, rejectedBulletsBlock(draftLint.experience), idBlock, evidenceBlock, style.prompts.verbRule, style.prompts.experienceFormat), userInput: analysisStr })
@@ -432,9 +438,9 @@ async function runPipeline(opts: {
         : Promise.resolve<unknown>(""),
       draftLint.projects.length > 0
         ? projectsPool
-          ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, chosenPoolText ?? "", claimsBlock, rejectedBulletsBlock(draftLint.projects), evidenceBlock, chosenCoverage, style.prompts.poolBullets, chosenCount), userInput: analysisStr, expectJson: true })
+          ? callLLM({ provider, apiKeyOverride, system: poolProjectsPrompt(cv, chosenPoolText ?? "", claimsBlock, projectRetryNote, evidenceBlock, chosenCoverage, style.prompts.poolBullets, chosenCount), userInput: analysisStr, expectJson: true })
               .catch(swallowStep({}))
-          : callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock, rejectedBulletsBlock(draftLint.projects), evidenceBlock, style.prompts.projectsBullets), userInput: analysisStr, expectJson: true })
+          : callLLM({ provider, apiKeyOverride, system: projectsPrompt(cv, projectNames, projBudget, claimsBlock, projectRetryNote, evidenceBlock, style.prompts.projectsBullets), userInput: analysisStr, expectJson: true })
               .catch(swallowStep({}))
         : Promise.resolve<unknown>({}),
     ]);
@@ -453,7 +459,7 @@ async function runPipeline(opts: {
       const candidateSelected = projectsPool ? writtenProjects(projectsRetry) : [];
       const candidateProjects: unknown = projectsPool ? projectsFromSelected(candidateSelected) : projectsRetry;
       const nonEmpty = !!candidateProjects && typeof candidateProjects === "object" && Object.keys(candidateProjects as object).length > 0;
-      if (nonEmpty && lintBullets({ projects: candidateProjects }, company, lintStyle).projects.length < draftLint.projects.length) {
+      if (nonEmpty && lintBullets({ experience: experienceFinal, projects: candidateProjects }, company, lintStyle).projects.length < draftLint.projects.length) {
         projectsFinal = candidateProjects;
         selectedFinal = candidateSelected;
         retried.projects = true;
@@ -472,13 +478,16 @@ async function runPipeline(opts: {
             .filter((b): b is string => typeof b === "string")
             // A bullet that is only a link ("Live: … | GitHub: …") is drawn as the project's links line, once.
             .map((b) => stripLinkText(b))
+            .map((b) => (style.id === "careerset" ? capEmDashes(b, 0).text : b))
             .filter(Boolean)
         : [];
     }
-    // The style pass on the generated project bullets (no master budget).
+    // The style pass on the generated project bullets (no master budget),
+    // then diversify any generated project bullet still over the cross-section verb cap.
     const styledProjects = applyBulletStyle({ experience: "", projects: trimmedProjects }, bulletStyle, [], projectsPool ? selectedFinal.map((s) => s.name) : projectNames).projects;
-    projectsFinal = styledProjects;
-    if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: styledProjects[String(i)] ?? p.bullets }));
+    const diversified = diversifyProjectOpeningVerbs(typeof experienceFinal === "string" ? experienceFinal : "", styledProjects, style.lint.verbCap).projects;
+    projectsFinal = diversified;
+    if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: diversified[String(i)] ?? p.bullets }));
   }
   const bulletLint = { retried, remaining: lintBullets({ experience: experienceFinal, projects: projectsFinal }, company, lintStyle) };
 
@@ -1121,9 +1130,9 @@ async function runPipeline(opts: {
     coverLetter = inClose ?? insertBeforeSignoff(coverLetter, rightToWork.statement);
     rightToWork.inserted = true;
   }
-  // The fact check's fixes may bring dashes back: the letter's one-dash rule
-  // holds on the finished text.
-  if (typeof coverLetter === "string") coverLetter = capEmDashes(coverLetter).text;
+  // The fact check's fixes may bring dashes back: UKJI allows at most one
+  // em-dash, while CareerSet removes all em-dashes on the finished letter.
+  if (typeof coverLetter === "string") coverLetter = capEmDashes(coverLetter, style.id === "careerset" ? 0 : 1).text;
   if (preChanged.length || postChanged.length) {
     supportReport = supportReport
       ? { ...supportReport, changed: [...preChanged, ...supportReport.changed, ...postChanged] }

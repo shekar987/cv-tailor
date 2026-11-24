@@ -242,3 +242,90 @@ export function overusedVerbs(bullets: string[], cap: number): { verb: string; c
 export function bannedWordsIn(text: string, banned: readonly string[]): string[] {
   return banned.filter((w) => bannedRe(w).test(text));
 }
+
+// Plain, non-inflated verb swaps used ONLY to diversify generated project
+// bullets when an opening verb is already at the style's verbCap across
+// experience + projects. Master CV experience bullets are never rewritten.
+const PROJECT_VERB_ALTERNATIVES: Readonly<Record<string, readonly string[]>> = {
+  build: ["Developed", "Engineered", "Implemented", "Created", "Shipped", "Delivered", "Assembled"],
+  design: ["Created", "Structured", "Engineered", "Developed", "Architected", "Produced"],
+  develop: ["Engineered", "Implemented", "Created", "Shipped", "Delivered", "Produced"],
+  implement: ["Engineered", "Developed", "Shipped", "Delivered", "Integrated", "Created"],
+  creat: ["Developed", "Engineered", "Implemented", "Delivered", "Produced", "Shipped"],
+  engin: ["Developed", "Implemented", "Shipped", "Delivered", "Created", "Structured"],
+  automat: ["Streamlined", "Scripted", "Scheduled", "Standardised", "Implemented"],
+  add: ["Introduced", "Integrated", "Implemented", "Included", "Shipped"],
+  wrot: ["Authored", "Implemented", "Created", "Developed", "Produced"],
+  write: ["Authored", "Implemented", "Created", "Developed", "Produced"],
+  deliver: ["Shipped", "Completed", "Produced", "Implemented", "Developed"],
+  integrat: ["Connected", "Wired", "Combined", "Implemented", "Linked"],
+  optimis: ["Tuned", "Improved", "Accelerated", "Refined", "Streamlined"],
+  improv: ["Refined", "Tuned", "Strengthened", "Accelerated", "Upgraded"],
+};
+
+function experienceBullets(experience: string): string[] {
+  return (experience || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => BULLET.test(l))
+    .map((l) => l.replace(/^[•\-*]\s+/, ""));
+}
+
+// Opening verbs already at or above `verbCap` in the experience section, so a
+// project retry prompt can explicitly forbid them.
+export function cappedOpeningVerbs(experience: string, verbCap: number | null): string[] {
+  if (verbCap === null) return [];
+  const counts = new Map<string, { verb: string; count: number }>();
+  for (const b of experienceBullets(experience)) {
+    const stem = openingVerb(b);
+    if (!stem) continue;
+    const cur = counts.get(stem);
+    if (cur) cur.count++;
+    else counts.set(stem, { verb: b.trim().split(/\s+/)[0].replace(/[^A-Za-z-]/g, ""), count: 1 });
+  }
+  return [...counts.values()].filter((c) => c.count >= verbCap).map((c) => c.verb);
+}
+
+// Deterministic fallback for generated project bullets only: if a project
+// bullet opens with a verb already used `verbCap` times earlier in the CV
+// (experience + earlier project bullets), swap that opening verb for the first
+// plain equivalent that is still below `verbCap`.
+export function diversifyProjectOpeningVerbs(
+  experience: string,
+  projects: Record<string, string[]>,
+  verbCap: number | null
+): { projects: Record<string, string[]>; changed: number } {
+  if (verbCap === null) return { projects, changed: 0 };
+  const counts = new Map<string, number>();
+  for (const b of experienceBullets(experience)) {
+    const stem = openingVerb(b);
+    if (stem) counts.set(stem, (counts.get(stem) ?? 0) + 1);
+  }
+  let changed = 0;
+  const out: Record<string, string[]> = {};
+  for (const [key, list] of Object.entries(projects)) {
+    out[key] = list.map((bullet) => {
+      const m = /^(\s*(?:[•\-*]\s+)?)([A-Za-z-]+)(.*)$/.exec(bullet);
+      if (!m) return bullet;
+      const [, prefix, firstWord, rest] = m;
+      const stem = openingVerb(firstWord);
+      if (!stem) return bullet;
+      const used = counts.get(stem) ?? 0;
+      if (used < verbCap) {
+        counts.set(stem, used + 1);
+        return bullet;
+      }
+      const candidates = PROJECT_VERB_ALTERNATIVES[stem] ?? [];
+      const pick = candidates.find((alt) => (counts.get(openingVerb(alt)) ?? 0) < verbCap);
+      if (!pick) {
+        counts.set(stem, used + 1);
+        return bullet;
+      }
+      const pickStem = openingVerb(pick);
+      counts.set(pickStem, (counts.get(pickStem) ?? 0) + 1);
+      changed++;
+      return `${prefix}${pick}${rest}`;
+    });
+  }
+  return { projects: changed > 0 ? out : projects, changed };
+}
