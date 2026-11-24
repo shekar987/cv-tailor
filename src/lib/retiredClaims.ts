@@ -246,6 +246,58 @@ export function applyRetiredToProfile<T>(value: T, rules: readonly RetiredClaim[
   return walk(value) as T;
 }
 
+// ── Where a never-say removal happened (JH-4, 24 Nov 2026) ───────────────────
+// The list is already enforced in code (applyRetired runs on the headline, summary,
+// skills, experience, project bullets and the letter in /api/tailor — see applyRetired
+// above, which removes a phrase whatever the claims registry or the master CV say). What
+// was missing is telling the user WHERE it acted, so the result-page notice can read
+// "Removed because you asked us never to say it: OpenAI API (Skills)." — and so a removal
+// from the Headline, whose report the route used to discard, is shown at all.
+
+export type RetiredWhere = "Headline" | "Summary" | "Skills" | "Experience" | "Projects" | "Cover letter";
+export type RetiredLocation = { where: RetiredWhere; phrase: string; kind: "removed" | "replaced"; to?: string };
+
+/** Located removals/replacements from one section's report. */
+export function locateRetired(where: RetiredWhere, report: RetiredReport): RetiredLocation[] {
+  return [
+    ...report.removed.map((phrase): RetiredLocation => ({ where, phrase, kind: "removed" })),
+    ...report.replaced.map((r): RetiredLocation => ({ where, phrase: r.from, kind: "replaced", to: r.to })),
+  ];
+}
+
+/** A stored `locations` value re-bounded on read (the user can write their own row). */
+export function normalizeRetiredLocations(value: unknown): RetiredLocation[] {
+  const WHERES: ReadonlySet<string> = new Set(["Headline", "Summary", "Skills", "Experience", "Projects", "Cover letter"]);
+  if (!Array.isArray(value)) return [];
+  const out: RetiredLocation[] = [];
+  for (const v of value) {
+    if (!v || typeof v !== "object") continue;
+    const r = v as Record<string, unknown>;
+    if (typeof r.where !== "string" || !WHERES.has(r.where) || typeof r.phrase !== "string" || !r.phrase.trim()) continue;
+    const kind = r.kind === "replaced" ? "replaced" : "removed";
+    out.push({ where: r.where as RetiredWhere, phrase: r.phrase.trim().slice(0, 200), kind, ...(kind === "replaced" && typeof r.to === "string" ? { to: r.to.slice(0, 200) } : {}) });
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
+/**
+ * The one-line result-page notice: each phrase the never-say list removed, with the
+ * section(s) it was taken from. "" when nothing was removed (replacements keep their own
+ * "now reads" line in the notice). One line, no new panel.
+ */
+export function neverSayNotice(located: readonly RetiredLocation[]): string {
+  const wheres = new Map<string, Set<string>>();
+  for (const l of located) {
+    if (l.kind !== "removed") continue;
+    if (!wheres.has(l.phrase)) wheres.set(l.phrase, new Set());
+    wheres.get(l.phrase)!.add(l.where);
+  }
+  if (wheres.size === 0) return "";
+  const parts = [...wheres].map(([phrase, where]) => `${phrase} (${[...where].join(", ")})`);
+  return `Removed because you asked us never to say it: ${parts.join("; ")}.`;
+}
+
 export function mergeReports(...reports: RetiredReport[]): RetiredReport {
   const replaced = new Map<string, { from: string; to: string }>();
   const removed = new Set<string>();

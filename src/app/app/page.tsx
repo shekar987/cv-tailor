@@ -48,7 +48,7 @@ import PoolRunLine from "./PoolRunLine";
 import { cardsToPoolText, poolCardLinks, resolveCount, type PoolSettings } from "@/lib/projectPool";
 import { parseMasterExperience } from "@/lib/bulletIds";
 import ProjectsUsed, { type ProjectUsed } from "./ProjectsUsed";
-import { applyRetiredToProfile, findRetired, retiredBlockMessage, type RetiredReport } from "@/lib/retiredClaims";
+import { applyRetiredToProfile, findRetired, retiredBlockMessage, neverSayNotice, normalizeRetiredLocations, type RetiredReport, type RetiredLocation } from "@/lib/retiredClaims";
 import type { SkillLinesFix } from "@/lib/formatRules";
 import type { SeniorityFit } from "@/lib/seniority";
 import { isGraduateScheme, graduateSectionOrder } from "@/lib/graduateMode";
@@ -223,8 +223,9 @@ type Result = {
   masterCvNotes?: MasterCvNote[];
   // lib/factGuard: degree labels fixed, tools dropped, JD phrases in the summary.
   factGuard?: FactGuardReport;
-  // lib/retiredClaims: what the user's list changed, and what it could not fix.
-  retiredClaims?: RetiredReport & { remaining: string[] };
+  // lib/retiredClaims: what the user's list changed, and what it could not fix, plus where
+  // each change acted (JH-4), for the located "Removed because you asked us never to say it" line.
+  retiredClaims?: RetiredReport & { remaining: string[]; locations?: RetiredLocation[] };
   // "Changes vs master CV" (lib/bulletIds): the finished bullets against the
   // master's own — kept, edited (which words), reverted, dropped, new.
   bulletChanges?: { protocol: boolean; headers?: HeaderLock | null; chronology?: ChronologyReport | null; experience: BulletChanges | null; projects: RoleChanges[] };
@@ -3642,11 +3643,14 @@ export default function Home() {
             )}
             {!!result?.retiredClaims && (result.retiredClaims.replaced.length > 0 || result.retiredClaims.removed.length > 0) && (
               <div className="limitNotice" role="status" data-retired-notice>
-                From your list on My CV:{" "}
-                {[
-                  ...result.retiredClaims.replaced.map((r) => `"${r.from}" now reads "${r.to}"`),
-                  ...result.retiredClaims.removed.map((p) => `the line saying "${p}" was removed`),
-                ].join("; ")}.
+                {(() => {
+                  // The located line names where each item went ("OpenAI API (Skills)"), JH-4;
+                  // a run from before carries no locations, so fall back to the plain line.
+                  const located = normalizeRetiredLocations(result.retiredClaims.locations);
+                  const removedLine = neverSayNotice(located) || (result.retiredClaims.removed.length > 0 ? `Removed because you asked us never to say it: ${result.retiredClaims.removed.join("; ")}.` : "");
+                  const replacedLine = result.retiredClaims.replaced.length > 0 ? `From your list on My CV: ${result.retiredClaims.replaced.map((r) => `"${r.from}" now reads "${r.to}"`).join("; ")}.` : "";
+                  return [removedLine, replacedLine].filter(Boolean).join(" ");
+                })()}
               </div>
             )}
             {factGuardList.length > 0 && (

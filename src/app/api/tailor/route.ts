@@ -1,7 +1,7 @@
 import { guardFacts, guardRoleStatus } from "@/lib/factGuard";
 import { checkSuggestions } from "@/lib/suggestionCheck";
 import { TOP_PROJECT_BULLETS, alignWritten, capPoolBullets, cardsToPoolText, dropToFit, normalizePoolSettings, poolCardLinks, poolDropMessage, poolPinnedOverflowMessage, selectCards, type PoolCard, type PoolSelection, type PoolSettings } from "@/lib/projectPool";
-import { applyRetired, applyRetiredToBullets, findRetired, mergeReports, type RetiredClaim, type RetiredReport } from "@/lib/retiredClaims";
+import { applyRetired, applyRetiredToBullets, findRetired, mergeReports, locateRetired, type RetiredClaim, type RetiredReport, type RetiredLocation } from "@/lib/retiredClaims";
 import { projectLabels, withProjectLabels } from "@/lib/projectLabels";
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody } from "@/lib/routeAuth";
@@ -649,8 +649,10 @@ async function runPipeline(opts: {
   const taglineGuard = style.headline.languageCheck
     ? guardTaglineLanguage(builtHeadline, cvTopLanguages, masterTagline)
     : { headline: builtHeadline.headline, replaced: null };
-  // The user's list holds on the header line too (lib/retiredClaims).
-  const headline = applyRetired(taglineGuard.headline, retiredClaims).text;
+  // The user's list holds on the header line too (lib/retiredClaims). Its report is kept
+  // (JH-4): a "Java (Headline)" removal used to be made but never shown.
+  const headlineRetired = applyRetired(taglineGuard.headline, retiredClaims);
+  const headline = headlineRetired.text;
   let pageFitReport: PageFitReport | null = null;
   let poolFitMessage: string | null = null;
   // The built PDF's page count after the fit, for the style's format check.
@@ -1186,10 +1188,15 @@ async function runPipeline(opts: {
   // count below read the result; the CV goes last, below, because the page fit can
   // restore a master bullet.
   const retiredReports: RetiredReport[] = [];
+  // Where each removal/replacement acted, for the result notice (JH-4). The headline was
+  // processed above; its report is recorded here with the rest.
+  const retiredLocated: RetiredLocation[] = [...locateRetired("Headline", headlineRetired.report)];
+  retiredReports.push(headlineRetired.report);
   if (typeof coverLetter === "string") {
     const r = applyRetired(coverLetter, retiredClaims);
     coverLetter = r.text;
     retiredReports.push(r.report);
+    retiredLocated.push(...locateRetired("Cover letter", r.report));
     tidyPoints();
   }
   // How a role is described (lib/factGuard guardRoleStatus, 5 Nov): a
@@ -1263,21 +1270,25 @@ async function runPipeline(opts: {
     const r = applyRetired(summary, retiredClaims);
     summary = r.text;
     retiredReports.push(r.report);
+    retiredLocated.push(...locateRetired("Summary", r.report));
   }
   if (typeof skillsFinal === "string") {
     const r = applyRetired(skillsFinal, retiredClaims);
     skillsFinal = r.text;
     retiredReports.push(r.report);
+    retiredLocated.push(...locateRetired("Skills", r.report));
   }
   if (typeof experienceFinal === "string") {
     const r = applyRetired(experienceFinal, retiredClaims);
     experienceFinal = r.text;
     retiredReports.push(r.report);
+    retiredLocated.push(...locateRetired("Experience", r.report));
   }
   if (projectsFinal && typeof projectsFinal === "object") {
     const r = applyRetiredToBullets(projectsFinal as Record<string, unknown>, retiredClaims);
     projectsFinal = r.projects;
     retiredReports.push(r.report);
+    retiredLocated.push(...locateRetired("Projects", r.report));
     if (projectsPool) selectedFinal = selectedFinal.map((p, i) => ({ ...p, bullets: ((r.projects[String(i)] as string[] | undefined) ?? p.bullets) }));
   }
   const finalSections = { summary, skills: skillsFinal, experience: experienceFinal, projects: projectsFinal };
@@ -1365,6 +1376,8 @@ async function runPipeline(opts: {
     retiredClaims: {
       ...mergeReports(...retiredReports),
       remaining: findRetired([finalText, typeof coverLetter === "string" ? coverLetter : ""].join("\n"), retiredClaims),
+      // Where each removal/replacement acted, for the result notice (JH-4).
+      locations: retiredLocated,
     },
     // lib/summaryFallback: the summary rebuilt from the master CV (CareerSet), or null.
     summaryRebuild,
