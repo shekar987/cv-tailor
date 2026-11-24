@@ -545,6 +545,8 @@ type NewRow = {
   followup_date: string;
   // The format style of the CV sent (lib/formatStyles); "unknown" = not recorded.
   formatStyle: RowStyle;
+  // How the row was added: ordinary manual application or cold email outreach.
+  source: "manual" | "cold-email";
 };
 const ROW_STYLES: readonly RowStyle[] = ["unknown", "ukji", "careerset"];
 
@@ -2079,6 +2081,7 @@ export default function ApplicationsPage() {
       date_applied: startStatus === "saved" ? "" : todayLocal(),
       followup_date: "",
       formatStyle: "unknown",
+      source: attention === "cold" ? "cold-email" : "manual",
     });
     setNewRowErr("");
   }
@@ -2097,7 +2100,7 @@ export default function ApplicationsPage() {
       date_applied: newRow.date_applied || null,
       followup_date: newRow.followup_date || null,
       formatStyle: newRow.formatStyle === "unknown" ? null : newRow.formatStyle,
-      source: "manual",
+      source: newRow.source,
       // Made on this page: the "Logged by" badge marks only rows an automation logged.
       logged_by: "you",
     });
@@ -3400,7 +3403,21 @@ export default function ApplicationsPage() {
                         )}
                       </td>
                       <td data-label="JD"><span className="appsCellStatic">after save</span></td>
-                      <td data-label="Gate"><span className="appsCellStatic">—</span></td>
+                      <td data-label="Gate">
+                        <select
+                          className="appsCellSelect"
+                          value={newRow.source}
+                          onChange={(e) => updateNewRow("source", e.target.value === "cold-email" ? "cold-email" : "manual")}
+                          onKeyDown={handleNewRowKey}
+                          aria-label="Source"
+                          title="How this application was sent"
+                          disabled={savingNew}
+                          data-new-source
+                        >
+                          <option value="manual">Manual</option>
+                          <option value="cold-email">Cold email</option>
+                        </select>
+                      </td>
                       <td data-label="Status">
                         <select
                           className="appsCellSelect"

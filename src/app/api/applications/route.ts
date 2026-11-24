@@ -561,9 +561,9 @@ async function createApplication(req: NextRequest) {
       return NextResponse.json({ error: JD_TOO_LONG }, { status: 400 });
     }
 
-    // Only a tailoring run carries a session id / CV reference; manual rows
-    // never do, so a forged session id on a manual entry is dropped.
-    const source = body.source === "tailored" ? "tailored" : "manual";
+    // Only a tailoring run carries a session id / CV reference; manual and
+    // cold-email rows never do, so a forged session id is dropped.
+    const source = body.source === "tailored" ? "tailored" : body.source === "cold-email" ? "cold-email" : "manual";
     const sessionId = source === "tailored" ? clampOptional(body.tailor_session_id, MAX_SESSION_ID) : null;
     const cvReference = source === "tailored" ? clampOptional(body.cv_reference, MAX_CV_REF) : null;
     // A hand-added row stores only the format style the user picked for it

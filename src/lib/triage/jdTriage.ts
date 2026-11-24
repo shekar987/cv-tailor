@@ -259,7 +259,7 @@ const TECHS: Tech[] = [
   { name: "Python", re: /\bPython\b/i, impliedBy: ["Django", "Flask", "FastAPI"] },
   { name: "TypeScript", re: /\bTypeScript\b/i },
   { name: "JavaScript", re: /\bJavaScript\b|\bJS\b/, impliedBy: ["TypeScript", "React", "Next.js", "Node.js", "Vue", "Angular", "Svelte", "Express", "NestJS"] },
-  { name: "Go", re: /\bGolang\b|\bGo\b(?![-\s]+(?:to|above|beyond|live|further|deep|back|ahead|the|on|out|through|for|from|with|and\s+(?:see|get)))/ },
+  { name: "Go", re: /\bGolang\b|\bGo\b(?![-\s]+(?:[Tt]o|[Aa]bove|[Bb]eyond|[Ll]ive|[Ff]urther|[Dd]eep|[Bb]ack|[Aa]head|[Tt]he|[Oo]n|[Oo]ut|[Tt]hrough|[Ff]or|[Ff]rom|[Ww]ith|[Ff]orward|[Aa]nd\s+(?:[Ss]ee|[Gg]et)))/ },
   { name: "Java", re: /\bJava\b(?![\s-]?[Ss]cript)/i, impliedBy: ["Spring"] },
   { name: "Kotlin", re: /\bKotlin\b/i },
   { name: "Scala", re: /\bScala\b/ },

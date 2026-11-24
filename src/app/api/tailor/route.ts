@@ -84,7 +84,7 @@ import {
 } from "@/lib/supportCheck";
 import { jdCopyTerms, jdCopyProblems, jdCopyHits } from "@/lib/jdCopyGuard";
 import { normalizeLetter, capEmDashes, insertBeforeSignoff } from "@/lib/letterFormat";
-import { eligiblePointsBlock, checkInterestLine, tidyNumberedPoints, countNumberedPoints, insertIntoClose, protectedLetterLines } from "@/lib/letterStyle";
+import { eligiblePointsBlock, checkInterestLine, tidyNumberedPoints, countNumberedPoints, insertIntoClose, protectedLetterLines, cleanLetterBannedWords } from "@/lib/letterStyle";
 import { reconcileAtsScore, renderBandBlock } from "@/lib/visibilityVerdict";
 import { applyFormatRules, formatRulesFor } from "@/lib/formatRules";
 import { applyBulletStyle, type MasterCvNote, type StylePassReport } from "@/lib/stylePass";
@@ -1210,16 +1210,22 @@ async function runPipeline(opts: {
   projectsFinal = toBritishDeep(projectsFinal, spellingChanges, spell);
   if (poolSelection) selectedFinal = selectedFinal.map((p) => ({ ...p, bullets: toBritishDeep(p.bullets, spellingChanges, spell) }));
   else if (projectsPool) selectedFinal = toBritishDeep(selectedFinal, spellingChanges, spell);
-  if (typeof coverLetter === "string") coverLetter = toBritish(coverLetter, spell).text;
+  if (typeof coverLetter === "string") {
+    let cleaned = toBritish(coverLetter, spell).text;
+    if (style.lint.letterBanned.length > 0) {
+      cleaned = cleanLetterBannedWords(cleaned, style.lint.letterBanned).text;
+    }
+    coverLetter = cleaned;
+  }
   // Strictly one page (lib/letterFit): the letter's own PDF, with the date
   // line the preview adds on top, decides; the longest paragraph gives up
-  // its last sentence until it fits. A build failure is logged, never fatal.
+  // its last sentence until it fits both one page and the style's word cap.
   if (typeof coverLetter === "string" && coverLetter.trim()) {
     try {
       const dateLine = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
       // CareerSet's fixed line and its close paragraph are never trimmed; UKJI protects the statement alone, as before.
       const protect = [rightToWork.statement, ...(style.letter.protectFurnitureInFit ? protectedLetterLines(coverLetter, style.letter.furniture, style.letter.thanksLine) : [])];
-      const fit = fitLetterToOnePage(coverLetter, (text) => buildCoverLetterPdfWithPages(`${dateLine}\n\n${text}`).pages, { protect });
+      const fit = fitLetterToOnePage(coverLetter, (text) => buildCoverLetterPdfWithPages(`${dateLine}\n\n${text}`).pages, { protect, maxWords: style.limits.letter.maxWords });
       coverLetter = fit.text;
       letterCheck.pageFit = fit.report;
       tidyPoints();

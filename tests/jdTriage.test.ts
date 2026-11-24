@@ -210,3 +210,18 @@ test("the badge reads 'Skip: 5+ years' with the sentence behind a disclosure; Ap
   assert.doesNotMatch(apply, /<details/);
   assert.equal(renderToStaticMarkup(createElement(TriageBadge, { triage: null })), "");
 });
+
+test("Go-To-Market, Go To Market, Go-Live and Go-Forward are never misread as the Go language", () => {
+  const profile = { rightToWork: "time_limited" as const, yearsExperience: 2, experience: "Full Stack Engineer | Northgate | Jul 2022 - Oct 2024\n• Built Python and React services." };
+  for (const jd of [
+    "Requirements\n- Work closely with Go-To-Market teams on customer onboarding.",
+    "Requirements\n- Strong Go To Market collaboration across product and sales.",
+    "Requirements\n- Own Go-Live readiness and Go-Forward support plans.",
+  ]) {
+    const t = triageJd(jd, profile);
+    assert.ok(!t.hits.some((h) => h.phrase.startsWith("Go ")), `false Go hit on: ${jd} -> ${JSON.stringify(t.hits)}`);
+  }
+  const realGo = triageJd("Requirements\n- 2+ years building backend services in Go.", profile);
+  assert.equal(realGo.verdict, "skip");
+  assert.ok(realGo.hits.some((h) => h.phrase.startsWith("Go ")));
+});

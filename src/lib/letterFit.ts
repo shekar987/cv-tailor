@@ -44,18 +44,24 @@ function candidates(lines: string[], protect: Set<string>): number[] {
   return out;
 }
 
+function wordCount(text: string): number {
+  return text.replace(/\*\*/g, "").split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)).length;
+}
+
 export function fitLetterToOnePage(
   letter: string,
   countPages: (text: string) => number,
-  opts: { protect?: (string | null | undefined)[]; maxRemovals?: number } = {}
+  opts: { protect?: (string | null | undefined)[]; maxRemovals?: number; maxWords?: number | null } = {}
 ): { text: string; report: LetterFitReport } {
   const protect = new Set((opts.protect ?? []).filter((s): s is string => !!s).map((s) => s.trim()));
   const max = opts.maxRemovals ?? LETTER_FIT_MAX_REMOVALS;
+  const maxWords = opts.maxWords ?? null;
   const lines = (letter || "").replace(/\r/g, "").split("\n");
   const removed: string[] = [];
   const pagesBefore = countPages(lines.join("\n"));
   let pages = pagesBefore;
-  while (pages > 1 && removed.length < max) {
+  const needsTrim = () => pages > 1 || (maxWords !== null && wordCount(lines.join("\n")) > maxWords);
+  while (needsTrim() && removed.length < max) {
     const idxs = candidates(lines, protect);
     if (idxs.length === 0) break;
     // The longest line gives up its last sentence; a line left empty goes.
@@ -73,5 +79,6 @@ export function fitLetterToOnePage(
     pages = countPages(lines.join("\n"));
   }
   const text = removed.length ? lines.join("\n").replace(/\n{3,}/g, "\n\n").trim() : letter;
-  return { text, report: { target: 1, pagesBefore, pagesAfter: pages, removed, fits: pages <= 1 } };
+  const fits = pages <= 1 && (maxWords === null || wordCount(text) <= maxWords);
+  return { text, report: { target: 1, pagesBefore, pagesAfter: pages, removed, fits } };
 }

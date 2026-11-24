@@ -52,3 +52,13 @@ test("a line reduced to nothing is removed with its blank; the cap stops a lette
   assert.ok(all.text.includes("I am applying for the Backend Engineer role at Acme."), "even a hopeless fit never removes the opening");
   assert.ok(all.text.includes("Kind regards,"));
 });
+
+test("maxWords trims sentences even when the letter already fits on one page", () => {
+  const rtw = "I have the permanent right to work in the UK and will not require visa sponsorship.";
+  const r = fitLetterToOnePage(LETTER, () => 1, { protect: [rtw], maxWords: 90 });
+  assert.ok(r.report.removed.length > 0, "trimmed to fit maxWords");
+  const words = r.text.split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)).length;
+  assert.ok(words <= 90, `expected <= 90 words, got ${words}`);
+  assert.ok(r.text.includes(rtw), "protected sentence kept");
+  assert.equal(r.report.fits, true);
+});

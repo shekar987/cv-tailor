@@ -137,3 +137,54 @@ export function protectedLetterLines(letter: string, furniture: readonly RegExp[
     .map((l) => l.trim())
     .filter((l) => l && (furniture.some((re) => re.test(l)) || (thanksLine !== "" && l.includes(thanksLine))));
 }
+
+// Safe deterministic cleanup for trivial letter banned words (CareerSet:
+// "used" → "applied", "also" / "kind of" dropped cleanly). Words that would
+// risk overclaiming ("assisted", "contribute", "contributed") are never
+// auto-swapped and stay for the style check to report.
+const LETTER_SAFE_SWAPS: Readonly<Record<string, string>> = {
+  used: "applied",
+  also: "",
+  "kind of": "",
+};
+
+function escRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function cleanLetterBannedWords(letter: string, banned: readonly string[]): { text: string; changed: number } {
+  if (!letter || !banned.length) return { text: letter, changed: 0 };
+  let out = letter;
+  let changed = 0;
+  for (const word of banned) {
+    const target = LETTER_SAFE_SWAPS[word.toLowerCase()];
+    if (target === undefined) continue;
+    const re = new RegExp(`(?<![\\w-])${escRe(word).replace(/\\?\s+/g, "\\s+")}(?![\\w-])`, "gi");
+    out = out.replace(re, (found: string, offset: number, full: string) => {
+      changed++;
+      if (target) {
+        return /^[A-Z]/.test(found) ? target.charAt(0).toUpperCase() + target.slice(1) : target;
+      }
+      // Removing "also" or "kind of": avoid leaving double spaces or leading comma gaps.
+      const prev = offset > 0 ? full[offset - 1] : "";
+      const next = full[offset + found.length] ?? "";
+      if (prev === " " && next === " ") return "";
+      return "";
+    });
+  }
+  if (changed > 0) {
+    out = out
+      .split("\n")
+      .map((line) =>
+        line
+          .replace(/[ \t]{2,}/g, " ")
+          .replace(/\s+([,.;:!?])/g, "$1")
+          .replace(/,\s*,+/g, ",")
+          .replace(/^\s*,\s*/, "")
+          .replace(/^([a-z])/, (m) => m.toUpperCase())
+          .trimEnd()
+      )
+      .join("\n");
+  }
+  return { text: out, changed };
+}

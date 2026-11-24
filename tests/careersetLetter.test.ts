@@ -4,7 +4,7 @@
 // page fit's protected lines. UKJI's behaviour is pinned beside each.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { eligiblePointsBlock, interestReason, interestLineSupported, checkInterestLine, tidyNumberedPoints, countNumberedPoints, insertIntoClose, protectedLetterLines, INTEREST_MIN_OVERLAP } from "../src/lib/letterStyle.ts";
+import { eligiblePointsBlock, interestReason, interestLineSupported, checkInterestLine, tidyNumberedPoints, countNumberedPoints, insertIntoClose, protectedLetterLines, cleanLetterBannedWords, INTEREST_MIN_OVERLAP } from "../src/lib/letterStyle.ts";
 import { normalizeLetter, insertBeforeSignoff } from "../src/lib/letterFormat.ts";
 import { fitLetterToOnePage } from "../src/lib/letterFit.ts";
 import { applyLetterLint } from "../src/lib/letterLint.ts";
@@ -98,4 +98,12 @@ test("the page fit never trims the fixed line or the close paragraph when they a
   assert.ok(kept.report.removed.length > 0);
   const loose = fitLetterToOnePage(letter, counter(6), { protect: [] });
   assert.ok(loose.report.removed.includes(fixed) || loose.report.removed.some((s) => close.includes(s)), "unprotected, the longest lines are the ones that go — UKJI's behaviour today");
+});
+
+test("cleanLetterBannedWords swaps used → applied and removes also / kind of without touching unsafe verbs", () => {
+  const raw = "I also used FastAPI and PostgreSQL in production. Used Docker daily, and I assisted the QA team.";
+  const r = cleanLetterBannedWords(raw, CAREERSET.lint.letterBanned);
+  assert.equal(r.text, "I applied FastAPI and PostgreSQL in production. Applied Docker daily, and I assisted the QA team.");
+  assert.equal(r.changed, 3);
+  assert.equal(cleanLetterBannedWords(raw, UKJI.lint.letterBanned).text, raw, "UKJI has no banned list: untouched");
 });
