@@ -247,20 +247,23 @@ export function bannedWordsIn(text: string, banned: readonly string[]): string[]
 // bullets when an opening verb is already at the style's verbCap across
 // experience + projects. Master CV experience bullets are never rewritten.
 const PROJECT_VERB_ALTERNATIVES: Readonly<Record<string, readonly string[]>> = {
+  built: ["Developed", "Engineered", "Implemented", "Created", "Shipped", "Delivered", "Assembled"],
   build: ["Developed", "Engineered", "Implemented", "Created", "Shipped", "Delivered", "Assembled"],
   design: ["Created", "Structured", "Engineered", "Developed", "Architected", "Produced"],
   develop: ["Engineered", "Implemented", "Created", "Shipped", "Delivered", "Produced"],
   implement: ["Engineered", "Developed", "Shipped", "Delivered", "Integrated", "Created"],
   creat: ["Developed", "Engineered", "Implemented", "Delivered", "Produced", "Shipped"],
-  engin: ["Developed", "Implemented", "Shipped", "Delivered", "Created", "Structured"],
+  engineer: ["Developed", "Implemented", "Shipped", "Delivered", "Created", "Structured"],
   automat: ["Streamlined", "Scripted", "Scheduled", "Standardised", "Implemented"],
-  add: ["Introduced", "Integrated", "Implemented", "Included", "Shipped"],
-  wrot: ["Authored", "Implemented", "Created", "Developed", "Produced"],
+  added: ["Introduced", "Integrated", "Implemented", "Included", "Shipped"],
+  wrote: ["Authored", "Implemented", "Created", "Developed", "Produced"],
   write: ["Authored", "Implemented", "Created", "Developed", "Produced"],
   deliver: ["Shipped", "Completed", "Produced", "Implemented", "Developed"],
   integrat: ["Connected", "Wired", "Combined", "Implemented", "Linked"],
   optimis: ["Tuned", "Improved", "Accelerated", "Refined", "Streamlined"],
   improv: ["Refined", "Tuned", "Strengthened", "Accelerated", "Upgraded"],
+  shipp: ["Delivered", "Launched", "Released", "Deployed", "Produced"],
+  architect: ["Structured", "Designed", "Engineered", "Created", "Developed"],
 };
 
 function experienceBullets(experience: string): string[] {
