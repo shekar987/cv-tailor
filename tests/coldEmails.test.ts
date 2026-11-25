@@ -7,13 +7,16 @@ import {
   coldEmailKey,
   coldEmailNeedsFollowup,
   coldEmailRecord,
+  COLD_EMAIL_COOLDOWN_DAYS,
   COLD_EMAIL_SOURCE,
   DEFAULT_COLD_ROLE,
+  findRecentColdEmailMatches,
   MAX_BULK_ROWS,
   planBulkUpsert,
   readColdEmails,
   type ExistingRow,
 } from "../src/lib/coldEmails.ts";
+import { isAutomatedOrParserEmail } from "../src/lib/contactCheck.ts";
 
 const TODAY = "2026-11-06";
 const row = (over: Record<string, unknown> = {}) => ({ company_name: "Acme", role: "Cold email: Backend", contact_email: "jane@acme.example", date_sent: "2026-10-30", followup_date: "2026-11-06", notes: "Sent from Gmail", ...over });
@@ -100,4 +103,46 @@ test("the tracker filter: a cold email, still Applied, with no follow-up date", 
   assert.equal(coldEmailNeedsFollowup({ source: "cold-email", status: "applied", followup_date: "2026-11-13" }), false);
   assert.equal(coldEmailNeedsFollowup({ source: "cold-email", status: "screening", followup_date: null }), false);
   assert.equal(coldEmailNeedsFollowup({ source: "manual", status: "applied", followup_date: null }), false);
+});
+
+test("readColdEmails rejects ATS parser and no-reply addresses while keeping real contacts", () => {
+  assert.equal(isAutomatedOrParserEmail("holiday-extras@jobs.workablemail.com"), true);
+  assert.equal(isAutomatedOrParserEmail("hello+noreply@ably.com"), true);
+  assert.equal(isAutomatedOrParserEmail("no-reply@hire.lever.co"), true);
+  assert.equal(isAutomatedOrParserEmail("recruiting@pinpoint.email"), true);
+  assert.equal(isAutomatedOrParserEmail("jane@acme.example"), false);
+  assert.equal(isAutomatedOrParserEmail("careers@veremark.com"), false);
+
+  const r = read([
+    row({ company_name: "RealCo", contact_email: "founder@realco.example" }),
+    row({ company_name: "Holiday Extras", contact_email: "holiday-extras@jobs.workablemail.com" }),
+    row({ company_name: "Ably", contact_email: "hello+noreply@ably.com" }),
+    row({ company_name: "PinpointCo", contact_email: "team@pinpoint.email" }),
+  ]);
+  assert.equal(r.rows.length, 1);
+  assert.equal(r.rows[0].row.company_name, "RealCo");
+  assert.deepEqual(r.problems.map((p) => p.index), [1, 2, 3]);
+  assert.match(r.problems[0].error, /ATS parser or no-reply/);
+});
+
+test("findRecentColdEmailMatches flags same-company cold emails within the 90-day cooldown", () => {
+  const existing = [
+    { id: "c1", company_name: "Veremark", contact_email: "talent@veremark.example", status: "Applied", source: "cold-email", role: "Cold email", date_applied: "2026-11-20" },
+    { id: "c2", company_name: "OldCo", contact_email: "hi@oldco.example", status: "Applied", source: "cold-email", role: "Cold email", date_applied: "2026-07-01" },
+    { id: "a1", company_name: "AppOnlyCo", contact_email: null, status: "Interview", source: "tailored", role: "Backend Engineer", date_applied: "2026-11-22" },
+  ];
+  const incoming = readColdEmails(
+    [
+      row({ company_name: "Veremark Ltd", contact_email: "careers@veremark.example", date_sent: "2026-11-25", followup_date: "2026-12-02" }),
+      row({ company_name: "OldCo", contact_email: "founder@oldco.example", date_sent: "2026-11-25", followup_date: "2026-12-02" }),
+      row({ company_name: "AppOnlyCo", contact_email: "founder@apponly.example", date_sent: "2026-11-25", followup_date: "2026-12-02" }),
+    ],
+    "2026-11-25",
+  ).rows;
+  const plan = planBulkUpsert(existing, incoming);
+  const matches = findRecentColdEmailMatches(existing, plan.insert, COLD_EMAIL_COOLDOWN_DAYS);
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].existingId, "c1");
+  assert.equal(matches[0].existingDate, "2026-11-20");
+  assert.equal(matches[0].existingContact, "talent@veremark.example");
 });

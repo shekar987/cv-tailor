@@ -15,7 +15,7 @@
 //
 // Relative .ts imports only, so it runs under node:test.
 import { companyNamesMatch, normalizeCompanyName } from "./companyMatch.ts";
-import { isValidEmail } from "./contactCheck.ts";
+import { isAutomatedOrParserEmail, isValidEmail } from "./contactCheck.ts";
 import { MAX_NOTES_CHARS } from "./limits.ts";
 
 export const MAX_BULK_ROWS = 200;
@@ -128,6 +128,7 @@ export function readColdEmails(body: unknown, today: string): { rows: { index: n
       [/^(?:undefined|null|nan|\[object object\])$/i.test(role), `role was sent as "${role}": send the real job title, or leave it out.`],
       [company.length > MAX_COMPANY_CHARS, `company_name is too long (max ${MAX_COMPANY_CHARS} characters).`],
       [!email || email.length > MAX_EMAIL_CHARS || !isValidEmail(email), "contact_email is not an email address."],
+      [isAutomatedOrParserEmail(email), "contact_email is an ATS parser or no-reply address, not a person."],
       [role.length > MAX_ROLE_CHARS, `role is too long (max ${MAX_ROLE_CHARS} characters).`],
       [!isRealDate(sent), "date_sent must be a date, YYYY-MM-DD."],
       [isRealDate(sent) && sent > today, "date_sent is in the future."],
@@ -209,6 +210,47 @@ export function coldEmailRecord(row: ColdEmailInput, status: string): Record<str
 /** A cold email or speculative outreach: no job title, so no seniority and no JD check. */
 export function isColdOutreach(row: { source?: string | null; role?: string | null }): boolean {
   return row.source === COLD_EMAIL_SOURCE || COLD_ROLE_RE.test(row.role ?? "");
+}
+
+export const COLD_EMAIL_COOLDOWN_DAYS = 90;
+
+export type RecentColdEmailMatch = {
+  index: number;
+  existingId: string;
+  companyName: string;
+  existingDate: string | null;
+  existingContact: string | null;
+  existingStatus: string | null;
+};
+
+/**
+ * Flags incoming cold emails targeting a company that already has another cold-email
+ * row within `cooldownDays` (default 90), so parallel sweeps never double-contact a
+ * company within the 90-day window even when using a different inbox.
+ */
+export function findRecentColdEmailMatches(
+  existing: readonly (ExistingRow & { date_applied?: string | null })[],
+  plannedInserts: readonly { index: number; row: ColdEmailInput }[],
+  cooldownDays = COLD_EMAIL_COOLDOWN_DAYS,
+): RecentColdEmailMatch[] {
+  const coldExisting = existing.filter((e) => looksLikeColdEmail(e));
+  const out: RecentColdEmailMatch[] = [];
+  for (const { index, row } of plannedInserts) {
+    const match = coldExisting.find(
+      (e) => sameThread(e, row.company_name) && daysApart(e.date_applied, row.date_sent) <= cooldownDays,
+    );
+    if (match) {
+      out.push({
+        index,
+        existingId: match.id,
+        companyName: match.company_name ?? row.company_name,
+        existingDate: match.date_applied ? match.date_applied.slice(0, 10) : null,
+        existingContact: match.contact_email ?? null,
+        existingStatus: match.status ?? null,
+      });
+    }
+  }
+  return out;
 }
 
 export function coldEmailNeedsFollowup(row: { source?: string | null; status?: string | null; followup_date?: string | null }): boolean {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, declaresMoreThan, payloadTooLarge } from "@/lib/routeAuth";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { MAX_APPLICATIONS, readApplicationPages, type OrderableQuery } from "@/lib/applicationRows";
-import { coldEmailKey, coldEmailRecord, MAX_BULK_ROWS, planBulkUpsert, readColdEmails, type ExistingRow } from "@/lib/coldEmails";
+import { coldEmailKey, coldEmailRecord, findRecentColdEmailMatches, MAX_BULK_ROWS, planBulkUpsert, readColdEmails, type ExistingRow } from "@/lib/coldEmails";
 import { apiStatus, oldStatusLabel } from "@/lib/tracker";
 
 // POST /api/applications/bulk-upsert (6 Nov 2026, Chunk 18): cold emails a
@@ -126,12 +126,18 @@ export async function POST(req: NextRequest) {
       break;
     }
 
+    const recentCompanyDuplicates = findRecentColdEmailMatches(existingRead.rows, plan.insert).map((m) => ({
+      ...m,
+      existingStatus: m.existingStatus === null ? null : apiStatus(m.existingStatus),
+    }));
+
     return NextResponse.json({
       ok: true,
       inserted,
       // The API's spelling, as GET /api/applications answers it (the sweeps read exactly these).
       existing: plan.existing.map((e) => ({ ...e, status: e.status === null ? null : apiStatus(e.status) })),
       duplicateInPayload: plan.duplicateInPayload,
+      recentCompanyDuplicates,
       problems: read.problems,
     });
   } catch (err) {

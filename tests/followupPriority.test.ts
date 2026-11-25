@@ -58,3 +58,19 @@ test("todaysFollowups skips rows not due and ended rows", () => {
   const out = todaysFollowups(rows, today);
   assert.deepEqual(out.items.map((i) => i.row.id), ["due"]);
 });
+
+test("ATS parser and no-reply addresses never receive the named-contact priority boost", () => {
+  const parserAddresses = [
+    "holiday-extras@jobs.workablemail.com",
+    "no-reply@hire.lever.co",
+    "hello+noreply@ably.com",
+    "noreply@pinpoint.email",
+    "notifications@smartrecruiters.com",
+    "mailer-daemon@googlemail.com",
+  ];
+  for (const addr of parserAddresses) {
+    assert.equal(followupPriority(due({ contact_email: addr })), 0, `${addr} should rank as ATS-only`);
+  }
+  assert.equal(followupPriority(due({ contact_email: "tom.mcdonnell@fanvue.com" })), 10);
+  assert.equal(followupPriority(due({ contact_email: "no-reply@hire.lever.co", referrer_name: "Alex" })), 10);
+});

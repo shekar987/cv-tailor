@@ -36,6 +36,44 @@ export function isValidEmail(raw: string): boolean {
   return s.length <= 254 && EMAIL_RE.test(s);
 }
 
+// ATS parser relays and automated/no-reply addresses are never humans to email
+// or chase (25 Nov 2026: workablemail.com bounced "attachment missing" and
+// hello+noreply@ / mailer-daemon@ / ATS bots polluted follow-ups).
+const AUTOMATED_LOCAL_RE =
+  /^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|mailer[-_.]?daemon|postmaster|auto[-_.]?reply|notifications?|bounces?)(?:[+._-].*)?$|[+._-]no[-_.]?reply$/i;
+
+const ATS_PARSER_DOMAIN_SUFFIXES = [
+  "workablemail.com",
+  "pinpoint.email",
+  "greenhouse-mail.io",
+  "hire.lever.co",
+  "mail.ashbyhq.com",
+  "smartrecruiters.com",
+  "myworkday.com",
+  "myworkdayjobs.com",
+  "icims.com",
+  "taleo.net",
+  "hireful.app",
+  "teamtailor-mail.com",
+  "mail.jobvite.com",
+  "brassring.com",
+  "successfactors.com",
+  "successfactors.eu",
+  "applytojob.com",
+];
+
+/** True when an address belongs to an ATS mail parser, relay, or no-reply inbox. */
+export function isAutomatedOrParserEmail(raw: string | null | undefined): boolean {
+  if (typeof raw !== "string") return false;
+  const s = raw.trim().replace(/^mailto:\s*/i, "").toLowerCase();
+  const at = s.lastIndexOf("@");
+  if (at <= 0 || at === s.length - 1) return false;
+  const local = s.slice(0, at);
+  const domain = s.slice(at + 1);
+  if (AUTOMATED_LOCAL_RE.test(local)) return true;
+  return ATS_PARSER_DOMAIN_SUFFIXES.some((suffix) => domain === suffix || domain.endsWith(`.${suffix}`));
+}
+
 // Digits with the usual separators and at most one leading "+"; "(0)" — the
 // UK trunk prefix written after a country code — is allowed. A UK number
 // (0… or +44…) has 10 or 11 national digits; any other has 7 to 15 digits

@@ -14,6 +14,7 @@
 // the most overdue of an equal band comes first.
 //
 // Relative .ts imports only, so it runs under node:test (tests/followupPriority).
+import { isAutomatedOrParserEmail } from "./contactCheck.ts";
 import { isFollowupDueToday, type DueRow } from "./followupsDue.ts";
 import { normalizeStatus, type Status } from "./tracker.ts";
 
@@ -46,7 +47,8 @@ export function followupPriority(row: PriorityRow): number {
   const status = normalizeStatus(row.status);
   if (status && PROGRESSED_STAGES.has(status)) score += STAGE;
   if (row.last_contact_from === "them") score += HUMAN_REPLIED;
-  if ((row.contact_email && row.contact_email.trim()) || (row.referrer_name && row.referrer_name.trim())) score += NAMED_CONTACT;
+  const hasHumanEmail = !!row.contact_email && !!row.contact_email.trim() && !isAutomatedOrParserEmail(row.contact_email);
+  if (hasHumanEmail || (row.referrer_name && row.referrer_name.trim())) score += NAMED_CONTACT;
   if (row.referral === true || (row.referral_status && row.referral_status.trim())) score += REFERRAL;
   return score;
 }
