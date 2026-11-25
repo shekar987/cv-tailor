@@ -6,6 +6,8 @@ the full roadmap is restored later, keep this log at the bottom of it.
 
 ## Progress log
 
+- **FT-1 built on branch ft-1-smart-match** (25 Nov 2026). Smart Match: free, deterministic CV reordering with no AI call. `src/lib/smartMatch.ts` scores each bullet by JD keyword matches (required×4, preferred×2, general×1 via `matchAtsKeywords`), reorders skills lines so matched items come first, selects the top 2 projects by relevance, and returns `{sections, coverage, gaps, evidenceIds, isFreeMatch:true}`. `/api/tailor/smart` exposes it as a signed-in, burst-limited (20/min) POST with no credit spent. The `/app` `provider_credit` and `needs_keys` notices gain a "Tailor free (Smart Match)" button. 17/17 new tests in `tests/smartMatch.test.ts`; 1453/1453 full suite; typecheck and build clean. Java≠JavaScript protection inherited from `matchAtsKeywords`. Key fix: `parseJdKeywords` only applies the catch-all heading rule while already in general mode, so single-word tech names inside a Requirements section are never mistaken for section headings.
+
 - **TL-1 merged** (branch `tl-1-local-provider`, 25 Nov 2026). Local tailor
   part 1: a provider abstraction (`src/lib/llm/` — `generate` /
   `generateJSON(schema)` / `embed`; `RemoteProvider` wraps the existing
