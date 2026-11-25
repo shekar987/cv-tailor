@@ -35,6 +35,7 @@ import { rightToWorkStatement, type RtwFacts } from "./rightToWorkText.ts";
 import { normalizeFormatStyle, type FormatStyleId } from "./formatStyles/ids.ts";
 import { normalizeRetiredClaims, type RetiredClaim } from "./retiredClaims.ts";
 import { DEFAULT_POOL_SETTINGS, normalizePoolCards, normalizePoolSettings, type PoolCard, type PoolSettings } from "./projectPool.ts";
+import { type TailoringEngine } from "./tailorJobs.ts";
 
 // formatStyle (16 Oct 2026): the document's format style, UKJI (the default,
 // the shape the app always produced) or CareerSet (lib/formatStyles). The
@@ -66,11 +67,16 @@ export type Preferences = {
   projectCards: PoolCard[];
   projectPoolSettings: PoolSettings;
   poolTextBeforeCards: string;
+  // Which engine tailors this account's CVs (Chunk TL-1, Local Tailor).
+  // "premium" (the default) is the existing paid pipeline; "local" sends the
+  // work to the free open-weight model on the user's own PC via the queue.
+  // The default stays "premium" until TL-16.
+  tailoringEngine: TailoringEngine;
 };
 
 const MAX_OLD_POOL_TEXT = 15_000;
 
-export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false, cvLength: "two", projectLinks: {}, formatStyle: "ukji", retiredClaims: [], projectCards: [], projectPoolSettings: DEFAULT_POOL_SETTINGS, poolTextBeforeCards: "" };
+export const DEFAULT_PREFERENCES: Preferences = { version: 1, includeRightToWorkOnCv: false, onePageCv: false, cvLength: "two", projectLinks: {}, formatStyle: "ukji", retiredClaims: [], projectCards: [], projectPoolSettings: DEFAULT_POOL_SETTINGS, poolTextBeforeCards: "", tailoringEngine: "premium" };
 
 export function normalizePreferences(v: unknown): Preferences {
   const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -86,6 +92,7 @@ export function normalizePreferences(v: unknown): Preferences {
     projectCards: normalizePoolCards(o.projectCards),
     projectPoolSettings: normalizePoolSettings(o.projectPoolSettings),
     poolTextBeforeCards: typeof o.poolTextBeforeCards === "string" ? o.poolTextBeforeCards.slice(0, MAX_OLD_POOL_TEXT) : "",
+    tailoringEngine: o.tailoringEngine === "local" ? "local" : "premium",
   };
 }
 

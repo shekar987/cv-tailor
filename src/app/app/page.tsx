@@ -17,6 +17,7 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import CvPreview, { type CvPreviewHandle } from "../CvPreview";
 import FormAnswers from "../FormAnswers";
+import LocalTailorPanel from "../LocalTailorPanel";
 import TriageBadge from "../TriageBadge";
 import { triageJd, buildTriageProfile } from "@/lib/triage/jdTriage";
 import CoverLetterPreview, { type CoverLetterPreviewHandle } from "../CoverLetterPreview";
@@ -2897,6 +2898,7 @@ export default function Home() {
                 </button>
               </div>
             )}
+            <LocalTailorPanel jobDescription={jobDescription} paidSummary={result.summary ?? ""} />
             {staleRun && (
               <div className="limitNotice" role="alert" data-stale-jd>
                 <div className="limitNotice__title">The job description changed since this CV was tailored</div>

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { normalizePreferences, profileForDocument, rightToWorkForForms, pageTarget, pageTargetFor, EARLY_CAREER_YEARS, DEFAULT_PREFERENCES } from "../src/lib/preferences.ts";
 
 const profile = { name: "Jane", rightToWork: ["Full right to work in the UK", "No sponsorship required"], certifications: ["AWS"] };
-const ON = { version: 1 as const, includeRightToWorkOnCv: true, onePageCv: false, cvLength: "auto" as const, projectLinks: {}, formatStyle: "ukji" as const, retiredClaims: [], projectCards: [], projectPoolSettings: { count: "auto" as const, order: "relevance" as const }, poolTextBeforeCards: "" };
+const ON = { version: 1 as const, includeRightToWorkOnCv: true, onePageCv: false, cvLength: "auto" as const, projectLinks: {}, formatStyle: "ukji" as const, retiredClaims: [], projectCards: [], projectPoolSettings: { count: "auto" as const, order: "relevance" as const }, poolTextBeforeCards: "", tailoringEngine: "premium" as const };
 const ELIG = { rightToWork: { status: "full" as const, countries: ["UK"], permissionEnds: null }, availability: { status: "now" as const, from: null }, canWorkFullTime: "yes" as const };
 const UNSET = { rightToWork: { status: "unknown" as const, countries: [], permissionEnds: null }, availability: { status: "unknown" as const, from: null }, canWorkFullTime: "unknown" as const };
 
@@ -57,13 +57,21 @@ test("CV length: two pages unless one page is explicitly chosen (7 Oct: 'auto' r
   assert.equal(pageTargetFor(two, { yearsExperience: 1, graduate: true }), 2, "a graduate scheme is two pages too");
   assert.equal(pageTargetFor(normalizePreferences({ cvLength: "one" }), { yearsExperience: 10 }), 1);
   // The two switches are independent.
-  assert.deepEqual(normalizePreferences({ includeRightToWorkOnCv: true, onePageCv: true }), { version: 1, includeRightToWorkOnCv: true, onePageCv: true, cvLength: "one", projectLinks: {}, formatStyle: "ukji", retiredClaims: [], projectCards: [], projectPoolSettings: { count: "auto", order: "relevance" }, poolTextBeforeCards: "" });
+  assert.deepEqual(normalizePreferences({ includeRightToWorkOnCv: true, onePageCv: true }), { version: 1, includeRightToWorkOnCv: true, onePageCv: true, cvLength: "one", projectLinks: {}, formatStyle: "ukji", retiredClaims: [], projectCards: [], projectPoolSettings: { count: "auto", order: "relevance" }, poolTextBeforeCards: "", tailoringEngine: "premium" });
 });
 
 test("rightToWorkForForms is the Eligibility statement, one sentence per line, empty until answered", () => {
   assert.equal(rightToWorkForForms(ELIG), "I have the permanent right to work in the UK and will not require visa sponsorship.\nI am available to start immediately and can work full time.");
   assert.equal(rightToWorkForForms(UNSET), "");
   assert.equal(rightToWorkForForms(null), "");
+});
+
+test("tailoringEngine (Chunk TL-1): default premium, only an explicit 'local' switches it", () => {
+  assert.equal(DEFAULT_PREFERENCES.tailoringEngine, "premium");
+  assert.equal(normalizePreferences({}).tailoringEngine, "premium");
+  assert.equal(normalizePreferences({ tailoringEngine: "local" }).tailoringEngine, "local");
+  assert.equal(normalizePreferences({ tailoringEngine: "something" }).tailoringEngine, "premium");
+  assert.equal(normalizePreferences({ tailoringEngine: true }).tailoringEngine, "premium");
 });
 
 test("projectLinks: saved per project, cleaned and bounded (lib/projectLinks)", () => {

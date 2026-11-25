@@ -1,0 +1,19 @@
+Frontend Engineer — Acme Retail (London, hybrid)
+
+We are looking for a Frontend Engineer to build and maintain our customer-facing
+web app. You will work in React and TypeScript, care about performance and
+accessibility, and ship features end to end.
+
+What you'll do
+- Build responsive React components in TypeScript.
+- Improve page load performance and Core Web Vitals.
+- Write tests (Jest, React Testing Library) and review pull requests.
+- Work with designers and backend engineers to ship features.
+
+What we're looking for
+- 2+ years building production web apps with React and TypeScript.
+- Experience improving front-end performance.
+- Familiarity with REST APIs and CI pipelines.
+
+Nice to have
+- Experience with AWS.

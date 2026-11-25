@@ -19,6 +19,9 @@ import Badge from "@/components/ui/Badge";
 import Folio from "@/components/ui/Folio";
 import Skeleton from "@/components/ui/Skeleton";
 import StatusText from "@/components/ui/StatusText";
+import { getUserSettings, savePreferences } from "@/lib/cvStore";
+import { normalizePreferences, type Preferences } from "@/lib/preferences";
+import { engineLabel, formatGbp, type TailoringEngine } from "@/lib/tailorJobs";
 
 const PAGE_TAGLINE = "Your account, how much you have used, and your own API key for after the 3 free tailored CVs.";
 
@@ -126,6 +129,30 @@ export default function SettingsPage() {
   const [deleteTyped, setDeleteTyped] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  // Tailoring engine (Chunk TL-1). The whole Preferences object is held so a
+  // save writes it back WHOLE without wiping other switches; null until a read
+  // succeeds (a failed read must not overwrite with defaults).
+  const [prefs, setPrefs] = useState<Preferences | null>(null);
+  const [prefsReadFailed, setPrefsReadFailed] = useState(false);
+  const [engineSaving, setEngineSaving] = useState(false);
+  const [engineError, setEngineError] = useState("");
+  const [savedGbp, setSavedGbp] = useState<number | null>(null);
+
+  async function setEngine(engine: TailoringEngine) {
+    if (!prefs || engineSaving || prefs.tailoringEngine === engine) return;
+    const next: Preferences = { ...prefs, tailoringEngine: engine };
+    setPrefs(next);
+    setEngineSaving(true);
+    setEngineError("");
+    try {
+      const res = await savePreferences(next);
+      if (!res.ok) setEngineError("Couldn't save that — try again.");
+    } catch {
+      setEngineError("Couldn't save that — try again.");
+    } finally {
+      setEngineSaving(false);
+    }
+  }
 
   async function exportData() {
     setExporting(true);
@@ -204,6 +231,20 @@ export default function SettingsPage() {
         }
         setSavedKeys(map);
       }
+
+      // Tailoring engine + the £-saved counter. A failed read leaves prefs null
+      // so the toggle stays locked rather than overwriting stored preferences.
+      getUserSettings()
+        .then((s) => {
+          if (s.readFailed) setPrefsReadFailed(true);
+          else setPrefs(normalizePreferences(s.preferences));
+        })
+        .catch(() => setPrefsReadFailed(true));
+      fetch("/api/tailor-jobs")
+        .then((r) => r.json())
+        .then((d) => typeof d.savedGbp === "number" && setSavedGbp(d.savedGbp))
+        .catch(() => {});
+
       setLoaded(true);
     }
     init();
@@ -332,6 +373,45 @@ export default function SettingsPage() {
             )}
           </Card>
 
+          <Card variant="ruled" data-tailoring-engine>
+            <div className="keyCardHeader">
+              <span className="keyLabel"><Folio n={2} />Tailoring engine</span>
+            </div>
+            <p className="keyRole">
+              Choose what writes your tailored CVs. Premium uses the paid models (your 3 free tailored CVs, then your own
+              key). Local runs a free open-weight model on your own PC for £0 per CV — it needs the worker set up on the
+              Auto-apply page.
+            </p>
+            {prefsReadFailed ? (
+              <StatusText role="alert">Couldn&apos;t load your settings. Refresh to change the engine.</StatusText>
+            ) : !prefs ? (
+              <Skeleton lines={2} label="Loading your engine choice" />
+            ) : (
+              <>
+                <fieldset className="engineChoice" disabled={engineSaving}>
+                  <legend className="srOnly">Tailoring engine</legend>
+                  {(["premium", "local"] as TailoringEngine[]).map((opt) => (
+                    <label key={opt} className="engineOption" data-engine-option={opt} data-selected={prefs.tailoringEngine === opt}>
+                      <input
+                        type="radio"
+                        name="tailoring-engine"
+                        checked={prefs.tailoringEngine === opt}
+                        onChange={() => setEngine(opt)}
+                      />
+                      <span>{engineLabel(opt)}</span>
+                    </label>
+                  ))}
+                </fieldset>
+                {engineError && <StatusText role="alert">{engineError}</StatusText>}
+                <p className="keyRole" data-saved-counter>
+                  {savedGbp && savedGbp > 0
+                    ? `Saved with local tailoring so far: ${formatGbp(savedGbp)}.`
+                    : "Local runs so far have saved £0.00 — run one from the Tailor page to start the counter."}
+                </p>
+              </>
+            )}
+          </Card>
+
           {SLOTS.map((slot, i) => {
             const saved = savedKeys[slot.provider];
             const isBusy = status[slot.provider] === "saving";
@@ -343,7 +423,7 @@ export default function SettingsPage() {
               <Card variant="ruled" key={slot.provider} className={slot.muted ? "keyCardMuted" : undefined}>
                 {/* Card header — provider name + masked badge */}
                 <div className="keyCardHeader">
-                  <span className="keyLabel"><Folio n={2 + i} />{slot.label}</span>
+                  <span className="keyLabel"><Folio n={3 + i} />{slot.label}</span>
                   {saved && !isReplacing && (
                     <Badge variant="pill">✓ Saved ••••{saved.hint}</Badge>
                   )}
@@ -465,7 +545,7 @@ export default function SettingsPage() {
 
           <Card variant="ruled" data-your-data>
             <div className="keyCardHeader">
-              <span className="keyLabel"><Folio n={2 + SLOTS.length} />Your data</span>
+              <span className="keyLabel"><Folio n={3 + SLOTS.length} />Your data</span>
             </div>
             <p className="keyCaveat">
               Everything in your account as one JSON file: CV, answers, applications, interview packs and interview transcripts. Or delete it all for good. What is stored and who processes it is in the <Link href="/privacy" className="inlineLink">privacy notice</Link>;

@@ -1,0 +1,30 @@
+Alex Tester
+Full Stack Engineer — London
+alex.tester@example.com · github.com/alextester
+
+PROFESSIONAL SUMMARY
+Full Stack Engineer with 2 years' production experience building web applications in
+TypeScript, React, Node.js and PostgreSQL.
+
+EXPERIENCE
+Full Stack Engineer — Northgate Systems | Jul 2023 – Present
+- Rebuilt the logistics dashboard used by 40 depots and cut page load time by 35%.
+- Built a REST API in Node.js and Express serving 1.2 million requests a day.
+- Shipped to three environments on AWS (ECS, RDS Postgres, S3) with GitHub Actions CI.
+- Added Jest and Playwright test suites, taking coverage from 20% to 85%.
+
+Junior Developer — Brightwave (placement year) | Jul 2021 – Jul 2022
+- Built internal React tools used by 15 staff to track orders.
+- Wrote SQL reports over a PostgreSQL warehouse.
+
+PROJECTS
+CampaignPulse (personal project)
+- A marketing analytics dashboard in React and FastAPI, deployed on AWS.
+- Event-driven ingestion of 50,000 events a day.
+
+EDUCATION
+BSc Computer Science, University of Bath — First Class
+
+SKILLS
+TypeScript, JavaScript, React, Node.js, Express, PostgreSQL, Python, FastAPI, AWS,
+Docker, GitHub Actions, Jest, Playwright, REST APIs
