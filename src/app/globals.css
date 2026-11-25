@@ -4975,4 +4975,8 @@ button.inlineLink { margin-block: -8px; }
   .profileFactsHead { flex-direction: column; }
   .profileRoleHead, .profileProjectHead, .profileSkill { grid-template-columns: 1fr; }
   .profileMetricValue { width: 100%; }
+  .profileToolbarSpacer { display: none; }
+  .profileToolbar { justify-content: flex-start; }
+  .profileMetricLabel { min-width: 0; flex-basis: 100%; }
+  .appsSelect { max-width: 100%; }
 }
