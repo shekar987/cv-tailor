@@ -30,6 +30,9 @@ Migration `20261104120000_action_centre.sql` (Chunk 12) adds to `application_eve
 | `company_rules` | `id`, `user_id`, `company_key` (lib/companyMatch normalizeCompanyName), `company_name`, `rule_type` (`reapply_after_days` / `no_reapply_until` / `same_role_block`), `value`, `anchor_date`, `source_text`, `source` (manual / notes / seed), `application_id` (on delete set null), `created_at`, `dismissed_at` | checks on `rule_type`, `source`, lengths and the value's shape per type; RLS select / insert / update own, and NO delete grant: a wrong rule is switched off (`dismissed_at`); indexes `(user_id, company_key)`, `(application_id)`; same migration | `api/company-rules` (GET answers `needsMigration` and no rules while missing), `api/applications` (rules read from appended notes), the account export |
 | `applications` (12 Nov) | `date_applied` NULLABLE only on a row never sent: `saved` / `Ready to submit`, or an ending (rejected / withdrawn / ghosted) it reached unsent; `sent_cover_letter` (jsonb, the same record as `sent_cv`, lib/sentCv) | trigger `applications_date_when_sent` (BEFORE INSERT OR UPDATE) dates a row at any other status (one meaning it was sent) that arrives without a date, with today in London, so no writer leaves a sent row undated; check `applications_date_applied_when_sent` states the rule; migration `20261112120000_fast_tracker_api.sql` (Chunk 22; the down block dates every undated row with its created day before restoring NOT NULL) | `api/applications` (POST / PUT: a Ready to submit row may have no date; a move on dates it today; 503 `needs_migration` on `23502` while missing), `api/applications/log`, `api/applications/cv?doc=cover_letter`, the account export (the letter's path stripped) |
 | `api_idempotency` | `user_id`, `key` (1–255 chars), `method` (POST / PUT / PATCH), `path`, `request_hash` (sha256 hex), `status_code` (null while the first request runs), `response` (jsonb, ≤ 64 KB), `created_at` | PK `(user_id, key)`; RLS on all four verbs (own rows); `anon` and `public` revoked; index `(user_id, created_at)`; same migration | lib/idempotency + lib/idempotentRoute: every write of `api/applications` and `api/applications/log` that carries an `Idempotency-Key` header (missing table → the request runs and answers `idempotencyWarning`); a user's rows past 24 h are deleted after each keyed write |
+| `agent_devices` | `id`, `user_id`, `name`, `token_hash` (sha256 hex of the one-time device token), `last_seen_at`, `revoked`, `created_at` | unique `token_hash`; four-policy RLS own rows; `anon` revoked; `migrations/20261119120000_agent_queue.sql` (Chunk 33) | `api/agent/devices`, the worker RPCs |
+| `apply_jobs` | `id`, `user_id`, `application_id` (→ applications, set null), `job_url`, `job_url_norm` (lib/agent/ats normaliseJobUrl), `company`, `role`, `ats`, `status`, `mode` (dry_run / submit), `priority`, `attempts`, `claimed_by` (→ agent_devices, set null), `claimed_at`, `heartbeat_at`, `last_error`, `confirmation_url`, `screenshot_path`, `created_at`, `updated_at` | **unique `(user_id, job_url_norm)`** the duplicate check; CHECKs on `ats`/`status`/`mode`; `set_updated_at` trigger; four-policy RLS own rows; `anon` revoked; same migration. The route answers 503 `needs_migration` / the list reports `needsMigration` while the table is missing | `api/agent/jobs`, the worker RPCs, `/agent` |
+| `apply_events` | `id`, `job_id` (→ apply_jobs cascade), `user_id`, `ts`, `level`, `step`, `message`, `data` (jsonb) | select/insert-own RLS (`anon` revoked); written in practice only by `log_event`; same migration | `api/agent/jobs` (last-event column), `/agent` |
 | `user_feedback` | `user_id`, `email`, `message` | RLS insert-only for `authenticated` | `api/feedback` |
 | `user_projects`, `user_skills` | — | — | **Dropped** by migration `20260919120000_drop_unused_tables.sql` (applied 2026-09-19; both were empty). Listed here only because the tracked migration history still shows their creation. |
 | `company_profiles` | `user_id`, `domain`, `data` (jsonb), `fetched_at` | **unique `(user_id, domain)`** (the research route upserts on it); RLS on all four verbs; see `migrations/20260903120000_company_profiles.sql` | `api/research` (Stage 3 company-research cache, 7-day TTL; the route degrades to uncached if the table is missing) |
@@ -53,6 +56,27 @@ Migration `20261104120000_action_centre.sql` (Chunk 12) adds to `application_eve
 | `refund_tailor_count` | `uid uuid` | `void` | `migrations/20260830120000_quota_refunds.sql`; decrements `tailor_count` (floor 0) for the caller's own row |
 | `refund_claude_lifetime` | `uid uuid` | `void` | Same migration; decrements `claude_tailors_used` (floor 0) |
 | `find_applications_by_jd` | `p_jd text` | up to 3 `{ id, company_name, role, date_applied }` | **SECURITY INVOKER** (the one exception in this table): RLS applies, plus `user_id = auth.uid()`. Exact-match lookup for the pre-check's "already in your tracker" notice — a 15k-char JD can't ride in a PostgREST filter URL. `migrations/20260917120000_user_settings_and_jd_lookup.sql`; `anon` revoked. Missing (`PGRST202`) → no duplicate check |
+
+### Local Agent worker RPCs (Chunk 33, `migrations/20261119120000_agent_queue.sql`)
+
+The PC worker has no Supabase session and never holds the secret key; it calls
+these four with the publishable key and a **device token** it was shown once.
+All SECURITY DEFINER, `set search_path=''`, and the ONLY functions here granted
+to `anon` (the token is the credential; a wrong token matches no device and
+gets nothing). Each resolves the token through the private helper
+`agent_resolve_device(text)` (sha256 via `extensions.digest`, revoked rows
+excluded; granted to no one, reachable only from the definer functions).
+
+| Function | Arguments | Returns | Notes |
+|---|---|---|---|
+| `claim_next_job` | `p_device_token text` | `apply_jobs` row or null | Oldest queued job (priority desc, created_at asc) with `FOR UPDATE SKIP LOCKED` → claimed, attempts++. Honours the daily submit cap `user_settings.preferences.agentDailySubmitCap` (default 15): once hit, only dry_run jobs are claimed. Stamps the device's `last_seen_at` |
+| `heartbeat` | `p_device_token text, p_job_id uuid` | boolean | Sets `heartbeat_at` on a job the device holds (claimed/processing) |
+| `update_job_status` | `p_device_token, p_job_id, p_status, p_error?, p_data?` | boolean | Moves a held job to processing / needs_review / needs_human / dry_run_done / submitted / failed; pulls `confirmation_url` and `screenshot_path` out of `p_data` |
+| `log_event` | `p_device_token, p_job_id, p_level, p_step, p_message, p_data?` | uuid | Appends one line to the job's `apply_events` timeline |
+
+Realtime: the same migration adds `apply_jobs` and `apply_events` to the
+`supabase_realtime` publication (guarded so a re-paste doesn't error). RLS still
+applies per subscriber, so `/agent`'s live table sees only the user's own rows.
 
 Both counters increment **before** the pipeline runs; `/api/tailor` calls the
 refund functions if the pipeline then throws, so a provider 429 or outage no
