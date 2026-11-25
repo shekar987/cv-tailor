@@ -45,10 +45,20 @@ live dashboard; the worker claims jobs, fills forms, and reports back.
   (paste URLs → validate + detect ATS → queue; live table; cancel/retry/switch
   to submit; connect-a-device token shown once). No browser automation yet.
   Migration `20261119120000_agent_queue.sql`.
-- **Chunk 34 — the PC worker (planned).** A small local program (Node +
-  Playwright) that signs in with the device token, claims jobs, drives the ATS
-  forms per adapter (Greenhouse, Lever, Ashby, Workday, Pinpoint, Workable),
-  honours the guardrails, takes a screenshot, and reports status/events.
+- **Chunk 34 — the PC worker skeleton (19 Nov 2026).** The worker itself,
+  built in Python (`agent/`, uv + httpx + pydantic v2 + structlog). It signs in
+  with the device token, polls `claim_next_job` with backoff, marks a claimed
+  job `processing`, heartbeats on a background thread, and — with no browser
+  yet — does a 3-second placeholder and marks it `dry_run_done`, reporting every
+  step to the live dashboard. `MODE_OVERRIDE=dry_run` is enforced in code (it
+  wins over a submit-mode row); an empty or revoked token is refused at start.
+  CLI: `jobhuntz-agent run | check | once`. The `/agent` page gained a
+  worker-online / "Worker offline" pill from `agent_devices.last_seen_at`
+  (`lib/agent/deviceStatus`). No Playwright — that is Chunk 35.
+- **Chunk 35 — browser automation (planned).** Add Playwright to the worker and
+  drive the ATS forms per adapter (Greenhouse, Lever, Ashby, Workday, Pinpoint,
+  Workable), honouring the guardrails, taking a screenshot, and submitting only
+  in submit mode behind the daily cap.
 
 ## Progress log
 
@@ -57,3 +67,12 @@ live dashboard; the worker claims jobs, fills forms, and reports back.
   Pending: apply the migration to the live project by hand (not done here); the
   `/agent` link is live in the nav. **Chunk 33 merged** once the branch lands on
   main.
+- 2026-11-25 — Chunk 34 built on branch `chunk-34-worker-skeleton` (from main,
+  with Chunk 33 merged and its migration applied). The Python worker in
+  `agent/` with the claim → `processing` → `dry_run_done` loop, heartbeat,
+  backoff, dry-run safety override, token refusal, JSON logs with redaction,
+  and the `run`/`check`/`once` CLI; pytest suite (34 tests) against a fake
+  Supabase; the `/agent` worker-online / offline pill. `npm test` 1408/1408,
+  `uv run pytest` 34/34. Pending for Shekar: install `uv` on the PC (it isn't
+  installed), then run the worker against the live queue to confirm the loop
+  end to end; browser automation is Chunk 35.
