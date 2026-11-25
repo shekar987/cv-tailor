@@ -1,11 +1,13 @@
 """The claim → status → report loop.
 
-This is the heart of the skeleton. It polls ``claim_next_job``; on a claim it
-marks the job ``processing``, logs "claimed", runs a background heartbeat, does
-a 3-second placeholder in place of a browser, then marks the job
-``dry_run_done``. Any failure marks it ``failed`` with the error. The daily
-submit cap and the attempt counter live server-side (in ``claim_next_job``);
-the ``MODE_OVERRIDE=dry_run`` safety switch lives here, in code.
+This is the heart of the worker. It polls ``claim_next_job``; on a claim it
+marks the job ``processing``, logs "claimed", runs a background heartbeat, then
+hands the job to a :class:`~jobhuntz_agent.runner.JobRunner` — in Chunk 35 that
+is the read-only browser observer (open the page, list its fields, screenshot,
+report), which returns ``dry_run_done`` or ``needs_human`` for a wall. Any
+failure marks the job ``failed`` with the error. The daily submit cap and the
+attempt counter live server-side (in ``claim_next_job``); the
+``MODE_OVERRIDE=dry_run`` safety switch lives here, in code.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ import structlog
 
 from .config import Settings
 from .models import Job
+from .runner import JobRunner, ObserverRunner, RunContext
 from .supabase import InvalidDeviceToken, SupabaseAgentClient, SupabaseError
 
 
@@ -93,17 +96,16 @@ class Worker:
         logger: structlog.stdlib.BoundLogger,
         *,
         sleep: Callable[[float], None] = time.sleep,
-        work_sleep: Optional[Callable[[float], None]] = None,
+        runner: Optional[JobRunner] = None,
         heartbeat_factory: Optional[HeartbeatFactory] = None,
     ) -> None:
         self.client = client
         self.settings = settings
         self.log = logger
-        # Two seams: `_sleep` paces the poll loop; `_work_sleep` is the
-        # placeholder "work" inside a job. They are the same real sleep, but
-        # tests drive them apart.
+        # `_sleep` paces the poll loop. `_runner` does the per-job work (the
+        # browser observer by default; a fake in tests).
         self._sleep = sleep
-        self._work_sleep = work_sleep or sleep
+        self._runner: JobRunner = runner or ObserverRunner()
         self._backoff = Backoff(settings.poll_seconds, settings.max_backoff_seconds)
         self._stopping = False
         self._current_job: Optional[Job] = None
@@ -114,17 +116,11 @@ class Worker:
     # ── mode safety ──────────────────────────────────────────────────────────
     def effective_mode(self, job: Job) -> str:
         """The mode the worker will actually act in. ``MODE_OVERRIDE=dry_run``
-        forces a dry run even when the job row says submit."""
+        forces a dry run even when the job row says submit. (This chunk observes
+        only and never submits regardless, but the runner still honours it.)"""
         if self.settings.forces_dry_run:
             return "dry_run"
         return job.mode
-
-    def _placeholder_note(self, job: Job, effective: str) -> str:
-        if self.settings.forces_dry_run and job.mode == "submit":
-            return "Safety override is set to dry run — ignoring this job's submit mode. No browser yet (Chunk 35)."
-        if effective == "submit":
-            return "Submit mode has no browser yet (arrives in Chunk 35) — recorded as a dry run."
-        return "Dry run: no browser yet."
 
     # ── processing one job ───────────────────────────────────────────────────
     def process_job(self, job: Job) -> str:
@@ -141,15 +137,18 @@ class Worker:
             heartbeat.start()
 
             effective = self.effective_mode(job)
-            note = self._placeholder_note(job, effective)
+            ctx = RunContext(client=self.client, log=self.log, settings=self.settings, effective_mode=effective)
+            result = self._runner.run(job, ctx)
 
-            # The placeholder step — where the browser will go in Chunk 35.
-            self._work_sleep(self.settings.placeholder_seconds)
-
-            self.client.log_event(job.id, "info", "dry_run", note)
-            self.client.update_job_status(job.id, "dry_run_done")
-            self.log.info("dry_run_done", job_id=job.id, effective_mode=effective)
-            return "dry_run_done"
+            self.client.update_job_status(job.id, result.status, data=result.data)
+            self.client.log_event(
+                job.id,
+                "error" if result.status == "failed" else "info",
+                result.status,
+                result.message or None,
+            )
+            self.log.info(result.status, job_id=job.id, effective_mode=effective)
+            return result.status
         except KeyboardInterrupt:
             self._stopping = True
             self._terminal_quietly(job, "failed", "Stopped by Ctrl+C before finishing.")

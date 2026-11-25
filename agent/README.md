@@ -1,14 +1,18 @@
 # Jobhuntz Local Agent
 
 A small worker that runs on **your own PC**. It claims the jobs you queue on
-[jobhuntz.app/agent](https://jobhuntz.app/agent), reports progress back to the
-live dashboard, and (from Chunk 35) fills in the application forms in your own
-browser. **£0 per application** — no per-application fee, no subscription.
+[jobhuntz.app/agent](https://jobhuntz.app/agent), opens each job's page in your
+own browser, **reads the application form** and sends the field list and a
+screenshot back to the live dashboard. **£0 per application** — no
+per-application fee, no subscription.
 
-> **Chunk 34 — the skeleton.** There is **no browser automation yet**. This
-> version proves the loop end to end: it claims a queued job, marks it
-> `processing`, logs a timeline, waits three seconds in place of a browser, and
-> marks it `dry_run_done`. The real form-filling arrives in Chunk 35.
+> **Chunk 35 — the browser observer (read-only).** The worker now opens the
+> page in a real Chromium browser with a **persistent profile** (so you sign in
+> to each site once and stay signed in), lists every form field it can see —
+> reaching into embedded forms such as a Greenhouse iframe — and takes a
+> full-page screenshot. It **never types or submits anything**: it stops and
+> marks a job `needs_human` if it meets a sign-in wall or a captcha. Form
+> filling and real submission arrive in a later chunk.
 
 ## Safety
 
@@ -56,6 +60,7 @@ browser. **£0 per application** — no per-application fee, no subscription.
 
    ```bash
    uv sync
+   uv run playwright install chromium   # the browser the worker drives
    uv run jobhuntz-agent check
    ```
 
@@ -72,10 +77,30 @@ browser. **£0 per application** — no per-application fee, no subscription.
    uv run jobhuntz-agent run
    ```
 
-   Watch the dashboard: the job moves **Queued → Claimed → Working… → Dry run
-   done**, live, without a refresh, and the device shows **Worker online** with
-   its last-seen time. Press **Ctrl+C** to stop; within about two minutes the
-   dashboard shows **Worker offline**.
+   A Chromium window opens (headed by default, so you can watch it and sign in
+   when a site asks). Watch the dashboard: the job moves **Queued → Claimed →
+   Working… → Dry run done**, live, without a refresh; open **Fields** on the
+   row to see the screenshot and the numbered list of form fields it read. If
+   the page needs a sign-in or shows a captcha, the job becomes **Needs you**
+   instead — sign in once in the worker's window and retry. Press **Ctrl+C** to
+   stop; within about two minutes the dashboard shows **Worker offline**.
+
+### Browser & screenshot settings
+
+All optional — add them to `agent/.env`:
+
+- `BROWSER_HEADLESS=true` runs Chromium with no window (the default is headed so
+  you can sign in).
+- `BROWSER_CHANNEL=msedge` (or `chrome`) uses an installed browser instead of
+  the Playwright-bundled Chromium; `BROWSER_EXECUTABLE_PATH` points at a
+  specific binary.
+- `ACTION_DELAY_MIN_MS` / `ACTION_DELAY_MAX_MS` set the polite pause between
+  actions (default 400–900 ms).
+- `ARTIFACT_SIGN_URL` is the deployed `agent-artifact-sign` edge function URL.
+  **Without it the worker still reads every page and records the field list** —
+  only the screenshot upload is skipped (noted on the job). The owner deploys
+  the function once (`supabase/functions/agent-artifact-sign`) and applies
+  migration `20261121120000_agent_artifacts.sql`.
 
    To process a single job and exit (handy for a first test), use
    `uv run jobhuntz-agent once` instead.

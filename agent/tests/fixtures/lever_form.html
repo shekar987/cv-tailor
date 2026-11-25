@@ -1,0 +1,45 @@
+<!doctype html>
+<!-- Fictional Lever-style application form for the observer tests. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Acme Robotics - Senior Backend Engineer</title>
+  </head>
+  <body>
+    <div class="application-page">
+      <h2>Submit your application</h2>
+      <form method="POST" action="/applications" class="application-form">
+        <label class="application-label">
+          Full name<span class="required">✱</span>
+          <input type="text" name="name" required />
+        </label>
+        <label class="application-label">
+          Email<span class="required">✱</span>
+          <input type="email" name="email" required />
+        </label>
+        <label class="application-label">
+          Phone
+          <input type="text" name="phone" />
+        </label>
+        <label class="application-label">
+          Resume / CV
+          <input type="file" name="resume" data-qa="resume-upload" />
+        </label>
+        <label class="application-label">
+          Current company
+          <input type="text" name="org" placeholder="Where do you work now?" />
+        </label>
+        <div class="application-additional">
+          <label for="years">Years of experience</label>
+          <select id="years" name="cards[abc][field0]">
+            <option value="">—</option>
+            <option value="0-2">0–2</option>
+            <option value="3-5">3–5</option>
+            <option value="6+">6+</option>
+          </select>
+        </div>
+        <button type="submit" class="template-btn-submit">Submit application</button>
+      </form>
+    </div>
+  </body>
+</html>

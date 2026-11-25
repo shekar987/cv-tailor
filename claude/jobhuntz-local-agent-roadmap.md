@@ -55,10 +55,31 @@ live dashboard; the worker claims jobs, fills forms, and reports back.
   CLI: `jobhuntz-agent run | check | once`. The `/agent` page gained a
   worker-online / "Worker offline" pill from `agent_devices.last_seen_at`
   (`lib/agent/deviceStatus`). No Playwright — that is Chunk 35.
-- **Chunk 35 — browser automation (planned).** Add Playwright to the worker and
-  drive the ATS forms per adapter (Greenhouse, Lever, Ashby, Workday, Pinpoint,
-  Workable), honouring the guardrails, taking a screenshot, and submitting only
-  in submit mode behind the daily cap.
+- **Chunk 35 — browser core: the read-only observer (21 Nov 2026).** Playwright
+  added to the worker (`agent/browser/`): a persistent-profile Chromium session
+  (`session.py`, launched in `%LOCALAPPDATA%\Jobhuntz\agent-profile`, headed by
+  default, no stealth / no UA spoofing — guardrail 2) and a **read-only page
+  observer** (`observer.py`) that lists every form control (inputs, selects,
+  textareas, file inputs, buttons, in-form links), reaching into child frames
+  such as a Greenhouse embed, as a numbered Pydantic model (`index`, `role`,
+  `label`, `name`, `type`, `required`, `options[]`, `value`, `visible`,
+  `frame_path`, a stable id→name→data-*→XPath `selector`). It flags a sign-in
+  wall (`login_wall`) and a reCAPTCHA/hCaptcha (`captcha`) and stops
+  (`needs_human`) — it never types or submits. The dry-run runner (`runner.py`)
+  opens the URL, may click one same-domain "Apply" button to reveal a form,
+  observes, logs an `observed` event carrying the field list (jsonb, via
+  `log_event` — no storage round-trip), uploads a full-page screenshot and ends
+  `dry_run_done`. The screenshot goes to a private bucket `agent-artifacts` via
+  a signed upload URL minted by an edge function (`supabase/functions/
+  agent-artifact-sign`) that validates the device token with
+  `agent_artifact_target` — so no service-role key ever reaches the PC; without
+  it configured the field list still works and only the screenshot is skipped.
+  The `/agent` page gained a screenshot thumbnail and a "Fields" drawer
+  (`FieldsDrawer.tsx`) rendering the observer JSON. Migration
+  `20261121120000_agent_artifacts.sql`. No form filling or submission yet.
+- **Chunk 36 — form filling (planned).** Fill the observed fields from the
+  user's saved answers and CV, honouring the sensitive-question guardrails, and
+  submit only in submit mode behind the daily cap.
 
 ## Progress log
 
@@ -76,3 +97,22 @@ live dashboard; the worker claims jobs, fills forms, and reports back.
   `uv run pytest` 34/34. Pending for Shekar: install `uv` on the PC (it isn't
   installed), then run the worker against the live queue to confirm the loop
   end to end; browser automation is Chunk 35.
+- 2026-11-25 — Chunk 35 built on branch `chunk-35-browser-core` (from main).
+  The read-only browser observer: `agent/browser/session.py` (persistent-profile
+  Chromium) + `observer.py` (numbered field list, iframe reach, login-wall /
+  captcha flags) + `runner.py` (dry-run: open → observe → screenshot → report),
+  wired into the worker's claim loop in place of the placeholder; the screenshot
+  uploader + `agent-artifact-sign` edge function + migration
+  `20261121120000_agent_artifacts.sql`; the `/agent` thumbnail + Fields drawer
+  (`FieldsDrawer.tsx`) + the GET route attaching the observer payload and a
+  signed screenshot URL. Tests: `uv run pytest` 81/81 (observer pure logic +
+  real-browser fixtures: Greenhouse form/embed, Lever, login wall, reCAPTCHA;
+  artifacts; the runner end to end on a local static server), `npm test`
+  1414/1414 (added `fieldsDrawer`). Screenshot `08-agent-observer-greenhouse.png`
+  generated from the real Agent page with real observer output. Pending for
+  Shekar: `uv run playwright install chromium` on the PC; apply migration
+  `20261121120000` and deploy the `agent-artifact-sign` edge function (set its
+  `AGENT_SUPABASE_URL` / `AGENT_SERVICE_ROLE_KEY` secrets) + set the worker's
+  `ARTIFACT_SIGN_URL`, if you want the screenshot upload (the field list works
+  without it); then queue a real Greenhouse URL in dry-run and confirm the Agent
+  page shows the fields + screenshot within 60s. Form filling is Chunk 36.
