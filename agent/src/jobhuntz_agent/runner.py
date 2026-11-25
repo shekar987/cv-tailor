@@ -14,18 +14,43 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Optional, Protocol
 
 import structlog
 
+from .adapters import greenhouse
 from .artifacts import ArtifactUploader, ArtifactUploadError, NullUploader
 from .browser.observer import PageObservation, observe_page
 from .browser.session import BrowserSession, open_and_settle
 from .config import Settings
+from .fields.profile_bank import ProfileBank
 from .models import Job
 
 # A button/link whose visible text starts like this is treated as "Apply".
 APPLY_TEXT_RE = re.compile(r"^\s*(apply|apply now|apply for|apply to|start application)\b", re.IGNORECASE)
+
+# Seam type: given a job, return the user's ProfileBank (or None if unavailable).
+LoadBank = Callable[["Job"], Optional[ProfileBank]]
+
+
+def _null_load_bank(job: "Job") -> None:  # type: ignore[return]
+    """Default: no bank available — the runner observes only."""
+    return None
+
+
+def _resolve_cv_path(settings: Settings) -> Optional[Path]:
+    """Return the first CV file in ``settings.cv_dir``, or None."""
+    if not settings.cv_dir:
+        return None
+    cv_dir = Path(settings.cv_dir)
+    if not cv_dir.is_dir():
+        return None
+    for pattern in ("*.pdf", "*.PDF", "*.docx", "*.DOCX"):
+        matches = sorted(cv_dir.glob(pattern))
+        if matches:
+            return matches[0]
+    return None
 
 
 class ReportClient(Protocol):
@@ -117,7 +142,8 @@ def _default_screenshot(page: Any) -> bytes:
 
 @dataclass
 class ObserverRunner:
-    """Opens a job URL and observes it. The default `JobRunner` for the worker."""
+    """Opens a job URL, observes it, and fills it when a Greenhouse form is
+    detected and a ``ProfileBank`` is available.  The default ``JobRunner``."""
 
     uploader: ArtifactUploader = field(default_factory=NullUploader)
     session_factory: SessionFactory = _default_session
@@ -125,6 +151,9 @@ class ObserverRunner:
     click_apply: ClickApply = _default_click_apply
     observe: Observe = observe_page
     screenshot: Screenshot = _default_screenshot
+    # Chunk 37: injectable seam so tests can supply a real bank without I/O.
+    # Default returns None → runner observes only (no filling).
+    load_bank: LoadBank = field(default=_null_load_bank)
 
     def run(self, job: Job, ctx: RunContext) -> RunResult:
         session = self.session_factory(ctx.settings)
@@ -152,9 +181,9 @@ class ObserverRunner:
                 data=observation.to_event_payload(),
             )
 
-            screenshot_path = self._save_screenshot(job, ctx, page)
-
+            # Wall (login / CAPTCHA): screenshot the wall and return early.
             if observation.has_wall:
+                screenshot_path = self._save_screenshot(job, ctx, page)
                 step = "login_wall" if observation.login_wall else "captcha"
                 reason = observation.wall_reason or "A human needs to take over this page."
                 ctx.client.log_event(job.id, "warn", step, reason)
@@ -165,6 +194,39 @@ class ObserverRunner:
                     message=reason,
                 )
 
+            # Greenhouse form-filling (Chunk 37).
+            bank = self.load_bank(job)
+            if bank is not None and greenhouse.detect(job.job_url, observation):
+                cv_path = _resolve_cv_path(ctx.settings)
+                fill_result = greenhouse.fill(
+                    page, observation, bank,
+                    cv_path=cv_path,
+                    pause=0.0,  # caller sets polite pacing; tests want 0
+                )
+                ctx.client.log_event(
+                    job.id, "info", "form_filled",
+                    fill_result.summary(),
+                    data={
+                        "filled": fill_result.filled,
+                        "needs_you": fill_result.needs_you,
+                        "unknown": fill_result.unknown,
+                        "cv_uploaded": fill_result.cv_uploaded,
+                        "letter_uploaded": fill_result.letter_uploaded,
+                        "errors": fill_result.errors,
+                    },
+                )
+                screenshot_path = self._save_screenshot(job, ctx, page)
+                status_data: dict = {}
+                if screenshot_path:
+                    status_data["screenshot_path"] = screenshot_path
+                status_data["fill_summary"] = fill_result.summary()
+                return RunResult(
+                    status="dry_run_done",
+                    data=status_data or None,
+                    message=fill_result.summary(),
+                )
+
+            # Not Greenhouse (or no bank): read-only observe path.
             if ctx.effective_mode == "submit":
                 ctx.client.log_event(
                     job.id,
@@ -173,6 +235,7 @@ class ObserverRunner:
                     "Submit mode: this version only reads the form — it does not fill in or submit anything yet.",
                 )
 
+            screenshot_path = self._save_screenshot(job, ctx, page)
             return RunResult(
                 status="dry_run_done",
                 data=_status_data(screenshot_path),

@@ -87,6 +87,12 @@ class Settings(BaseSettings):
     # upload with a note (the Fields drawer works regardless).
     artifact_sign_url: str = Field(default="")
 
+    # ── CV file (Chunk 37) ───────────────────────────────────────────────────
+    # Directory that holds the user's CV/résumé file(s). The runner picks the
+    # first *.pdf or *.docx it finds here and uploads it to file-input fields.
+    # Blank = no CV available; file-input fields are flagged "needs_you".
+    cv_dir: str = Field(default="")
+
     # Not read from the environment — derived constants, overridable in tests.
     heartbeat_seconds: int = Field(default=HEARTBEAT_SECONDS, ge=1)
     placeholder_seconds: float = Field(default=PLACEHOLDER_SECONDS, ge=0)
