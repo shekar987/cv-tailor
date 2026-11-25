@@ -71,6 +71,7 @@ class ObservedElement(BaseModel):
     visible: bool = True
     frame_path: str = ""
     selector: str = ""
+    autocomplete: Optional[str] = None
 
 
 class PageObservation(BaseModel):
@@ -264,6 +265,7 @@ def build_observation(raw: dict[str, Any]) -> PageObservation:
                 selector=f'input[name="{_css_escape_attr(_clean(raw_el.get("name")))}"]'
                 if _clean(raw_el.get("name"))
                 else element_selector(raw_el),
+                autocomplete=_clean(raw_el.get("autocomplete")) or None,
             )
             radio_index[key] = len(elements)
             elements.append(el)
@@ -293,6 +295,7 @@ def build_observation(raw: dict[str, Any]) -> PageObservation:
             visible=bool(raw_el.get("visible", True)),
             frame_path=frame_path,
             selector=element_selector(raw_el),
+            autocomplete=_clean(raw_el.get("autocomplete")) or None,
         )
         elements.append(el)
         next_index += 1
@@ -444,6 +447,7 @@ EXTRACT_JS = r"""
       group_label: groupLabel(el),
       placeholder: clean(el.getAttribute("placeholder") || ""),
       nearby_text: nearbyText(el),
+      autocomplete: el.getAttribute("autocomplete") || "",
       required: isRequired(el),
       value: tag === "select" ? "" : clean(el.value || ""),
       visible: isVisible(el),

@@ -1,0 +1,87 @@
+<!doctype html>
+<!--
+  Fixture 4: equal opportunities / diversity monitoring form
+  (fictional company: Solent Solutions).
+  All EO questions are Guardrail-4 sensitive. Tests that the matcher
+  never provides values for them and correctly tags each as "needs_you".
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Apply: Software Developer — Solent Solutions</title>
+  </head>
+  <body>
+    <main>
+      <h1>Apply for Software Developer</h1>
+      <form id="application_form" action="/apply" method="post">
+
+        <div class="field">
+          <label for="first_name">First name *</label>
+          <input type="text" id="first_name" name="job_application[first_name]"
+                 autocomplete="given-name" required />
+        </div>
+
+        <div class="field">
+          <label for="email">Email address *</label>
+          <input type="email" id="email" name="job_application[email]"
+                 autocomplete="email" required />
+        </div>
+
+        <div class="field">
+          <label for="resume">Resume/CV *</label>
+          <input type="file" id="resume" name="job_application[resume]" required />
+        </div>
+
+        <hr />
+        <h2>Equal opportunities monitoring (voluntary — will not affect your application)</h2>
+
+        <!-- Sensitive: gender -->
+        <div class="field">
+          <label for="eo_gender">Gender</label>
+          <select id="eo_gender" name="job_application[eo_gender]">
+            <option value="">Prefer not to say</option>
+            <option value="female">Woman</option>
+            <option value="male">Man</option>
+            <option value="non_binary">Non-binary</option>
+          </select>
+        </div>
+
+        <!-- Sensitive: ethnicity -->
+        <div class="field">
+          <label for="eo_ethnicity">Ethnic origin</label>
+          <select id="eo_ethnicity" name="job_application[eo_ethnicity]">
+            <option value="">Prefer not to say</option>
+            <option value="white_british">White British</option>
+            <option value="asian_british">Asian or Asian British</option>
+            <option value="black_british">Black or Black British</option>
+            <option value="mixed">Mixed or multiple ethnic groups</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        <!-- Sensitive: disability -->
+        <fieldset class="field">
+          <legend>Do you consider yourself to have a disability?</legend>
+          <label><input type="radio" name="eo_disability" value="no" /> No</label>
+          <label><input type="radio" name="eo_disability" value="yes" /> Yes</label>
+          <label><input type="radio" name="eo_disability" value="prefer_not" /> Prefer not to say</label>
+        </fieldset>
+
+        <!-- Sensitive: age range -->
+        <div class="field">
+          <label for="eo_age_range">Age group</label>
+          <select id="eo_age_range" name="job_application[eo_age_range]">
+            <option value="">Prefer not to say</option>
+            <option value="16_24">16–24</option>
+            <option value="25_34">25–34</option>
+            <option value="35_44">35–44</option>
+            <option value="45_54">45–54</option>
+            <option value="55_plus">55+</option>
+          </select>
+        </div>
+
+        <button type="submit" id="submit_app">Submit application</button>
+      </form>
+    </main>
+  </body>
+</html>

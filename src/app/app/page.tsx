@@ -249,6 +249,10 @@ type Result = {
     leftOut: { summary: string[]; tools: string[]; experience: { role: string; bullet: string }[]; projects: { project: string; bullet: string }[] };
     restored: { section: string; bullet: string }[];
   } | null;
+  // Smart Match (FT-1/FT-2): no AI call, no credit spent.
+  isFreeMatch?: boolean;
+  // Bullet IDs (R1.1 …) from the smart match, used to build the free letter.
+  evidenceIds?: string[];
 };
 
 // Said wherever a claims block holds Download or Applied shut: the way out
@@ -609,6 +613,13 @@ export default function Home() {
   const [appliedError, setAppliedError] = useState("");
   // Saved, but the API had something to tell us (e.g. no CV snapshot column yet).
   const [appliedNotice, setAppliedNotice] = useState("");
+
+  // FT-2: free letter generator state (no AI, no credit)
+  const [freeLetterLoading, setFreeLetterLoading] = useState(false);
+  const [freeLetterError, setFreeLetterError] = useState("");
+  const [freeLetterWhy, setFreeLetterWhy] = useState("");
+  const [freeLetterCompany, setFreeLetterCompany] = useState("");
+  const [freeLetterRole, setFreeLetterRole] = useState("");
 
   // Free-tier position for the usage chip. Null (load failed, signed out,
   // column blocked) hides the chip — quota display must never break the page.
@@ -1365,11 +1376,11 @@ export default function Home() {
           jobDescription,
           projects: (profile?.projects ?? []).map((p) => ({
             name: p.name,
-            tech: p.tech ?? [],
+            tech: typeof p.tech === "string" ? p.tech.split(/,\s*/) : [],
             originalBullets: p.originalBullets ?? [],
-            label: p.label,
+            label: (p as { label?: string }).label,
           })),
-          keywords: gateAnalysis?.top_15_ats_keywords ?? [],
+          keywords: (gateAnalysis as { top_15_ats_keywords?: string[] } | null)?.top_15_ats_keywords ?? [],
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1783,6 +1794,41 @@ export default function Home() {
       setImportError({ message: IMPORT_FAILED, detail: "" });
     } finally {
       setImporting(false);
+    }
+  }
+
+  // FT-2: build a free cover letter from the smart-match evidence (no AI, no credit).
+  async function runFreeLetter() {
+    if (freeLetterLoading || !result) return;
+    setFreeLetterLoading(true);
+    setFreeLetterError("");
+    try {
+      const res = await fetch("/api/tailor/letter-smart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cvText: masterCvText,
+          evidenceIds: Array.isArray(result.evidenceIds) ? result.evidenceIds.slice(0, 3) : [],
+          roleTitle: freeLetterRole || realValue(result.analysis?.role_title) || "",
+          companyName: freeLetterCompany || realValue(result.analysis?.company_name) || "",
+          profileName: displayProfile?.name || "",
+          whyCompany: freeLetterWhy.trim() || null,
+          rtwStatement: null,
+          template: "corporate",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFreeLetterError(data.error || "Could not write the letter. Try again.");
+        return;
+      }
+      if (typeof data.letter === "string" && data.letter.trim()) {
+        setResult({ ...result, coverLetter: data.letter });
+      }
+    } catch {
+      setFreeLetterError("Could not reach the server. Check your connection.");
+    } finally {
+      setFreeLetterLoading(false);
     }
   }
 

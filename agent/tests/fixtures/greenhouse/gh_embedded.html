@@ -1,0 +1,24 @@
+<!doctype html>
+<!--
+  Fixture 5: company careers page that embeds a Greenhouse form in an iframe
+  (fictional: Orion Dynamics). The host page has one search input; the iframe
+  carries the full application form. Tests that frame_path propagates and that
+  both main-frame and iframe elements are matched correctly.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Careers — Orion Dynamics</title>
+  </head>
+  <body>
+    <header><h1>Join Orion Dynamics</h1></header>
+    <p>Complete the form below to apply for the Platform Engineer role.</p>
+
+    <!-- Host-page control — still visible to the observer -->
+    <input type="search" name="site_search" aria-label="Search the site" />
+
+    <!-- Embedded Greenhouse form -->
+    <iframe id="grnhse_iframe" title="Greenhouse Job Board"
+            src="gh_basic.html" width="100%" height="900"></iframe>
+  </body>
+</html>
