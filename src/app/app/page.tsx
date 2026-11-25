@@ -3942,6 +3942,50 @@ export default function Home() {
                   ))}
                 </details>
               )}
+              {result.isFreeMatch && !result.coverLetter && (
+                <div className="inputCard" style={{ marginTop: "var(--space-6)" }}>
+                  <h2 className="clHeading">Cover Letter</h2>
+                  <p className="cardNote" style={{ marginBottom: "var(--space-4)" }}>
+                    Built only from your CV. Nothing invented.
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+                    <FormField label="Company">
+                      <Input
+                        value={freeLetterCompany || realValue(result.analysis?.company_name) || ""}
+                        onChange={(e) => setFreeLetterCompany(e.target.value)}
+                        placeholder="Company name"
+                        maxLength={100}
+                      />
+                    </FormField>
+                    <FormField label="Role title">
+                      <Input
+                        value={freeLetterRole || realValue(result.analysis?.role_title) || ""}
+                        onChange={(e) => setFreeLetterRole(e.target.value)}
+                        placeholder="Role title"
+                        maxLength={100}
+                      />
+                    </FormField>
+                    <FormField label="Why this company? (optional)">
+                      <Textarea
+                        value={freeLetterWhy}
+                        onChange={(e) => setFreeLetterWhy(e.target.value)}
+                        placeholder="One or two sentences about why this company appeals to you."
+                        maxLength={400}
+                        rows={3}
+                      />
+                    </FormField>
+                    {freeLetterError && (
+                      <StatusText tone="error">{freeLetterError}</StatusText>
+                    )}
+                    <Button
+                      onClick={runFreeLetter}
+                      disabled={freeLetterLoading}
+                    >
+                      {freeLetterLoading ? "Writing…" : "Write letter free"}
+                    </Button>
+                  </div>
+                </div>
+              )}
               {result.coverLetter && (
                 <>
                   <h2 className="clHeading">Cover Letter</h2>
