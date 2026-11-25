@@ -1339,6 +1339,77 @@ export default function Home() {
     return executeTailor(jobDescription, "jd");
   }
 
+  // Smart Match: deterministic reorder with no AI and no credit.
+  // Calls /api/tailor/smart and renders the result through the same preview.
+  async function runSmartMatch() {
+    if (loading) return;
+    if (!masterCvText?.trim()) {
+      setError("Upload your main CV first.");
+      setErrorType(null);
+      return;
+    }
+    if (!jobDescription.trim()) {
+      setError("Paste a job description first.");
+      setErrorType(null);
+      return;
+    }
+    setError("");
+    setErrorType(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/tailor/smart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cvText: masterCvText,
+          jobDescription,
+          projects: (profile?.projects ?? []).map((p) => ({
+            name: p.name,
+            tech: p.tech ?? [],
+            originalBullets: p.originalBullets ?? [],
+            label: p.label,
+          })),
+          keywords: gateAnalysis?.top_15_ats_keywords ?? [],
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Smart Match failed. Try again.");
+        setErrorType(data.errorType || null);
+        return;
+      }
+      const sessionId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const fresh: Result = { ...(data as Result) };
+      setResult(fresh);
+      setResultJd(jobDescription);
+      setResultSource("jd");
+      setTailorSessionId(sessionId);
+      setAppliedState("idle");
+      setAppliedId(null);
+      setAppliedResult(null);
+      setEditedAfterSave(false);
+      setAppliedError("");
+      setAppliedNotice("");
+      setAppliedConfirm(null);
+      setLiveCheck(null);
+      setLiveRetired(null);
+      setLiveQuality(null);
+      setLiveStyleCheck(null);
+      setClaimFixReport(null);
+      setClaimFixError("");
+      setPreFixResult(null);
+      setRanProvider(null);
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
+      setErrorType(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   // Close the waiting-room popup; "Back to my CV" also brings the result into view.
   function closeGame(viewResult: boolean) {
     setGameRun((g) => (g ? { ...g, open: false } : g));
@@ -2538,6 +2609,12 @@ export default function Home() {
                 <Button href="/settings" className="limitNotice__cta">
                   Add my API key →
                 </Button>
+                <div style={{ marginTop: "var(--space-3)" }}>
+                  <Button variant="secondary" onClick={runSmartMatch} disabled={loading}>
+                    {loading ? "Matching…" : "Tailor free (Smart Match)"}
+                  </Button>
+                  <div className="limitNotice__sub">Reorders your own CV for this job. Nothing is added or invented.</div>
+                </div>
               </div>
             )}
 
@@ -2563,6 +2640,12 @@ export default function Home() {
                 <Button href="/settings" className="limitNotice__cta">
                   Add my API key →
                 </Button>
+                <div style={{ marginTop: "var(--space-3)" }}>
+                  <Button variant="secondary" onClick={runSmartMatch} disabled={loading}>
+                    {loading ? "Matching…" : "Tailor free (Smart Match)"}
+                  </Button>
+                  <div className="limitNotice__sub">Reorders your own CV for this job. Nothing is added or invented.</div>
+                </div>
               </div>
             )}
 
