@@ -45,3 +45,15 @@ next-env.d.ts
 
 # Tailoring evaluation harness outputs (paid runs, local only)
 eval/out/
+
+# Local Agent (agent/) — Python worker
+/agent/.env
+/agent/logs/
+/agent/.venv/
+/agent/dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+# ...but the template IS committed (the broad .env* rule above hides it).
+!/agent/.env.example

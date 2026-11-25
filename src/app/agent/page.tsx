@@ -11,6 +11,7 @@ import StatusText from "@/components/ui/StatusText";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { createClient } from "@/lib/supabase/client";
 import { ATS_LABELS, type Ats } from "@/lib/agent/ats";
+import { workerPresence } from "@/lib/agent/deviceStatus";
 import { formatDate } from "@/lib/formatDate";
 
 // /agent — "Auto-apply" (Chunk 33). Queue job links here; a free worker on your
@@ -88,6 +89,9 @@ export default function AgentPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [needsMigration, setNeedsMigration] = useState(false);
+  // A ticking clock so "Worker last seen" and the online/offline pill update
+  // without a reload — including flipping to "offline" after the worker stops.
+  const [now, setNow] = useState(() => Date.now());
 
   // The paste box.
   const [urls, setUrls] = useState("");
@@ -159,6 +163,19 @@ export default function AgentPage() {
       active = false;
       if (channel) void supabase.removeChannel(channel);
     };
+  }, []);
+
+  // Tick the clock and re-read devices every 15s. last_seen_at is only written
+  // while the worker is running (it bumps it on every poll), so nothing pushes
+  // an update when it stops — this timer is what flips the pill to "offline".
+  const loadDevicesRef = useRef(loadDevices);
+  loadDevicesRef.current = loadDevices;
+  useEffect(() => {
+    const t = setInterval(() => {
+      setNow(Date.now());
+      void loadDevicesRef.current();
+    }, 15_000);
+    return () => clearInterval(t);
   }, []);
 
   async function handleQueue(e: React.FormEvent) {
@@ -474,22 +491,35 @@ export default function AgentPage() {
 
           {devices && devices.length > 0 && (
             <ul className="agentDevices" data-device-rows>
-              {devices.map((d) => (
-                <li key={d.id} data-device-row>
-                  <span>
-                    <strong>{d.name}</strong>
-                    {d.revoked ? <span className="agentStatus" data-tone="neutral"> Revoked</span> : null}
-                  </span>
-                  <span className="cvHelp">
-                    {d.last_seen_at ? `Last seen ${formatDate(d.last_seen_at)}` : "Never connected"}
-                  </span>
-                  {!d.revoked && (
-                    <button type="button" className="inlineLink" onClick={() => revokeDevice(d.id)}>
-                      Revoke
-                    </button>
-                  )}
-                </li>
-              ))}
+              {devices.map((d) => {
+                const presence = workerPresence(d.last_seen_at, now);
+                const lastSeen =
+                  presence.state === "never"
+                    ? "Never connected"
+                    : `Worker last seen: ${presence.relative ?? formatDate(d.last_seen_at)}`;
+                return (
+                  <li key={d.id} data-device-row data-worker-state={d.revoked ? "revoked" : presence.state}>
+                    <span>
+                      <strong>{d.name}</strong>
+                      {d.revoked ? (
+                        <span className="agentStatus" data-tone="neutral"> Revoked</span>
+                      ) : presence.state === "never" ? null : presence.online ? (
+                        <span className="agentStatus" data-tone="success" data-worker-pill> Worker online</span>
+                      ) : (
+                        <span className="agentStatus" data-tone="neutral" data-worker-pill> Worker offline</span>
+                      )}
+                    </span>
+                    <span className="cvHelp" data-worker-lastseen>
+                      {lastSeen}
+                    </span>
+                    {!d.revoked && (
+                      <button type="button" className="inlineLink" onClick={() => revokeDevice(d.id)}>
+                        Revoke
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
           {devices && activeDevices.length === 0 && !newToken && (
