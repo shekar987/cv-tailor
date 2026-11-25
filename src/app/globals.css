@@ -4370,6 +4370,12 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 .interviewsPanel__footer { margin-top: var(--space-2); }
 .interviewsPanel__showAll { color: var(--text-subtle); }
 @media (max-width: 640px) {
+  /* The main line takes the full width (kind · company · countdown, the one tap target);
+     Move / More drop onto their own compact row below, so nothing overlaps the countdown. */
+  .interviewsPanel__item { flex-wrap: wrap; }
+  .interviewsPanel__main { flex: 1 1 100%; }
+  .interviewsPanel__role { display: none; }
+  .interviewsPanel__actions { flex: 1 1 100%; justify-content: flex-start; }
   .interviewsPanel__menu { right: auto; left: 0; }
 }
 
