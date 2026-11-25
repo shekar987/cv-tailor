@@ -4881,3 +4881,98 @@ button.inlineLink { margin-block: -8px; }
   .agentQueueRow { flex-direction: column; align-items: stretch; }
   .agentQueueRow .cta { width: 100%; justify-content: center; }
 }
+
+/* ── Your profile facts (/profile, TL-2) ─────────────────────────────── */
+.profileFactsHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.profileFactsHead .cvHelp { margin: 0; max-width: 58ch; }
+.profileFactsHead .cta { flex: none; }
+.profileFactsLink { margin-top: var(--space-2); }
+
+.profileToolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+.profileToolbarSpacer { flex: 1 1 auto; }
+.profileProblemList {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.profileRole { padding: var(--space-4) 0; border-top: 1px solid var(--border); }
+.profileRole:first-of-type { border-top: none; padding-top: var(--space-2); }
+.profileRoleHead {
+  display: grid;
+  grid-template-columns: 1.4fr 1.1fr 0.9fr 0.9fr;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.profileProjectHead {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.profileBullet { margin-bottom: var(--space-3); }
+.profileBulletText { width: 100%; }
+
+.profileMetric {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border-left: 2px solid var(--amber-border);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+.profileMetric--bad { border-left-color: var(--danger); background: var(--danger-dim); }
+.profileMetricValue { width: 90px; flex: none; }
+.profileMetricLabel { flex: 1 1 160px; min-width: 120px; }
+.profileMetricWarn { color: var(--danger); font-size: var(--text-xs); font-weight: 600; }
+.profileSource {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  margin: var(--space-1) 0 0;
+  flex-basis: 100%;
+}
+
+.profileSkills { display: flex; flex-direction: column; gap: var(--space-2); }
+.profileSkill {
+  display: grid;
+  grid-template-columns: 1.4fr 0.9fr 1fr 0.8fr;
+  gap: var(--space-2);
+  align-items: center;
+}
+.profileSkillRefs { color: var(--muted); font-size: var(--text-xs); }
+
+.profileEdu { margin-bottom: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
+.profileCert, .profileSummaryFact { margin: var(--space-2) 0 0; color: var(--text); }
+.profileTools { color: var(--muted); font-size: var(--text-sm); margin: 0 0 var(--space-2); }
+.profileUnmapped {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+  color: var(--text-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+@media (max-width: 640px) {
+  .profileFactsHead { flex-direction: column; }
+  .profileRoleHead, .profileProjectHead, .profileSkill { grid-template-columns: 1fr; }
+  .profileMetricValue { width: 100%; }
+}

@@ -19,6 +19,9 @@ export type MasterCV = {
 export type { Education, ProjectLink, CvProject, ExtraSection, Profile } from '@/lib/profile'
 import { normalizeProfile, type Profile } from '@/lib/profile'
 import { normalizeEligibility, type Eligibility } from '@/lib/knockouts'
+import { normalizeStructuredProfile, type StructuredProfile } from '@/lib/profile/schema'
+
+export type { StructuredProfile } from '@/lib/profile/schema'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -300,6 +303,10 @@ export async function getProfile(): Promise<Profile | null> {
   }
 }
 
+function dataObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
 // True when the write happened. False = not persisted; the caller decides
 // whether that needs surfacing (it does for a user-initiated save).
 export async function saveProfile(profile: Profile): Promise<boolean> {
@@ -307,10 +314,18 @@ export async function saveProfile(profile: Profile): Promise<boolean> {
     const userId = await getUserId()
     if (!userId) return false
     const supabase = createClient()
+    // The structured master profile (lib/profile/schema) lives beside the
+    // extracted profile in the same `data` jsonb (TL-2, migration-free). A
+    // re-extraction must NOT wipe the owner's hand-curated facts, so keep any
+    // existing `structured` key when overwriting the rest.
+    const { data: existing } = await supabase.from('cv_profiles').select('data').maybeSingle()
+    const prevStructured = dataObject(existing?.data).structured
+    const dataToSave: Record<string, unknown> = { ...profile }
+    if (prevStructured !== undefined) dataToSave.structured = prevStructured
     const { error } = await supabase
       .from('cv_profiles')
       .upsert(
-        { user_id: userId, data: profile, updated_at: new Date().toISOString() },
+        { user_id: userId, data: dataToSave, updated_at: new Date().toISOString() },
         { onConflict: 'user_id' }
       )
     if (error) {
@@ -320,6 +335,51 @@ export async function saveProfile(profile: Profile): Promise<boolean> {
     return true
   } catch (err) {
     console.error('cv_profiles upsert error:', err instanceof Error ? err.message : 'Unknown error')
+    return false
+  }
+}
+
+// ─── Structured master profile (TL-2) ────────────────────────────────────────
+// Stored under cv_profiles.data.structured — migration-free, same row and RLS
+// as the extracted profile. getProfile()/normalizeProfile ignore the key, so
+// the two never leak into each other.
+
+export async function getStructuredProfile(): Promise<StructuredProfile | null> {
+  try {
+    const supabase = createClient()
+    const { data, error } = await supabase.from('cv_profiles').select('data').maybeSingle()
+    if (error || !data) return null
+    const structured = dataObject(data.data).structured
+    if (!structured) return null
+    return normalizeStructuredProfile(structured)
+  } catch {
+    return null
+  }
+}
+
+// Read-merge-write: the extracted profile fields in the same jsonb are kept.
+// Stamps updated_at so the editor and a future worker see when it last changed.
+export async function saveStructuredProfile(structured: StructuredProfile): Promise<boolean> {
+  try {
+    const userId = await getUserId()
+    if (!userId) return false
+    const supabase = createClient()
+    const { data: existing } = await supabase.from('cv_profiles').select('data').maybeSingle()
+    const base = dataObject(existing?.data)
+    const merged = { ...base, structured: { ...structured, updated_at: new Date().toISOString() } }
+    const { error } = await supabase
+      .from('cv_profiles')
+      .upsert(
+        { user_id: userId, data: merged, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id' }
+      )
+    if (error) {
+      console.error('cv_profiles structured upsert error:', error.message)
+      return false
+    }
+    return true
+  } catch (err) {
+    console.error('cv_profiles structured upsert error:', err instanceof Error ? err.message : 'Unknown error')
     return false
   }
 }

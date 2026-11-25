@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import {
   getMasterCV,
@@ -1362,6 +1363,10 @@ export default function CustomizePage() {
                 )}
               </div>
             </div>
+            <p className="cvSavedMeta profileFactsLink">
+              <Link href="/profile" className="inlineLink" data-profile-facts-link>Your profile facts →</Link>{" "}
+              the numbers and skills behind every tailored CV, each traced to a line of this CV.
+            </p>
             {firstRunFacts && firstRunMode(firstRunFacts) === "guide" && (
               <FirstRunGuide
                 facts={firstRunFacts}

@@ -1,0 +1,397 @@
+{
+  "version": 1,
+  "updated_at": "2026-11-25T00:00:00.000Z",
+  "experience": [
+    {
+      "id": "E1",
+      "employer": "Meridian Labs",
+      "title": "Senior Software Engineer",
+      "dates": "Jan 2022 – Present",
+      "location": "London, UK",
+      "bullets": [
+        {
+          "id": "E1.1",
+          "text": "Cut deployment time by 40% by introducing a CI/CD pipeline with GitHub Actions.",
+          "verbs": [
+            "cut"
+          ],
+          "tools": [
+            "GitHub Actions"
+          ],
+          "metrics": [
+            {
+              "id": "E1.1m1",
+              "label": "deployment time",
+              "value": "40%",
+              "unit": "%",
+              "direction": "down",
+              "source": {
+                "section": "experience",
+                "line": 11,
+                "text": "- Cut deployment time by 40% by introducing a CI/CD pipeline with GitHub Actions."
+              }
+            }
+          ],
+          "source": {
+            "section": "experience",
+            "line": 11,
+            "text": "- Cut deployment time by 40% by introducing a CI/CD pipeline with GitHub Actions."
+          }
+        },
+        {
+          "id": "E1.2",
+          "text": "Reduced API response time by 25% by adding Redis caching to the Python and FastAPI services.",
+          "verbs": [
+            "reduced"
+          ],
+          "tools": [
+            "Python",
+            "FastAPI",
+            "Redis"
+          ],
+          "metrics": [
+            {
+              "id": "E1.2m1",
+              "label": "API response time",
+              "value": "25%",
+              "unit": "%",
+              "direction": "down",
+              "source": {
+                "section": "experience",
+                "line": 12,
+                "text": "- Reduced API response time by 25% by adding Redis caching to the Python and FastAPI services."
+              }
+            }
+          ],
+          "source": {
+            "section": "experience",
+            "line": 12,
+            "text": "- Reduced API response time by 25% by adding Redis caching to the Python and FastAPI services."
+          }
+        },
+        {
+          "id": "E1.3",
+          "text": "Mentored 3 junior engineers through code review and pairing.",
+          "verbs": [
+            "mentored"
+          ],
+          "tools": [
+            "Code Review"
+          ],
+          "metrics": [
+            {
+              "id": "E1.3m1",
+              "label": "junior engineers",
+              "value": "3",
+              "unit": "",
+              "direction": "none",
+              "source": {
+                "section": "experience",
+                "line": 13,
+                "text": "- Mentored 3 junior engineers through code review and pairing."
+              }
+            }
+          ],
+          "source": {
+            "section": "experience",
+            "line": 13,
+            "text": "- Mentored 3 junior engineers through code review and pairing."
+          }
+        }
+      ]
+    },
+    {
+      "id": "E2",
+      "employer": "Northgate Systems",
+      "title": "Software Engineer",
+      "dates": "Jul 2019 – Dec 2021",
+      "location": "Manchester, UK",
+      "bullets": [
+        {
+          "id": "E2.1",
+          "text": "Optimised PostgreSQL queries, reducing query time by 30% across the reporting suite.",
+          "verbs": [
+            "optimised"
+          ],
+          "tools": [
+            "PostgreSQL"
+          ],
+          "metrics": [
+            {
+              "id": "E2.1m1",
+              "label": "query time",
+              "value": "30%",
+              "unit": "%",
+              "direction": "down",
+              "source": {
+                "section": "experience",
+                "line": 15,
+                "text": "- Optimised PostgreSQL queries, reducing query time by 30% across the reporting suite."
+              }
+            }
+          ],
+          "source": {
+            "section": "experience",
+            "line": 15,
+            "text": "- Optimised PostgreSQL queries, reducing query time by 30% across the reporting suite."
+          }
+        },
+        {
+          "id": "E2.2",
+          "text": "Cut downtime by 15% by adding health checks and automated failover.",
+          "verbs": [
+            "cut"
+          ],
+          "tools": [],
+          "metrics": [
+            {
+              "id": "E2.2m1",
+              "label": "downtime",
+              "value": "15%",
+              "unit": "%",
+              "direction": "down",
+              "source": {
+                "section": "experience",
+                "line": 16,
+                "text": "- Cut downtime by 15% by adding health checks and automated failover."
+              }
+            }
+          ],
+          "source": {
+            "section": "experience",
+            "line": 16,
+            "text": "- Cut downtime by 15% by adding health checks and automated failover."
+          }
+        },
+        {
+          "id": "E2.3",
+          "text": "Reduced defects by 20% by introducing unit and integration tests in Jest.",
+          "verbs": [
+            "reduced"
+          ],
+          "tools": [
+            "Jest"
+          ],
+          "metrics": [
+            {
+              "id": "E2.3m1",
+              "label": "defects",
+              "value": "20%",
+              "unit": "%",
+              "direction": "down",
+              "source": {
+                "section": "experience",
+                "line": 17,
+                "text": "- Reduced defects by 20% by introducing unit and integration tests in Jest."
+              }
+            }
+          ],
+          "source": {
+            "section": "experience",
+            "line": 17,
+            "text": "- Reduced defects by 20% by introducing unit and integration tests in Jest."
+          }
+        }
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "id": "S1",
+      "name": "Python",
+      "tier": "technical",
+      "evidence": "production",
+      "evidence_refs": [
+        "E1.2"
+      ]
+    },
+    {
+      "id": "S2",
+      "name": "FastAPI",
+      "tier": "technical",
+      "evidence": "production",
+      "evidence_refs": [
+        "E1.2"
+      ]
+    },
+    {
+      "id": "S3",
+      "name": "PostgreSQL",
+      "tier": "technical",
+      "evidence": "production",
+      "evidence_refs": [
+        "E2.1"
+      ]
+    },
+    {
+      "id": "S4",
+      "name": "Redis",
+      "tier": "technical",
+      "evidence": "production",
+      "evidence_refs": [
+        "E1.2"
+      ]
+    },
+    {
+      "id": "S5",
+      "name": "GitHub Actions",
+      "tier": "technical",
+      "evidence": "production",
+      "evidence_refs": [
+        "E1.1"
+      ]
+    },
+    {
+      "id": "S6",
+      "name": "Jest",
+      "tier": "technical",
+      "evidence": "production",
+      "evidence_refs": [
+        "E2.3"
+      ]
+    },
+    {
+      "id": "S7",
+      "name": "React",
+      "tier": "technical",
+      "evidence": "project",
+      "evidence_refs": [
+        "P1"
+      ]
+    },
+    {
+      "id": "S8",
+      "name": "Node.js",
+      "tier": "technical",
+      "evidence": "project",
+      "evidence_refs": [
+        "P1"
+      ]
+    },
+    {
+      "id": "S9",
+      "name": "Mentoring",
+      "tier": "functional",
+      "evidence": "coursework",
+      "evidence_refs": []
+    },
+    {
+      "id": "S10",
+      "name": "Code Review",
+      "tier": "functional",
+      "evidence": "production",
+      "evidence_refs": [
+        "E1.3"
+      ]
+    },
+    {
+      "id": "S11",
+      "name": "Performance Tuning",
+      "tier": "functional",
+      "evidence": "coursework",
+      "evidence_refs": []
+    },
+    {
+      "id": "S12",
+      "name": "Rust",
+      "tier": "technical",
+      "evidence": "learning",
+      "evidence_refs": []
+    },
+    {
+      "id": "S13",
+      "name": "Kubernetes",
+      "tier": "technical",
+      "evidence": "learning",
+      "evidence_refs": []
+    }
+  ],
+  "projects": [
+    {
+      "id": "P1",
+      "name": "RideX",
+      "label": "personal portfolio project modelled on a real-world brief",
+      "bullets": [
+        {
+          "id": "P1.1",
+          "text": "Built a ride-booking demo with live driver tracking over WebSockets.",
+          "verbs": [
+            "built"
+          ],
+          "tools": [],
+          "metrics": [],
+          "source": {
+            "section": "projects",
+            "line": 22,
+            "text": "- Built a ride-booking demo with live driver tracking over WebSockets."
+          }
+        },
+        {
+          "id": "P1.2",
+          "text": "Added an automated test suite with Playwright covering the booking flow.",
+          "verbs": [
+            "added"
+          ],
+          "tools": [],
+          "metrics": [],
+          "source": {
+            "section": "projects",
+            "line": 23,
+            "text": "- Added an automated test suite with Playwright covering the booking flow."
+          }
+        }
+      ],
+      "tools": [
+        "React",
+        "Node.js",
+        "PostgreSQL"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "id": "ED1",
+      "degree": "BSc Computer Science",
+      "institution": "University of Bristol",
+      "dates": "2016 – 2019",
+      "note": "First-class honours. Modules: Algorithms, Databases, Distributed Systems.",
+      "source": {
+        "section": "education",
+        "line": 31,
+        "text": "BSc Computer Science | University of Bristol | 2016 – 2019"
+      }
+    }
+  ],
+  "certifications": [
+    {
+      "id": "C1",
+      "name": "AWS Certified Developer – Associate",
+      "source": {
+        "section": "certifications",
+        "line": 35,
+        "text": "AWS Certified Developer – Associate"
+      }
+    }
+  ],
+  "summary_facts": [
+    {
+      "id": "SF1",
+      "text": "Full-stack engineer with five years building reliable backend services.",
+      "source": {
+        "section": "summary",
+        "line": 6,
+        "text": "Full-stack engineer with five years building reliable backend services."
+      }
+    },
+    {
+      "id": "SF2",
+      "text": "Focused on performance, testing and mentoring.",
+      "source": {
+        "section": "summary",
+        "line": 7,
+        "text": "Focused on performance, testing and mentoring."
+      }
+    }
+  ],
+  "unmapped": []
+}
