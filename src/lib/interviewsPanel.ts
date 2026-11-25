@@ -47,6 +47,32 @@ export function stageForKind(kind: string): Status {
   return STAGE_FOR_KIND[kind] ?? "interview";
 }
 
+// JH-5 (24 Nov 2026): the panel is calmer — it shows the next few things, not everything.
+// At most PANEL_DEFAULT_VISIBLE items are shown until the user asks for the rest, so the
+// Applications table is never pushed far below the fold (the 23 Nov 9-item case). The slicing
+// and its accessible labels are pure, so they are testable under node:test.
+export const PANEL_DEFAULT_VISIBLE = 3;
+
+/** The items to render: the first 3, or all of them once "Show all" is pressed. */
+export function panelVisible<T>(items: readonly T[], showAll: boolean): T[] {
+  return showAll ? [...items] : items.slice(0, PANEL_DEFAULT_VISIBLE);
+}
+
+/** How many items are hidden by default (0 when there are 3 or fewer). */
+export function panelHiddenCount(total: number): number {
+  return Math.max(0, total - PANEL_DEFAULT_VISIBLE);
+}
+
+/** The accessible label on the "Show all" button, e.g. "Show all 9 interviews and deadlines". */
+export function showAllLabel(total: number): string {
+  return `Show all ${total} interviews and deadlines`;
+}
+
+/** The accessible label on an item's "More" control, e.g. "More actions for bp interview". */
+export function moreActionsLabel(item: Pick<UpcomingItem, "company_name" | "kindLabel">): string {
+  return `More actions for ${item.company_name} ${item.kindLabel.toLowerCase()}`;
+}
+
 export type PanelRow = {
   id: string;
   company_name: string;

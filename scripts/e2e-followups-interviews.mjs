@@ -70,13 +70,26 @@ try {
   };
 
   const page = await open({ width: 1280, height: 1200 });
-  const panelItems = await page.locator("[data-interview-item]").count();
-  check("the interviews panel shows the booked items", panelItems >= 4, String(panelItems));
+  // JH-5: at most 3 items by default, with "Show all (4)" for the rest, so the table is not
+  // pushed below the fold. The bp interview is among the soonest, so it still shows up front.
+  const defaultItems = await page.locator("[data-interview-item]").count();
+  check("the panel shows at most 3 items by default (JH-5)", defaultItems === 3, String(defaultItems));
+  check("'Show all (4)' reveals the rest", /Show all \(4\)/.test(await page.locator("[data-show-all]").innerText()));
   const bpItem = page.locator(`[data-interviews-panel] li`, { hasText: "bp" }).first();
   check("the bp interview shows even though its row is Rejected", await bpItem.isVisible());
   check("it offers Move to Interview", /Move to Interview/.test(await bpItem.innerText()), (await bpItem.innerText()).replace(/\n/g, " "));
-  check("an undated booking reads 'Not booked yet'", /Not booked yet/.test(await page.locator("[data-interviews-panel]").innerText()));
+  check("each item's main action links to the prep pack", (await page.locator("[data-interview-item] a.interviewsPanel__main[href*='/prep']").count()) === 3);
   await page.screenshot({ path: path.join(SHOTS, "03-followups-interviews-desktop.png"), fullPage: true });
+  // Show all, then the undated booking (Ellipse) appears, last.
+  await page.locator("[data-show-all]").click();
+  await page.waitForTimeout(150);
+  check("after Show all, all 4 items show", (await page.locator("[data-interview-item]").count()) === 4);
+  check("an undated booking reads 'Not booked yet'", /Not booked yet/.test(await page.locator("[data-interviews-panel]").innerText()));
+  // "Add to calendar" sits behind each item's "More" disclosure now.
+  const firstMore = page.locator("[data-interview-item] details.interviewsPanel__more summary").first();
+  check("each item has a keyboard-reachable 'More'", await firstMore.isVisible());
+  await firstMore.click();
+  check("'More' reveals Add to calendar", (await page.locator("[data-add-to-calendar]").first().isVisible()));
 
   // Today's follow-ups: the attention card, the priority order and the bulk close offer.
   await page.locator('[data-attn="today"]').click();

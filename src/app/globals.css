@@ -4346,22 +4346,31 @@ button.attnCard[aria-pressed="true"] { border-color: var(--amber-border); backgr
 .interviewsPanel__title { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--text); }
 .interviewsPanel__title svg { color: var(--amber); }
 .interviewsPanel__count { padding: 0 var(--space-2); border: 1px solid var(--amber-border); border-radius: var(--radius-pill); font-size: var(--text-xs); color: var(--text); }
-.interviewsPanel__sub { margin: 0 0 var(--space-2); font-size: var(--fs-sm); color: var(--muted); }
-.interviewsPanel__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
-.interviewsPanel__item { display: grid; grid-template-columns: minmax(96px, max-content) minmax(140px, max-content) 1fr auto; align-items: baseline; gap: var(--space-2) var(--space-3); font-size: var(--text-sm); }
+.interviewsPanel__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+/* JH-5: one calm line per item — the whole line is the main action (open the prep pack);
+   "Move to <stage>" and "More" cluster on the right and never wrap into a button row. */
+.interviewsPanel__item { display: flex; align-items: center; gap: var(--space-2) var(--space-3); font-size: var(--text-sm); }
+.interviewsPanel__main { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-3); min-height: 44px; padding: var(--space-1) 0; color: var(--text); text-decoration: none; border-radius: var(--r-sm); }
+.interviewsPanel__main:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.interviewsPanel__main:hover .interviewsPanel__who { text-decoration: underline; text-decoration-color: currentColor; text-underline-offset: 3px; }
 .interviewsPanel__kind { color: var(--amber); font-weight: 600; white-space: nowrap; }
-.interviewsPanel__when { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.interviewsPanel__left { color: var(--text-subtle); }
-.interviewsPanel__item--overdue .interviewsPanel__when, .interviewsPanel__item--overdue .interviewsPanel__left { color: var(--danger); font-weight: 600; }
-.interviewsPanel__who { color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+.interviewsPanel__who { flex: 1 1 auto; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .interviewsPanel__role { color: var(--muted); }
-.interviewsPanel__flag { font-size: var(--text-xs); color: var(--danger); white-space: nowrap; }
-.interviewsPanel__buttons { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.interviewsPanel__when { color: var(--text-subtle); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.interviewsPanel__left { color: var(--muted); }
+.interviewsPanel__item--overdue .interviewsPanel__when, .interviewsPanel__item--overdue .interviewsPanel__left { color: var(--danger); font-weight: 600; }
+.interviewsPanel__actions { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-2); }
 .interviewsPanel__move { color: var(--amber-ink); background: var(--amber); border-color: var(--amber); }
 .interviewsPanel__move:hover:not(:disabled) { color: var(--amber-ink); background: var(--amber-bright); border-color: var(--amber-bright); }
+.interviewsPanel__more { position: relative; }
+.interviewsPanel__moreBtn { list-style: none; cursor: pointer; }
+.interviewsPanel__moreBtn::-webkit-details-marker { display: none; }
+.interviewsPanel__menu { position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 3; display: flex; flex-direction: column; gap: var(--space-1); min-width: 164px; padding: var(--space-2); border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--surface-3); box-shadow: var(--shadow-md); }
+.interviewsPanel__menu .appsActionBtn { justify-content: flex-start; margin-left: 0; }
+.interviewsPanel__footer { margin-top: var(--space-2); }
+.interviewsPanel__showAll { color: var(--text-subtle); }
 @media (max-width: 640px) {
-  .interviewsPanel__item { grid-template-columns: 1fr; gap: var(--space-1); }
-  .interviewsPanel__buttons { justify-content: flex-start; }
+  .interviewsPanel__menu { right: auto; left: 0; }
 }
 
 /* A row's next deadline and the inbox it used, in the Edit panel. */
