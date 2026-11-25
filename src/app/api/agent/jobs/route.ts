@@ -157,20 +157,51 @@ export async function GET() {
       return NextResponse.json({ error: "Failed to load jobs" }, { status: 500 });
     }
 
-    // The newest event per job, attached for the "last event" column.
+    // The newest event per job, attached for the "last event" column, plus the
+    // newest "observed" event's data (the numbered field list the Fields drawer
+    // renders — it travels in the event, no storage round-trip needed).
     const { data: events } = await supabase
       .from("apply_events")
-      .select("job_id, ts, level, step, message")
+      .select("job_id, ts, level, step, message, data")
       .eq("user_id", userId)
       .order("ts", { ascending: false })
-      .limit(500);
+      .limit(1000);
     const lastEvent = new Map<string, unknown>();
+    const observer = new Map<string, unknown>();
     for (const e of events ?? []) {
       const jid = e.job_id as string;
-      if (!lastEvent.has(jid)) lastEvent.set(jid, e);
+      if (!lastEvent.has(jid)) {
+        // The "last event" column shouldn't carry the big observer payload.
+        const { data: _omit, ...lean } = e as Record<string, unknown>;
+        lastEvent.set(jid, lean);
+      }
+      if (e.step === "observed" && !observer.has(jid) && e.data) observer.set(jid, e.data);
     }
 
-    const withEvents = (jobs ?? []).map((j) => ({ ...j, last_event: lastEvent.get(j.id as string) ?? null }));
+    // A short-lived signed URL for each job's screenshot (read as the owner
+    // under the bucket's SELECT policy). Missing bucket / column → no thumbnail.
+    const screenshotUrl = new Map<string, string>();
+    const paths = (jobs ?? [])
+      .map((j) => (typeof j.screenshot_path === "string" ? j.screenshot_path : ""))
+      .filter(Boolean);
+    if (paths.length > 0) {
+      const { data: signed } = await supabase.storage
+        .from("agent-artifacts")
+        .createSignedUrls(paths, 3600);
+      for (const s of signed ?? []) {
+        if (s.signedUrl && s.path) screenshotUrl.set(s.path, s.signedUrl);
+      }
+    }
+
+    const withEvents = (jobs ?? []).map((j) => ({
+      ...j,
+      last_event: lastEvent.get(j.id as string) ?? null,
+      observer: observer.get(j.id as string) ?? null,
+      screenshot_url:
+        typeof j.screenshot_path === "string" && j.screenshot_path
+          ? screenshotUrl.get(j.screenshot_path) ?? null
+          : null,
+    }));
     return NextResponse.json({ jobs: withEvents });
   } catch (err) {
     console.error("GET /api/agent/jobs error:", err instanceof Error ? err.message : "unknown");

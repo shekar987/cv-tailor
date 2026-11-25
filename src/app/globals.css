@@ -4861,6 +4861,55 @@ button.inlineLink { margin-block: -8px; }
 .agentStatus[data-tone="success"] { background: var(--success-dim); border-color: var(--success-border); color: var(--success); }
 .agentStatus[data-tone="danger"] { background: var(--danger-dim); border-color: var(--danger-border); color: var(--danger); }
 .agentMode--submit { color: var(--amber-bright); font-weight: 500; }
+
+/* Chunk 35: the observed-fields drawer and the screenshot thumbnail. */
+.agentTable__jobTop { display: flex; gap: var(--space-2); align-items: flex-start; }
+.agentShotThumb {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  cursor: pointer;
+  overflow: hidden;
+  line-height: 0;
+}
+.agentShotThumb img { display: block; width: 56px; height: 40px; object-fit: cover; object-position: top left; }
+.agentShotThumb:hover { border-color: var(--amber-border); }
+.agentShotThumb:focus-visible { outline: var(--focus-ring); }
+.agentTable__fieldsRow > td { background: var(--surface-2); }
+.agentFields { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-2) 0; }
+.agentFields__wall {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--amber-border);
+  background: var(--amber-dim);
+  color: var(--amber-bright);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+.agentFields__shotLink { display: inline-block; line-height: 0; max-width: 480px; }
+.agentFields__shot {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  height: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.agentFields__list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.agentFields__list li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: var(--text-sm);
+}
+.agentFields__fieldLabel { color: var(--text); font-weight: 500; word-break: break-word; }
+.agentFields__fieldMeta { color: var(--text-subtle); font-size: var(--text-xs); white-space: nowrap; }
 .agentToken {
   margin: var(--space-3) 0 var(--space-4);
   padding: var(--space-4);

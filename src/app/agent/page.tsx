@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import AppHeader from "@/components/ui/AppHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/client";
 import { ATS_LABELS, type Ats } from "@/lib/agent/ats";
 import { workerPresence } from "@/lib/agent/deviceStatus";
 import { formatDate } from "@/lib/formatDate";
+import { FieldsDrawer, type ObserverData } from "./FieldsDrawer";
 
 // /agent — "Auto-apply" (Chunk 33). Queue job links here; a free worker on your
 // own PC (Chunk 34) applies to them and reports back live. This chunk is the
@@ -34,6 +35,9 @@ type Job = {
   attempts: number;
   last_error: string | null;
   confirmation_url: string | null;
+  screenshot_path?: string | null;
+  screenshot_url?: string | null;
+  observer?: ObserverData | null;
   created_at: string;
   last_event: JobEvent;
 };
@@ -100,6 +104,17 @@ export default function AgentPage() {
   const [queueResult, setQueueResult] = useState<
     { queuedCount: number; duplicates: string[]; rejected: Array<{ url: string; reason: string }> } | null
   >(null);
+
+  // Which job rows have their "Fields" drawer open.
+  const [openFields, setOpenFields] = useState<Set<string>>(() => new Set());
+  const toggleFields = useCallback((id: string) => {
+    setOpenFields((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   // The one-time device token.
   const [creatingDevice, setCreatingDevice] = useState(false);
@@ -386,8 +401,9 @@ export default function AgentPage() {
             <Skeleton lines={3} label="Loading your queue" />
           ) : !jobs || jobs.length === 0 ? (
             <EmptyState title="Nothing queued yet">
-              Paste a few job links above. They&apos;ll wait here until the PC worker claims them. The worker itself arrives in
-              the next update (Chunk 34) — this is the queue it reads from.
+              Paste a few job links above. They&apos;ll wait here until the worker on your PC claims them, opens each page, and
+              lists its fields with a screenshot — open &ldquo;Fields&rdquo; on a row to see what it read. Nothing is typed or
+              submitted yet.
             </EmptyState>
           ) : (
             <div className="agentTableWrap">
@@ -404,12 +420,29 @@ export default function AgentPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {jobs.map((j) => (
-                    <tr key={j.id} data-job-row data-status={j.status}>
+                  {jobs.map((j) => {
+                    const fieldsOpen = openFields.has(j.id);
+                    const fieldCount = j.observer?.field_count ?? j.observer?.elements?.length ?? null;
+                    return (
+                    <Fragment key={j.id}>
+                    <tr data-job-row data-status={j.status}>
                       <td className="agentTable__job">
-                        <a href={j.job_url} target="_blank" rel="noopener noreferrer" className="inlineLink" title={j.job_url}>
-                          {jobTitle(j)}
-                        </a>
+                        <div className="agentTable__jobTop">
+                          {j.screenshot_url && (
+                            <button
+                              type="button"
+                              className="agentShotThumb"
+                              onClick={() => toggleFields(j.id)}
+                              title="Show the fields and screenshot"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={j.screenshot_url} alt="Page screenshot" data-shot-thumb />
+                            </button>
+                          )}
+                          <a href={j.job_url} target="_blank" rel="noopener noreferrer" className="inlineLink" title={j.job_url}>
+                            {jobTitle(j)}
+                          </a>
+                        </div>
                         {j.last_error && <span className="agentErr" title={j.last_error}>{j.last_error}</span>}
                       </td>
                       <td>
@@ -434,6 +467,17 @@ export default function AgentPage() {
                         )}
                       </td>
                       <td className="agentTable__actions">
+                        {(j.observer || j.screenshot_url) && (
+                          <button
+                            type="button"
+                            className="inlineLink"
+                            aria-expanded={fieldsOpen}
+                            data-fields-toggle
+                            onClick={() => toggleFields(j.id)}
+                          >
+                            {fieldsOpen ? "Hide fields" : fieldCount != null ? `Fields (${fieldCount})` : "Fields"}
+                          </button>
+                        )}
                         {j.status !== "cancelled" && j.status !== "submitted" && (
                           <button type="button" className="inlineLink" onClick={() => patchJob(j.id, "cancel")}>
                             Cancel
@@ -455,7 +499,16 @@ export default function AgentPage() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                    {fieldsOpen && (
+                      <tr className="agentTable__fieldsRow" data-fields-row>
+                        <td colSpan={7}>
+                          <FieldsDrawer observer={j.observer ?? null} screenshotUrl={j.screenshot_url} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
