@@ -1,0 +1,20 @@
+<!doctype html>
+<!-- A page guarded by a reCAPTCHA: the observer must flag captcha and stop. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Verify you are human — Acme Careers</title>
+  </head>
+  <body>
+    <main>
+      <h1>Almost there</h1>
+      <form method="post" action="/apply">
+        <label for="full_name">Full name</label>
+        <input type="text" id="full_name" name="full_name" />
+        <div class="g-recaptcha" data-sitekey="6Lc_fake_sitekey_for_tests"></div>
+        <iframe title="reCAPTCHA" src="https://www.google.com/recaptcha/api2/anchor?k=6Lc_fake"></iframe>
+        <button type="submit">Continue</button>
+      </form>
+    </main>
+  </body>
+</html>

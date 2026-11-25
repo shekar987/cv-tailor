@@ -74,6 +74,29 @@ class FakeHeartbeat:
         self.stopped = True
 
 
+class FakeRunner:
+    """Stands in for the browser observer in worker-loop tests.
+
+    It logs one ``observed`` event (so the worker's event-logging path is
+    exercised) and returns a scripted :class:`RunResult`, or raises when given a
+    ``raises`` exception — to drive the failure / Ctrl+C paths without a browser.
+    """
+
+    def __init__(self, status: str = "dry_run_done", *, message: str = "done", raises: Exception | None = None):
+        from jobhuntz_agent.runner import RunResult
+
+        self._result = RunResult(status=status, message=message)
+        self._raises = raises
+        self.calls: list[tuple[str, str]] = []
+
+    def run(self, job: Job, ctx: Any):
+        self.calls.append((job.id, ctx.effective_mode))
+        if self._raises is not None:
+            raise self._raises
+        ctx.client.log_event(job.id, "info", "observed", "Read the application form: 3 fields.")
+        return self._result
+
+
 def make_job(**over: Any) -> Job:
     base: dict[str, Any] = {
         "id": "job-1",

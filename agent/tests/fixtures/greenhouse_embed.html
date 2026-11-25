@@ -1,0 +1,20 @@
+<!doctype html>
+<!--
+  A company careers page that embeds the Greenhouse form in an iframe, the way
+  boards.greenhouse.io is embedded on a company's own site. The observer must
+  reach into the iframe and list the embedded form's fields. Fictional.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Careers — Acme Robotics</title>
+  </head>
+  <body>
+    <header><h1>Join Acme Robotics</h1></header>
+    <p>We are hiring. Complete the form below to apply.</p>
+    <!-- The host page's own field must NOT be mistaken for the application form,
+         but it should still be listed (it is a real control). -->
+    <input type="search" name="site_search" aria-label="Search the site" />
+    <iframe id="grnhse_iframe" title="Greenhouse Job Board" src="greenhouse_form.html" width="100%" height="900"></iframe>
+  </body>
+</html>

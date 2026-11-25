@@ -7,7 +7,9 @@ service-role key is never read, never accepted.
 
 from __future__ import annotations
 
+import os
 import socket
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator
@@ -17,10 +19,29 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 MAX_BACKOFF_SECONDS = 60
 # How often the background heartbeat tells the server a claimed job is alive.
 HEARTBEAT_SECONDS = 20
-# The placeholder "work" this chunk does in place of a browser.
+# The placeholder "work" the Chunk 34 skeleton did in place of a browser. Kept
+# only for the no-browser fallback (when Playwright is not installed).
 PLACEHOLDER_SECONDS = 3
 
+# Browser defaults (Chunk 35). A polite, human-ish delay between page actions.
+ACTION_DELAY_MIN_MS = 400
+ACTION_DELAY_MAX_MS = 900
+# How long to wait for a page to settle / an element to appear.
+NAV_TIMEOUT_MS = 30_000
+
 ModeOverride = Literal["dry_run", "off"]
+
+
+def default_profile_dir() -> str:
+    """Where the persistent browser profile lives, by default.
+
+    ``%LOCALAPPDATA%\\Jobhuntz\\agent-profile`` on Windows, else
+    ``~/.local/share/jobhuntz/agent-profile``. The user signs in once here and
+    their logins survive between runs."""
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        return str(Path(local) / "Jobhuntz" / "agent-profile")
+    return str(Path.home() / ".local" / "share" / "jobhuntz" / "agent-profile")
 
 
 class Settings(BaseSettings):
@@ -44,6 +65,27 @@ class Settings(BaseSettings):
     poll_seconds: int = Field(default=10, ge=1, le=3600)
     mode_override: ModeOverride = Field(default="dry_run")
     device_name: str = Field(default="")
+
+    # ── browser (Chunk 35) ───────────────────────────────────────────────────
+    # The persistent Chromium profile directory (sign in once; logins persist).
+    browser_profile_dir: str = Field(default_factory=default_profile_dir)
+    # Headed by default so the user can see it and sign in. Headless optional.
+    browser_headless: bool = Field(default=False)
+    # Use an installed browser channel ("chrome" / "msedge") instead of the
+    # Playwright-bundled Chromium, or point at an explicit executable. Both
+    # blank = Playwright's own Chromium.
+    browser_channel: str = Field(default="")
+    browser_executable_path: str = Field(default="")
+    # The polite delay between page actions, in milliseconds (a random value in
+    # this range). Set both to 0 to disable (tests do).
+    action_delay_min_ms: int = Field(default=ACTION_DELAY_MIN_MS, ge=0)
+    action_delay_max_ms: int = Field(default=ACTION_DELAY_MAX_MS, ge=0)
+    nav_timeout_ms: int = Field(default=NAV_TIMEOUT_MS, ge=1000)
+    # Where the worker posts artifacts (the Supabase Edge Function that mints a
+    # signed upload URL — deployed by hand, see agent/README). Blank = the
+    # worker still observes and records the field list, but skips the screenshot
+    # upload with a note (the Fields drawer works regardless).
+    artifact_sign_url: str = Field(default="")
 
     # Not read from the environment — derived constants, overridable in tests.
     heartbeat_seconds: int = Field(default=HEARTBEAT_SECONDS, ge=1)
@@ -100,6 +142,17 @@ class Settings(BaseSettings):
     @property
     def forces_dry_run(self) -> bool:
         return self.mode_override == "dry_run"
+
+    @property
+    def action_delay_range_ms(self) -> tuple[int, int]:
+        """The (min, max) action delay, with min never above max."""
+        lo = self.action_delay_min_ms
+        hi = max(self.action_delay_max_ms, lo)
+        return (lo, hi)
+
+    @property
+    def has_artifact_upload(self) -> bool:
+        return bool(self.artifact_sign_url.strip())
 
 
 def load_settings() -> Settings:

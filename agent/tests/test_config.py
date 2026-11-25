@@ -59,3 +59,16 @@ def test_resolved_device_name_prefers_the_configured_name():
 
 def test_trailing_slash_stripped_from_url():
     assert _settings(supabase_url="https://example.supabase.co/").supabase_url == "https://example.supabase.co"
+
+
+def test_browser_defaults():
+    s = _settings()
+    assert s.browser_headless is False  # headed by default so the user can watch / sign in
+    assert s.action_delay_range_ms == (400, 900)
+    assert s.browser_profile_dir  # a non-empty path
+    assert s.has_artifact_upload is False  # no signer configured by default
+
+
+def test_has_artifact_upload_true_when_a_signer_is_set():
+    s = _settings(artifact_sign_url="https://edge.example/functions/v1/agent-artifact-sign")
+    assert s.has_artifact_upload is True

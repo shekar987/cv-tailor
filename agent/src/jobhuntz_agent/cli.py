@@ -13,8 +13,10 @@ from typing import Optional, Sequence
 
 from pydantic import ValidationError
 
+from .artifacts import NullUploader, SignedUrlUploader
 from .config import Settings, load_settings
 from .logging_setup import configure_logging
+from .runner import ObserverRunner
 from .supabase import InvalidDeviceToken, SupabaseAgentClient, SupabaseError
 from .worker import Worker
 
@@ -36,6 +38,16 @@ def _load() -> Optional[Settings]:
 
 def _client(settings: Settings) -> SupabaseAgentClient:
     return SupabaseAgentClient(settings.supabase_url, settings.supabase_anon_key, settings.device_token)
+
+
+def _runner(settings: Settings) -> ObserverRunner:
+    """The browser observer, with a screenshot uploader when one is configured."""
+    uploader = (
+        SignedUrlUploader(settings.artifact_sign_url, settings.device_token)
+        if settings.has_artifact_upload
+        else NullUploader()
+    )
+    return ObserverRunner(uploader=uploader)
 
 
 def cmd_check(settings: Settings) -> int:
@@ -74,7 +86,7 @@ def cmd_once(settings: Settings) -> int:
         except SupabaseError as exc:
             _print(f"Couldn't reach Supabase: {exc}")
             return 1
-        worker = Worker(client, settings, log)
+        worker = Worker(client, settings, log, runner=_runner(settings))
         outcome = worker.run_once()
         if outcome.claimed and outcome.job is not None:
             _print(f"Processed 1 job: {outcome.job.label} → {outcome.status}")
@@ -104,7 +116,7 @@ def cmd_run(settings: Settings) -> int:
             f"Polling every {settings.poll_seconds}s. Mode override: {settings.mode_override}. "
             "Press Ctrl+C to stop."
         )
-        worker = Worker(client, settings, log)
+        worker = Worker(client, settings, log, runner=_runner(settings))
         worker.run()
         _print("Worker stopped.")
         return 0
@@ -113,7 +125,7 @@ def cmd_run(settings: Settings) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="jobhuntz-agent", description="Jobhuntz Local Agent (Chunk 34 skeleton).")
+    parser = argparse.ArgumentParser(prog="jobhuntz-agent", description="Jobhuntz Local Agent (Chunk 35: read-only browser observer).")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("run", help="Poll the queue and process jobs until Ctrl+C.")
     sub.add_parser("check", help="Print Supabase reachability and the device name. No claim.")
