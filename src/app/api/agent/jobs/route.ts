@@ -172,8 +172,7 @@ export async function GET() {
       const jid = e.job_id as string;
       if (!lastEvent.has(jid)) {
         // The "last event" column shouldn't carry the big observer payload.
-        const { data: _omit, ...lean } = e as Record<string, unknown>;
-        lastEvent.set(jid, lean);
+        lastEvent.set(jid, { ts: e.ts, level: e.level, step: e.step, message: e.message });
       }
       if (e.step === "observed" && !observer.has(jid) && e.data) observer.set(jid, e.data);
     }
