@@ -1,0 +1,16 @@
+Backend Engineer — Flux Payments (remote, UK)
+
+Flux is hiring a Backend Engineer to build and scale our API platform. You will
+design and run services in Node.js backed by PostgreSQL, deployed on AWS.
+
+Responsibilities
+- Design and build REST APIs in Node.js and Express.
+- Model and query data in PostgreSQL.
+- Deploy and operate services on AWS with CI/CD.
+- Add automated tests and keep the service reliable.
+
+Requirements
+- 2+ years of backend development with Node.js.
+- Strong SQL and PostgreSQL experience.
+- Experience deploying to AWS.
+- A testing discipline (unit and integration tests).

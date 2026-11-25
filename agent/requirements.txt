@@ -1,0 +1,7 @@
+# The worker and the benchmark use only the Python standard library (urllib,
+# json) to talk to Ollama and Supabase — no dependency is required to run them.
+#
+# psutil is OPTIONAL: the benchmark uses it to measure the ollama processes'
+# peak resident memory. Without it, peak RAM falls back to the model size
+# Ollama reports in /api/ps.
+psutil>=5.9 ; python_version >= "3.8"

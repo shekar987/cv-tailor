@@ -1,0 +1,193 @@
+{
+  "url": "file:///C:/Users/shekar/Desktop/shekar/RTS/cv-tailor/agent/tests/fixtures/greenhouse_form.html",
+  "title": "Apply: Software Engineer \u2014 Acme Robotics",
+  "login_wall": false,
+  "captcha": false,
+  "wall_reason": null,
+  "counts": {
+    "textbox": 7,
+    "file": 1,
+    "combobox": 1,
+    "checkbox": 1,
+    "radiogroup": 1,
+    "button": 1
+  },
+  "field_count": 12,
+  "truncated": false,
+  "elements": [
+    {
+      "index": 0,
+      "role": "textbox",
+      "type": "text",
+      "label": "First name *",
+      "name": "job_application[first_name]",
+      "required": true,
+      "visible": true,
+      "frame_path": "",
+      "selector": "#first_name",
+      "options": []
+    },
+    {
+      "index": 1,
+      "role": "textbox",
+      "type": "text",
+      "label": "Last name *",
+      "name": "job_application[last_name]",
+      "required": true,
+      "visible": true,
+      "frame_path": "",
+      "selector": "#last_name",
+      "options": []
+    },
+    {
+      "index": 2,
+      "role": "textbox",
+      "type": "email",
+      "label": "Email address *",
+      "name": "job_application[email]",
+      "required": true,
+      "visible": true,
+      "frame_path": "",
+      "selector": "#email",
+      "options": []
+    },
+    {
+      "index": 3,
+      "role": "textbox",
+      "type": "tel",
+      "label": "Phone",
+      "name": "job_application[phone]",
+      "required": false,
+      "visible": true,
+      "frame_path": "",
+      "selector": "#phone",
+      "options": []
+    },
+    {
+      "index": 4,
+      "role": "textbox",
+      "type": "url",
+      "label": "LinkedIn profile",
+      "name": "job_application[linkedin]",
+      "required": false,
+      "visible": true,
+      "frame_path": "",
+      "selector": "input[name=\"job_application[linkedin]\"]",
+      "options": []
+    },
+    {
+      "index": 5,
+      "role": "textbox",
+      "type": "text",
+      "label": "Personal website",
+      "name": "job_application[website]",
+      "required": false,
+      "visible": true,
+      "frame_path": "",
+      "selector": "input[name=\"job_application[website]\"]",
+      "options": []
+    },
+    {
+      "index": 6,
+      "role": "textbox",
+      "type": "text",
+      "label": "Who referred you?",
+      "name": "job_application[referral]",
+      "required": false,
+      "visible": true,
+      "frame_path": "",
+      "selector": "input[name=\"job_application[referral]\"]",
+      "options": []
+    },
+    {
+      "index": 7,
+      "role": "file",
+      "type": "file",
+      "label": "Resume/CV *",
+      "name": "job_application[resume]",
+      "required": true,
+      "visible": true,
+      "frame_path": "",
+      "selector": "#resume",
+      "options": []
+    },
+    {
+      "index": 8,
+      "role": "combobox",
+      "type": null,
+      "label": "Where are you based? *",
+      "name": "job_application[location]",
+      "required": true,
+      "visible": true,
+      "frame_path": "",
+      "selector": "#location",
+      "options": [
+        {
+          "value": "",
+          "label": "Select\u2026"
+        },
+        {
+          "value": "london",
+          "label": "London, UK"
+        },
+        {
+          "value": "manchester",
+          "label": "Manchester, UK"
+        },
+        {
+          "value": "remote_uk",
+          "label": "Remote (UK)"
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "role": "checkbox",
+      "type": "checkbox",
+      "label": "Keep me posted about future roles",
+      "name": "job_application[newsletter]",
+      "required": false,
+      "visible": true,
+      "frame_path": "",
+      "selector": "input[name=\"job_application[newsletter]\"]",
+      "options": []
+    },
+    {
+      "index": 10,
+      "role": "radiogroup",
+      "type": "radio",
+      "label": "How did you hear about us? *",
+      "name": "job_application[source]",
+      "required": true,
+      "visible": true,
+      "frame_path": "",
+      "selector": "input[name=\"job_application[source]\"]",
+      "options": [
+        {
+          "value": "linkedin",
+          "label": "LinkedIn"
+        },
+        {
+          "value": "referral",
+          "label": "A friend"
+        },
+        {
+          "value": "other",
+          "label": "Other"
+        }
+      ]
+    },
+    {
+      "index": 11,
+      "role": "button",
+      "type": "submit",
+      "label": "Submit application",
+      "name": null,
+      "required": false,
+      "visible": true,
+      "frame_path": "",
+      "selector": "#submit_app",
+      "options": []
+    }
+  ]
+}

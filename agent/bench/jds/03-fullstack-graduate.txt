@@ -1,0 +1,14 @@
+Graduate Software Engineer — Meridian Labs (London)
+
+Our graduate scheme takes early-career engineers and gives them real ownership
+from day one. You'll work across the stack — React on the front end, Node.js and
+PostgreSQL on the back — shipping features to real users on AWS.
+
+About you
+- A degree in Computer Science or a related subject.
+- Some experience (projects, placements or internships) with web development.
+- Familiarity with JavaScript or TypeScript and an eagerness to learn.
+- Comfortable writing tests and reading other people's code.
+
+What you'll get
+- Mentoring, a structured programme, and real production work.
