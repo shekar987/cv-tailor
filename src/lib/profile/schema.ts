@@ -40,6 +40,7 @@ export type Bullet = {
   tools: string[]; // named technologies the bullet mentions
   metrics: Metric[];
   source: Source;
+  pinned?: boolean; // when true, the gate flags if this bullet is missing from output
 };
 
 export type ExperienceEntry = {
