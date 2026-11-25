@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Button from "@/components/ui/Button";
 import StatusText from "@/components/ui/StatusText";
 import {
-  EVENT_KINDS, EVENT_KIND_LABELS, conflictsFor,
+  EVENT_KINDS, EVENT_KIND_LABELS, STANDALONE_KINDS, conflictsFor,
   type AvailabilityWindow, type Conflict, type EventKind, type PlanApplication, type PlanEvent,
 } from "@/lib/plan";
 import { DEFAULT_TIMEZONE, MINUTE_MS, clockTime, dayKey, formatWhen, zonedTimeToMs } from "@/lib/planTime";
@@ -185,7 +185,7 @@ export default function EventForm({
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (!existing && !application && kind !== "networking") { setError("Pick the application this event belongs to."); return; }
+    if (!existing && !application && !STANDALONE_KINDS.has(kind)) { setError("Pick the application this event belongs to."); return; }
     const body = payload();
     if (typeof body === "string") { setError(body); return; }
     setSaving(true);
@@ -247,7 +247,7 @@ export default function EventForm({
                       ))}
                     </ul>
                   )}
-                  {kind === "networking" && <p className="cvHelp">A networking call needs no application.</p>}
+                  {STANDALONE_KINDS.has(kind) && <p className="cvHelp">This event needs no application.</p>}
                 </>
               )}
             </div>

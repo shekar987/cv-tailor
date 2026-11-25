@@ -8,7 +8,7 @@ import {
   addDays, clockTime, countdown, dayKey, daysBetween, formatWhen, isClockTime, isDayKey, isValidTimeZone, longDay, mondayOf, span, weekdayOf, zonedTimeToMs,
 } from "./planTime.ts";
 
-export const EVENT_KINDS = ["screening_call", "interview", "assessment", "take_home", "deadline", "follow_up", "offer_deadline", "networking", "video", "work_trial", "screening_questions"] as const;
+export const EVENT_KINDS = ["screening_call", "interview", "assessment", "take_home", "deadline", "follow_up", "offer_deadline", "networking", "video", "work_trial", "screening_questions", "chore", "call"] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 export const EVENT_KIND_LABELS: Record<EventKind, string> = {
   screening_call: "Screening call",
@@ -22,7 +22,11 @@ export const EVENT_KIND_LABELS: Record<EventKind, string> = {
   video: "Video interview",
   work_trial: "Work trial",
   screening_questions: "Screening questions",
+  chore: "Chore",
+  call: "Call",
 };
+// Kinds that may be saved without an application_id.
+export const STANDALONE_KINDS: ReadonlySet<EventKind> = new Set(["networking", "chore", "call"]);
 export const EVENT_STATUSES = ["scheduled", "to_book", "done", "cancelled", "missed"] as const;
 export type EventStatus = (typeof EVENT_STATUSES)[number];
 export const EVENT_SOURCES = ["manual", "gmail", "calendar", "aiapply"] as const;
@@ -136,7 +140,8 @@ export function stageWeight(e: Pick<PlanEvent, "kind" | "stage_label">, applicat
   if (e.kind === "interview" || e.kind === "video") return /\bfinal\b/i.test(e.stage_label ?? "") ? 90 : 80;
   if (e.kind === "assessment" || e.kind === "take_home" || e.kind === "deadline" || e.kind === "work_trial") return 60;
   if (e.kind === "screening_call" || e.kind === "screening_questions") return 40;
-  if (e.kind === "networking") return 30;
+  if (e.kind === "networking" || e.kind === "call") return 30;
+  if (e.kind === "chore") return 25;
   return 20;
 }
 
