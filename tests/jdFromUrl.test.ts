@@ -251,25 +251,56 @@ test("readable text prefers <main>, and a tag that only starts like one is not i
 // ── The 12 Nov review: linear time on hostile pages, listings, forms, cookie lines ──
 
 test("hostile pages a user can point us at are read in linear time, at the full 3 MB", () => {
-  const SIZE = 3_000_000;
-  const fill = (unit: string) => unit.repeat(Math.ceil(SIZE / unit.length)).slice(0, SIZE);
-  const hostile: Record<string, string> = {
-    "unclosed <nav>": fill("<nav>"),
-    "unclosed JSON-LD scripts": fill('<script type="application/ld+json">'),
-    'unclosed "<main "': fill("<main "),
-    'unclosed "<!--"': fill("<!--"),
-    'tags with no ">" ("<a ")': fill("<a "),
-    'unclosed "<meta "': `<head>${fill("<meta ")}</head>`,
-    "unclosed <script>": fill("<script>x"),
-    "unclosed <form> in <main>": `<main>${fill("<form>")}</main>`,
+  // JH-4 (24 Nov): an absolute millisecond limit fails on a loaded machine and stops
+  // every chunk behind it (23 Nov: "unclosed <form>" took 11,658 ms against a 10 s cap
+  // although the code had not changed). Prove the SHAPE of the curve instead, which does
+  // not move with load: time each hostile page at 300 KB and at ~3 MB (10x the input) and
+  // require the time to grow about linearly. Linear is ~10x; the old quadratic bug was
+  // ~100x, so a ratio under 30 tells the two apart on any load. A generous absolute
+  // ceiling still catches a true hang.
+  //
+  // Each page's TOTAL length (wrapper included) is the target, kept at or under the
+  // reader's MAX_PAGE_CHARS (3,000,000): a page built to 3,000,013 was sliced back to
+  // 3,000,000, which lopped the closing </head> off the "<meta " case, so the head was
+  // never stripped and that one size took a different, slower path — an artefact of the
+  // fixture, not of the code. Filling the inner to `target - wrapper` keeps every case on
+  // ONE code path at both sizes, so the ratio measures real scaling.
+  const SMALL = 300_000;
+  const BIG = 3_000_000;
+  const fillTo = (unit: string, total: number, wrap: (s: string) => string) => {
+    const inner = total - (wrap("").length);
+    return wrap(unit.repeat(Math.ceil(inner / unit.length)).slice(0, inner));
   };
-  for (const [label, html] of Object.entries(hostile)) {
+  const id = (s: string) => s;
+  const units: Record<string, { unit: string; wrap?: (s: string) => string }> = {
+    "unclosed <nav>": { unit: "<nav>" },
+    "unclosed JSON-LD scripts": { unit: '<script type="application/ld+json">' },
+    'unclosed "<main "': { unit: "<main " },
+    'unclosed "<!--"': { unit: "<!--" },
+    'tags with no ">" ("<a ")': { unit: "<a " },
+    'unclosed "<meta "': { unit: "<meta ", wrap: (s) => `<head>${s}</head>` },
+    "unclosed <script>": { unit: "<script>x" },
+    "unclosed <form> in <main>": { unit: "<form>", wrap: (s) => `<main>${s}</main>` },
+  };
+  // Median of a few runs, so one scheduling hiccup on a busy machine does not fail it.
+  const timeOnce = (html: string) => {
     const t0 = performance.now();
     readablePosting(html, "https://www.elwood.example/jobs/1");
-    const ms = performance.now() - t0;
-    // Linear: 30 ms to 1.2 s each on the dev machine (12 Nov). The quadratic version took
-    // minutes on these, so 10 s still tells the two apart on a slow CI runner.
-    assert.ok(ms < 10_000, `${label}: ${ms.toFixed(0)} ms`);
+    return performance.now() - t0;
+  };
+  const median = (fn: () => number) => {
+    const runs = [fn(), fn(), fn()].sort((a, b) => a - b);
+    return runs[1];
+  };
+  for (const [label, { unit, wrap = id }] of Object.entries(units)) {
+    const small = fillTo(unit, SMALL, wrap);
+    const big = fillTo(unit, BIG, wrap);
+    const tSmall = median(() => timeOnce(small));
+    const tBig = median(() => timeOnce(big));
+    // A 5 ms floor so a fast small run (noise near zero) cannot inflate the ratio.
+    const ratio = tBig / Math.max(tSmall, 5);
+    assert.ok(ratio < 30, `${label}: 10x the input grew the time ${ratio.toFixed(1)}x (${tSmall.toFixed(0)} ms → ${tBig.toFixed(0)} ms) — not linear`);
+    assert.ok(tBig < 60_000, `${label}: ${tBig.toFixed(0)} ms at 3 MB — a hang`);
   }
 });
 
