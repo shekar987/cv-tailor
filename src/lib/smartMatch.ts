@@ -26,6 +26,29 @@ export type SmartMatchResult = {
   evidenceIds: string[];
   /** Marker so the UI and route know no AI was used. */
   isFreeMatch: true;
+  /**
+   * TL-4: maps each covered JD requirement to the first 60 chars of the
+   * bullet that best satisfies it. Empty when no workerSelection is provided.
+   */
+  coveredBy: Record<string, string>;
+};
+
+// ── TL-4: worker selection types ──────────────────────────────────────────────
+
+/** Score assigned by the retrieval worker for one experience bullet. */
+export type WorkerBulletScore = {
+  id: string;
+  score: number;              // 0–1 blended (cosine × 0.7 + rule × 0.3) or pure rule score
+  coveredRequirement: string; // JD requirement this bullet best satisfies
+};
+
+/**
+ * Optional parameter from the PC worker's "select" job. When present,
+ * smartMatch() reorders evidenceIds by the worker's scores and builds coveredBy
+ * from its covered_requirement annotations.
+ */
+export type WorkerSelection = {
+  bulletScores: WorkerBulletScore[];
 };
 
 export type Project = {
@@ -245,12 +268,60 @@ export function computeCoverage(cvText: string, kw: JdKeywords): { coverage: num
   };
 }
 
+// ── TL-4: worker selection helpers ────────────────────────────────────────────
+
+/**
+ * Re-sort evidenceIds by the worker's bullet scores (descending). IDs not
+ * present in the worker's list are appended in their original order.
+ * Re-orders only — never drops a bullet.
+ */
+function applyWorkerSelection(
+  evidenceIds: string[],
+  workerSelection: WorkerSelection,
+): string[] {
+  const scoreMap = new Map<string, number>();
+  for (const bs of workerSelection.bulletScores) {
+    scoreMap.set(bs.id, bs.score);
+  }
+  return [...evidenceIds].sort((a, b) => {
+    const sa = scoreMap.get(a) ?? -1;
+    const sb = scoreMap.get(b) ?? -1;
+    return sb - sa;
+  });
+}
+
+/**
+ * Build coveredBy from the worker's covered_requirement annotations.
+ * Maps each non-empty coveredRequirement → first 60 chars of that bullet's text.
+ * The first bullet claiming each requirement wins.
+ */
+function coveredByFromWorkerSelection(
+  workerSelection: WorkerSelection,
+  roles: MasterRole[],
+): Record<string, string> {
+  const bulletMap = new Map<string, string>();
+  for (const role of roles) {
+    for (const bullet of role.bullets) {
+      bulletMap.set(bullet.id, bullet.text);
+    }
+  }
+  const result: Record<string, string> = {};
+  for (const bs of workerSelection.bulletScores) {
+    if (!bs.coveredRequirement) continue;
+    if (bs.coveredRequirement in result) continue; // first bullet wins
+    const text = bulletMap.get(bs.id);
+    if (text) result[bs.coveredRequirement] = text.slice(0, 60);
+  }
+  return result;
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export function smartMatch(
   cvText: string,
   jdText: string,
   projects: Project[] = [],
+  workerSelection?: WorkerSelection,
 ): SmartMatchResult {
   const kw = parseJdKeywords(jdText);
 
@@ -259,11 +330,20 @@ export function smartMatch(
   const skills = reorderSkills(rawSkills, kw);
 
   const roles = parseMasterExperience(cvText);
-  const { text: experience, evidenceIds } = formatExperience(roles, kw);
+  const { text: experience, evidenceIds: rawEvidenceIds } = formatExperience(roles, kw);
 
   const projectsOut = formatProjects(projects, kw);
 
   const { coverage, gaps } = computeCoverage(cvText, kw);
+
+  // TL-4: when the PC worker provides a selection, reorder by its scores and
+  // build the coveredBy map. Fallback: original rule-score order, empty map.
+  const evidenceIds = workerSelection
+    ? applyWorkerSelection(rawEvidenceIds, workerSelection)
+    : rawEvidenceIds;
+  const coveredBy = workerSelection
+    ? coveredByFromWorkerSelection(workerSelection, roles)
+    : {};
 
   return {
     sections: { summary, skills, experience, projects: projectsOut },
@@ -271,5 +351,6 @@ export function smartMatch(
     gaps,
     evidenceIds,
     isFreeMatch: true,
+    coveredBy,
   };
 }

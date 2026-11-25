@@ -12,8 +12,15 @@
 
 import { ABSOLUTE_RULES } from "../prompts/rules.ts";
 
-export type TailorJobKind = "summary";
+export type TailorJobKind = "summary" | "select";
 export type TailorJobStatus = "queued" | "claimed" | "processing" | "done" | "failed" | "cancelled";
+
+// Output type for a "select" job: ranked bullet IDs with scores and what
+// requirement each bullet best covers.
+export type SelectResult = {
+  experience: Array<{ id: string; score: number; coveredRequirement: string }>;
+  model: string;
+};
 
 export type TailorJobInput = {
   kind: TailorJobKind;

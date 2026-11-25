@@ -20,6 +20,7 @@ import time
 
 from .config import Config
 from .ollama_client import OllamaClient, OllamaError
+from .retrieval import RetrievalEngine
 from .supabase_client import SupabaseClient, SupabaseError
 from .tailor import (
     SUMMARY_SCHEMA,
@@ -31,46 +32,85 @@ from .tailor import (
 )
 
 
-def run_one(cfg: Config, sb: SupabaseClient, ollama: OllamaClient, job: dict) -> None:
+def _run_summary(cfg: Config, sb: SupabaseClient, ollama: OllamaClient, job: dict) -> None:
+    """Handle a kind='summary' job."""
     job_id = job["id"]
     job_input = job.get("input") or {}
     jd_text = job_input.get("jd_text", "")
     master_cv = job_input.get("master_cv", "")
-    print(f"[tailor] claimed job {job_id} (kind={job.get('kind')})")
+
+    result = ollama.chat(
+        cfg.model,
+        summary_system_prompt(),
+        summary_user_prompt(jd_text, master_cv),
+        temperature=cfg.temperature,
+        num_predict=512,
+        fmt=SUMMARY_SCHEMA,
+    )
+    summary = clean_summary(summary_from_raw(result.content))
+    if not summary:
+        sb.complete_tailor_job(job_id, "failed", model=cfg.model, error="The model returned an empty summary.")
+        print(f"[tailor] job {job_id} produced nothing")
+        return
+
+    ok, unsupported = summary_numbers_supported(summary, master_cv)
+    output = {
+        "summary": summary,
+        "numbersOk": ok,
+        "unsupportedNumbers": unsupported,
+    }
+    sb.complete_tailor_job(
+        job_id,
+        "done",
+        output=output,
+        model=cfg.model,
+        tokens_per_sec=round(result.tokens_per_sec, 2) or None,
+    )
+    flag = "ok" if ok else f"UNSUPPORTED {unsupported}"
+    print(f"[tailor] job {job_id} done · {result.tokens_per_sec:.1f} tok/s · numbers {flag}")
+
+
+def _run_select(cfg: Config, sb: SupabaseClient, ollama: OllamaClient, job: dict) -> None:
+    """Handle a kind='select' job: score bullets by JD requirements.
+
+    Uses RetrievalEngine.select_bullets (embedding-based when Ollama has
+    nomic-embed-text, rule-score fallback when it does not). No chat call,
+    no large model needed — the retrieval is deterministic and cheap.
+    """
+    job_id = job["id"]
+    job_input = job.get("input") or {}
+    # bullets: list of [id, text] pairs
+    raw_bullets = job_input.get("bullets") or []
+    bullets = [(str(b[0]), str(b[1])) for b in raw_bullets if isinstance(b, (list, tuple)) and len(b) >= 2]
+    requirements: list[str] = [str(r) for r in (job_input.get("requirements") or [])]
+
+    # Pass the Ollama client so the engine can try nomic-embed-text; it falls
+    # back to rule scores automatically when the model is unavailable.
+    engine = RetrievalEngine(ollama=ollama)
+    scored = engine.select_bullets(bullets, requirements)
+
+    output = {
+        "experience": [
+            {"id": sb_item.id, "score": sb_item.score, "coveredRequirement": sb_item.covered_requirement}
+            for sb_item in scored
+        ],
+        "model": f"rule-only ({cfg.model})",
+    }
+    sb.complete_tailor_job(job_id, "done", output=output, model=cfg.model)
+    print(f"[tailor] job {job_id} select done · {len(scored)} bullets scored")
+
+
+def run_one(cfg: Config, sb: SupabaseClient, ollama: OllamaClient, job: dict) -> None:
+    job_id = job["id"]
+    kind = job.get("kind", "summary")
+    print(f"[tailor] claimed job {job_id} (kind={kind})")
 
     try:
         sb.complete_tailor_job(job_id, "processing")
-        result = ollama.chat(
-            cfg.model,
-            summary_system_prompt(),
-            summary_user_prompt(jd_text, master_cv),
-            temperature=cfg.temperature,
-            num_predict=512,
-            fmt=SUMMARY_SCHEMA,
-        )
-        summary = clean_summary(summary_from_raw(result.content))
-        if not summary:
-            sb.complete_tailor_job(job_id, "failed", model=cfg.model, error="The model returned an empty summary.")
-            print(f"[tailor] job {job_id} produced nothing")
-            return
-
-        ok, unsupported = summary_numbers_supported(summary, master_cv)
-        # The website recomputes this honesty verdict itself; we send the summary
-        # and a hint, never a trusted verdict.
-        output = {
-            "summary": summary,
-            "numbersOk": ok,
-            "unsupportedNumbers": unsupported,
-        }
-        sb.complete_tailor_job(
-            job_id,
-            "done",
-            output=output,
-            model=cfg.model,
-            tokens_per_sec=round(result.tokens_per_sec, 2) or None,
-        )
-        flag = "ok" if ok else f"UNSUPPORTED {unsupported}"
-        print(f"[tailor] job {job_id} done · {result.tokens_per_sec:.1f} tok/s · numbers {flag}")
+        if kind == "select":
+            _run_select(cfg, sb, ollama, job)
+        else:
+            _run_summary(cfg, sb, ollama, job)
     except OllamaError as exc:
         sb.complete_tailor_job(job_id, "failed", model=cfg.model, error=str(exc)[:500])
         print(f"[tailor] job {job_id} failed (ollama): {exc}")

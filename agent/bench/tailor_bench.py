@@ -196,12 +196,102 @@ def write_results(host: str, results: list[dict], hardware: str) -> None:
     print(f"\nWrote {RESULTS_FILE}")
 
 
+def bench_selection(host: str = "http://127.0.0.1:11434") -> dict:
+    """TL-4: benchmark the retrieval / selection path.
+
+    Runs RetrievalEngine.select_bullets over the bench CV and 10 fictional
+    JDs (a subset of the selection test suite). No chat model needed; the
+    embedding model (nomic-embed-text) is optional — when absent the engine
+    falls back to pure rule scores and the result is marked PROJECTED.
+
+    Returns a summary dict with keys: model, runs, coverage_80pct,
+    avg_coverage, latency_ms, notes.
+    """
+    from agent.worker.retrieval import RetrievalEngine
+
+    # Fictional bullets from the selection test suite (fictional Alex Tester).
+    bullets = [
+        ("R1.1", "Rebuilt the logistics dashboard in TypeScript used by 40 depots, cutting load time by 35%."),
+        ("R1.2", "Built a REST API in Node.js and Express serving 1.2 million requests a day."),
+        ("R1.3", "Shipped to AWS on ECS and RDS Postgres with GitHub Actions CI."),
+        ("R1.4", "Added Jest and Playwright test suites, taking coverage from 20% to 85%."),
+        ("R1.5", "Mentored 2 junior developers through weekly code reviews."),
+        ("R2.1", "Built internal React tools used by 15 staff."),
+        ("R2.2", "Wrote SQL reports over a PostgreSQL warehouse."),
+    ]
+    jds = [
+        ["TypeScript", "React", "Node.js", "PostgreSQL"],
+        ["Jest", "Playwright", "testing", "test coverage"],
+        ["AWS", "Docker", "GitHub Actions", "CI/CD"],
+        ["REST API", "Node.js", "Express"],
+        ["React", "frontend", "JavaScript"],
+        ["PostgreSQL", "SQL", "database"],
+        ["Python", "FastAPI", "API development"],
+        ["Node.js", "TypeScript", "testing"],
+    ]
+
+    ollama: OllamaClient | None = None
+    model_label = "rule-only (no Ollama)"
+    try:
+        client = OllamaClient(host)
+        # Quick reachability check: list models
+        client._post("/api/tags", {})
+        from agent.worker.retrieval import DEFAULT_EMBED_MODEL
+        model_label = DEFAULT_EMBED_MODEL
+        ollama = client
+    except Exception:
+        pass  # No Ollama available — rule-score fallback
+
+    engine = RetrievalEngine(ollama=ollama)
+    runs_above_80 = 0
+    coverages: list[float] = []
+    latencies_ms: list[float] = []
+
+    for reqs in jds:
+        t0 = time.time()
+        scored = engine.select_bullets(bullets, reqs)
+        latencies_ms.append((time.time() - t0) * 1000)
+        # Coverage: fraction of requirements that appear in some bullet's covered_requirement
+        covered = {sb.covered_requirement.lower() for sb in scored if sb.covered_requirement}
+        pct = sum(1 for r in reqs if any(r.lower() in c for c in covered)) / len(reqs)
+        coverages.append(pct)
+        if pct >= 0.8:
+            runs_above_80 += 1
+
+    avg_cov = round(sum(coverages) / len(coverages), 3) if coverages else 0.0
+    avg_lat = round(sum(latencies_ms) / len(latencies_ms), 1) if latencies_ms else 0.0
+
+    notes = []
+    if ollama is None:
+        notes.append("PROJECTED — no Ollama available, rule-score fallback only. "
+                     "Re-run with nomic-embed-text pulled for real embedding numbers.")
+
+    return {
+        "model": model_label,
+        "runs": len(jds),
+        "coverage_80pct": f"{runs_above_80}/{len(jds)}",
+        "avg_coverage": avg_cov,
+        "latency_ms": avg_lat,
+        "notes": notes,
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Benchmark local models for the summary task.")
     ap.add_argument("--models", nargs="*", default=DEFAULT_MODELS)
     ap.add_argument("--host", default=os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"))
     ap.add_argument("--hardware", default=os.environ.get("BENCH_HARDWARE", "this PC"))
+    ap.add_argument("--selection", action="store_true", help="Run the TL-4 selection benchmark instead.")
     args = ap.parse_args()
+
+    if args.selection:
+        print("TL-4 selection benchmark …")
+        r = bench_selection(args.host)
+        print(f"model={r['model']} · runs={r['runs']} · "
+              f"≥80% coverage: {r['coverage_80pct']} · avg {r['avg_coverage']:.1%} · {r['latency_ms']}ms/JD")
+        for n in r.get("notes", []):
+            print(f"  NOTE: {n}")
+        return
 
     client = OllamaClient(args.host)
     master_cv = (HERE / "master_cv.txt").read_text(encoding="utf-8")

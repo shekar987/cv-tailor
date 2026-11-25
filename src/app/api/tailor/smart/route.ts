@@ -84,6 +84,8 @@ export async function POST(req: NextRequest) {
     coverage: result.coverage,
     gaps: result.gaps,
     evidenceIds: result.evidenceIds,
+    // TL-4: requirement → first 60 chars of matching bullet (empty when no worker selection).
+    coveredBy: result.coveredBy,
     // ATS score (may be null if no keyword list provided):
     atsScore,
   });

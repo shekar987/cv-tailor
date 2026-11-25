@@ -253,6 +253,10 @@ type Result = {
   isFreeMatch?: boolean;
   // Bullet IDs (R1.1 …) from the smart match, used to build the free letter.
   evidenceIds?: string[];
+  // TL-4: must-have terms the CV has no evidence for.
+  gaps?: string[];
+  // TL-4: requirement → first 60 chars of the bullet that covers it.
+  coveredBy?: Record<string, string>;
 };
 
 // Said wherever a claims block holds Download or Applied shut: the way out
@@ -3941,6 +3945,38 @@ export default function Home() {
                     </div>
                   ))}
                 </details>
+              )}
+              {result.isFreeMatch && (result.coveredBy || result.gaps) && (
+                <div className="inputCard" style={{ marginTop: "var(--space-6)" }} data-tl4-coverage>
+                  <h2 className="clHeading">Requirement coverage</h2>
+                  {result.coveredBy && Object.keys(result.coveredBy).length > 0 && (
+                    <ul className="atsList" style={{ marginBottom: "var(--space-3)" }}>
+                      {Object.entries(result.coveredBy).map(([req, excerpt]) => (
+                        <li key={req} data-status="pass">
+                          <span className="changesView__status">covered</span>
+                          <span>
+                            <strong>{req}</strong>
+                            {" — "}
+                            <span style={{ color: "var(--text-subtle)" }}>{excerpt}{excerpt.length >= 60 ? "…" : ""}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {result.gaps && result.gaps.length > 0 && (
+                    <ul className="atsList">
+                      {result.gaps.map((gap) => (
+                        <li key={gap} data-status="missing">
+                          <span className="changesView__status">gap</span>
+                          <span>{gap}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {result.gaps && result.gaps.length === 0 && (
+                    <p className="cardNote">All requirements are covered.</p>
+                  )}
+                </div>
               )}
               {result.isFreeMatch && !result.coverLetter && (
                 <div className="inputCard" style={{ marginTop: "var(--space-6)" }}>

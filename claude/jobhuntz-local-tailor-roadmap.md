@@ -39,3 +39,27 @@ the full roadmap is restored later, keep this log at the bottom of it.
   `fixtures/` (fictional Alex Tester CV + imported profile). Tests in
   `tests/structuredProfile.test.ts`. Build 6 (worker RPC) deferred to the
   TL-1R / Chunk 34 chain; Build 4 kept migration-free per the planner's note.
+
+- **TL-3 never built** (25 Nov 2026). The chunk was skipped in the sprint plan.
+
+- **TL-4 built on branch tl-4-retrieval** (25 Nov 2026). Retrieval and selection
+  with local embeddings. `agent/worker/retrieval.py`: `EmbeddingCache`
+  (SQLite, stdlib), `cosine_sim`, `rule_score`, `SelectBullet` NamedTuple,
+  `RetrievalEngine.select_bullets` — blends cosine×0.7 + rule×0.3 when Ollama
+  `nomic-embed-text` available, pure rule-score fallback when absent (the build
+  PC has no Ollama and no GPU). `src/lib/tailorJobs.ts` gains `TailorJobKind =
+  "summary" | "select"` and the `SelectResult` type. `src/lib/smartMatch.ts`
+  gains `WorkerSelection` / `WorkerBulletScore` types, `coveredBy:
+  Record<string,string>` on `SmartMatchResult`, and an optional
+  `workerSelection` parameter — when provided it re-sorts evidenceIds by worker
+  scores and builds coveredBy from covered_requirement annotations. The
+  `/api/tailor/smart` route forwards `coveredBy` in its response. `/app`
+  `app/page.tsx` shows a "Requirement coverage" card inline when `coveredBy` or
+  `gaps` are present on a free-match result (no new panel). The TL-1 worker's
+  `run_one` now dispatches to `_run_select` for `kind="select"` jobs.
+  `agent/bench/tailor_bench.py` gains `bench_selection()` callable with
+  `--selection` flag; marks output PROJECTED when no Ollama. Tests: 31/31 Python
+  (`agent/tests/test_retrieval.py`); 1490/1490 TypeScript suite
+  (`tests/selection.test.ts` + full suite); typecheck clean. Java / Kubernetes
+  terms in fictional CVs that lack them score < 0.3 coverage (no false
+  coverage).
