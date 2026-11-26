@@ -1,4 +1,5 @@
 import { guardFacts, guardRoleStatus } from "@/lib/factGuard";
+import { honestyGate, type HonestyDoc } from "@/lib/honestyGate";
 import { checkSuggestions } from "@/lib/suggestionCheck";
 import { TOP_PROJECT_BULLETS, alignWritten, capPoolBullets, cardsToPoolText, dropToFit, normalizePoolSettings, poolCardLinks, poolDropMessage, poolPinnedOverflowMessage, selectCards, type PoolCard, type PoolSelection, type PoolSettings } from "@/lib/projectPool";
 import { applyRetired, applyRetiredToBullets, findRetired, mergeReports, locateRetired, type RetiredClaim, type RetiredReport, type RetiredLocation } from "@/lib/retiredClaims";
@@ -1336,6 +1337,33 @@ async function runPipeline(opts: {
       })
     : null;
 
+  // JH-6: honesty gate — availability claims from ALL sections, unsupported figures
+  // flagged, pinned bullet survival check. Retired claims were already applied above;
+  // the gate does not re-apply them here (retiredClaims: [] avoids double-counting).
+  const gateDoc: HonestyDoc = {
+    summary: typeof summary === "string" ? summary : "",
+    skills: typeof skillsFinal === "string" ? skillsFinal : "",
+    experience: typeof experienceFinal === "string" ? experienceFinal : "",
+    projects: Object.fromEntries(
+      Object.entries(typeof projectsFinal === "object" && projectsFinal !== null ? (projectsFinal as Record<string, unknown>) : {}).map(
+        ([k, v]) => [k, Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []]
+      )
+    ),
+    coverLetter: typeof coverLetter === "string" ? coverLetter : "",
+  };
+  const gateResult = honestyGate({
+    sections: gateDoc,
+    masterCv: cv,
+    retiredClaims: [],
+    allowedAvailabilitySentence: eligibility ? availabilityCvSentence(eligibility) : null,
+    pinnedTexts: [],
+  });
+  // Update sections with gate-cleaned text.
+  summary = gateResult.sections.summary;
+  if (typeof skillsFinal === "string") skillsFinal = gateResult.sections.skills;
+  if (typeof experienceFinal === "string") experienceFinal = gateResult.sections.experience;
+  if (typeof coverLetter === "string") coverLetter = gateResult.sections.coverLetter;
+
   return {
     analysis,
     research,
@@ -1379,6 +1407,9 @@ async function runPipeline(opts: {
       // Where each removal/replacement acted, for the result notice (JH-4).
       locations: retiredLocated,
     },
+    // lib/honestyGate (JH-6): lines removed by the availability / retired pass and
+    // figures or pinned bullets that need the user's attention.
+    honestyGate: { removed: gateResult.removed, blocked: gateResult.blocked },
     // lib/summaryFallback: the summary rebuilt from the master CV (CareerSet), or null.
     summaryRebuild,
     // lib/headline guardTaglineLanguage: the built header led with a technology

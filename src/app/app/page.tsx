@@ -1750,6 +1750,20 @@ export default function Home() {
       setGateExtras(null);
       setGateError("");
     }
+    // If the JD changes significantly (paste of a new posting), clear the previous
+    // result so the old job title and company never show alongside the new JD.
+    // Small edits (typo corrections) do not clear the preview.
+    if (result && resultJd !== null) {
+      const trimmed = text.trim();
+      const prevJd = resultJd.trim();
+      const lengthChange = Math.abs(trimmed.length - prevJd.length);
+      const prefixMatches = trimmed.slice(0, 60) === prevJd.slice(0, 60);
+      if (lengthChange > 20 && !prefixMatches) {
+        setResult(null);
+        setResultJd(null);
+        setResultSource(null);
+      }
+    }
   }
 
   // "Import": the link → /api/jd/fetch (read server side, never the clipboard) → the posting into the JD box. A
