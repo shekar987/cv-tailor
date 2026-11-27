@@ -225,7 +225,7 @@ describe("RPC isolation guarantee", () => {
   it("rate limit key uses first 16 chars of token", () => {
     const token = "deadbeef".repeat(8); // 64 hex chars
     const rateLimitKey = `cal:${token.slice(0, 16)}`;
-    assert.equal(rateLimitKey, "cal:deadbeefdeadbee");
+    assert.equal(rateLimitKey, "cal:deadbeefdeadbeef");
     // Length: 4 (cal:) + 16 = 20
     assert.equal(rateLimitKey.length, 20);
   });

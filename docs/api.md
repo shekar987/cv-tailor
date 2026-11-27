@@ -71,3 +71,93 @@ A filter narrows `total` and the pages to the matching rows.
   it with `PATCH /api/applications/{id}/pending-outcome`; the user confirms.
 - Send an `Idempotency-Key` header (a fresh UUID per intended write) so a retry
   after a timeout returns the first answer instead of writing twice.
+
+---
+
+## POST /api/check/outreach (JH-7, 26 Nov 2026)
+
+Checks an outreach message (follow-up, cold email, DM or letter) for honesty
+issues before it is sent. No model call, no credit. The user's master CV and
+their never-say list are read server-side — never from the body.
+
+Burst limit: **20 per minute** per user (same as `/api/tailor/letter-smart`).
+Requires a valid session cookie.
+
+### Request body
+
+```json
+{
+  "text":           "Following up on my application...",
+  "kind":           "follow_up",
+  "recipient":      "hiring@example.com",
+  "application_id": "uuid-of-tracker-row",
+  "recent_texts":   ["Text of a recent cold email…", "Another one…"]
+}
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `text` | Yes | The outreach message text to check. |
+| `kind` | Yes | One of `follow_up`, `cold_email`, `dm`, `letter`. |
+| `recipient` | No | The email address it will be sent to. Triggers ATS / no-reply check. |
+| `application_id` | No | UUID of the tracker row. For `follow_up`: the row's status and `pending_outcome` are checked. |
+| `recent_texts` | No | Array of recent outreach texts (max 50, each capped at 2 000 chars). Used for repeated-phrase detection. |
+
+### Response
+
+```json
+{
+  "ok":     false,
+  "blocks": [
+    { "code": "closed_row",         "phrase": "rejected",         "fix": "This application is closed or waiting for your confirmation — do not send a follow-up." },
+    { "code": "retired_claim",      "phrase": "AssetGuard+",      "fix": "Remove \"AssetGuard+\" — it is on your never-say list." },
+    { "code": "automated_recipient","phrase": "noreply@ats.com",  "fix": "This address belongs to an automated system. Find a named contact to email instead." },
+    { "code": "availability_claim", "phrase": "I am available…",  "fix": "Remove availability claims from outreach text — state them on the application form instead." }
+  ],
+  "warns": [
+    { "code": "unsupported_number", "phrase": "150",              "fix": "Check \"150\" is in your main CV before sending — it was not found there." },
+    { "code": "repeated_phrase",    "phrase": "i am particularly excited…", "fix": "Rewrite this — used 3 times in recent outreach, recruiters notice repeated lines." },
+    { "code": "untraced_claim",     "phrase": "I built a fraud-detection prototype…", "fix": "Check this claim is in your main CV — the words do not match any line there." },
+    { "code": "retired_phrasing",   "phrase": "passionate about", "fix": "Replace \"passionate about\" with \"interested in\"." }
+  ]
+}
+```
+
+`ok` is `false` when any `blocks` are present. Warnings do not set `ok` to false.
+
+**Block codes** (must fix before sending):
+- `closed_row` — the application is closed or has a pending rejection; do not send a follow-up.
+- `retired_claim` — a phrase on the user's never-say list appears in the text.
+- `automated_recipient` — the recipient is a known ATS relay or no-reply address.
+- `availability_claim` — the text states availability/notice-period details (use the application form instead).
+
+**Warn codes** (review before sending):
+- `unsupported_number` — a figure in the text was not found in the master CV.
+- `repeated_phrase` — an 8+ word phrase appears in 3 or more of the supplied `recent_texts`.
+- `untraced_claim` — a first-person experience sentence does not match any line in the master CV.
+- `retired_phrasing` — a phrase on the never-say list was replaced with an alternative (the fix names it).
+
+### Error responses
+
+| Status | `errorType` | Meaning |
+|---|---|---|
+| 400 | (none) | `text` or `kind` missing or invalid. |
+| 400 | `needs_cv` | The user has no main CV saved yet. |
+| 429 | `burst_limit` | More than 20 calls in 60 seconds. |
+| 401 | — | Not signed in. |
+
+### Example call (browser console)
+
+```js
+const r = await fetch("/api/check/outreach", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    text: "Following up on my application. I built a fraud-detection prototype with 150 automated tests.",
+    kind: "follow_up",
+    application_id: "PASTE-YOUR-ROW-UUID-HERE",
+    recipient: "hiring@example.com",
+  }),
+});
+console.log(await r.json());
+```

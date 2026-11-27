@@ -315,6 +315,28 @@ function coveredByFromWorkerSelection(
   return result;
 }
 
+function coveredByFromRules(
+  roles: MasterRole[],
+  kw: JdKeywords,
+  cvText: string,
+  skillsText: string,
+): Record<string, string> {
+  const terms = kw.required.length > 0 ? kw.required : kw.general.slice(0, 20);
+  const result: Record<string, string> = {};
+  const allBullets = roles.flatMap((r) => r.bullets);
+  for (const term of terms) {
+    if (term in result) continue;
+    if (matchAtsKeywords(cvText, [term]).matched === 0) continue;
+    const hitBullet = allBullets.find((b) => matchAtsKeywords(b.text, [term]).matched > 0);
+    if (hitBullet) {
+      result[term] = hitBullet.text.slice(0, 60);
+    } else if (skillsText.trim()) {
+      result[term] = skillsText.trim().slice(0, 60);
+    }
+  }
+  return result;
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export function smartMatch(
@@ -337,13 +359,13 @@ export function smartMatch(
   const { coverage, gaps } = computeCoverage(cvText, kw);
 
   // TL-4: when the PC worker provides a selection, reorder by its scores and
-  // build the coveredBy map. Fallback: original rule-score order, empty map.
+  // build the coveredBy map. Fallback: deterministic rule-based coveredBy map.
   const evidenceIds = workerSelection
     ? applyWorkerSelection(rawEvidenceIds, workerSelection)
     : rawEvidenceIds;
   const coveredBy = workerSelection
     ? coveredByFromWorkerSelection(workerSelection, roles)
-    : {};
+    : coveredByFromRules(roles, kw, cvText, skills);
 
   return {
     sections: { summary, skills, experience, projects: projectsOut },
