@@ -6,7 +6,7 @@
 // /api/plan, which holds the one rule.
 import { NextRequest, NextResponse } from "next/server";
 import { signedIn, unauthorized, readJsonBody, invalidBody, type RouteSupabase } from "@/lib/routeAuth";
-import { readEventInput, readEventSource } from "@/lib/plan";
+import { readEventInput, readEventSource, STANDALONE_KINDS } from "@/lib/plan";
 import { snoozeUntil } from "@/lib/actionCentre";
 import { ACTION_MIGRATION_HINT, isMissingPlanSchema, PLAN_MIGRATION_HINT } from "@/lib/planSchema";
 import { stageAfterEvent } from "@/lib/applicationStage";
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       if (!owned) return NextResponse.json({ error: "Application not found" }, { status: 404 });
       applicationId = body.application_id;
       currentStatus = owned.status;
-    } else if (read.fields.kind !== "networking") {
+    } else if (!STANDALONE_KINDS.has(read.fields.kind as Parameters<typeof STANDALONE_KINDS.has>[0])) {
       return NextResponse.json({ error: "Pick the application this event belongs to." }, { status: 400 });
     }
 

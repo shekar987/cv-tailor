@@ -30,6 +30,8 @@ export const KIND_ICONS: Record<EventKind, IconName> = {
   video: "users",
   work_trial: "document",
   screening_questions: "clipboard",
+  chore: "clipboard",
+  call: "phone",
 };
 
 export function StageChip({ status }: { status: string }) {

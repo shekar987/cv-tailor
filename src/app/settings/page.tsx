@@ -129,6 +129,14 @@ export default function SettingsPage() {
   const [deleteTyped, setDeleteTyped] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  // Calendar feed (Chunk JH-2B). The URL is shown only at generation time and
+  // cleared on the next render; a reload shows "Feed active" with no URL.
+  const [calFeedActive, setCalFeedActive] = useState<boolean | null>(null);
+  const [calFeedUrl, setCalFeedUrl] = useState<string | null>(null);
+  const [calGenerating, setCalGenerating] = useState(false);
+  const [calError, setCalError] = useState("");
+  const [calCopied, setCalCopied] = useState(false);
+
   // Tailoring engine (Chunk TL-1). The whole Preferences object is held so a
   // save writes it back WHOLE without wiping other switches; null until a read
   // succeeds (a failed read must not overwrite with defaults).
@@ -137,6 +145,28 @@ export default function SettingsPage() {
   const [engineSaving, setEngineSaving] = useState(false);
   const [engineError, setEngineError] = useState("");
   const [savedGbp, setSavedGbp] = useState<number | null>(null);
+
+  async function generateCalFeed() {
+    if (calGenerating) return;
+    setCalGenerating(true);
+    setCalError("");
+    setCalFeedUrl(null);
+    setCalCopied(false);
+    try {
+      const res = await fetch("/api/calendar/token", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCalError(data.error || "Could not generate a feed URL. Try again.");
+        return;
+      }
+      setCalFeedUrl(data.url ?? null);
+      setCalFeedActive(true);
+    } catch {
+      setCalError("Connection error. Please try again.");
+    } finally {
+      setCalGenerating(false);
+    }
+  }
 
   async function setEngine(engine: TailoringEngine) {
     if (!prefs || engineSaving || prefs.tailoringEngine === engine) return;
@@ -231,6 +261,13 @@ export default function SettingsPage() {
         }
         setSavedKeys(map);
       }
+
+      // Calendar feed status (Chunk JH-2B). A failed read just leaves calFeedActive null
+      // (the button still works, we just don't know the current state yet).
+      fetch("/api/calendar/token")
+        .then((r) => r.json())
+        .then((d) => typeof d.active === "boolean" && setCalFeedActive(d.active))
+        .catch(() => {});
 
       // Tailoring engine + the £-saved counter. A failed read leaves prefs null
       // so the toggle stays locked rather than overwriting stored preferences.
@@ -543,9 +580,63 @@ export default function SettingsPage() {
             );
           })}
 
+          <Card variant="ruled" data-cal-feed>
+            <div className="keyCardHeader">
+              <span className="keyLabel"><Folio n={3 + SLOTS.length} />Add to Google Calendar</span>
+            </div>
+            <p className="keyRole">
+              Subscribe to your schedule in Google Calendar (or any calendar app) so deadlines and
+              interviews appear alongside your other events. The feed updates automatically.
+            </p>
+            {calFeedUrl ? (
+              <div className="calFeedBlock">
+                <p className="keyCaveat">Copy this URL now — it will not be shown again. Anyone with it can read your schedule.</p>
+                <div className="keyInputRow">
+                  <input
+                    readOnly
+                    className="textInput keyInput"
+                    value={calFeedUrl}
+                    aria-label="Your private calendar feed URL"
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(calFeedUrl).catch(() => {});
+                      setCalCopied(true);
+                      setTimeout(() => setCalCopied(false), 2500);
+                    }}
+                  >
+                    {calCopied ? "Copied ✓" : "Copy"}
+                  </Button>
+                </div>
+                <ol className="howToList" style={{ marginTop: "0.75rem" }}>
+                  <li>Open Google Calendar → Other calendars → From URL</li>
+                  <li>Paste the URL above</li>
+                  <li>Click Add calendar — it may take up to 24 hours to sync for the first time</li>
+                </ol>
+              </div>
+            ) : calFeedActive ? (
+              <p className="keyCaveat">Feed active. Regenerate to get a new URL (the old one stops working immediately).</p>
+            ) : calFeedActive === null ? (
+              <p className="keyCaveat">Checking…</p>
+            ) : null}
+            <div className="actions">
+              <Button
+                variant="secondary"
+                onClick={generateCalFeed}
+                disabled={calGenerating}
+                data-cal-generate
+              >
+                {calGenerating ? "Generating…" : calFeedActive ? "Regenerate feed URL" : "Get feed URL"}
+              </Button>
+            </div>
+            {calError && <StatusText role="alert">{calError}</StatusText>}
+          </Card>
+
           <Card variant="ruled" data-your-data>
             <div className="keyCardHeader">
-              <span className="keyLabel"><Folio n={3 + SLOTS.length} />Your data</span>
+              <span className="keyLabel"><Folio n={3 + SLOTS.length + 1} />Your data</span>
             </div>
             <p className="keyCaveat">
               Everything in your account as one JSON file: CV, answers, applications, interview packs and interview transcripts. Or delete it all for good. What is stored and who processes it is in the <Link href="/privacy" className="inlineLink">privacy notice</Link>;
