@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { buildIcs, type IcsEvent } from "@/lib/ics";
+import { sequenceFromNotes } from "@/lib/eventClashes";
 import { checkBurstLimit } from "@/lib/apiRateLimit";
 import { isMissingPlanSchema } from "@/lib/planSchema";
 import { EVENT_KIND_LABELS, type EventKind } from "@/lib/plan";
@@ -40,6 +41,7 @@ function eventToIcs(ev: Record<string, unknown>, baseUrl: string): IcsEvent {
     return { uid: `${id}@${UID_HOST}`, title, start: day, dateOnly: true, description, location, url };
   }
   if (ev.starts_at) {
+    const sequence = sequenceFromNotes(ev.prep_notes ? String(ev.prep_notes) : null);
     return {
       uid: `${id}@${UID_HOST}`,
       title,
@@ -49,6 +51,7 @@ function eventToIcs(ev: Record<string, unknown>, baseUrl: string): IcsEvent {
       description,
       location,
       url,
+      sequence: sequence > 0 ? sequence : undefined,
     };
   }
   if (ev.due_at) {

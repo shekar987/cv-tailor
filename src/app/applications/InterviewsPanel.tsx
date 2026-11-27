@@ -48,10 +48,14 @@ export default function InterviewsPanel({
   items,
   busyId,
   onMove,
+  onStatusChange,
+  onReschedule,
 }: {
   items: UpcomingItem[];
   busyId: string | null;
   onMove: (item: UpcomingItem) => void;
+  onStatusChange?: (eventId: string, status: "done" | "cancelled") => void;
+  onReschedule?: (item: UpcomingItem) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   if (items.length === 0) return null;
@@ -87,6 +91,11 @@ export default function InterviewsPanel({
                 {item.left ? <span className="interviewsPanel__left"> · {item.left}</span> : null}
               </span>
             </a>
+            {item.clashes.length > 0 && (
+              <span className="interviewsPanel__clash" data-clash>
+                {item.clashes.map((t) => `Clashes with ${t}`).join(" · ")}
+              </span>
+            )}
             <span className="interviewsPanel__actions">
               {/* The row is behind the booking: the one data-fixing action stays visible. */}
               {item.needsMove && (
@@ -101,22 +110,53 @@ export default function InterviewsPanel({
                   {busyId === item.event_id ? "Moving…" : `Move to ${STATUS_LABELS[item.impliedStatus]}`}
                 </button>
               )}
-              {/* Everything else behind one keyboard-reachable disclosure. */}
-              <details className="interviewsPanel__more">
-                <summary className="appsActionBtn interviewsPanel__moreBtn" aria-label={moreActionsLabel(item)}>
-                  More
-                </summary>
-                <div className="interviewsPanel__menu" role="group" aria-label={moreActionsLabel(item)}>
-                  <a className="appsActionBtn" href={item.prepHref} data-prep-link-more>
-                    Open prep pack
-                  </a>
-                  {item.at && (
-                    <button type="button" className="appsActionBtn" onClick={() => downloadIcs(item)} data-add-to-calendar>
-                      Add to calendar
-                    </button>
-                  )}
-                </div>
-              </details>
+              {/* Past scheduled event: "Did this happen?" replaces the More menu. */}
+              {item.isPast ? (
+                <span className="interviewsPanel__didItHappen" data-did-it-happen>
+                  <span className="interviewsPanel__didItHappenLabel">Did this happen?</span>
+                  <button
+                    type="button"
+                    className="appsActionBtn"
+                    onClick={() => onStatusChange?.(item.event_id, "done")}
+                    data-did-it-yes
+                  >
+                    Yes
+                  </button>
+                  <button
+                    type="button"
+                    className="appsActionBtn"
+                    onClick={() => onReschedule?.(item)}
+                    data-did-it-moved
+                  >
+                    Moved
+                  </button>
+                  <button
+                    type="button"
+                    className="appsActionBtn"
+                    onClick={() => onStatusChange?.(item.event_id, "cancelled")}
+                    data-did-it-cancelled
+                  >
+                    Cancelled
+                  </button>
+                </span>
+              ) : (
+                /* Everything else behind one keyboard-reachable disclosure. */
+                <details className="interviewsPanel__more">
+                  <summary className="appsActionBtn interviewsPanel__moreBtn" aria-label={moreActionsLabel(item)}>
+                    More
+                  </summary>
+                  <div className="interviewsPanel__menu" role="group" aria-label={moreActionsLabel(item)}>
+                    <a className="appsActionBtn" href={item.prepHref} data-prep-link-more>
+                      Open prep pack
+                    </a>
+                    {item.at && (
+                      <button type="button" className="appsActionBtn" onClick={() => downloadIcs(item)} data-add-to-calendar>
+                        Add to calendar
+                      </button>
+                    )}
+                  </div>
+                </details>
+              )}
             </span>
           </li>
         ))}

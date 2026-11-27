@@ -13,6 +13,7 @@ import { stageAfterEvent } from "@/lib/applicationStage";
 import { MAX_NOTES } from "@/lib/applicationFields";
 import { stampNoteLine } from "@/lib/notesWrite";
 import { apiStatus, normalizeStatus, oldStatusLabel, STATUS_LABELS, type Status } from "@/lib/tracker";
+import { findClashes, type ClashableEvent, type ClashItem } from "@/lib/eventClashes";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (value: unknown): value is string => typeof value === "string" && UUID_RE.test(value);
@@ -25,6 +26,29 @@ const isOldEventCheck = (error: { code?: string; message?: string } | null) =>
 // Open events only: finished ones never crowd the plan, and PostgREST answers at most
 // 1000 rows a request, so this is also what /api/plan can read in one go.
 const MAX_OPEN_EVENTS = 1000;
+
+/** Fetch all open timed events for a user to compare against for clash detection. */
+async function openTimedEvents(supabase: RouteSupabase, userId: string): Promise<ClashableEvent[]> {
+  const { data } = await supabase
+    .from("application_events")
+    .select("id, title, starts_at, ends_at, date_only, status")
+    .eq("user_id", userId)
+    .in("status", ["scheduled", "to_book"]);
+  return (data ?? []) as ClashableEvent[];
+}
+
+/** Format an ISO timestamp for the "Moved from" note (simple, no timezone conversion). */
+function formatMovedFrom(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const day = d.getUTCDate();
+  const mon = months[d.getUTCMonth()];
+  const year = d.getUTCFullYear();
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${day} ${mon} ${year} ${hh}:${mm} UTC`;
+}
 
 export async function GET() {
   try {
@@ -105,7 +129,18 @@ export async function POST(req: NextRequest) {
     if (applicationId && body.move_stage !== false) {
       movedStatus = await moveStageForEvent(supabase, userId, applicationId, currentStatus, read.fields.kind as string);
     }
-    return NextResponse.json({ event: data, movedStatus });
+    // Clash detection: warn only, never block.
+    let clashes: ClashItem[] = [];
+    let tight: ClashItem[] = [];
+    try {
+      const others = await openTimedEvents(supabase, userId);
+      const result = findClashes(data as ClashableEvent, others);
+      clashes = result.clashes;
+      tight = result.tight;
+    } catch {
+      // Best-effort; a clash read failure never fails the event save.
+    }
+    return NextResponse.json({ event: data, movedStatus, clashes, tight });
   } catch (err) {
     console.error("events POST error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not save that event" }, { status: 500 });
@@ -189,9 +224,31 @@ export async function PUT(req: NextRequest) {
     // Undoing an automatic close takes its mark off too, so the item is simply open again.
     const reopened = body.reopen === true ? { closed_by: null, closed_at: null } : {};
 
+    // Reschedule fix: if starts_at is changing, read the old value and append a "Moved from"
+    // note to prep_notes. This note also drives the ICS SEQUENCE counter (no migration needed).
+    let extraFields: Record<string, unknown> = {};
+    if ("starts_at" in read.fields && read.fields.starts_at) {
+      const { data: old } = await supabase
+        .from("application_events")
+        .select("starts_at, prep_notes")
+        .eq("id", body.id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (old?.starts_at && old.starts_at !== read.fields.starts_at) {
+        const movedLine = `Moved from ${formatMovedFrom(old.starts_at)}`;
+        const existingNotes = typeof old.prep_notes === "string" ? old.prep_notes : "";
+        // Prepend the note; cap to avoid overflowing the column.
+        const combined = existingNotes ? `${movedLine}\n${existingNotes}` : movedLine;
+        // Only override prep_notes when the body did NOT already send one (let explicit wins).
+        if (!("prep_notes" in read.fields)) {
+          extraFields.prep_notes = combined.slice(0, 4000);
+        }
+      }
+    }
+
     const { data, error } = await supabase
       .from("application_events")
-      .update({ ...read.fields, ...reopened, updated_at: new Date().toISOString() })
+      .update({ ...read.fields, ...extraFields, ...reopened, updated_at: new Date().toISOString() })
       .eq("id", body.id)
       .eq("user_id", userId)
       .select("*");
@@ -204,7 +261,18 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Could not save that event" }, { status: 500 });
     }
     if (!data || data.length === 0) return notFound();
-    return NextResponse.json({ event: data[0] });
+    // Clash detection: warn only, never block.
+    let clashes: ClashItem[] = [];
+    let tight: ClashItem[] = [];
+    try {
+      const others = await openTimedEvents(supabase, userId);
+      const result = findClashes(data[0] as ClashableEvent, others);
+      clashes = result.clashes;
+      tight = result.tight;
+    } catch {
+      // Best-effort; a clash read failure never fails the event update.
+    }
+    return NextResponse.json({ event: data[0], clashes, tight });
   } catch (err) {
     console.error("events PUT error:", err instanceof Error ? err.message : "Unknown error");
     return NextResponse.json({ error: "Could not save that event" }, { status: 500 });

@@ -15,6 +15,7 @@
 // Relative .ts imports only, so it runs under node:test (tests/interviewsPanel).
 import { DAY_MS, DEFAULT_TIMEZONE, HOUR_MS, countdown, formatWhen } from "./planTime.ts";
 import { normalizeStatus, type Status } from "./tracker.ts";
+import { findClashes, type ClashableEvent } from "./eventClashes.ts";
 
 // The event kinds this panel owns. A plain "deadline", a "follow_up", a networking call or
 // a "screening_questions" form stays on the radar.
@@ -89,6 +90,7 @@ export type PanelEvent = {
   title?: string | null;
   status: string;
   starts_at?: string | null;
+  ends_at?: string | null;
   due_at?: string | null;
   date_only?: boolean | null;
   location_or_link?: string | null;
@@ -118,11 +120,28 @@ export type UpcomingItem = {
   impliedStatus: Status;
   /** The stored status is behind the booking (or the row has ended): offer Move to <stage>. */
   needsMove: boolean;
+  /** The event is scheduled, its end time has passed, and status is still "scheduled". */
+  isPast: boolean;
+  /** Titles of open timed events that overlap with this one (displayed as plain text). */
+  clashes: string[];
 };
+
+const DEFAULT_DURATION_MS = 60 * 60 * 1000;
 
 function ms(e: PanelEvent): number | null {
   const at = Date.parse(e.starts_at ?? e.due_at ?? "");
   return Number.isFinite(at) ? at : null;
+}
+
+function endMs(e: PanelEvent): number | null {
+  if (!e.starts_at || e.date_only) return null;
+  const startMs = Date.parse(e.starts_at);
+  if (!Number.isFinite(startMs)) return null;
+  if (e.ends_at) {
+    const em = Date.parse(e.ends_at);
+    return Number.isFinite(em) ? em : startMs + DEFAULT_DURATION_MS;
+  }
+  return startMs + DEFAULT_DURATION_MS;
 }
 
 /** Is the row behind this booking, so a one-click move is worth offering? */
@@ -150,7 +169,7 @@ export function upcomingInterviews(
   const byId = new Map(rows.map((r) => [r.id, r]));
   const horizon = now + days * DAY_MS;
   const earliest = now - backHours * HOUR_MS;
-  const items: (UpcomingItem & { sort: number })[] = [];
+  const items: (UpcomingItem & { sort: number; _event: PanelEvent })[] = [];
   for (const e of events) {
     if (!e.application_id || !OPEN.has(e.status) || !PANEL_KINDS.includes(e.kind)) continue;
     const row = byId.get(e.application_id);
@@ -160,6 +179,8 @@ export function upcomingInterviews(
     if (at !== null && (at > horizon || at < earliest)) continue;
     const dateOnly = !!e.date_only;
     const kindLabel = KIND_LABELS[e.kind] ?? e.kind;
+    const em = endMs(e);
+    const isPast = e.status === "scheduled" && em !== null && em < now;
     items.push({
       event_id: e.id,
       application_id: e.application_id,
@@ -168,7 +189,7 @@ export function upcomingInterviews(
       kind: e.kind,
       kindLabel,
       title: (e.title ?? "").trim() || `${kindLabel} · ${row.company_name}`,
-      at: at === null ? (e.status === "to_book" ? null : null) : dateOnly ? (e.starts_at ?? e.due_at ?? "").slice(0, 10) : new Date(at).toISOString(),
+      at: at === null ? null : dateOnly ? (e.starts_at ?? e.due_at ?? "").slice(0, 10) : new Date(at).toISOString(),
       date_only: dateOnly,
       overdue: at !== null && at < now,
       when: at === null ? "Not booked yet" : formatWhen(at, tz, dateOnly),
@@ -178,13 +199,29 @@ export function upcomingInterviews(
       currentStatus: normalizeStatus(row.status),
       impliedStatus: stageForKind(e.kind),
       needsMove: rowBehind(row, e.kind),
+      isPast,
+      clashes: [],
       sort: at ?? Infinity,
+      _event: e,
     });
   }
-  return items
-    .sort((a, b) => a.sort - b.sort)
-    .map(({ sort, ...item }) => {
-      void sort;
-      return item;
-    });
+  const sorted = items.sort((a, b) => a.sort - b.sort);
+  // Compute clashes after sorting: each panel event checked against all events (including
+  // non-panel ones) so a peer call or networking event still triggers the warning.
+  const allClashable: ClashableEvent[] = events.map((e) => ({
+    id: e.id,
+    title: (e.title ?? "").trim() || (KIND_LABELS[e.kind] ?? e.kind),
+    starts_at: e.starts_at ?? null,
+    ends_at: e.ends_at ?? null,
+    date_only: e.date_only ?? null,
+    status: e.status,
+  }));
+  return sorted.map(({ sort, _event, ...item }) => {
+    void sort;
+    const clashResult = findClashes(
+      { id: _event.id, starts_at: _event.starts_at, ends_at: _event.ends_at, date_only: _event.date_only, status: _event.status },
+      allClashable
+    );
+    return { ...item, clashes: clashResult.clashes.map((c) => c.title) };
+  });
 }

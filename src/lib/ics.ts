@@ -28,6 +28,8 @@ export type IcsEvent = {
   url?: string;
   /** DTSTAMP, as an ISO instant. Defaults to the start (or today, for a date-only start). */
   stamp?: string;
+  /** RFC 5545 SEQUENCE: increment each time the event is rescheduled so calendar apps replace it. */
+  sequence?: number;
 };
 
 const PRODID = "-//Jobhuntz//Interview tracker//EN";
@@ -87,6 +89,7 @@ function vevent(ev: IcsEvent): string[] {
   const lines: string[] = ["BEGIN:VEVENT", line("UID", ev.uid)];
   const stampIso = ev.stamp ?? (ev.dateOnly ? `${ev.start.slice(0, 10)}T00:00:00Z` : ev.start);
   lines.push(line("DTSTAMP", toIcsUtc(stampIso)));
+  if (typeof ev.sequence === "number") lines.push(`SEQUENCE:${ev.sequence}`);
   if (ev.dateOnly) {
     const startDay = toIcsDate(ev.start);
     const endMs = Date.parse(`${ev.start.slice(0, 10)}T00:00:00Z`) + 86_400_000;

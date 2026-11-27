@@ -3129,7 +3129,23 @@ export default function ApplicationsPage() {
         {/* Interviews & deadlines (Chunk JH-1): at the very top, always visible, reading events
             so a booked interview is never missing even when its row is at the wrong stage. It
             needs every row, so it waits for the full list like the radar below it. */}
-        {hasRows && <InterviewsPanel items={fullLoaded ? upcoming : []} busyId={movingEvent} onMove={(item) => void moveToStage(item)} />}
+        {hasRows && (
+          <InterviewsPanel
+            items={fullLoaded ? upcoming : []}
+            busyId={movingEvent}
+            onMove={(item) => void moveToStage(item)}
+            onStatusChange={(eventId, status) => {
+              void trackedFetch("/api/events", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: eventId, status }) }).then(() => {
+                setStageRefresh((n) => n + 1);
+              });
+            }}
+            onReschedule={(item) => {
+              const ev = events.find((e) => e.id === item.event_id);
+              const row = rows.find((r) => r.id === item.application_id);
+              if (ev && row) setEventForm({ type: "edit", event: ev, application: row });
+            }}
+          />
+        )}
         {todaySection}
 
         {/* The application /app saved last (lib/justSaved), its CV and letter one click away.
