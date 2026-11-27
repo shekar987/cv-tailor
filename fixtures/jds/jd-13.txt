@@ -1,0 +1,52 @@
+Senior Backend Engineer
+Orbis Payments — London (Hybrid)
+Salary: £75,000 – £90,000 per annum
+Contract type: Permanent, full-time
+Posted: 2 days ago
+
+About Orbis Payments
+
+Orbis Payments is a licensed payment institution processing card-not-present transactions for e-commerce merchants across the EU and UK. We handle approximately £800m in transaction volume annually and our infrastructure is built for reliability at scale. The engineering team of 22 is growing as we expand into new markets and payment methods.
+
+The role
+
+We're hiring a Senior Backend Engineer to join our transaction processing team. This is a senior-level position, and we mean that: we expect you to bring 5 or more years of professional backend engineering experience and to operate with significant autonomy from day one. You'll be owning complex, high-stakes parts of our payment processing pipeline, contributing to architectural decisions, and helping grow the engineers around you. If you're a mid-level engineer looking to stretch into seniority, this isn't the right role — we'd encourage you to apply again in a year or two.
+
+What we're looking for
+
+Required:
+- 5+ years of professional experience as a backend software engineer
+- Strong proficiency in at least one of: Go, Rust, Java, Scala (we use Go and Java)
+- Demonstrable experience designing and building distributed systems
+- Deep understanding of database performance — query plans, indexes, locking behaviour (PostgreSQL preferred)
+- Comfortable with event-driven architecture and message queues (we use Kafka)
+- Track record of mentoring more junior engineers
+- Experience shipping and operating services in a cloud environment (we use AWS)
+
+Desirable:
+- Background in payments, fintech, or financial services
+- Familiarity with PCI-DSS requirements and secure engineering practices
+- Experience with observability tooling (Datadog, OpenTelemetry)
+- Participation in architectural review processes
+
+What you'll be doing
+
+- Designing and delivering complex features in our Go and Java payment processing services
+- Setting technical direction on the team and writing engineering proposals for significant changes
+- Reviewing code, raising standards and mentoring mid-level engineers
+- Participating in incident response on a rotating on-call schedule
+- Working with product and compliance teams on new payment method integrations
+- Contributing to hiring: reviewing CVs, designing technical exercises, running interviews
+
+This role is senior — please only apply if you have 5+ years of genuine backend engineering experience.
+
+What we offer
+
+- £75,000 – £90,000 depending on experience
+- Annual performance bonus up to 15%
+- 28 days holiday plus bank holidays
+- Hybrid working — 3 days on-site in our London office
+- EMI share option scheme
+- Private health and dental cover
+- £1,500 annual learning and conference budget
+- Generous pension — 8% employer contribution

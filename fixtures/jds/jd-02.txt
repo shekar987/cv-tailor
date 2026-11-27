@@ -1,0 +1,50 @@
+Software Developer
+Nordly Digital — Manchester (Hybrid, 3 days on-site)
+Salary: £40,000 – £50,000 per annum
+Contract type: Permanent, full-time
+Posted: 1 week ago
+
+About Nordly Digital
+
+Nordly Digital is a product studio that designs and builds web applications for clients in healthcare, logistics, and retail. We're 60 people spread across Manchester and Edinburgh, and our engineering team of 25 works in small, autonomous squads. We've been trading for eight years and we're proud of a low attrition rate — most people who join us stay.
+
+The role
+
+We're hiring a Software Developer to join our front-end-heavy product squad. The team builds React applications backed by Node.js services, and you'll be expected to contribute across the stack from day one. You'll work on three or four client products at a time, which means plenty of variety but also the discipline to understand context before writing code.
+
+Day-to-day responsibilities
+
+- Implementing new features in React (TypeScript) across multiple product codebases
+- Maintaining and improving Node.js REST APIs
+- Writing tests using Jest and React Testing Library
+- Collaborating with designers to translate Figma designs into usable interfaces
+- Participating in code review and helping maintain a consistent code style
+- Raising concerns early when a requirement is unclear or a deadline looks unrealistic
+
+What we look for
+
+Essential:
+- Solid understanding of JavaScript and modern ES2022+ features
+- Practical experience building UI components in React
+- Comfortable working with REST APIs
+- Familiarity with Git workflows (branching, pull requests, merge conflicts)
+- Attention to detail and a methodical approach to debugging
+
+Desirable:
+- TypeScript experience
+- Node.js or Express.js for backend work
+- CSS-in-JS or Tailwind CSS
+- Experience using PostgreSQL or another relational database
+
+We don't require a specific number of years of experience. If you can demonstrate that you build good software and work well with other people, we want to hear from you.
+
+What we offer
+
+- £40,000 – £50,000 depending on skills and experience
+- 28 days holiday plus bank holidays
+- Hybrid working from our Manchester city-centre office
+- £600 annual learning and conference budget
+- Enhanced parental leave
+- Regular team days and an optional in-person away day each year
+
+Nordly Digital is an equal-opportunity employer. We particularly encourage applications from groups currently underrepresented in technology.

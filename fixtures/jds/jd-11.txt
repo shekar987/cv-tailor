@@ -1,0 +1,53 @@
+Software Engineer — Fixed-Term Contract (12 months, maternity cover)
+Brightline Commerce — London (Hybrid)
+Salary: £48,000 – £56,000 per annum (pro-rata)
+Contract type: Fixed-term employee contract, 12 months
+Posted: 4 days ago
+
+About Brightline Commerce
+
+Brightline Commerce builds an e-commerce enablement platform used by independent retailers across the UK. The platform handles product cataloguing, inventory management, and order fulfilment for approximately 3,000 merchants. We're 55 people, with an engineering team of 14 working in a mix of Python and JavaScript. We're growing steadily and expect to hire the maternity cover into a permanent position when one becomes available.
+
+The fixed-term contract
+
+This role is a 12-month fixed-term employee contract to cover a maternity leave. It is a contract of employment — not a freelance, day-rate or IR35 arrangement. All employment rights apply from day one, including holiday entitlement, sick pay, pension contributions and statutory protections. We want to be transparent that the role is FTC cover, and we will do our best to convert it to permanent if headcount allows.
+
+The role
+
+We're looking for a Software Engineer to cover a mid-level role on our platform team. You'll work on our Python/Django backend, contribute to our React frontend, and participate in the full delivery cycle from design to production. The team is well-established and you'll have good support from day one, but we expect you to be productive independently within a reasonable ramp period.
+
+Responsibilities
+
+- Building new features and fixing bugs across our Python/Django backend
+- Working on our React frontend when the work calls for it
+- Writing tests (pytest, Jest) and maintaining test coverage
+- Reviewing pull requests and contributing to team code standards
+- Participating in sprint planning, retros and incident reviews
+- Supporting integration partners when technical issues arise
+
+What we're looking for
+
+Essential:
+- Professional experience with Python in a web development context
+- Comfort with Django or a comparable framework (Flask, FastAPI)
+- Working knowledge of SQL — we use PostgreSQL
+- Some experience with JavaScript or TypeScript on the frontend
+- Able to work independently and ramp up quickly on an existing codebase
+
+Desirable:
+- Experience with React
+- Docker and CI/CD experience (we use GitHub Actions)
+- Background in e-commerce or retail technology
+
+We're looking for candidates who can commit to the full 12-month duration of the contract. If you're open to FTC work and potentially transitioning to a permanent role, that's ideal.
+
+What we offer
+
+- £48,000 – £56,000 per annum (pro-rata for the 12-month term)
+- Full employment contract with standard employee rights
+- 25 days holiday plus bank holidays (pro-rata)
+- Pension scheme, 5% employer contribution
+- Hybrid working — London office, 2 days per week
+- Access to the same learning budget as permanent staff (£600 per year)
+
+To apply, send your CV to talent@brightlinecommerce.example.com.

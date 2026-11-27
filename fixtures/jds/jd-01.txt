@@ -1,0 +1,51 @@
+Junior Software Engineer
+Stackfield Technologies Ltd — London (Hybrid, 2 days on-site)
+Salary: £38,000 – £45,000 per annum
+Contract type: Permanent, full-time
+Posted: 3 days ago
+
+About Stackfield Technologies
+
+Stackfield Technologies is a growing fintech startup building payment infrastructure for small and medium businesses across the UK. We're a team of 45 engineers who care deeply about code quality, honest communication, and shipping things that work.
+
+The role
+
+We're looking for a Junior Software Engineer to join our platform team. You'll work alongside senior engineers on our Django-based backend services, pick up real responsibilities from day one, and grow quickly in a team that invests in its people. This is a great opportunity for a recent graduate or someone a year or two into their career who wants to build production software that processes real transactions.
+
+What you'll be doing
+
+- Building and maintaining REST API endpoints using Python and Django
+- Writing unit and integration tests with pytest
+- Reviewing pull requests and giving constructive feedback
+- Working with PostgreSQL to design and query relational data
+- Participating in sprint planning and retrospectives
+- Debugging issues in production with the support of senior colleagues
+
+What we're looking for
+
+Required:
+- Degree in Computer Science, Software Engineering, or a related field — or equivalent practical experience
+- Working knowledge of Python, including standard library usage
+- Understanding of relational databases and SQL
+- Familiarity with version control using Git
+- Good written communication skills and a willingness to ask questions
+
+Nice to have:
+- Experience with Django or any other Python web framework
+- Exposure to Docker or containerised development environments
+- Any personal or university projects that demonstrate software you've built
+
+We actively welcome recent graduates and candidates who are earlier in their careers. No years-of-experience requirement: we care more about curiosity and rigour than a long CV.
+
+What we offer
+
+- £38,000 – £45,000 depending on experience
+- 25 days holiday plus bank holidays
+- Flexible hybrid working (London office, Southwark)
+- Personal learning budget of £800 per year
+- Private health cover after probation
+- Monthly team socials and a no-nonsense engineering culture
+
+We're committed to building a diverse and inclusive team. We encourage applications from candidates of all backgrounds.
+
+To apply, send your CV and a short covering note explaining what interests you about this role to careers@stackfield.example.com.

@@ -1,0 +1,53 @@
+PHP Developer
+Coretek Commerce — Leicester (Hybrid)
+Salary: £45,000 – £55,000 per annum
+Contract type: Permanent, full-time
+Posted: 2 days ago
+
+About Coretek Commerce
+
+Coretek Commerce is an e-commerce platform provider serving independent and mid-market retailers in the UK and Ireland. Our platform handles product catalogues, order management, fulfilment integrations and marketing automations for over 800 merchant customers. The core backend is PHP — it has been since the beginning — and we're not moving away from it. Our engineering team of 16 builds and maintains the platform, its APIs and the merchant-facing admin portal.
+
+The role
+
+We're hiring a PHP Developer to work on the core platform team. PHP is the language the entire backend is written in and will continue to be for the foreseeable future. We use Laravel as our primary framework. You'll need to be comfortable working in PHP every day — this isn't a role where PHP is a secondary tool. We're looking for someone with around four years of professional PHP development experience who can work with confidence on a large, evolving codebase.
+
+What we're looking for
+
+Required:
+- 4 years of professional experience writing PHP in a production environment
+- Strong knowledge of PHP 8.x — types, attributes, fibers, enums
+- Laravel — routing, Eloquent ORM, queues, jobs, events, broadcasting
+- Comfortable with MySQL — schema design, indexes, complex queries
+- Experience with REST API development (building, not just consuming)
+- Git-based workflows and code review
+
+Desirable:
+- Experience with Vue.js or any modern JavaScript framework
+- Background in e-commerce platforms (Magento, WooCommerce, Shopify experience noted)
+- Familiarity with Redis for caching and queuing
+- Experience with AWS deployment (we use EC2, RDS, SQS, S3)
+- PHPUnit and Laravel Dusk for testing
+
+What you'll be doing
+
+- Implementing new platform features in Laravel/PHP
+- Extending and maintaining our MySQL schema and query layer
+- Building REST API endpoints consumed by merchant applications
+- Writing unit and integration tests with PHPUnit
+- Reviewing code from other team members
+- Participating in architecture discussions as the platform evolves
+- Responding to escalated technical support issues from the customer success team
+
+The 4-year experience requirement reflects the genuine complexity of the codebase and the expectation that you'll be productive quickly on a large legacy PHP application.
+
+What we offer
+
+- £45,000 – £55,000 depending on experience
+- 25 days holiday plus bank holidays
+- Hybrid working from Leicester city centre (3 days on-site)
+- Pension with 5% employer contribution
+- £700 annual learning and conference budget
+- Private health insurance after 6 months
+
+Apply to jobs@coretek.example.com with your CV.

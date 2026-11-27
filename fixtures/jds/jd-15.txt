@@ -1,0 +1,49 @@
+Junior Developer
+Mapwick Digital Agency — Sheffield (On-site)
+Salary: £32,000 per annum
+Contract type: Permanent, full-time
+Posted: 3 days ago
+
+About Mapwick Digital Agency
+
+Mapwick is a small digital agency in Sheffield's city centre. We build websites, e-commerce stores and marketing tools for small and medium businesses in Yorkshire and the Midlands. We've been trading for seven years and we're a team of 11, including three developers. We're a friendly, unpretentious place to work — everyone pitches in, everyone's voice is heard.
+
+The role
+
+We're looking for a Junior Developer to join our team of three developers. You'll work primarily on WordPress websites and WooCommerce stores, with some custom PHP and JavaScript work as the projects demand. This is an on-site role in Sheffield and we're looking for someone local or willing to relocate. It's a great opportunity for someone who is earlier in their career and wants to build real-world experience across a variety of client projects.
+
+Day-to-day work
+
+- Building and customising WordPress themes and plugins in PHP
+- Developing WooCommerce stores and integrating payment gateways
+- Writing front-end code in HTML, CSS and vanilla JavaScript
+- Helping maintain and update existing client websites
+- Participating in client calls with more senior colleagues
+- Learning and following the agency's development workflow and version control practices
+
+What we're looking for
+
+Required:
+- Some experience with HTML, CSS and JavaScript — through study, personal projects or any professional experience
+- Willingness to learn WordPress and PHP development on the job
+- Good communication skills and the ability to manage time across multiple client projects
+- Comfortable working on-site in Sheffield, Monday to Friday
+
+Desirable:
+- Previous WordPress or PHP experience, however acquired
+- Experience with WooCommerce or any other e-commerce platform
+- Familiarity with Git for version control
+- Any history of building websites for real users
+
+We're genuinely open to applicants who are early in their careers — recent graduates, career changers, self-taught developers. What matters is a genuine interest in the work, not a long CV.
+
+What we offer
+
+- £32,000 per annum
+- 23 days holiday plus bank holidays
+- On-site in Sheffield city centre, 5 minutes from the train station
+- Regular Friday afternoon team sessions to learn together and share what we've built
+- Pension with 3% employer contribution
+- Opportunity to grow quickly in a small team where individual contributions are very visible
+
+To apply, send your CV and any examples of work (portfolio site, GitHub, links) to hello@mapwick.example.com. No cover letter required.

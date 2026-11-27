@@ -1,0 +1,52 @@
+Graduate Software Engineer — Technology Graduate Scheme
+Vantrel Group — London (Hybrid)
+Salary: £35,000 per annum
+Contract type: Permanent
+Programme start: September 2027
+Posted: 4 days ago
+
+About Vantrel Group
+
+Vantrel Group is a financial services holding company with operations in insurance, asset management, and payments. Our technology graduate scheme has been running for twelve years and we're proud that many of our current engineering leads came through it. We take 10–15 graduates each year and invest heavily in their development over the first two years.
+
+The graduate scheme
+
+Our two-year Graduate Software Engineer programme rotates you through three engineering teams — typically one working on internal tooling, one on a customer-facing product, and one on data or platform infrastructure. Each rotation lasts around eight months. You'll have a dedicated mentor for the duration, structured learning weeks every quarter, and a seat at the table in real engineering decisions.
+
+After the programme, the expectation is that you'll join one of the teams as a mid-level engineer.
+
+What you'll be building
+
+The tech stack varies by team, but Python is common across the business. You might work on REST APIs, internal automation tools, data pipelines, or web interfaces. We don't expect you to arrive with deep expertise — we expect you to arrive ready to learn.
+
+Who we're looking for
+
+We welcome applications from graduates who have completed, or are completing, an undergraduate or postgraduate degree in any subject. A technical degree (computer science, engineering, physics, mathematics) is an advantage but not a requirement. What matters more:
+
+- You can demonstrate that you've written code as part of your studies or in your own time
+- You enjoy solving problems and you're not put off by ambiguity
+- You communicate clearly and ask questions when you're unsure
+- You're genuinely interested in building software that people use
+
+We particularly encourage applications from candidates who are completing their degrees in 2026 or 2027, including those on placement years.
+
+What we offer
+
+- £35,000 starting salary, rising to £38,000 on scheme completion
+- 25 days holiday plus bank holidays
+- Hybrid working from our London Bridge office
+- Structured mentorship and learning programme
+- Graduate cohort events and social programme
+- Pension scheme with 7% employer contribution
+- Private medical insurance from day one
+
+Selection process
+
+1. Online application with CV and a short written response
+2. Online coding assessment (90 minutes, language of your choice)
+3. Video interview with two engineers
+4. Assessment centre in London (half day, includes a technical pair exercise)
+
+We aim to respond to all applications within 10 working days.
+
+Vantrel Group is an equal opportunities employer and encourages applications from all backgrounds.

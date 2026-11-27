@@ -1,0 +1,53 @@
+Data Engineer
+Tessera Analytics — Remote (UK)
+Salary: £52,000 – £65,000 per annum
+Contract type: Permanent, full-time
+Posted: 72 days ago
+
+About Tessera Analytics
+
+Tessera Analytics builds self-serve analytics infrastructure for mid-market retail and hospitality businesses. Our platform ingests point-of-sale, inventory and customer data and surfaces it through dashboards and scheduled reports. We're 28 people, fully remote across the UK, and our data team of four is the core of the product.
+
+The role
+
+We're hiring a Data Engineer to join our data platform team. You'll work on the pipelines that move, clean and serve data for our customers — primarily using Python, dbt and Airflow on a Snowflake data warehouse. The team is small and you'll have genuine ownership over significant parts of the platform. We care about correctness, documentation and making our systems understandable to colleagues who aren't data engineers.
+
+Responsibilities
+
+- Building and maintaining ELT pipelines using Airflow and dbt
+- Modelling data in Snowflake following dimensional modelling principles
+- Writing and maintaining data quality tests using dbt tests and Great Expectations
+- Supporting the analytics team with complex SQL for ad-hoc analysis
+- Improving pipeline observability with logging and alerting
+- Working with the engineering team on integrations between the core product and the data platform
+- Documenting data models and pipeline logic for internal and customer use
+
+What we're looking for
+
+Required:
+- Professional experience building data pipelines (ELT/ETL) in a production environment
+- Strong SQL — you can write complex analytical queries and read execution plans
+- Python for scripting, data manipulation and pipeline logic
+- Familiarity with a cloud data warehouse (Snowflake, BigQuery, Redshift or similar)
+- Understanding of data modelling concepts — star schema, fact and dimension tables
+
+Desirable:
+- Experience with dbt (data build tool)
+- Airflow or another pipeline orchestration tool (Prefect, Dagster)
+- Background in retail, hospitality or any consumer-facing business
+- Experience with data quality frameworks (Great Expectations, Soda)
+- Familiarity with Fivetran or similar ingestion tools
+
+This posting has been open for a while as we've been deliberate in finding the right person — the role is still live and we're actively reviewing applications.
+
+What we offer
+
+- £52,000 – £65,000 depending on experience
+- Fully remote, UK-based
+- 27 days holiday plus bank holidays
+- Home office equipment budget (£400)
+- Annual learning and conference budget (£900)
+- Flexible hours around a 10am–3pm core window
+- Pension with 5% employer contribution
+
+To apply, send your CV to data-hiring@tesseraanalytics.example.com.

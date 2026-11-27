@@ -1,0 +1,56 @@
+Security Software Engineer
+Vectara Defence Systems — Cheltenham (On-site)
+Salary: £55,000 – £70,000 per annum
+Contract type: Permanent, full-time
+Posted: 2 days ago
+
+About Vectara Defence Systems
+
+Vectara Defence Systems develops secure communications software and cryptographic tooling for government and defence customers. Our work operates in classified environments and touches national infrastructure. We're based in Cheltenham and work closely with GCHQ and Ministry of Defence programmes.
+
+Security clearance requirement
+
+This role requires the holder to hold, or be eligible to obtain and maintain, Security Check (SC) clearance. All candidates must be British nationals and must have been resident in the UK for the past five years. Vectara will sponsor the clearance process for eligible candidates, but the offer of employment is conditional on clearance being granted and maintained. Candidates who are not eligible for SC clearance cannot be considered for this position.
+
+The role
+
+We're looking for a Security Software Engineer to join our cryptographic services team. You'll work on the software that underpins key management, secure messaging and authenticated communications for classified systems. The work requires both strong software engineering skills and a genuine interest in applied security.
+
+Responsibilities
+
+- Implementing cryptographic protocols in C and Python to published standards (AES, RSA, ECC, TLS 1.3)
+- Reviewing and auditing code for security vulnerabilities
+- Writing and maintaining formal test harnesses against NIST and NCSC test vectors
+- Integrating secure software components with hardware security modules (HSMs)
+- Contributing to security design documentation and threat models
+- Supporting penetration testing activities and acting on findings
+
+What we're looking for
+
+Essential:
+- SC clearance held, or eligibility to obtain it (British national, 5 years UK residence)
+- Strong software engineering skills in C and/or Python
+- Understanding of cryptographic fundamentals — symmetric and asymmetric encryption, hashing, PKI
+- Ability to read and implement standards documents (RFCs, NIST SPs)
+- Meticulous attention to detail and a security-first mindset
+
+Desirable:
+- Experience with HSMs (Thales, Utimaco, Entrust)
+- Familiarity with secure development lifecycle (SDL) processes
+- Background in a government, defence or critical national infrastructure environment
+- Experience with formal verification or static analysis tools
+
+Clearance and eligibility
+
+We understand that candidates may not currently hold clearance. If you are a British national who has lived in the UK for at least five consecutive years and have no significant foreign connections, you are likely to be eligible to apply. The clearance process typically takes 3–6 months. We will work with you through it. If you are unsure whether you are eligible, contact our recruitment team before applying.
+
+What we offer
+
+- £55,000 – £70,000 depending on clearance level and experience
+- 30 days holiday plus public holidays
+- Pension scheme with 10% employer contribution
+- Subsidised on-site canteen and parking
+- Access to continuing professional development programmes
+- Relocation assistance available
+
+To apply, submit your CV and a brief covering letter to careers@vectara-defence.example.com. Due to the nature of the role, applications from outside the UK cannot be accepted.

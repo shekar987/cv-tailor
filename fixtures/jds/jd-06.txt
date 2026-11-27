@@ -1,0 +1,51 @@
+Software Engineer
+Lodestone Labs — Bristol (Hybrid, 2 days on-site per week)
+Salary: £41,000 per annum
+Contract type: Permanent, full-time
+Posted: 6 days ago
+
+About Lodestone Labs
+
+Lodestone Labs makes project management and time-tracking software for small professional services firms — accountants, architects, consultants. We've been independent since 2014, have around 4,000 paying customers, and have never taken external investment. The engineering team is seven people; we work sensibly, ship regularly, and nobody is on call at 3am.
+
+The role
+
+We're hiring a Software Engineer to join our backend squad. We work primarily in TypeScript on Node.js, with a PostgreSQL database and a React frontend built by the same engineers. This role sits mostly on the backend, but you'll be expected to contribute to the frontend when needed. We're looking for someone who has at least a year of professional software development behind them and is ready to work with real customers on a live product.
+
+Responsibilities
+
+- Implementing new product features in TypeScript/Node.js
+- Writing database migrations and working with our PostgreSQL schema
+- Building REST endpoints consumed by our React frontend and mobile app
+- Writing automated tests (unit, integration, end-to-end with Playwright)
+- Taking part in code review — giving and receiving feedback as a normal part of the job
+- Participating in support rota (one week in seven, daytime hours only)
+
+What we need from you
+
+Required:
+- At least 1 year of professional experience writing software in a production environment
+- Comfortable working in TypeScript or JavaScript on the server side
+- Working knowledge of SQL and relational databases
+- Able to write tests and understand why they matter
+- Clear communicator, comfortable raising a concern or asking a question
+
+Nice to have:
+- Node.js with Express or Fastify
+- PostgreSQL — migrations, indexes, explain plans
+- Some React experience
+- Experience with a CI/CD pipeline (we use GitHub Actions)
+
+We're not looking for the most experienced engineer in the room. We're looking for someone who takes the work seriously and wants to get better at it.
+
+What we offer
+
+- £41,000 salary
+- 27 days holiday plus bank holidays (rising to 30 after 3 years)
+- Hybrid working — Bristol city centre office, 2 days a week
+- No out-of-hours on-call beyond the support rota described above
+- £500 annual learning budget and time to use it
+- Company pension with 5% employer contribution
+- Genuinely flexible hours within reason
+
+If you're interested, send a CV to hire@lodestonelabs.example.com. We read every one and reply to everyone. No cover letter required, though a short note is always welcome.

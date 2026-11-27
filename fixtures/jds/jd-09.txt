@@ -1,0 +1,51 @@
+Java Software Engineer
+Meridian Platforms — Leeds (Hybrid)
+Salary: £50,000 – £62,000 per annum
+Contract type: Permanent, full-time
+Posted: 3 days ago
+
+About Meridian Platforms
+
+Meridian Platforms builds enterprise workflow automation software used by logistics and supply chain businesses across Europe. Our core product is a Java monolith-turned-microservices platform that processes approximately 2 million events per day. The engineering team of 18 is split between Leeds and Warsaw, and we work in English across both sites.
+
+The role
+
+We're hiring a Java Software Engineer to join our core platform team. Java is the language the entire backend is written in, and you'll be expected to work confidently in it from day one. We use Spring Boot extensively, run on AWS, and ship new features every two weeks through a CI/CD pipeline on Jenkins. This role is for someone with solid Java experience who wants to work on a product at meaningful scale.
+
+Requirements
+
+Essential:
+- 3–5 years of professional experience writing Java in a production environment
+- Strong working knowledge of Java (we use Java 17; experience with Java 11+ is fine)
+- Experience with Spring Boot — dependency injection, REST controllers, data access
+- Comfortable working with relational databases; we use PostgreSQL and MySQL
+- Solid understanding of object-oriented design principles
+- Familiarity with containerisation and cloud deployment (we use Docker and Kubernetes on AWS EKS)
+
+Desirable:
+- Experience with message brokers — we use Apache Kafka
+- Familiarity with Hibernate or another JPA implementation
+- Background in event-driven architecture or CQRS patterns
+- Jenkins or any other CI/CD tooling
+
+What you'll be doing
+
+- Implementing new features in our Spring Boot microservices
+- Writing unit tests with JUnit 5 and Mockito and integration tests with Testcontainers
+- Participating in code review as a both a reviewer and an author
+- Helping decompose remaining monolith components into services
+- Attending cross-site sprint ceremonies (all remote, twice per sprint)
+- Contributing to technical documentation and ADRs
+
+A note on experience
+
+The 3–5 years requirement reflects the genuine complexity of our codebase and the expectations of the role. We've had junior engineers struggle here and it isn't fair on them or the team. If you're slightly under that threshold but have done substantial Java work, please apply and explain your background — we do look at the actual work, not just the number.
+
+What we offer
+
+- £50,000 – £62,000 depending on experience
+- 25 days holiday plus bank holidays
+- Hybrid working from Leeds city centre
+- Annual conference and training budget (£1,200)
+- Private health insurance
+- Flexible working hours around core 10am–3pm window

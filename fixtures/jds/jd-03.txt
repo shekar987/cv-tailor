@@ -1,0 +1,49 @@
+Backend Engineer
+Crestline Systems — Edinburgh (On-site, with flexibility)
+Salary: £42,000 – £52,000 per annum
+Contract type: Permanent, full-time
+Posted: 5 days ago
+
+About Crestline Systems
+
+Crestline Systems builds infrastructure tooling and monitoring platforms for cloud-native engineering teams. We're 30 people based in Edinburgh, with a remote-first culture that still loves getting together in person. Our customers are platform engineering teams at mid-size SaaS companies who need visibility and reliability at scale.
+
+The role
+
+We're growing our backend team and looking for a Backend Engineer with roughly two years of professional software development experience, ideally with Go at the centre of your work. You'll join a team of four engineers building the data-ingestion and alerting pipelines that power our monitoring platform. The work is technically challenging — high throughput, low latency, correctness under failure — and you'll have real influence over how we build.
+
+Responsibilities
+
+- Designing and implementing Go services for data ingestion and processing
+- Writing and maintaining integration tests with real infrastructure (PostgreSQL, Redis, Kafka)
+- Reviewing your colleagues' code and offering thoughtful feedback
+- Contributing to architectural decisions in a team that makes them collaboratively
+- Improving observability through structured logging, metrics and tracing
+- Responding to on-call incidents on a rotating schedule (approximately one week in four)
+
+What you'll need
+
+Required:
+- Around 2 years of experience writing backend services in a production environment
+- Working knowledge of Go — you don't need to be an expert, but you should be comfortable with goroutines, channels, and the standard library
+- Understanding of relational databases and SQL, particularly PostgreSQL
+- Familiarity with containerised environments (Docker, Kubernetes basics)
+- Good instincts for reliability: you think about failure modes before they happen
+
+Desirable:
+- Experience with message queues or streaming platforms (Kafka, NATS, RabbitMQ)
+- Exposure to distributed systems concepts (consensus, consistency, partitioning)
+- Any open-source contributions or personal projects in Go
+
+About 2 years of professional experience is what we typically look for, though we care more about the work you've done than the specific number.
+
+What we offer
+
+- £42,000 – £52,000 based on experience
+- 25 days annual leave plus Scottish bank holidays
+- Flexible working arrangements — most of the team work from the Edinburgh office three days a week
+- £1,000 annual training and conference budget
+- Private dental and medical insurance
+- Meaningful equity options in a company that's growing sustainably
+
+Crestline Systems welcomes applications from engineers at all stages and backgrounds. We review every application and will give you honest, timely feedback.

@@ -1,0 +1,53 @@
+Software Engineer
+Halcyon Data — London (Hybrid)
+Salary: £45,000 – £58,000 per annum
+Contract type: Permanent, full-time
+Posted: 1 week ago
+
+About Halcyon Data
+
+Halcyon Data provides data quality and lineage tooling for financial services firms. Our platform integrates with data warehouses and BI tools to track how data moves, transforms and degrades across an organisation's systems. We're 35 people, based in London, and we've been growing at around 40% year on year for the past three years.
+
+The role
+
+We're looking for a Software Engineer to join our integration team, which is responsible for the connectors that link our platform to third-party data warehouses, pipelines and BI tools. The team builds in Python and TypeScript and you'll be expected to contribute to both. You'll work closely with customer success when new integrations are requested and with the platform team when the connectors surface issues deeper in the system.
+
+Responsibilities
+
+- Building and maintaining integration connectors in Python and TypeScript
+- Writing and maintaining automated tests (pytest, Jest)
+- Reviewing and triaging integration-related bug reports from the support queue
+- Collaborating with the platform team on shared API contracts
+- Documenting integration specifications for internal and customer use
+- Participating in code review across the team
+
+Requirements
+
+Essential:
+- Comfortable working in Python in a production software environment
+- Some experience with TypeScript or JavaScript
+- Familiarity with REST APIs — consuming and building them
+- Solid understanding of relational databases and SQL
+- Good written communication skills; some of this role involves writing for a technical audience
+
+Desirable:
+- Experience integrating with data warehouse platforms (Snowflake, BigQuery, Redshift)
+- Background in a data or analytics engineering context
+- Familiarity with dbt or Airflow
+- Experience working in a customer-facing capacity
+
+Right to work
+
+We are sorry but we are unable to offer visa sponsorship for this position, now or in the future. All applicants must have full, permanent right to work in the United Kingdom without requiring any form of employer sponsorship, indefinite leave to remain, or settled status. We are not in a position to consider applications from candidates who currently hold, or expect to require, a sponsored visa at any point, including Graduate Route or Skilled Worker visas. Please do not apply if you are not able to demonstrate unrestricted, permanent right to work in the UK.
+
+What we offer
+
+- £45,000 – £58,000 depending on experience
+- 26 days holiday plus bank holidays
+- Hybrid working from our Shoreditch office (2 days on-site)
+- £800 annual learning budget
+- Private health insurance
+- Share options in a fast-growing company
+- Regular team events
+
+To apply, send your CV to hiring@halcyondata.example.com.

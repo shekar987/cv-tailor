@@ -1,0 +1,102 @@
+[
+  {
+    "file": "jd-01.txt",
+    "verdict": "go",
+    "flags": []
+  },
+  {
+    "file": "jd-02.txt",
+    "verdict": "go",
+    "flags": []
+  },
+  {
+    "file": "jd-03.txt",
+    "verdict": "go",
+    "flags": []
+  },
+  {
+    "file": "jd-04.txt",
+    "verdict": "go",
+    "flags": []
+  },
+  {
+    "file": "jd-05.txt",
+    "verdict": "check",
+    "flags": ["FIXED_START_DATE"]
+  },
+  {
+    "file": "jd-06.txt",
+    "verdict": "go",
+    "flags": []
+  },
+  {
+    "file": "jd-07.txt",
+    "verdict": "skip",
+    "flags": ["SECURITY_CLEARANCE"]
+  },
+  {
+    "file": "jd-08.txt",
+    "verdict": "skip",
+    "flags": ["CONTRACT_OR_DAY_RATE"]
+  },
+  {
+    "file": "jd-09.txt",
+    "verdict": "skip",
+    "flags": ["YEARS_3_PLUS", "UNDEFENDABLE_CORE_SKILL"]
+  },
+  {
+    "file": "jd-10.txt",
+    "verdict": "skip",
+    "flags": ["UNDEFENDABLE_CORE_SKILL", "SENIORITY_MID_SENIOR"]
+  },
+  {
+    "file": "jd-11.txt",
+    "verdict": "check",
+    "flags": ["FIXED_TERM"]
+  },
+  {
+    "file": "jd-12.txt",
+    "verdict": "skip",
+    "flags": ["NO_SPONSORSHIP_EVER"]
+  },
+  {
+    "file": "jd-13.txt",
+    "verdict": "skip",
+    "flags": ["YEARS_3_PLUS", "SENIORITY_MID_SENIOR"]
+  },
+  {
+    "file": "jd-14.txt",
+    "verdict": "skip",
+    "flags": ["UK_RESIDENCE_5Y"]
+  },
+  {
+    "file": "jd-15.txt",
+    "verdict": "check",
+    "flags": ["SALARY_BELOW_FLOOR"]
+  },
+  {
+    "file": "jd-16.txt",
+    "verdict": "check",
+    "flags": ["STALE_POSTING"]
+  },
+  {
+    "file": "jd-17.txt",
+    "verdict": "check",
+    "flags": ["FIXED_START_DATE"]
+  },
+  {
+    "file": "jd-18.txt",
+    "verdict": "skip",
+    "flags": ["YEARS_3_PLUS", "UNDEFENDABLE_CORE_SKILL"]
+  },
+  {
+    "file": "jd-19.txt",
+    "verdict": "skip",
+    "flags": ["UNDEFENDABLE_CORE_SKILL", "SENIORITY_MID_SENIOR"]
+  },
+  {
+    "file": "jd-20.txt",
+    "verdict": "skip",
+    "flags": ["YEARS_3_PLUS", "SENIORITY_MID_SENIOR"]
+  }
+]

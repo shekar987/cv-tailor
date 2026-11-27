@@ -1,0 +1,55 @@
+Kotlin Android Developer — Mid-Level
+Spira Mobile — London (Hybrid)
+Salary: £55,000 – £68,000 per annum
+Contract type: Permanent, full-time
+Posted: 4 days ago
+
+About Spira Mobile
+
+Spira Mobile makes consumer apps for personal finance management — budgeting, bill tracking and savings goals. Our flagship Android and iOS apps have around 400,000 active users. The Android codebase is written entirely in Kotlin and has been since we replaced the original Java codebase in 2021. We're 25 people, growing carefully, and the mobile team of four is at the heart of the product.
+
+The role
+
+We're hiring a mid-level Kotlin Android Developer to join our mobile team. Kotlin is the core language of everything we build on Android; a background in Java Android development is noted, but Kotlin is the daily reality from day one. You'll work on the Android app alongside two other Android engineers and one iOS engineer, building new features, maintaining existing ones and improving the foundations that 400,000 people depend on. This is a mid-level role and we're looking for someone who can work with real autonomy, not someone who needs close supervision on every task.
+
+Level
+
+This is a mid-level position. We expect you to be able to design and implement features end-to-end without close oversight, to give and receive useful code review, and to flag technical risks before they become problems. We're not looking for the most senior engineer in the market, but we do need someone who has moved past the early stage of their career and can operate with consistent independence.
+
+What we're looking for
+
+Required:
+- Demonstrably strong Kotlin skills — this is the language the entire Android app is written in and the core technical skill we're hiring for
+- Android SDK — activities, fragments, Jetpack Compose (we've been migrating to Compose for two years)
+- Coroutines and Flow for asynchronous work
+- Working knowledge of Android architecture patterns (MVVM, clean architecture)
+- Comfortable with REST API integration using Retrofit or similar
+- Experience shipping Android apps to the Play Store
+
+Desirable:
+- Hilt or Dagger for dependency injection (we use Hilt)
+- Room for local persistence
+- Experience with unit and UI testing on Android (JUnit, Espresso, Mockk)
+- Background in consumer fintech or personal finance apps
+- Some iOS or cross-platform experience
+
+What you'll be doing
+
+- Building new features in Kotlin across the Android codebase
+- Contributing to the ongoing Jetpack Compose migration
+- Writing unit tests and participating in code review
+- Collaborating with design on feature implementation fidelity
+- Raising technical debt and architecture concerns in team sessions
+- Investigating and fixing production bugs from crash reports
+
+What we offer
+
+- £55,000 – £68,000 depending on experience
+- 26 days holiday plus bank holidays
+- Hybrid working from London (Farringdon), 2 days on-site
+- £900 annual learning and conference budget
+- Private health cover
+- Pension with 5% employer contribution
+- Share option scheme
+
+Apply to mobile-hiring@spiramobile.example.com with your CV and, if you have one, a link to an app you've shipped on the Play Store.

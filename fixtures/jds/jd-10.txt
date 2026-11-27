@@ -1,0 +1,55 @@
+C# .NET Developer — Senior
+Graymoor Solutions — Birmingham (Hybrid)
+Salary: £60,000 – £75,000 per annum
+Contract type: Permanent, full-time
+Posted: 1 week ago
+
+About Graymoor Solutions
+
+Graymoor Solutions is an ISV building case management software for local government and housing associations. Our platform is used by 47 councils across England and Wales to manage planning applications, housing repair requests and complaints. We're 90 people, with engineering as the largest function. We've been profitable every year since 2009.
+
+The role
+
+We're hiring a Senior C# .NET Developer to work on our core backend platform. C# is the language our entire backend is written in and has been for 12 years; we're not in the process of migrating to anything else. The right candidate will be comfortable owning complex pieces of the codebase, mentoring more junior engineers, and contributing to technical strategy. This is a senior-level position and we expect candidates to demonstrate that in their work and how they talk about it.
+
+Seniority
+
+This is a senior engineering position. We expect you to demonstrate experience leading technical decisions, owning the design of non-trivial features end-to-end, and helping less experienced colleagues improve. Titles aren't everything — but we're genuinely looking for someone who operates at that level, not someone aspiring to it.
+
+Requirements
+
+Essential:
+- Demonstrably strong C# skills — this is the language the whole backend is written in and the primary skill we're hiring for
+- Experience with .NET 6/7/8 (we're on .NET 7, migrating to .NET 8)
+- SQL Server — complex queries, stored procedures, indexes, execution plans
+- Experience with ASP.NET Core for REST API development
+- Ability to mentor and coach junior colleagues
+- Comfortable with Azure cloud services (we use Azure App Service, Azure SQL, Blob Storage)
+
+Desirable:
+- Experience with Entity Framework Core
+- Background in local government, public sector, or regulated industries
+- Familiarity with Azure DevOps for CI/CD pipelines
+- Some exposure to front-end development (we have a Blazor component in the product)
+- Experience writing RFCs or architecture decision records
+
+What you'll be doing
+
+- Leading the design and delivery of complex backend features
+- Reviewing code from junior and mid-level engineers
+- Collaborating with product management on technical feasibility
+- Improving the codebase's reliability and performance over time
+- Writing engineering proposals for significant changes
+- Participating in hiring interviews for other engineering roles
+
+We expect this person to have meaningful seniority — typically that means 5+ years of .NET/C# development, though we care more about the quality of the experience than the number. If you've got three years but have built genuinely complex things, we'd still encourage you to apply.
+
+What we offer
+
+- £60,000 – £75,000 depending on experience
+- 26 days holiday plus bank holidays
+- Hybrid working from Birmingham (2 days on-site minimum)
+- £1,500 annual learning budget
+- Private health insurance from day one
+- Pension with 6% employer contribution
+- EMI share option scheme

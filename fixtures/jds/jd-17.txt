@@ -1,0 +1,54 @@
+Graduate Software Engineer — Placement Scheme
+Kelbrook Energy — London (Hybrid)
+Salary: £33,000 per annum
+Contract type: Permanent
+Programme start: September 2027
+Posted: 8 days ago
+
+About Kelbrook Energy
+
+Kelbrook Energy is a licensed electricity and gas retailer serving residential and small business customers across Great Britain. We supply approximately 180,000 customers and have been building our own technology infrastructure since 2019. Our technology team of 30 engineers is responsible for the billing platform, the customer portal, and the smart meter data pipeline that underpins our tariff products.
+
+The placement scheme
+
+We're recruiting for our annual Graduate Software Engineer cohort, with a fixed programme start date of September 2027. This is a permanent role from day one; the first two years are structured as a placement scheme with rotations across two engineering teams (billing systems and customer-facing products), mentorship, quarterly learning workshops, and regular cohort events.
+
+We will accept candidates who are completing their degrees in 2026 or 2027. If you are completing in mid-2027, the September 2027 start is designed to work for you. If you are completing in late 2027 or 2028, please check back for our next recruitment cycle.
+
+What you'll be doing
+
+You'll join one of our engineering teams and work on real software from your first week. The kinds of work you might do include:
+
+- Writing features in Python for our billing platform or our customer-facing REST APIs
+- Improving our React-based customer portal
+- Working with large time-series datasets from smart meters
+- Writing tests and contributing to our deployment pipeline
+- Attending and eventually running sprint ceremonies and incident reviews
+
+Who we're looking for
+
+We're open to degrees in any subject — technical degrees are common in the cohort but not required. We look for:
+
+- Evidence that you can write code, however acquired (university projects, personal projects, hackathons)
+- Intellectual curiosity — you ask why things work the way they do
+- Clear communication and an ability to work in a team
+- Availability to start the scheme in September 2027
+
+We particularly encourage applications from candidates from underrepresented backgrounds in technology.
+
+Eligibility
+
+Applicants must have the right to work in the United Kingdom. The scheme start date is September 2027 and we cannot defer offers beyond that date.
+
+What we offer
+
+- £33,000 starting salary
+- 25 days holiday plus bank holidays
+- Hybrid working from our London office (Blackfriars)
+- Structured mentorship and two-year scheme curriculum
+- £600 annual learning budget
+- Pension with 5% employer contribution
+
+Application process: online form, online coding exercise, two rounds of interviews (one technical, one with a hiring manager).
+
+Apply at careers.kelbrookenergy.example.com.

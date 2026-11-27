@@ -1,0 +1,52 @@
+Software Engineer
+Cairn Technology Group — Glasgow (Hybrid)
+Salary: £44,000 – £54,000 per annum
+Contract type: Permanent, full-time
+Posted: 5 days ago
+
+About Cairn Technology Group
+
+Cairn Technology Group develops compliance and audit management software for regulated industries. Our customers include financial services firms, pharmaceutical companies, and utilities. The software handles sensitive compliance documentation, audit trails, and regulatory reporting, so security and rigour are built into how we work.
+
+The role
+
+We're hiring a Software Engineer to join our backend platform team. You'll work on our Python-based service layer, contribute to our React frontend when needed, and help us maintain the high quality and reliability our customers depend on. The team is nine engineers and you'll have experienced colleagues to work with and learn from.
+
+Background check and residency requirement
+
+Due to the nature of the data our software handles and the regulated environment our customers operate in, all engineering staff are required to pass an enhanced background check as a condition of employment. Additionally, we require all engineering candidates to have been ordinarily resident in the United Kingdom for a continuous period of at least 5 years immediately preceding the date of application. This requirement applies to all candidates regardless of nationality or immigration status. Applications from candidates who do not meet this residency requirement cannot be considered.
+
+Responsibilities
+
+- Implementing new features and fixing bugs in our Python/FastAPI backend
+- Contributing to our React-based frontend
+- Writing and maintaining automated tests (pytest, React Testing Library)
+- Working with our DevOps team on deployment and infrastructure as needed
+- Participating in code review, sprint ceremonies and incident reviews
+
+Requirements
+
+Essential:
+- Demonstrable experience with Python in a production environment
+- Comfort with SQL and relational databases (we use PostgreSQL)
+- Some experience with JavaScript or TypeScript
+- Strong attention to detail — the work matters and mistakes have consequences
+- Continuous UK residency of at least 5 years (required for security vetting)
+
+Desirable:
+- FastAPI or Django experience
+- React or any other modern JavaScript framework
+- Background in compliance, audit or regulated industry software
+- Familiarity with Docker and CI/CD tools
+
+What we offer
+
+- £44,000 – £54,000 depending on experience
+- 26 days annual leave plus bank holidays
+- Hybrid working from Glasgow city centre (3 days on-site)
+- Pension with 6% employer contribution
+- Private health insurance after probation
+- Annual learning budget (£700)
+- Supportive and stable team — average tenure is over 4 years
+
+To apply, send your CV and confirm your UK residency dates in your covering message to jobs@cairntechgroup.example.com.

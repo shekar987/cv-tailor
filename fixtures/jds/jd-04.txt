@@ -1,0 +1,53 @@
+Junior Data Analyst
+Finova Analytics — Remote (UK-based)
+Salary: £36,000 – £42,000 per annum
+Contract type: Permanent, full-time
+Posted: 2 days ago
+
+About Finova Analytics
+
+Finova Analytics helps consumer lending businesses understand their portfolio risk through data products and dashboards. We're a team of 20, fully remote across the UK, and we believe in giving people real ownership of their work from an early stage. Our data stack is built on Python, dbt, and BigQuery, with dashboards served through Looker.
+
+The role
+
+We're looking for a Junior Data Analyst to join our insights team. You'll work alongside two senior analysts and a data engineer to produce the reporting and ad-hoc analyses our clients depend on. This is a genuinely entry-level role: we expect curiosity and care, not a long list of past projects.
+
+What you'll be doing
+
+- Writing SQL queries against our data warehouse to answer business questions
+- Building and maintaining dashboards in Looker for internal and client use
+- Cleaning and transforming datasets using Python (pandas)
+- Supporting the team with one-off analyses for client requests
+- Documenting your work clearly so colleagues can maintain it
+- Attending fortnightly client calls to present analysis findings
+
+Requirements
+
+Essential:
+- Comfortable writing SQL — joins, aggregations, window functions
+- Basic Python knowledge, particularly for data manipulation
+- Strong attention to detail: you spot when a number looks wrong
+- Good written communication — you can explain a finding to a non-technical audience
+- Degree in a numerate subject (maths, statistics, economics, computer science) or equivalent experience
+
+Desirable:
+- Familiarity with any BI tool (Looker, Metabase, Power BI, Tableau)
+- Exposure to dbt or any other transformation tool
+- Experience working with large datasets (more than a few million rows)
+- Some knowledge of financial or lending data
+
+We don't set a years-of-experience requirement for this role. We've hired people straight from university and from career changes, and both have worked well for us.
+
+What we offer
+
+- £36,000 – £42,000 depending on background and experience
+- Fully remote — work from anywhere in the UK
+- 28 days holiday plus bank holidays
+- Home office allowance of £500 on joining
+- £750 annual learning budget
+- Monthly team video calls and an optional in-person meetup twice a year
+- Flexible hours within a core 10am–4pm window
+
+Finova Analytics is committed to equal opportunities. We particularly welcome applications from candidates who are earlier in their careers.
+
+To apply: send your CV and two or three sentences about why data analysis appeals to you to jobs@finovaanalytics.example.com.

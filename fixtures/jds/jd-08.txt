@@ -1,0 +1,50 @@
+Software Engineer — Contract
+Pemberton Capital Partners — London (Hybrid)
+Day rate: £400 – £500 per day (inside IR35)
+Contract type: Fixed-term contract, initial 6 months
+Inside IR35: Yes — PAYE through umbrella company required
+Posted: 1 day ago
+
+About Pemberton Capital Partners
+
+Pemberton Capital Partners is an alternative asset management firm based in Mayfair. We manage £4.2bn across private credit and direct lending strategies. Our technology team of 12 builds and maintains the internal systems that support deal origination, portfolio monitoring and investor reporting.
+
+The engagement
+
+We're looking for an experienced Software Engineer on a contract basis to join our technology team for an initial 6-month engagement. The inside IR35 status has been determined by our IR35 assessment process and will be enforced through an approved umbrella company — we do not engage contractors on a PAYE basis directly or through personal service companies outside this arrangement. The day rate is £400–£500 depending on experience; the engagement will be invoiced through the umbrella company only.
+
+Day rate: £400 – £500 (inside IR35, through umbrella company)
+
+The work
+
+You'll be joining the team during a significant infrastructure modernisation. We're migrating internal reporting systems from an on-premise SQL Server stack to a cloud-native architecture on Azure. The initial contract will focus on data pipeline development and API work, with the possibility of extension.
+
+You will:
+
+- Build and maintain Azure Data Factory pipelines for financial data
+- Develop Python-based microservices deployed on Azure Kubernetes Service
+- Write and review SQL queries and stored procedures against SQL Server and Azure SQL
+- Support integration testing for migrated components
+- Document technical decisions in architecture decision records (ADRs)
+- Work closely with the technology lead and one permanent engineer on the team
+
+What we need
+
+- Strong Python development experience in a production environment
+- Working knowledge of Microsoft Azure (ADF, AKS, Azure SQL, Blob Storage)
+- Comfortable with SQL Server / T-SQL
+- Experience with containerised deployment and CI/CD pipelines
+- Availability to start within 2 weeks
+- Willingness to work inside IR35 through an approved umbrella company
+
+Nice to have:
+
+- Financial services or asset management background
+- Experience with PowerBI or similar BI tooling
+- Knowledge of SSIS or other legacy ETL tooling (useful during migration)
+
+Working arrangement
+
+Hybrid — 3 days on-site at our Mayfair office, 2 days remote. Office hours are 9am–5:30pm; some flexibility is available for the right candidate. All equipment provided.
+
+To apply, send your CV to contracts@pembertoncap.example.com. Please confirm in your message that you are able to work inside IR35 through an umbrella company.

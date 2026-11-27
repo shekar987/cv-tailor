@@ -1,0 +1,53 @@
+Software Engineer — Mid-Level
+Wavefront Labs — Cambridge (Hybrid)
+Salary: £50,000 – £62,000 per annum
+Contract type: Permanent, full-time
+Posted: 3 days ago
+
+About Wavefront Labs
+
+Wavefront Labs builds scientific data management software for research institutions and pharmaceutical companies. Our platform manages experimental data, versioning, and audit trails for teams running clinical and pre-clinical research. We're 40 people, based in Cambridge, and our engineering team of 15 works in Python and TypeScript. We place a high value on code quality, documentation and sustainable pace.
+
+The role
+
+We're hiring a mid-level Software Engineer to join our backend team. This is a mid-level position: we're looking for engineers with at least 3 years of professional software development experience who can work independently on significant features and contribute to technical discussions. If you're earlier in your career, we'd encourage you to watch for junior roles we post periodically.
+
+Responsibilities
+
+- Implementing new features in our Python/FastAPI backend
+- Writing and maintaining database migrations and queries (PostgreSQL)
+- Contributing to our TypeScript/React frontend when features span the stack
+- Writing automated tests (pytest, playwright) and maintaining test coverage
+- Participating in code review as a reviewer and an author
+- Contributing to technical documentation and ADRs
+
+Requirements
+
+Essential:
+- Minimum 3 years of professional software engineering experience
+- Confident working in Python in a production environment
+- SQL and relational database experience (PostgreSQL preferred)
+- Comfortable reading and contributing to TypeScript
+- Good instincts for software design — you think about maintainability, not just correctness
+
+Desirable:
+- FastAPI or any other Python async framework
+- Experience with scientific, healthcare or regulated industry software
+- Familiarity with Docker and CI/CD pipelines
+- Some exposure to data versioning concepts (Git-like workflows for data, lineage tracking)
+
+The 3+ years requirement is real. The codebase is complex, the domain is technical and the expectation of autonomy is genuine. We want to set candidates up to succeed.
+
+What we offer
+
+- £50,000 – £62,000 depending on experience
+- 27 days holiday plus bank holidays
+- Hybrid working — Cambridge office, 2 days on-site
+- £1,000 annual learning budget
+- Private health insurance
+- Pension with 6% employer contribution
+- Flexible working hours around core 10am–3pm
+
+Wavefront Labs is an equal-opportunity employer. We actively encourage applications from underrepresented groups.
+
+Send your CV to careers@wavefrontlabs.example.com.
