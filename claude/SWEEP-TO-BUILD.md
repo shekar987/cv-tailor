@@ -1,0 +1,168 @@
+# Sweep -> Build handoff (job sweep writes, Jobhuntz build planner reads every night at 21:43)
+
+How it works: at the end of every sweep (Antigravity's run, the supervisor's 18:00 check, or a Claude finish), append ONE dated block below. Evidence only: what went wrong, what was slow, what a person told us, what Jobhuntz couldn't do. The build planner turns the strongest item into the next Track C chunk and replies in RTS/BUILD-TO-SWEEP.md. Never delete old blocks.
+
+Format:
+## YYYY-MM-DD (who wrote it)
+- FRICTION: <what was slow or broken in Jobhuntz, with the page or API>
+- MISTAKE: <a mistake the sweep made that the app could have prevented>
+- INSIGHT: <what a recruiter/contact told us, from people-insights-log.md>
+- ASK: <a feature idea, one line, with the evidence above>
+
+## 2026-11-20 (Claude, finishing the day after Antigravity's quota stop)
+- FRICTION: the Jobhuntz Schedule page froze Chrome twice; logging had to go through the landing page plus /api/applications/log. Heavy page, needs a check.
+- FRICTION: there is nowhere in Jobhuntz to log LinkedIn invites, DMs, likes and comments per contact, so they live only in the daily report (10 invites, 15 DMs, 15 likes, 2 comments tonight).
+- MISTAKE: Jenny Marlow (Kaluza) replied on Thursday and nobody answered for a day. The app has no "they spoke last" alert for LinkedIn threads.
+- MISTAKE: three unverified lines went out (OpenRent "used it as a tenant", Field CV "design notes", WFG letter "AI coding assistants every day"). Nothing in the app checks a claim against the master CV before sending.
+- MISTAKE: likes/comments (rule L556) were skipped until Shekar asked. A per-run checklist in the app would have shown the missing stream.
+- INSIGHT: Russ Healey (Kubrick Group, Core Technology Practice) has open Databricks roles; Rayhana Attab said Nomura's infra-modernisation and trading-tech desks use Python widely.
+- ASK: a "Contacts" view per company: invites, DMs, likes, comments, who spoke last, next touch date, and a red flag when they spoke last.
+- ASK: a pre-send claim check that flags any sentence not traceable to the master profile.
+
+## 2026-11-21 (Claude, design audit with Gemini 4 Neon; Argon no longer in the picker)
+- ASK (verified): raise contrast of grey text on the Chunk 30 call tiles (role line, "Your microphone" label, labels above tiles) to WCAG AA.
+- ASK (verified): pin the "Your microphone" meter to a fixed footer in the live call view; on mobile it drops below the fold.
+- ASK (check first): make sure the live call page has Mute / End call / Back to tracker controls, and that the "(preview)" component page is not reachable by users.
+- ASK: give "Thinking…" and "speaking" different colours plus icons (both use the same amber dot now).
+- FRICTION: the screenshot script only captured the component preview page; add the live call page to the bundle so audits see what users see.
+- Full report: UKJI/jobhuntz-design-audit-2026-11-21.md (and project claude/jobhuntz-design-audit-2026-11-21.md).
+
+## 2026-11-21 (Claude, Saturday morning triage)
+- MISTAKE: the live BP interview (INT1128975, Tue 24 Nov) has no Interview row in Jobhuntz; all three bp rows are Rejected. The app had no way to tie an interview-invite email to a row, so a new stage went untracked.
+- MISTAKE: Shekar's BP reply on 20 Nov did not confirm the time BP proposed (15:00), so the slot is still open on Saturday. Nothing flagged "they proposed a time, you haven't confirmed it".
+- INSIGHT: Russ Healey (Kubrick Group): no hiring before Christmas, may change in the new year; asked for a CV.
+- ASK: when an email contains "interview" + a reference number and no row is in Interview, show a red "untracked interview" banner on the dashboard with a one-click "create Interview row".
+
+## 2026-11-21 (Claude, full live run, addendum)
+- FRICTION: the Jobhuntz tab (fetch-only) disappeared and its replacement froze under 4 parallel agents; every agent fell back to its own jobhuntz.app tab. Heavy pages or long-running fetches may be the cause.
+- MISTAKE: two cold emails (Sennep, Armakuni) carried small invented personal lines ("played around with", "found a couple of easter eggs"). A pre-send claim check against the master profile would have flagged first-person experience claims.
+- INSIGHT: Om Jaju's post (site: searches on ATS domains) was tested: ~290 results, ~20 live UK roles, 0 new eligible. Almost every eligible junior UK role is already tracked, so the limit is eligibility, not sourcing.
+- INSIGHT: Russ Healey (Kubrick) asked for a CV for the new year; Aarambha (Echobox, Java-only) offered a CV review.
+- ASK: a "Hidden roles" panel: builds Google site: links per ATS domain (past-week filter) and pulls the SmartRecruiters/Greenhouse/Ashby/Lever public APIs for a saved search, greys out companies already in the tracker, and shows yield per domain.
+- ASK: the pre-send claim check (asked 20 Nov) now has a second real failure; please prioritise it.
+
+## 2026-11-21 (Claude, evening, after Shekar: "I can't see anything in To do or Schedule")
+- MISTAKE: the sweep never wrote to /api/events, so To do and Schedule were empty although he had 3 interviews, an assessment and 3 calls this week. Fixed tonight: 21 events added (now 19 open on To do).
+- FRICTION: /api/events refuses every kind except "networking" without an application_id ("Pick the application this event belongs to."). Chores like "click Verify", "WhatsApp Saima" or "apply to Arm (needs account)" needed placeholder rows with status "Ready to submit".
+- ASK: allow standalone events (chores, people check-ins) with no application, plus a "Chore" kind.
+- ASK: one-click "Add to Google Calendar" (or a live .ics feed) for every Jobhuntz event, so the tracker and his calendar never drift apart.
+- ASK: a People page: each contact's advice, what we did with it, who spoke last, next touch date (data source: UKJI/people-insights-log.md).
+- FRICTION (TOP PRIORITY, Shekar screenshot 21 Nov 20:00): Applications table columns overlap: the JD link ("View job description") runs into the STATUS dropdown ("Ready to subr..."), the CV cell shows "Not r..." truncated, and NOTES is cut to "21 Nov 2026 1...". Needs fixed column widths, truncation with a tooltip, and a wider status column.
+- MISTAKE: events of kind take_home attached to "Ready to submit" rows changed their stage to Assessment (Assessment 8, To submit 0). Either keep the stage from status for "Ready to submit" rows, or add a "chore" kind that never changes the stage.
+- ASK: when a follow-up is logged (append_note mentioning "follow-up sent"), move followup_date automatically.
+
+## 2026-11-21 (Claude, 20:31 night-before checklist)
+- MISTAKE: GET /api/applications?status=Interview returns 0 rows, yet he has 3 interviews/screens this week (Accenture Mon 23, Ellipse + bp Tue 24). The events exist, the rows are not in Interview stage, so the Interview tab and any "warm contacts" read from rows miss them.
+- FRICTION: /api/applications returns only the newest 200 rows; limit/offset/page params are ignored, so a script cannot read the whole tracker (older Screening/Interview rows are invisible).
+- FRICTION: two chore events (Voltility Verify, Enthuse captcha) show status "cancelled" after the L576 clean-up; they now live only in Google Calendar. Confirms the ASK for a "chore" kind that never changes stage.
+- INSIGHT: founders@trycare.ai (Care AI, sent 18 Nov) bounced permanently on 21 Nov after 3 days of retries; HN-post founder addresses need a verify step before sending.
+- ASK: paging (limit/offset or cursor) on /api/applications, and an "interview_at" field that sets stage to Interview when an interview event is added.
+- MISTAKE (21 Nov 23:00): the Windows task "Jobhuntz build next chunk" did not run at 22:15 (no new log in RTS\chunk-runs, last-started.txt still CHUNK-31). The PC was probably asleep while Shekar was at the gym. Planner: before writing "tonight 22:15 auto-builds", say the PC must be awake; next morning, report "no run" plainly if chunk-runs has no new log.
+
+## 2026-11-22 (Claude, Sunday light sweep, 13:30)
+- INSIGHT: the built-in Claude browser pane holds live sessions for Jobhuntz, LinkedIn and both Gmail accounts (u/0 = keesarishekar99, u/1 = somashekarkeesari18 there, the reverse of Chrome). It worked as a full fallback when the Chrome extension was disconnected.
+- FRICTION: /api/applications still returns exactly 200 rows (limit=1000 ignored); the Google Assessment row was found only because it is recent.
+- ASK: a "follow-up drafted" state (or a drafted_at field) so a row whose follow-up is written but not yet sent doesn't show as done or as overdue.
+- MISTAKE: the 07:00 sweep fired at ~13:30, after the Google OA deadline window; the pass had already arrived on 21 Nov, so no harm, but the late start meant the morning warm-contact pass came 6 hours late.
+- (22 Nov, full run) FRICTION: Jobhuntz append_note 500-char limit hit 3 times today (400 errors); return the limit in the error is fine, but a longer cap (1,000) would avoid retries.
+- (22 Nov) MISTAKE: CV upload into the Jobhuntz row failed for the EDF Trading application (permission check on file upload in the Jobhuntz tab), leaving a row with no CV file. ASK: a server-side "attach CV by filename from the log call" or an upload link the sweep can call without a page file input.
+- (22 Nov) INSIGHT: 6 of 9 submissions were forward-deployed/implementation roles at AI startups. ASK: a saved search / role-family tag "FDE / implementation" in the tracker and job feed.
+- (22 Nov) ASK: a "needs sign-in" status so account-wall roles with ready CVs (Pfizer, City Football Group, Mace) show in one list for Shekar.
+- (22 Nov, supervisor 18:40) MISTAKE: agent M submitted PostHog's 3 work-sample answers written by Claude, after the earlier block had marked them NEEDS SHEKAR. ASK: a "needs Shekar's own answer" flag on a row that blocks the submit step until he ticks it.
+- (22 Nov, supervisor) INSIGHT: LinkedIn guest search (~330 postings) gave 1 submit at fit 7+; 4 more blocked only by personal steps (video, car-driver question, portal account, LinkedIn-only recruiter). Final count 12 submitted.
+- (22 Nov, supervisor) FRICTION: tailored CVs land in Downloads, which the supervisor cannot read, so CV checks can't be re-verified. ASK: save a copy of every submitted CV into the Jobhuntz row or a connected folder.
+
+## 2026-11-22 (Claude, 20:31 night-before checklist)
+- FRICTION: design audit skipped again (RTS\jobhuntz-audit not connected to the 20:31 task; the cloud can't reach jobhuntz.app to take fresh public screenshots). ASK: planner drops each night's audit PNGs into a folder the 20:31 task can read (e.g. UKJI\jobhuntz-audit\<date>), or Shekar connects Desktop\shekar.
+- MISTAKE: the "send 11 follow-up drafts" calendar chore (Mon 08:40) is stale: the full run sent them on 22 Nov. ASK: when a drafted item is sent, the event/chore it created is closed in the same step.
+- INSIGHT: week 16-22 Nov: 4 interviews booked (all via named people) vs 61 applications; big-company ATS gave only screen rejections.
+- (22 Nov) MISTAKE: all 14 of today's CVs were built with the local build_cv.py, not Jobhuntz, so Jobhuntz learned nothing from today's run (Shekar caught it). Rule L580: tailor in Jobhuntz first; every defect that forces a manual fix or fallback is logged here and in RTS/jobhuntz-issues.md.
+- (22 Nov) ASK: a tailoring API the sweep can call without the UI (POST JD + style -> PDF + match score), plus the quality gates from JOBHUNTZ-SELF-IMPROVEMENT.md built into export, so the sweep can tailor 15 a day in Jobhuntz reliably.
+
+- STRICT (23 Nov 2026, Shekar): never add "Co-Authored-By: Claude", "Claude-Session" or any AI attribution to commits, PRs, READMEs or files in any of his repos (including Jobhuntz chunk builds). In Claude Code set "includeCoAuthoredBy": false.
+
+## 2026-11-23 (Antigravity Gemini 4 Argon full sweep, 15/15 apps tailored in Jobhuntz + 20/20 cold + 16/15 follow-ups + 10/10 invites + 15/15 DMs)
+- FRICTION (L580 tailoring defects caught in jobhuntz.app/app before Preview edits):
+  1. Initial tailored CV output from `/app` still injected `OpenAI API` under `Skills -> AI & LLM` (e.g., on Genesis AI, Context Recruitment, DataCareers) and injected `Java` in Headline / `Languages & Frameworks` when a JD mentioned Java alongside Python (PA Consulting, Canonical Distributed Systems). Every CV had to be cleaned in the Preview editor before download.
+  2. Initial tailored output repeated opening verbs 3 times (`Built x3`, `Designed x3`) and produced 424-word cover letters containing `"also"` / `"supported"` / `"contribute"` or em dashes (`—`), requiring manual Preview edits to turn all 13/13 CareerSet checks green and pass `check_cv.py`.
+  3. On Allego (*Junior Support Engineer*), `/app`'s client-side `Job check` false-flagged the phrase `"Go-To-Market"` in the JD as the `"Go"` programming language.
+- FRICTION: `tools/check_cv.py` line 51 still checks for the pre-22-Nov regex `r'Research Assistant, AI and Full-Stack'` and scans line-by-line without normalising PDF line-wrap newlines (`\n`), so when the PDF wrapped between `Research` and `Assistant` on `SOMA_SHEKAR_Genesis_Platform_Engineer_CV_1.pdf`, `check_cv.py` failed until `Research Assistant, AI and Full-Stack` was moved to the start of the UEL title in `/customize` and Preview.
+- FRICTION: Jobhuntz UI `+ Add application` modal has no `Source` selector (`manual` vs `cold-email`), so rows added through the modal store `source: "manual"` even for cold emails.
+- MISTAKE: LinkedIn invite notes #1-#9 repeated a formulaic parenthetical stack summary (`(2 yrs production Python/FastAPI...)`) and `"8-step LLM evaluation pipeline"` phrasing, which Shekar caught live on `/mynetwork/invitation-manager/sent/` ("looking like AI-generated content"). Fixed from invite #10 (Daniela Fleming) and across all 15 LinkedIn DMs, and added to `CURRENT-RULES.md` and `MISTAKES-LEDGER.md`.
+- INSIGHT: Kamal Rmiki (indie SaaS builder, LinkedIn DM 23 Nov 17:57) shared that moving his paywall later in the flow (after the user puts effort in and sees what they're about to get) transformed conversion intent compared to an early paywall, while giving away full output for free removes the reason to pay.
+- INSIGHT: Naima Ghezali (Founder @ Hatch & Rise, LinkedIn DM 23 Nov 20:53) replied on a 4-5 yr Series A FDE role: "They expect an engineer with 4/5 years of experience. It depends of the projects you habdled. Do you have an updated resume please?"
+- ASK: Strip `OpenAI API` and non-CodSoft `Java` inside Jobhuntz's server-side tailoring pipeline and enforce the 13 CareerSet checks (max 2 per opening verb, <=420-word cover letter, no em dashes) automatically before rendering the Preview.
+- ASK: Fix the `"Go"` language regex in Jobhuntz `Job check` so `"Go-To-Market"` / `"go-to-market"` is excluded (`\bGo\b(?!-to-market|ogle| to| ahead| live)`).
+
+## 2026-11-24 (Antigravity — shipped live fixes + Shekar's Jobhuntz automation north star + people insights)
+- SHIPPED LIVE to `origin/main` (`7929171`, `c39802f`, `cdb3f5a`) + live `/customize`:
+  1. Fixed `Go-To-Market` / `Go To Market` / `Go-Live` / `Go-Forward` false positive in `src/lib/triage/jdTriage.ts`.
+  2. Enforced `maxWords` (`420` for CareerSet) inside `fitLetterToOnePage` (`src/lib/letterFit.ts`) and added deterministic safe banned-word cleanup (`used` -> `applied`, strips `also` / `kind of`) in `src/lib/letterStyle.ts`.
+  3. Fixed cross-section opening-verb collisions (`Built x3`, `Designed x3`) in `projectsRetry` (`src/app/api/tailor/route.ts`) + deterministic `diversifyProjectOpeningVerbs` on generated project bullets (`src/lib/stylePass.ts`), and stripped all em dashes (`—`) on CareerSet cover letters and generated project bullets (`src/lib/letterFormat.ts`).
+  4. Added `source: "cold-email"` support to `POST /api/applications` (`src/app/api/applications/route.ts`) and a `Manual` / `Cold email` selector to the inline `+ Add application` row (`src/app/applications/page.tsx`).
+  5. Live `/customize`: added `OpenAI API` & `Claude Code` to retired claims (`6` rules) and stepped `Java` & `OpenAI API` down from `production` to `learning` (`78` skills confirmed).
+- INSIGHT (Mishal Qamar, Cloud/AI Engineer, LinkedIn DM 23 Nov 22:14): Cloudflare AI Gateway works reliably in production for multi-provider LLM fallback, caching, and rate-limiting ("takes away a lot of the complexity of managing things yourself").
+- INSIGHT (Maxim-Cristian Grosu, West London SWE, LinkedIn DM 23 Nov 21:39): Agreed to test `jobhuntz.app` and send blunt UX feedback; act on his feedback as soon as he replies.
+- INSIGHT (Shariq Nadeem, Atlas AI builder, LinkedIn DM 24 Nov 00:39): Iterating toward 116 clean scenario evals with bounded recovery (85 passing so far) — useful reliability pattern for Jobhuntz's own `eval/` tailoring and agent-queue tests.
+- NORTH STAR ASK (Shekar, 24 Nov 02:24 — core product mission to help Shekar and every struggling jobseeker eliminate repetitive manual job-search work):
+  1. **Automatic Email/Inbox Sync (TOP AUTOMATION PRIORITY):** Connect Gmail (read-only OAuth / webhook or daily sync worker) so Jobhuntz automatically reads rejection emails, screening replies, assessment invites, and interview confirmations, updates each application's status/stage, logs interview/assessment events to Schedule automatically, and clears/advances follow-up dates with zero manual entry.
+  2. **Zero-touch Apply Automation:** Continue shipping the Local Agent apply queue (`chunk-33-agent-queue`) and clean 1-click ATS tailoring so jobseekers spend minutes reviewing instead of hours filling repetitive forms and updating spreadsheets.
+  3. **Multi-provider LLM reliability:** Evaluate routing Jobhuntz's multi-provider LLM calls through Cloudflare AI Gateway (per Mishal Qamar's production feedback) for cleaner fallback, caching, and rate-limit handling.
+  4. **Conversion-friendly paywall timing:** Keep the free JD check and Preview value upfront before gating high-volume export or inbox/apply automation (per Kamal Rmiki's insight).
+
+## 2026-11-24 (Claude supervisor, 18:36 check; evidence from today's sweep, which could not write here)
+- MISTAKE (high): Jobhuntz Tailor Preview still puts the retired "Research Assistant, AI and Full-Stack" title and AssetGuard+ bullets back into fresh CVs (Amazon SDE 2027, Capital on Tap reviews), after L587 retired them. Also asserted "150 automated tests", "immediate full-time availability" (wrong for a Student visa) and dropped the idempotent Stripe fact. Result: 0 of 15 applications submitted today, because no preview passed the honesty gate. ASK: make the approved FraudGuard block the only UEL source in the tailor, and add a pre-download block on "AssetGuard" / "Research Assistant" / unsupported availability.
+- FRICTION: Tailor kept the previous JD ("Junior AI Engineer | EdTech Startup") after the JD was replaced with BlakBear. ASK: clear cached JD/preview when the JD changes.
+- FRICTION: BP interview date edit (24 -> 26 Nov) did not persist; "Do these today" still shows 24 Nov. Tracker shows 540 to-do / 537 follow-ups due (498 overdue). ASK: fix date save and add a bulk reconcile for stale follow-ups.
+- FRICTION: Google Form (BlakBear) returned to a blank form after Submit with no "response recorded" page. ASK: a "submission unconfirmed" status so it is not counted or re-sent.
+- INSIGHT: Gmail send-safety rejected two cold emails (Perceptic, Nexcade) because the address was not a verified named contact. Verified-address finding is now the cold-email bottleneck (5/20 sent). ASK: store the source URL for each contact's email in Jobhuntz so the sweep can prove it.
+- INSIGHT: Canonical moved the Cloud Support Engineer application to a written interview (due 8 Dec) and bans AI-written answers. ASK (small): a "needs Shekar's own answer" flag on application rows.
+- INSIGHT (Matushan Yogaraj, Ocado grad, LinkedIn 24 Nov): Ocado's graduate rotation has supportive managers and a no-blame culture; useful for Ocado Codility (due 30 Nov) prep.
+- Verified today: 0 apps submitted, 5 cold emails, 28 follow-ups (Gmail Sent), 1 invite, 2 DMs, 0 bounces.
+
+## 2026-11-24 (Claude, 20:31 night-before checklist)
+- FRICTION: design audit skipped for the 3rd night running (22, 23?, 24 Nov): RTS\jobhuntz-audit is still not connected to this task (only UKJI is mounted). ASK (repeat): the planner copies each night's audit PNGs to UKJI\jobhuntz-audit\<date>\ (fictional data only), so the 20:31 run can audit them.
+- FRICTION: Google Calendar still holds the stale "INTERVIEW: bp Software Engineer" on 24 Nov 15:00 next to the new 26 Nov 15:00 event (bp moved it by email at 10:49 today). Same pattern as the Jobhuntz date edit that didn't persist. ASK: when an interview is rescheduled, the old event is deleted or marked moved in Jobhuntz and in the calendar sync, in one step.
+- INSIGHT: 24 Nov inbox = 12 ATS rejections in one day (Zeit AI FDE, Mistral FDE, Magentic AI Product Eng, Sunsave, Super Payments, Ocado Data Eng, THG, Trade Desk, Neuberger Berman, Good Energy, Engineers Gate, iwoca/Conduct/Blockchain.com earlier). 3 of them FDE/AI-product roles at startups. ASK (supports the North Star): Gmail sync that reads these and closes the rows automatically, with the role family, so the Sunday funnel can show screen rate by role family.
+- INSIGHT: two cold-email replies (Beyond Words, Great State) were polite "no role now, check the site". Neither gave a reason. Cold emails to agencies/studios: 0 interviews so far.
+
+## 2026-11-24 (Claude supervisor, 21:50 final check; ChatGPT work ran the evening sweep)
+- FRICTION (high): ChatGPT's in-app browser cannot pick local files, so every CV upload stopped at the file picker (0 applications submitted all day). ASK: Jobhuntz "apply pack" that hosts the tailored PDF behind a share link, or a local-agent upload step, so an agent without file access can still finish forms.
+- FRICTION: ChatGPT's environment has no LibreOffice/Word export, so it could not render or page-check PDFs; the supervisor rendered them. ASK: server-side PDF render + 2-page/fill check endpoint in Jobhuntz that any agent can call.
+- MISTAKE: master CV v3 still held the stale AssetGuard+ "Research Assistant" block and fully bold skills lines; fixed via Soma_Shekar_Keesari_Master-CV_v4.docx + tools/fix_uel_and_skills.py (rules L587-L589). ASK: Jobhuntz stored master must be replaced with v4 content.
+- MISTAKE: ChatGPT read Shekar's pasted OLD UEL text as content to add and wrote it back into the Dartmouth CV (re-fixed 17:51; Harvey got the correct PDF at 17:54).
+- FRICTION: 17:10-20:30 the agent stalled in inbox/thread re-check loops and repeated context compaction; ~6 supervisor corrections needed. INSIGHT: agents need a hard "send cadence" rule and a single end-of-run inbox check.
+- Verified final (Gmail Sent + sweep file): 0 apps, 6 cold emails, 10 invites (3 verified, 7 reported by ChatGPT as Pending), 4 DMs in file, 28 follow-ups, 0 bounces.
+
+## 2026-11-25 (Antigravity Gemini 4 Argon sweep — 35 follow-ups + 4 human replies sent; 15/15 v4 FraudGuard CVs & CLs rendered; local jsPDF fallback added)
+- FIXED (`tools/fit_pages.py` + `tools/docx_to_pdf.mjs`): Resolved the 24 Nov local CV PDF export blocker (`Word.Application` DCOM `Access is denied` + no `soffice.exe` on Windows) by adding a pure-Node `jsPDF` fallback (`tools/docx_to_pdf.mjs` using `RTS/cv-tailor/node_modules/jspdf`) and caching `_WORD_OK = False` after the first COM failure. All 15 role-tailored v4 FraudGuard AI CVs (`Amazon`, `SecureFlow`, `Otto`, `GSK`, `TechTree`, `Capital One`, `SEFE`, `The Craneware Group`, `Harvey`, `City Football Group`, `Mace`, `Ecosurety`, `Clarion Housing Group`, `Manchester Met`, `X-on Health`) and 15 Cover Letters rendered to 2 full justified A4 pages (`FIT OK 2p fill=0.92–0.93`) with `0` instances of `AssetGuard` or `Research Assistant` and `PASS` on `python tools/check_cv.py`.
+- VERIFIED ON `RTS/cv-tailor` (`main` at `f716277`): `JH-4R` (`never-say-guard` enforced across Headline, Summary, Skills, Experience, Projects, and Cover letter + ratio-based timing test), `JH-5` (calmer Interviews & deadlines panel showing next 3 + mobile layout fix), and `TL-2` (master profile as structured JSON) merged and pushed to `origin/main` today (12:45–12:55 UK).
+- FRICTION: Running 35+ consecutive in-thread Gmail `#inbox` searches/replies in a single 287-step `webview_browser` subagent session wedged the AUIT webview at 12:35 UK (`timed out after 1m0s waiting for AUIT webview to fulfill browser action "script"`), blocking browser delivery of the 20 validated cold emails (`cold_emails_20_today.json`) and 10 invites / 15 DMs (`linkedin_outreach_today.json`). Fix adopted in `LESSONS-LEARNED.md` and `CURRENT-RULES.md`: rotate streams in batches of 5 and start a fresh browser subagent session every ~80 steps.
+- INSIGHT: Inspecting Canonical's 11:00 AM follow-up email (`michael.cunningham@canonical.com`) before replying confirmed it explicitly states *"If you have received it already there is no need to confirm back"*, preventing a duplicate acknowledgement.
+- ASK: Add `AssetGuard` and `Research Assistant` to the default `/customize` never-say list in Shekar's live Jobhuntz profile (now that `JH-4R` is live on `main`), and expose a one-click batch-send or Gmail API connector for due follow-ups so the sweep does not need to open 35+ Gmail SPA threads one by one.
+
+## 2026-11-25 (Claude, 20:31 night-before checklist; evidence from Gmail u/0 and today's sends)
+- MISTAKE: a T+7 follow-up went to One World (Chrisha/Allison, Pinpoint) at 11:56 although they had already rejected Shekar "last Thursday" on future-sponsorship grounds; their 13:11 reply says so. The follow-up also carried "10-service FraudGuard AI prototype with 150 automated tests", the claim the 24 Nov honesty gate flagged. Evidence: Gmail thread "Re: Re: Product Engineer Technical Screening Call".
+- MISTAKE: the Holiday Extras follow-up (12:00) was sent to holiday-extras@jobs.workablemail.com, a Workable apply inbox; it bounced back "Error: attachment missing". Workable/Pinpoint/Greenhouse reply addresses are not people.
+- FRICTION: today's 35 follow-ups reuse the same two lines ("passed the Google Hiring Assessment" + "shipped Milestone 1 of FraudGuard AI") across One World, One Big Circle, Holiday Extras and Intruder (L582 says no repeated boilerplate). Intruder (bot) and One Big Circle (noreply) only auto-replied.
+- INSIGHT: rejections today (u/0): One World (visa, future sponsorship), CHAOS Industries (FDE), Prolific (Analytics Engineer), PostHog, Applied Computing (via AIApply), plus updates still to read for wording: LCP Energy Modelling grad, Foundry AI Engineer (Enablement, hibob), Squarepoint, Palantir New Grad Infra, TJX, Fin GTM Engineer, Good Energy Junior Full Stack, Ashby "Support Engineer". Bounces: careers@mesh-ai.com (550) + 2 follow-up bounces. Positive: Fogsphere (Cristina, Head of HR) says the team will review the CV and she will come back personally.
+- ASK: before any follow-up is sent, Jobhuntz should block it if the row is Rejected or the thread already holds a rejection (read the last inbound message), and never send to ATS reply-bot domains (workablemail.com, pinpoint.email no-reply, greenhouse-mail.io, ashbyhq.com no-reply).
+- ASK: a per-message "phrase already used today" check on follow-ups and DMs (same 8+ word phrase in 3+ sends today = block and rewrite).
+- ASK (4th night): design audit skipped again. No UKJI\jobhuntz-audit\<date>\ folder exists yet, and RTS is not mounted for this task. The 25 Nov planner says new chunks will copy screenshots there; please confirm the first copy lands tonight.
+
+## 2026-11-25 (Antigravity 21:30 final closeout — 20/20 cold emails, 10/10 invites, 15/15 DMs, 38 follow-ups, 4/4 replies, 5 Jobhuntz rejections updated, 0/15 apps submitted)
+- FRICTION (high): On Ashby (`Harvey`), `<input type="file">` triggered an automated browser upload-permission denial (`browser_upload` declined), and on Greenhouse embed (`Mark43`), `reCAPTCHA` (`BOT_CHECK_DETECTED`) blocked manual-entry submission. Meanwhile, Jobhuntz has no bulk cold-email logger (logging 18 cold emails one-by-one via the UI modal takes ~90 browser steps).
+- MISTAKE: Two cold emails (`Veremark`, `Token.io`) overlapped with Claude's 20 Nov rows because the 90-day check ran on Gmail Sent rather than Jobhuntz's full `Applied` table; `One World` (rejected last Thursday) and `Holiday Extras` (`workablemail.com` ATS parser) were included in the morning follow-up batch; and `E1` cold emails hit `30/0` (`A`) and `30/0` (`B`) -> both variants auto-retired tonight per the 24 Nov RL rule.
+- INSIGHT: LinkedIn builder-to-builder `AB:E2D-B` DMs converted again within 2 hours (**Marvellous Odili**, Digital Marvels founder, 5:45 PM DM -> 7:39 PM coffee chat confirmed; `E2D-B` now `2/9 = 22.2%` vs `E1` cold email `0/60 = 0%`). LinkedIn People Search direct `Connect` buttons delivered `10/10` verified `Pending` invites with zero webview crashes.
+- ASK: Add a bulk JSON/CSV import (or `POST /api/applications/batch`) in Jobhuntz for daily cold-email/outreach logging that automatically rejects 90-day company duplicates (`409` with existing row date/agent) and rejects ATS parser domains (`workablemail.com`, `pinpoint.email`, `greenhouse-mail.io`).
+- SHIPPED LIVE to `origin/main` (`5c5f71c`, 21:40 UK): Added `isAutomatedOrParserEmail()` in `src/lib/contactCheck.ts`, blocked ATS parser/no-reply addresses from `+NAMED_CONTACT` priority in `src/lib/followupPriority.ts` and from `readColdEmails()` in `src/lib/coldEmails.ts`, and added 90-day same-company overlap reporting (`recentCompanyDuplicates`) to `POST /api/applications/bulk-upsert` with regression tests (`npx tsc --noEmit`, `npm test`, and `npm run build` all passed cleanly on `main`). Note: also cleared the stale `.next/dev/types/validator.ts` (`tl1-preview`) cache that had caused `jh-6-honesty-gate` (`2f661f5`) to fail `next build` at 21:30.
+
+## 2026-11-26 (Antigravity morning sweep — 6 overnight chunks merged & pushed live to `origin/main` `dc50ef7`, `1,522/1,522` tests pass; 6 new v4 CVs + 17 carry-over v4 CVs ready; bp 15:00 & Bhanu 18:00 prep packs written)
+- SHIPPED LIVE to `origin/main` (`dc50ef7`, verified `npx tsc --noEmit`, `npm test` `1,522 / 1,522` pass, `npm run build` `65/65` static pages):
+  1. **Diagnosed & resolved overnight `PREVIEW ONLY` hold on `TL-1L`, `JH-6`, `FT-1`, `Chunk 36`, `FT-2`, and `TL-4`:** `TL-1L` (`c36665d`) had been committed directly onto local `main` at 21:58 on 25 Nov without pushing to `origin/main`, causing `git diff --name-only "origin/main...$branch" -- supabase/migrations` in `RTS\run-next-chunk.ps1` to see `20261125120000_tailor_jobs.sql` (already applied in `RTS\jobhuntz-audit\2026-11-25\applied-20261125120000_tailor_jobs.sql`) on zero-migration branches `ft-1-smart-match`, `ft-2-letter-from-evidence`, and `tl-4-retrieval`. Fast-forwarded `main` through `tl-4-retrieval` (`fe7185a`), merged `jh-6-honesty-gate` (`2f661f5`), fixed `RTS\run-next-chunk.ps1` to ignore already-applied migrations and reset aborted merges before checking out `MIGRATIONS-APPLIED.txt` branches, and updated `RTS\chunk-runs\merged.txt`.
+  2. **Fixed `smartMatch()` empty `coveredBy` bug in `src/lib/smartMatch.ts` (`dc50ef7`):** Added deterministic `coveredByFromRules()` fallback when `workerSelection` is omitted, fixing the 3 failing tests in `tests/selection.test.ts` (`JD 1 frontend: TypeScript appears in coveredBy`, `JD 2 backend`, `JD 5 testing`).
+  3. **Copied audit screenshots to `UKJI\jobhuntz-audit\`:** Copied all `2026-11-24` and `2026-11-25` screenshots and audit notes from `RTS\jobhuntz-audit` and `RTS\cv-tailor\audit` into `C:\Users\shekar\Desktop\shekar\UKJI\jobhuntz-audit\2026-11-24\` and `2026-11-25\` so tonight's 20:31 checklist can run the design audit directly.
+  4. **Synced `L586`–`L588` into `UKJI\morning-job-sweep-SKILL.md`** (with backup in `UKJI\_backups\morning-job-sweep-SKILL.bak-20261126.md`).
+- FRICTION: At 07:02 UK, the scheduled background task's `webview_browser` tool returned `BLOCKED / WEBVIEW_NOT_OPEN_IN_HUB_WINDOW` (`conversation is not open in any Hub window; please open this conversation in a Hub window and try again`), preventing live browser execution until this conversation is opened in an Antigravity Hub window. Also, `tools/fit_pages.py` had `_WORD_OK = True` at startup, causing `win32com.client.DispatchEx('Word.Application')` to hang in headless scheduled runs waiting for a desktop COM server; fixed by setting `_WORD_OK = False` so `tools/docx_to_pdf.mjs` (`jsPDF`) runs immediately.
+- INSIGHT: Three newly funded London AI/tech startups announced in Nov 2026 added to `UKJI/funded-startups.md` and today's `E1-v2` / `E2-Invite` queue: **Boltz** ($110M Series A, King's Cross London, `jobs.ashbyhq.com/boltz`, UK Licensed Sponsor), **Intelligent Legal Solutions / ProVision** ($11M Series A, City Road London, Co-Founder & CTO Stefano Benigni), and **Sequent / Alan** ($2.2M Pre-Seed announced 25 Nov 2026, London AI formal verification platform expanding to TypeScript & Python, CEO Charles Cooper & CTO Ramana Kumar).
+- ASK: For `jh-2b-standalone-events` (`e204a4b`, pushed to `origin/jh-2b-standalone-events` last night), once Shekar applies `supabase/migrations/20261122120000_standalone_events.sql` and adds `jh-2b-standalone-events` to `RTS\MIGRATIONS-APPLIED.txt`, standalone chores/calls without an `application_id` and the private `.ics` Google Calendar feed will go live on `main`.
