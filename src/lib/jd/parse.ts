@@ -39,6 +39,7 @@ const TRIAGE_TO_FLAGCODE: Record<string, RedFlagCode> = {
   years: "YEARS_3_PLUS",
   clearance: "SECURITY_CLEARANCE",
   residence: "UK_RESIDENCE_5Y",
+  contract: "CONTRACT_OR_DAY_RATE",
   contractor: "CONTRACT_OR_DAY_RATE",
   sponsorship: "NO_SPONSORSHIP_EVER",
   fixed_term: "FIXED_TERM",
@@ -52,7 +53,7 @@ function triageHitsToFlags(jd: string): RedFlag[] {
   const flags: RedFlag[] = [];
 
   for (const hit of triage.hits) {
-    const code = TRIAGE_TO_FLAGCODE[hit.reason];
+    const code = TRIAGE_TO_FLAGCODE[hit.rule];
     if (!code) continue;
     flags.push({
       code,
@@ -161,7 +162,9 @@ export async function parseJd(jd: string, opts: ParseOptions = {}): Promise<JdPa
   const rules: RulesOutput = runRules(text, { salaryFloor: opts.salaryFloor, staleDays: opts.staleDays });
 
   // 2. jdTriage red flags (deduplicated merge)
-  const triageFlags = triageHitsToFlags(text);
+  const triageFlags = triageHitsToFlags(text).filter(
+    (f) => !(f.code === "CONTRACT_OR_DAY_RATE" && rules.contract_type === "fixed_term")
+  );
   const allFlags = mergeFlags(rules.red_flags, triageFlags);
 
   // 3. LLM gap-fill if fewer than 3 must-haves OR seniority unknown

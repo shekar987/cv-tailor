@@ -282,7 +282,7 @@ export function extractFixedStart(jd: string): string | null {
 // Signals like "primarily Java", "Java is the main language", "our stack is Java",
 // "N years of Java experience" in a requirements line.
 const CORE_LANG_RE = new RegExp(
-  `\\b(?:primarily|mainly|core\\s+language|main\\s+stack|stack\\s+is|experience\\s+with|strong\\s+(?:knowledge|background|experience)\\s+in|proficiency\\s+in|proficient\\s+in|expertise\\s+in|expert\\s+in|fluency\\s+in|fluent\\s+in|our\\s+(?:stack|codebase)\\s+is|written\\s+in|built\\s+in|\\d+\\s*\\+?\\s*years?\\s+(?:of\\s+)?(?:commercial\\s+)?(?:experience\\s+(?:with|in|using)\\s+)?)?\\b(java|c#|c\\+\\+|cpp|\\.net|go|golang|rust|kotlin|php)\\b`,
+  `\\b(?:primarily|mainly|core\\s+language|main\\s+stack|stack\\s+is|strong\\s+(?:working\\s+)?(?:knowledge|background|experience|skills)(?:\\s+(?:in|of|with))?|demonstrably\\s+strong|proficiency\\s+in|proficient\\s+in|expertise\\s+in|expert\\s+in|fluency\\s+in|fluent\\s+in|our\\s+(?:stack|codebase)\\s+is|written\\s+in|built\\s+in|\\d+\\s*(?:[–-]\\s*\\d+\\s*)?\\+?\\s*years?\\s+(?:of\\s+)?(?:(?:commercial|professional)\\s+)?(?:experience\\s+(?:with|in|using|writing)\\s+)?)\\s*(?<![A-Za-z0-9_])(java|c#|c\\+\\+|cpp|\\.net|go|golang|rust|kotlin|php)(?![A-Za-z0-9_])`,
   "gi"
 );
 
@@ -420,10 +420,8 @@ export function extractTools(jd: string): string[] {
 // ── Seniority ─────────────────────────────────────────────────────────────────
 
 export function extractSeniority(jd: string, yearsMin: number | null): "graduate" | "junior" | "mid" | "senior" | "unknown" {
-  const lc = jd.toLowerCase();
-
   // Graduate / intern signals
-  if (/\b(?:graduate\s+(?:scheme|programme|program|role|engineer|developer)|entry[\s-]level|early[\s-]career|internship|intern\b|placement\s+(?:student|year)|industrial\s+placement|apprentice|trainee)\b/i.test(jd)) {
+  if (/\b(?:graduate\b|entry[\s-]level|early[\s-]career|internship|intern\b|placement\s+(?:student|year)|industrial\s+placement|apprentice|trainee)\b/i.test(jd)) {
     return "graduate";
   }
 
@@ -452,13 +450,24 @@ export function extractSeniority(jd: string, yearsMin: number | null): "graduate
   return "unknown";
 }
 
+function hasContractorCue(jd: string): string | null {
+  const re = /\bday[\s-]rates?\b|\b(?:inside|outside)\s+IR35\b|\bIR35\b|\bcontract(?:or)?\s+(?:role|position|basis)\b|\bfreelance\b|\bself[\s-]employed\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(jd)) !== null) {
+    const pre = jd.slice(Math.max(0, m.index - 50), m.index);
+    if (/\bnot\s+(?:a\s+|an\s+)?[^.!?\n]*$/i.test(pre)) continue;
+    return m[0];
+  }
+  return null;
+}
+
 // ── Contract type ─────────────────────────────────────────────────────────────
 
 export function extractContractType(jd: string): "permanent" | "fixed_term" | "contract" | "internship" | "unknown" {
   if (/\b(?:internship|intern\b|placement\s+(?:student|year)|industrial\s+placement|apprenticeship)\b/i.test(jd)) {
     return "internship";
   }
-  if (/\bday[\s-]rates?\b|\b(?:inside|outside)\s+IR35\b|\bIR35\b|\bcontract(?:or)?\s+(?:role|position|basis)\b|\bfreelance\b|\bself[\s-]employed\b/i.test(jd)) {
+  if (hasContractorCue(jd)) {
     return "contract";
   }
   if (/\bfixed[\s-]+term\b|\bFTC\b|\bmaternity\s+(?:leave\s+)?cover\b|\b\d+[\s-]+months?['']?\s+contract\b/i.test(jd)) {
@@ -579,9 +588,9 @@ export function runRules(jd: string, opts: { salaryFloor?: number; staleDays?: n
   const flags: RedFlag[] = [];
 
   // CONTRACT_OR_DAY_RATE — hard
-  if (CONTRACT_OR_DAY.test(jd)) {
-    const m = jd.match(CONTRACT_OR_DAY);
-    flags.push(makeFlag("CONTRACT_OR_DAY_RATE", m?.[0] ?? "contract or day rate"));
+  const contractorMatch = hasContractorCue(jd);
+  if (contractorMatch) {
+    flags.push(makeFlag("CONTRACT_OR_DAY_RATE", contractorMatch));
   }
 
   // FIXED_TERM — warn
@@ -613,10 +622,13 @@ export function runRules(jd: string, opts: { salaryFloor?: number; staleDays?: n
     flags.push(makeFlag("YEARS_3_PLUS", years.source_phrase));
   }
 
-  // SENIORITY_MID_SENIOR — warn (only when explicitly stated, not inferred)
-  if (/\b(?:senior|mid[\s-]?level|intermediate|staff\s+engineer|principal)\b/i.test(jd)) {
-    const m = jd.match(/\b(?:senior|mid[\s-]?level|intermediate|staff\s+engineer|principal)\b/i);
-    flags.push(makeFlag("SENIORITY_MID_SENIOR", m?.[0] ?? "mid/senior"));
+  // SENIORITY_MID_SENIOR — warn (only when the role itself is explicitly mid-level or senior)
+  const titleMidSenior = meta.title.match(/\b(?:senior|mid[\s-]?level|staff\s+engineer|principal)\b/i);
+  const bodyMidSenior = jd.match(
+    /\b(?:this\s+is\s+a\s+(?:senior|mid[\s-]?level)(?:[\s-](?:level|engineering))?\s+(?:position|role)|we(?:['’]re|\s+are)\s+(?:hiring|looking\s+for)\s+a\s+(?:senior|mid[\s-]?level|staff|principal)\b|this\s+role\s+is\s+(?:senior|mid[\s-]?level))\b/i
+  );
+  if (titleMidSenior || bodyMidSenior) {
+    flags.push(makeFlag("SENIORITY_MID_SENIOR", (titleMidSenior?.[0] ?? bodyMidSenior?.[0]) ?? "mid/senior"));
   }
 
   // UNDEFENDABLE_CORE_SKILL — hard
