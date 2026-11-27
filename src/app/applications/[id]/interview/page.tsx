@@ -22,6 +22,14 @@ import InterviewRoom, { type StartedInterview } from "./InterviewRoom";
 import FeedbackView from "./FeedbackView";
 import { normalizeStatus } from "@/lib/tracker";
 import { formatDate } from "@/lib/formatDate";
+import FreePractice from "./FreePractice";
+import {
+  buildFreeQuestions,
+  extractRequirements,
+  extractProjectNames,
+  parseBulletsFromText,
+  type FreeQuestion,
+} from "@/lib/freePractice";
 
 // /applications/[id]/interview — a mock interview with an AI interviewer for
 // one tracked application: pick the UK round, get interviewed out loud (or by
@@ -41,7 +49,7 @@ function initials(name: string): string {
   return name.split(" ").map((p) => p[0] ?? "").join("").slice(0, 2).toUpperCase();
 }
 
-type Row = { id: string; company_name: string; role: string; status: string; job_description: string | null };
+type Row = { id: string; company_name: string; role: string; status: string; job_description: string | null; tailored_cv?: { sections?: { experience?: string; projects?: string } | null } | null };
 type Past = { id: string; type: string; status: string; created_at: string; readout: { band: string; label: string } | null };
 type LoadState = "loading" | "ready" | "missing" | "expired" | "error";
 type KokoroState = { state: "idle" } | { state: "loading"; pct: number } | { state: "ready"; factor: number } | { state: "too_slow"; factor: number } | { state: "failed"; reason: string };
@@ -71,7 +79,8 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
   // both remembered on this device.
   const [silenceMs, setSilenceMs] = useState(PAUSE_DEFAULT_MS);
   const [bargeIn, setBargeIn] = useState(true);
-  const [phase, setPhase] = useState<"setup" | "room" | "feedback">("setup");
+  const [phase, setPhase] = useState<"setup" | "room" | "feedback" | "free-practice">("setup");
+  const [freeQuestions, setFreeQuestions] = useState<FreeQuestion[]>([]);
   const [started, setStarted] = useState<StartedInterview | null>(null);
   // The voice the room started with. The natural voice can finish its
   // download mid-interview; swapping it in then made two voices read the
@@ -141,7 +150,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
         if (appRes.status === 404) { setLoad("missing"); return; }
         if (!appRes.ok) { setError(app.error || "Couldn't load this application."); setLoad("error"); return; }
         const a = app.application as Row;
-        setRow({ id: a.id, company_name: a.company_name, role: a.role, status: a.status, job_description: a.job_description });
+        setRow({ id: a.id, company_name: a.company_name, role: a.role, status: a.status, job_description: a.job_description, tailored_cv: a.tailored_cv ?? null });
         setType(defaultRound(a.status));
         setPast(Array.isArray(list.interviews) ? list.interviews : []);
         if (list.errorType === "needs_migration") { setError(list.warning); setErrorType("needs_migration"); }
@@ -353,6 +362,23 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
     }
   }
 
+  function startFree() {
+    if (!row) return;
+    const experienceText = row.tailored_cv?.sections?.experience ?? "";
+    const projectsText = row.tailored_cv?.sections?.projects ?? "";
+    const reqs = extractRequirements(row.job_description ?? "");
+    const bullets = parseBulletsFromText(experienceText);
+    const projectNames = extractProjectNames(projectsText);
+    const qs = buildFreeQuestions({
+      requirements: reqs,
+      bullets,
+      projectNames,
+      company: row.company_name,
+    });
+    setFreeQuestions(qs);
+    setPhase("free-practice");
+  }
+
   const onFinished = useCallback((fb: InterviewFeedback, qs: unknown[]) => {
     setFeedback(fb);
     setQuestions(Array.isArray(qs) ? (qs as { id: string; text: string; intent?: string }[]) : []);
@@ -382,6 +408,8 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
   }, [phase, getHead]);
 
   const quotaExhausted = !!usage && !usage.unlimited && usage.dailyUsed >= usage.dailyLimit;
+  const lifetimeExhausted = !!usage && !usage.unlimited && usage.claudeUsed >= usage.claudeLimit;
+  const noAi = quotaExhausted || lifetimeExhausted;
   const remaining = usage ? Math.max(0, usage.dailyLimit - usage.dailyUsed) : null;
   const hasJd = !!row?.job_description?.trim();
   const round = ROUNDS[type];
@@ -454,7 +482,15 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
               <FeedbackView feedback={feedback} questions={questions} roundLabel={ROUNDS[feedbackRound].label} interviewId={feedbackId ?? undefined} onAgain={() => { setPhase("setup"); setStarted(null); }} />
             )}
 
-            <div className={`interviewLayout${phase === "room" ? " interviewLayout--room" : ""}`} hidden={phase === "feedback"}>
+            {phase === "free-practice" && (
+              <FreePractice
+                questions={freeQuestions}
+                company={row.company_name}
+                onDone={() => setPhase("setup")}
+              />
+            )}
+
+            <div className={`interviewLayout${phase === "room" ? " interviewLayout--room" : ""}`} hidden={phase === "feedback" || phase === "free-practice"}>
               <div className="interviewLayout__stage">
                 {view === "3d" ? (
                   // The 3D avatar is mounted only when chosen, so the default
@@ -527,7 +563,8 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
 
                 {phase === "setup" && (
                   <>
-                    <Card variant="ruled">
+                    {/* Round picker and voice/mic card are hidden in free mode — no AI call needed */}
+                    {!noAi && <Card variant="ruled">
                       {view === "3d" && (
                         <p className="fitEvidence" role="status" data-avatar-progress={avatar.state} hidden={avatar.state === "ready"}>
                           {avatar.state === "loading"
@@ -555,9 +592,9 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                           );
                         })}
                       </fieldset>
-                    </Card>
+                    </Card>}
 
-                    <Card variant="ruled">
+                    {!noAi && <Card variant="ruled">
                       <div className="label">Voice and microphone</div>
                       <div className="interviewSetting">
                         <span className="interviewSetting__name">Interviewer view</span>
@@ -639,21 +676,31 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                             : "Your typed answers are saved with this interview so you can review them."}
                         </p>
                       </div>
-                    </Card>
+                    </Card>}
 
-                    <Card variant="ruled" className="interviewStart">
-                      {renderError()}
-                      <p className="cvHelp">
-                        {round.label} with {persona.name} · about {round.minutes} minutes. Interviews stay private to you and are deleted with the application.
-                      </p>
-                      <div className="actions">
-                        <Button onClick={start} disabled={starting || quotaExhausted || errorType === "needs_migration" || !voice} data-interview-start>
-                          {starting ? "Preparing your interviewer…" : "Start interview · counts as 1 tailored CV"}
-                        </Button>
-                        {remaining !== null && !usage?.unlimited && <span className="cvHelp">{remaining} left today</span>}
-                      </div>
-                      {quotaExhausted && <p className="cvHelp">You have reached today&apos;s limit of 3. You can start an interview tomorrow.</p>}
-                    </Card>
+                    {noAi ? (
+                      <Card variant="ruled" className="interviewStart">
+                        <p className="cvHelp">Free practice. We check the shape of your answer (STAR), not whether it is right.</p>
+                        <p className="cvHelp">5 questions built from your job description and CV — no AI, no credits used.</p>
+                        <div className="actions">
+                          <Button onClick={startFree} data-free-practice-start>Start practice</Button>
+                        </div>
+                      </Card>
+                    ) : (
+                      <Card variant="ruled" className="interviewStart">
+                        {renderError()}
+                        <p className="cvHelp">
+                          {round.label} with {persona.name} · about {round.minutes} minutes. Interviews stay private to you and are deleted with the application.
+                        </p>
+                        <div className="actions">
+                          <Button onClick={start} disabled={starting || quotaExhausted || errorType === "needs_migration" || !voice} data-interview-start>
+                            {starting ? "Preparing your interviewer…" : "Start interview · counts as 1 tailored CV"}
+                          </Button>
+                          {remaining !== null && !usage?.unlimited && <span className="cvHelp">{remaining} left today</span>}
+                        </div>
+                        {quotaExhausted && <p className="cvHelp">You have reached today&apos;s limit of 3. You can start an interview tomorrow.</p>}
+                      </Card>
+                    )}
 
                     {past.length > 0 && (
                       <Card variant="ruled">

@@ -5023,3 +5023,35 @@ button.inlineLink { margin-block: -8px; }
 .engineOption { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); cursor: pointer; color: var(--text); }
 .engineOption[data-selected="true"] { border-color: var(--amber-border); background: var(--amber-dim); }
 .engineChoice:disabled { opacity: 0.6; }
+
+/* Free-tier interview practice (Chunk FT-3). */
+.freePractice { display: flex; flex-direction: column; gap: var(--space-3); max-width: 720px; margin: 0 auto; padding: var(--space-4) 0; }
+.freePractice__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.freePractice__timer { font-variant-numeric: tabular-nums; color: var(--text-subtle); font-size: var(--text-sm); }
+.freePractice__question { font-size: var(--text-md); font-weight: 600; color: var(--text); line-height: var(--leading-snug); margin: 0; }
+.freePractice__hint { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); }
+.freePractice__hint summary { cursor: pointer; font-size: var(--text-sm); color: var(--text-subtle); }
+.freePractice__hintText { margin: var(--space-2) 0 0; font-size: var(--text-sm); color: var(--text); }
+.freePractice__textarea { width: 100%; resize: vertical; min-height: 120px; }
+.freePractice__row { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+.freePractice__checklist { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-3); }
+.freePractice__starList { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.freePractice__starItem--present { display: flex; align-items: baseline; gap: var(--space-2); color: var(--success); }
+.freePractice__starItem--missing { display: flex; align-items: baseline; gap: var(--space-2); color: var(--danger); }
+.freePractice__partLabel { min-width: 72px; font-weight: 600; font-size: var(--text-sm); }
+.freePractice__partNote { font-size: var(--text-xs); color: var(--text-subtle); margin-left: var(--space-2); }
+.freePractice__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+.freePractice__copy { font-size: var(--text-sm); color: var(--text-subtle); margin: 0; line-height: var(--leading-normal); }
+.freePractice__preview { margin: 0; padding: 0 0 0 var(--space-4); display: flex; flex-direction: column; gap: var(--space-1); }
+.freePractice__preview li { font-size: var(--text-sm); color: var(--text-subtle); }
+.freePractice__table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.freePractice__table th, .freePractice__table td { padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--border); text-align: center; }
+.freePractice__table th { color: var(--text-subtle); font-weight: 600; }
+.freePractice__intentCell { text-align: left; color: var(--text); }
+.freePractice__tick { color: var(--success); font-weight: 600; }
+.freePractice__miss { color: var(--text-subtle); }
+.freePractice__warn { color: var(--amber-bright); font-size: var(--text-xs); }
+@media (max-width: 640px) {
+  .freePractice { padding: var(--space-3) 0; }
+  .freePractice__table th:nth-child(n+2), .freePractice__table td:nth-child(n+2) { padding: var(--space-1) var(--space-1); }
+}
