@@ -44,12 +44,12 @@ describe("unsupported number", () => {
 
   it("does not warn for a number present in the master CV", () => {
     const result = checkOutreach({
-      text: "My deployment pipeline cut time by 35%.",
+      text: "My deployment pipeline cut time by 35% and our dashboard supported 200 users.",
       kind: "follow_up",
       masterText: MASTER_CV,
     });
     const numberWarns = result.warns.filter((w) => w.code === "unsupported_number");
-    assert.strictEqual(numberWarns.length, 0, "35% is in master CV, should not warn");
+    assert.strictEqual(numberWarns.length, 0, "35% and 200 are in master CV, should not warn");
   });
 });
 

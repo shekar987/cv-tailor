@@ -78,9 +78,9 @@ function splitSentences(text: string): string[] {
 // A numeric string is "in" the master CV when the decimal digits of the number
 // appear verbatim in it. "150" matches "150 engineers", "1500" does not.
 function numericPart(figKey: string, figText: string): string {
-  // figKey looks like "150", "40%", "£2.3m", "12k". Strip currency and unit.
-  const stripped = figKey.replace(/^[£$€₹]/, "").replace(/[%kmbn]+$/i, "");
-  return stripped || figText.trim();
+  // figKey may include a normalized unit suffix like "200 staff", "7.95 s", "40%", "£2.3m".
+  const m = (figKey || figText).replace(/,/g, "").match(/\d+(?:\.\d+)?/);
+  return m ? m[0] : "";
 }
 
 // ── 8-word sliding-window repeat detection ────────────────────────────────────
@@ -171,13 +171,16 @@ export function checkOutreach(input: OutreachCheckInput): OutreachCheckResult {
   }
 
   // ── 5. Numbers not in master CV ───────────────────────────────────────────
+  const masterClean = masterText.replace(/,/g, "");
   for (const fig of extractFigures(text)) {
     const num = numericPart(fig.key, fig.text);
-    if (num && !masterText.includes(num)) {
+    const numRe = num ? new RegExp(`(?<!\\d)${num.replace(/\./g, "\\.")}(?!\\d)`) : null;
+    if (num && numRe && !numRe.test(masterClean)) {
+      const display = fig.text.trim() || num;
       warns.push({
         code: "unsupported_number",
-        phrase: num,
-        fix: `Check "${num}" is in your main CV before sending — it was not found there.`,
+        phrase: display,
+        fix: `Check "${display}" is in your main CV before sending — it was not found there.`,
       });
     }
   }
